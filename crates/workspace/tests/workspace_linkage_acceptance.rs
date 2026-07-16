@@ -612,6 +612,34 @@ fn python_package_init_reexports_forward_symbols_and_inheritance() {
 }
 
 #[test]
+fn python_top_level_package_reexports_reach_sibling_consumers() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"module:orders_service/path:BaseRepository",
+		"package:orders_service/module:storage/class:BaseRepository",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:open_report_session()",
+		"calls",
+		"BaseRepository",
+		1,
+		"package:orders_service/module:storage/class:BaseRepository",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:audit/function:audit_session()",
+		"calls",
+		"BaseRepository",
+		1,
+		"package:orders_service/module:storage/class:BaseRepository",
+	);
+}
+
+#[test]
 fn python_self_method_calls_reach_external_stdlib_bases() {
 	let snapshot = load_workspace("projects/python/orders-service");
 

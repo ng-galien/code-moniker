@@ -758,16 +758,13 @@ fn build_reexport_aliases(
 	let mut aliases = FxHashMap::default();
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
-		let owner = if reference.kind.as_bytes() == REF_REEXPORTS {
-			match material.symbol_moniker(&reference.source_symbol) {
-				Some(owner) => owner.clone(),
-				None => continue,
-			}
-		} else if let Some(owner) = python_init_reexport_owner(material, reference) {
-			owner
-		} else {
+		let Some(raw_owner) = material.symbol_moniker(&reference.source_symbol) else {
 			continue;
 		};
+		let collapsed = python_init_reexport_owner(reference, raw_owner);
+		if reference.kind.as_bytes() != REF_REEXPORTS && collapsed.is_none() {
+			continue;
+		}
 		let Some(name) = reexport_alias_name(material, reference) else {
 			continue;
 		};
@@ -776,7 +773,10 @@ fn build_reexport_aliases(
 		else {
 			continue;
 		};
-		aliases.insert((owner, name), target);
+		if let Some(collapsed) = collapsed {
+			aliases.insert((collapsed, name.clone()), target.clone());
+		}
+		aliases.insert((raw_owner.clone(), name), target);
 	}
 	aliases
 }
@@ -784,14 +784,10 @@ fn build_reexport_aliases(
 // A name imported inside a Python package `__init__.py` is importable from
 // the package itself; alias it under the collapsed `module:<package>` owner
 // that importer targets use.
-fn python_init_reexport_owner(
-	material: &CodeIndexMaterial,
-	reference: &ReferenceRecord,
-) -> Option<Moniker> {
+fn python_init_reexport_owner(reference: &ReferenceRecord, owner: &Moniker) -> Option<Moniker> {
 	if reference.kind.as_bytes() != kinds::IMPORTS_SYMBOL {
 		return None;
 	}
-	let owner = material.symbol_moniker(&reference.source_symbol)?;
 	let segments = owner.as_view().segments().collect::<Vec<_>>();
 	let [first, .., package, module] = segments.as_slice() else {
 		return None;
