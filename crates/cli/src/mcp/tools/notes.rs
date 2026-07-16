@@ -2,7 +2,7 @@
 // MCP notes responses are owned DTO projections from workspace note state.
 use code_moniker_query::{
 	NoteDto, NoteResolutionDto, NotesAction as QueryNotesAction, NotesQuery, NotesResult, Query,
-	QueryRequest, QueryResult,
+	QueryResult,
 };
 use code_moniker_workspace::notes::{NoteAuthor, NoteKind, NoteStatus};
 use serde_json::{Value, json};
@@ -188,9 +188,10 @@ impl NoteAction {
 
 fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	ensure_notes_uri(&request.uri, context.scheme())?;
-	let mut query_request = QueryRequest::new(Query::Notes(notes_query(request)));
-	query_request.page = request.paging.daemon_page();
-	let response = context.query(query_request)?;
+	let response = context.query_refreshed(
+		Query::Notes(notes_query(request)),
+		request.paging.daemon_page(),
+	)?;
 	match response.result {
 		QueryResult::Notes(result) => Ok(render_notes_result(
 			context.scheme(),

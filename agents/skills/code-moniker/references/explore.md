@@ -41,8 +41,11 @@ edges needed by the question. The result separates callers, callees, internal
 edges and unresolved coverage.
 
 Use `code_moniker_usages uri:"<canonical URI>" direction:"incoming|outgoing|both"`
-when individual consumers or producers matter. Keep the first page unless the
-question explicitly requires more.
+when individual consumers or producers matter. Its compact default groups
+repeated references by symbolic context and includes only bounded,
+representative source evidence; use `evidence:"none"` for a map without code or
+`technical:"include"` when imports and annotations matter. Keep the first page
+unless the question explicitly requires more.
 
 ## Prepare a modification
 
@@ -61,8 +64,9 @@ cost. Structural questions should stay on symbols, usages and graphs.
 
 - `symbol_not_found` or `focus_not_found`: search again; the URI/path was
   guessed, stale or outside the workspace.
-- `workspace_loading` or `workspace_stale`: retry the same bounded MCP call or
-  use `code_moniker_refresh` after an external change.
+- `workspace_loading`: retry the same bounded MCP call. Curated read tools
+  refresh stale snapshots automatically; use `code_moniker_refresh` only when
+  an explicit re-index is required.
 - `completeness: partial`: page only if the omitted rows can change the answer.
 - Missing read-only verb: confirm with `query.describe` and report an MCP
   parity defect; do not switch to a daemon or shell query.

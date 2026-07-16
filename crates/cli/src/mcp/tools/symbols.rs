@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
 use code_moniker_query::{
-	Query, QueryRequest, QueryResult, SymbolDto, SymbolInsightsResult, SymbolListResult,
-	SymbolSearchQuery,
+	Query, QueryResult, SymbolDto, SymbolInsightsResult, SymbolListResult, SymbolSearchQuery,
 };
 use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
@@ -180,11 +179,10 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 	}
 	match request.action {
 		SymbolAction::List => {
-			let response = context.query(QueryRequest {
-				query: Query::SymbolSearch(symbol_query(&request.scope)),
-				consistency: code_moniker_query::Consistency::Current,
-				page: request.paging.daemon_page(),
-			})?;
+			let response = context.query_refreshed(
+				Query::SymbolSearch(symbol_query(&request.scope)),
+				request.paging.daemon_page(),
+			)?;
 			let QueryResult::SymbolList(result) = response.result else {
 				anyhow::bail!("unexpected daemon response for symbols list");
 			};
@@ -198,9 +196,10 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			))
 		}
 		SymbolAction::Insights => {
-			let response = context.query(QueryRequest::new(Query::SymbolInsights(
-				symbol_query(&request.scope),
-			)))?;
+			let response = context.query_refreshed(
+				Query::SymbolInsights(symbol_query(&request.scope)),
+				code_moniker_query::Page::default(),
+			)?;
 			let QueryResult::SymbolInsights(result) = response.result else {
 				anyhow::bail!("unexpected daemon response for symbols insights");
 			};

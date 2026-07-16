@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use code_moniker_query::{
-	Query, QueryRequest, QueryResult, RuleDto, RulesCheckQuery, RulesCheckResult,
-	RulesCheckRootResult, RulesListQuery,
+	Query, QueryResult, RuleDto, RulesCheckQuery, RulesCheckResult, RulesCheckRootResult,
+	RulesListQuery,
 };
 use serde_json::{Value, json};
 
@@ -201,8 +201,8 @@ fn rules_action_from_arguments(arguments: &Value) -> anyhow::Result<RulesAction>
 
 fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
-	let response = context.query(QueryRequest {
-		query: Query::RulesList(RulesListQuery {
+	let response = context.query_refreshed(
+		Query::RulesList(RulesListQuery {
 			workspace: None,
 			profile: request.profile.clone(),
 			rules: Some(request.rules.display().to_string()),
@@ -213,9 +213,8 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 				.map(|severity| severity.as_str().to_string())
 				.collect(),
 		}),
-		consistency: code_moniker_query::Consistency::Current,
-		page: request.paging.daemon_page(),
-	})?;
+		request.paging.daemon_page(),
+	)?;
 	let QueryResult::RulesList(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for rules list");
 	};
@@ -270,8 +269,8 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 
 fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
-	let response = context.query(QueryRequest {
-		query: Query::RulesCheck(RulesCheckQuery {
+	let response = context.query_refreshed(
+		Query::RulesCheck(RulesCheckQuery {
 			workspace: None,
 			profile: request.profile.clone(),
 			rules: Some(request.rules.display().to_string()),
@@ -282,9 +281,8 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Str
 				.collect(),
 			report: request.report,
 		}),
-		consistency: code_moniker_query::Consistency::RefreshIfStale,
-		page: request.paging.daemon_page(),
-	})?;
+		request.paging.daemon_page(),
+	)?;
 	let QueryResult::RulesCheck(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for rules run");
 	};

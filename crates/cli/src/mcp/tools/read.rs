@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use code_moniker_query::{
-	Query, QueryRequest, QueryResult, SymbolDetailResult, TreeChildrenQuery, TreeChildrenResult,
-	ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult,
-	ViewReadQuery, ViewReadResult, ViewRuleDto, ViewRuleRefDto,
+	Query, QueryResult, SymbolDetailResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto,
+	ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery,
+	ViewReadResult, ViewRuleDto, ViewRuleRefDto,
 };
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
@@ -209,17 +209,16 @@ fn read_workspace(
 	paging: Paging,
 	compact: bool,
 ) -> anyhow::Result<String> {
-	let response = context.query(QueryRequest {
-		query: Query::TreeChildren(TreeChildrenQuery {
+	let response = context.query_refreshed(
+		Query::TreeChildren(TreeChildrenQuery {
 			workspace: None,
 			path: scope.paths.clone(),
 			depth,
 			lang: scope.langs.clone(),
 			projection: Vec::new(),
 		}),
-		consistency: code_moniker_query::Consistency::Current,
-		page: paging.daemon_page(),
-	})?;
+		paging.daemon_page(),
+	)?;
 	let QueryResult::TreeChildren(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for workspace read");
 	};
@@ -241,13 +240,14 @@ fn read_symbol(
 	context_lines: usize,
 	compact: bool,
 ) -> anyhow::Result<String> {
-	let response = context.query(QueryRequest::new(Query::SymbolDetail(
-		code_moniker_query::SymbolDetailQuery {
+	let response = context.query_refreshed(
+		Query::SymbolDetail(code_moniker_query::SymbolDetailQuery {
 			workspace: None,
 			uri: uri.to_string(),
 			context_lines,
-		},
-	)))?;
+		}),
+		code_moniker_query::Page::default(),
+	)?;
 	let QueryResult::SymbolDetail(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for symbol read");
 	};
@@ -266,12 +266,15 @@ fn read_view(
 	moniker_display: MonikerDisplay,
 	compact: bool,
 ) -> anyhow::Result<String> {
-	let response = context.query(QueryRequest::new(Query::ViewRead(ViewReadQuery {
-		uri: uri.to_string(),
-		scheme: Some(context.scheme().to_string()),
-		context_lines,
-		include_code,
-	})))?;
+	let response = context.query_refreshed(
+		Query::ViewRead(ViewReadQuery {
+			uri: uri.to_string(),
+			scheme: Some(context.scheme().to_string()),
+			context_lines,
+			include_code,
+		}),
+		code_moniker_query::Page::default(),
+	)?;
 	let QueryResult::ViewRead(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for view read");
 	};

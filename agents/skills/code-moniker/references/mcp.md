@@ -39,7 +39,7 @@ needed; if a data field is an alias, resolve it from that response first.
 |---|---|---|
 | Orient / expand tree / read a symbol's code | `code_moniker_read` | `uri:"workspace"` for the summary + explorer; a symbol URI reads its source zone (`context_lines`) |
 | List/filter symbols, workspace metrics | `code_moniker_symbols` | `action:"list"` with `path`/`lang`/`kind`/`shape`/`name` (name is a regex here); `action:"insights"` |
-| Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; summaries include kinds, dominant prefix, `shared_helper_signal` |
+| Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; compact mode groups references by symbolic context, summarizes technical noise, and samples bounded source evidence |
 | Ego neighborhood before editing | `code_moniker_graph` | `focus` = URI or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal` |
 | One-call pre-change evidence | `code_moniker_context` | graph, coverage, notes, applicable rules, local changes and canonical suggested checks |
 | Rules: inspect or run | `code_moniker_rules` | `action:"list"` (rationales) or `action:"run"` (optionally file-scoped — the same check agent hooks run) |
@@ -62,7 +62,9 @@ needed; if a data field is an alias, resolve it from that response first.
    hand-built URI fails with `symbol_not_found` on the first signature nuance.
 3. **Respect paging**: `completeness: partial (usages 0-5 of 14, next cursor
    5)` tells you exactly what you have; when more rows exist, the optional
-   `next` section carries the cursor call.
+   `next` section carries the cursor call. Usage pages may exceed `limit` to
+   keep one symbolic context group intact; generated cursors always start at a
+   group boundary.
 4. **Bound everything**: keep `budget:"small"`, a narrow `limit` or
    `max_items`, and `compact:true`. Truncation is reported, never silent.
 5. **Stop progressively**: do not page, broaden scope, request source code or
@@ -70,6 +72,14 @@ needed; if a data field is an alias, resolve it from that response first.
    the question. Never fetch a second rendering of facts you already have.
 6. **Prepare edits once**: after selecting a target, prefer one
    `code_moniker_context` call over separate graph, notes, rules and diff calls.
+
+For usages, the default `evidence:"representative"` keeps the map exhaustive
+while attaching code only to a small, direction-balanced selection of semantic
+groups. Use `evidence:"none"` for pure cartography. Imports, annotations and
+non-primary type relations are counted but omitted from the group list by
+default; use `technical:"include"` when those relations are material. Bound
+source with `max_evidence` and `context_lines` instead of increasing the whole
+response budget.
 
 ## Advanced queries without leaving MCP
 

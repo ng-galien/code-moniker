@@ -1,4 +1,4 @@
-use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolDto, SymbolSearchQuery};
+use code_moniker_query::{Query, QueryResult, SymbolDto, SymbolSearchQuery};
 use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord};
 use serde_json::{Value, json};
 
@@ -166,8 +166,8 @@ struct SearchRow<'a> {
 }
 
 fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Result<String> {
-	let response = context.query(QueryRequest {
-		query: Query::SymbolSearch(SymbolSearchQuery {
+	let response = context.query_refreshed(
+		Query::SymbolSearch(SymbolSearchQuery {
 			workspace: None,
 			text: Some(request.query.clone()),
 			path: request.scope.files.paths.to_owned(),
@@ -189,9 +189,8 @@ fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Resu
 			context_lines: request.context_lines,
 			projection: Vec::new(),
 		}),
-		consistency: code_moniker_query::Consistency::Current,
-		page: request.paging.daemon_page(),
-	})?;
+		request.paging.daemon_page(),
+	)?;
 	let QueryResult::SymbolList(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for search");
 	};

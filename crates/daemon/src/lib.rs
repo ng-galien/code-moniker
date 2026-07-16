@@ -2119,6 +2119,7 @@ fn symbol_usages_response(
 	rows.extend(incoming_rows);
 	rows.extend(outgoing_rows);
 	rows.sort_by(usage_cmp_for_navigation);
+	let page = expand_usage_page_to_group(&rows, page);
 	let paged = page_rows(rows, page, current_generation)?;
 	Ok(QueryResponse {
 		generation: current_generation,
@@ -2255,12 +2256,59 @@ fn collect_direct_usages_via(
 }
 
 fn usage_cmp_for_navigation(left: &UsageDto, right: &UsageDto) -> std::cmp::Ordering {
-	usage_kind_priority(&left.kind)
-		.cmp(&usage_kind_priority(&right.kind))
+	usage_direction_priority(left.direction)
+		.cmp(&usage_direction_priority(right.direction))
+		.then_with(|| usage_kind_priority(&left.kind).cmp(&usage_kind_priority(&right.kind)))
+		.then_with(|| left.root.cmp(&right.root))
 		.then_with(|| left.file.cmp(&right.file))
-		.then_with(|| left.line_range.cmp(&right.line_range))
 		.then_with(|| left.actor.cmp(&right.actor))
+		.then_with(|| left.context.cmp(&right.context))
+		.then_with(|| left.endpoint.cmp(&right.endpoint))
+		.then_with(|| left.via.cmp(&right.via))
+		.then_with(|| left.line_range.cmp(&right.line_range))
 		.then_with(|| left.reference.cmp(&right.reference))
+}
+
+fn expand_usage_page_to_group(rows: &[UsageDto], mut page: Page) -> Page {
+	let start = page
+		.cursor
+		.as_ref()
+		.map(|cursor| cursor.offset)
+		.unwrap_or(0);
+	if page.limit == 0 || start >= rows.len() {
+		return page;
+	}
+	let mut end = start.saturating_add(page.limit).min(rows.len());
+	while end < rows.len() && same_usage_group(&rows[end - 1], &rows[end]) {
+		end += 1;
+	}
+	page.limit = end - start;
+	page
+}
+
+fn same_usage_group(left: &UsageDto, right: &UsageDto) -> bool {
+	left.direction == right.direction
+		&& left.kind == right.kind
+		&& left.root == right.root
+		&& left.file == right.file
+		&& left.via == right.via
+		&& match left.direction {
+			UsageDirection::Incoming => left.actor == right.actor && left.context == right.context,
+			UsageDirection::Outgoing => left.endpoint == right.endpoint,
+			UsageDirection::Both => {
+				left.actor == right.actor
+					&& left.context == right.context
+					&& left.endpoint == right.endpoint
+			}
+		}
+}
+
+fn usage_direction_priority(direction: UsageDirection) -> u8 {
+	match direction {
+		UsageDirection::Incoming => 0,
+		UsageDirection::Outgoing => 1,
+		UsageDirection::Both => 2,
+	}
 }
 
 fn usage_kind_priority(kind: &str) -> u8 {

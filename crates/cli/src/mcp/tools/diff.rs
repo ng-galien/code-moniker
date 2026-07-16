@@ -1,8 +1,6 @@
 use std::fmt::Write as _;
 
-use code_moniker_query::{
-	ChangeReviewQuery, ChangeReviewResult, Page, Query, QueryRequest, QueryResult,
-};
+use code_moniker_query::{ChangeReviewQuery, ChangeReviewResult, Page, Query, QueryResult};
 use serde_json::{Value, json};
 
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
@@ -67,11 +65,10 @@ impl McpTool for DiffTool {
 			.map(|value| value as usize)
 			.unwrap_or(Self::DEFAULT_MAX_ITEMS);
 		let response = context
-			.query(QueryRequest {
-				query: Query::ChangeReview(ChangeReviewQuery { workspace: None }),
-				consistency: code_moniker_query::Consistency::RefreshIfStale,
-				page: Page::default(),
-			})
+			.query_refreshed(
+				Query::ChangeReview(ChangeReviewQuery { workspace: None }),
+				Page::default(),
+			)
 			.map_err(ToolError::failed)?;
 		let QueryResult::ChangeReview(result) = response.result else {
 			return Err(ToolError::failed(anyhow::anyhow!(

@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_daemon_client::DaemonClient;
 use code_moniker_query::{
-	CommandRequest, CommandResponse, DaemonWorkspaceConfig, ProtocolRequest, ProtocolResponse,
-	QueryError, QueryRequest, QueryResponse,
+	CommandRequest, CommandResponse, Consistency, DaemonWorkspaceConfig, Page, ProtocolRequest,
+	ProtocolResponse, Query, QueryError, QueryRequest, QueryResponse,
 };
 
 use crate::session::SessionOptions;
@@ -29,6 +29,14 @@ impl McpContext {
 		self.daemon.query(request)
 	}
 
+	pub(super) fn query_refreshed(
+		&self,
+		query: Query,
+		page: Page,
+	) -> anyhow::Result<QueryResponse> {
+		self.daemon.query(refreshed_query_request(query, page))
+	}
+
 	pub(super) fn command(&self, request: CommandRequest) -> anyhow::Result<CommandResponse> {
 		self.daemon.command(request)
 	}
@@ -39,6 +47,14 @@ impl McpContext {
 
 	pub(super) fn scheme(&self) -> &str {
 		&self.scheme
+	}
+}
+
+fn refreshed_query_request(query: Query, page: Page) -> QueryRequest {
+	QueryRequest {
+		query,
+		consistency: Consistency::RefreshIfStale,
+		page,
 	}
 }
 
@@ -137,4 +153,18 @@ fn connection_lost(error: &anyhow::Error) -> bool {
 
 fn query_error(error: QueryError) -> anyhow::Error {
 	anyhow::anyhow!("{error}")
+}
+
+#[cfg(test)]
+mod tests {
+	use code_moniker_query::{Consistency, Page, Query};
+
+	use super::refreshed_query_request;
+
+	#[test]
+	fn curated_queries_refresh_stale_workspaces() {
+		let request = refreshed_query_request(Query::WorkspaceStatus, Page::default());
+
+		assert_eq!(request.consistency, Consistency::RefreshIfStale);
+	}
 }

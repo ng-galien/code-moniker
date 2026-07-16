@@ -414,6 +414,150 @@ fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
 }
 
 #[test]
+fn usages_tool_groups_repeated_contexts_and_attaches_bounded_source_evidence() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir rust source");
+	std::fs::write(
+		temp.path().join("Cargo.toml"),
+		"[package]\nname = \"usage-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+	)
+	.expect("write cargo manifest");
+	std::fs::write(
+		temp.path().join("src/lib.rs"),
+		concat!(
+			"pub fn target() {}\n",
+			"pub fn caller() {\n",
+			"\ttarget();\n",
+			"\ttarget();\n",
+			"}\n",
+		),
+	)
+	.expect("write rust source");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let target = symbol_moniker(&context, "target");
+	let result = ToolRegistry::new()
+		.call(
+			&context,
+			"code_moniker_usages",
+			&json!({
+				"uri": target,
+				"direction": "incoming",
+				"evidence": "representative",
+				"max_evidence": 1,
+				"context_lines": 0
+			}),
+		)
+		.expect("symbol usages");
+
+	assert!(!result.is_error, "{}", result.text);
+	assert!(result.text.contains("page_refs: 2"), "{}", result.text);
+	assert!(result.text.contains("groups: 1"), "{}", result.text);
+	assert!(result.text.contains("[2 refs]"), "{}", result.text);
+	assert!(result.text.contains("evidence:"), "{}", result.text);
+	assert!(result.text.contains("target();"), "{}", result.text);
+}
+
+#[test]
+fn usages_tool_pages_on_complete_symbolic_groups() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir rust source");
+	std::fs::write(
+		temp.path().join("Cargo.toml"),
+		"[package]\nname = \"usage-pages\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+	)
+	.expect("write cargo manifest");
+	std::fs::write(
+		temp.path().join("src/lib.rs"),
+		concat!(
+			"pub fn target() {}\n",
+			"pub fn caller_a() {\n",
+			"\ttarget();\n",
+			"\ttarget();\n",
+			"\ttarget();\n",
+			"}\n",
+			"pub fn caller_b() {\n",
+			"\ttarget();\n",
+			"\ttarget();\n",
+			"}\n",
+		),
+	)
+	.expect("write rust source");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let target = symbol_moniker(&context, "target");
+	let registry = ToolRegistry::new();
+	let first = registry
+		.call(
+			&context,
+			"code_moniker_usages",
+			&json!({
+				"uri": target,
+				"direction": "incoming",
+				"limit": 2,
+				"evidence": "none"
+			}),
+		)
+		.expect("first usage page");
+	assert!(
+		first
+			.text
+			.contains("partial (usages 0-3 of 5, next cursor 3)"),
+		"{}",
+		first.text
+	);
+	assert!(first.text.contains("page_refs: 3"), "{}", first.text);
+	assert!(first.text.contains("groups: 1"), "{}", first.text);
+	assert!(first.text.contains("[3 refs]"), "{}", first.text);
+	assert!(
+		first.text.contains("- in production calls caller_a"),
+		"{}",
+		first.text
+	);
+	assert!(
+		!first.text.contains("- in production calls caller_b"),
+		"{}",
+		first.text
+	);
+	let cursor = first
+		.text
+		.split("cursor=\"")
+		.nth(1)
+		.and_then(|value| value.split('"').next())
+		.expect("generated cursor");
+
+	let second = registry
+		.call(
+			&context,
+			"code_moniker_usages",
+			&json!({
+				"uri": target,
+				"direction": "incoming",
+				"limit": 2,
+				"cursor": cursor,
+				"evidence": "none"
+			}),
+		)
+		.expect("second usage page");
+	assert!(
+		second.text.contains("completeness: full"),
+		"{}",
+		second.text
+	);
+	assert!(second.text.contains("page_refs: 2"), "{}", second.text);
+	assert!(second.text.contains("groups: 1"), "{}", second.text);
+	assert!(second.text.contains("[2 refs]"), "{}", second.text);
+	assert!(
+		second.text.contains("- in production calls caller_b"),
+		"{}",
+		second.text
+	);
+	assert!(
+		!second.text.contains("- in production calls caller_a"),
+		"{}",
+		second.text
+	);
+}
+
+#[test]
 fn invalid_output_budget_is_rejected_before_note_mutation() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(temp.path(), "class App {}\n");
@@ -461,6 +605,29 @@ fn graph_tool_rejects_values_outside_its_schema() {
 				.call(&context, "code_moniker_graph", &arguments)
 				.is_err(),
 			"invalid graph arguments were accepted: {arguments}"
+		);
+	}
+}
+
+#[test]
+fn usages_tool_rejects_values_outside_its_schema() {
+	let context = empty_context(vec![PathBuf::from(".")]);
+	let registry = ToolRegistry::new();
+	for arguments in [
+		json!({"uri": "not-used", "evidence": 1}),
+		json!({"uri": "not-used", "technical": true}),
+		json!({"uri": "not-used", "max_evidence": "4"}),
+		json!({"uri": "not-used", "max_evidence": -1}),
+		json!({"uri": "not-used", "max_evidence": 13}),
+		json!({"uri": "not-used", "context_lines": "2"}),
+		json!({"uri": "not-used", "context_lines": -1}),
+		json!({"uri": "not-used", "context_lines": 9}),
+	] {
+		assert!(
+			registry
+				.call(&context, "code_moniker_usages", &arguments)
+				.is_err(),
+			"invalid usage arguments were accepted: {arguments}"
 		);
 	}
 }
@@ -782,6 +949,35 @@ fn app_symbol_moniker(context: &McpContext) -> String {
 		.iter()
 		.find(|symbol| symbol.name == "App")
 		.expect("app symbol")
+		.uri
+		.clone()
+}
+
+fn symbol_moniker(context: &McpContext, name: &str) -> String {
+	let response = context
+		.query(QueryRequest::new(Query::SymbolSearch(SymbolSearchQuery {
+			name: Some(format!("^{name}")),
+			include_non_navigable: true,
+			..Default::default()
+		})))
+		.expect("symbol search");
+	let QueryResult::SymbolList(result) = response.result else {
+		panic!("unexpected symbol query response");
+	};
+	result
+		.rows
+		.iter()
+		.find(|symbol| symbol.name == name || symbol.name.starts_with(&format!("{name}(")))
+		.unwrap_or_else(|| {
+			panic!(
+				"{name} symbol; candidates: {:?}",
+				result
+					.rows
+					.iter()
+					.map(|symbol| symbol.name.as_str())
+					.collect::<Vec<_>>()
+			)
+		})
 		.uri
 		.clone()
 }

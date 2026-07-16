@@ -1,6 +1,6 @@
 use code_moniker_query::{
-	ChangeContextQuery, ChangeContextResult, Page, Query, QueryRequest, QueryResult,
-	SymbolGraphFocus, format_query_response,
+	ChangeContextQuery, ChangeContextResult, Page, Query, QueryResult, SymbolGraphFocus,
+	format_query_response,
 };
 use serde_json::{Value, json};
 
@@ -84,8 +84,8 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 		)));
 	}
 	let response = context
-		.query(QueryRequest {
-			query: Query::ChangeContext(ChangeContextQuery {
+		.query_refreshed(
+			Query::ChangeContext(ChangeContextQuery {
 				workspace: None,
 				focus: focus.to_string(),
 				profile: arguments
@@ -94,9 +94,8 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 					.map(ToOwned::to_owned),
 				max_items,
 			}),
-			consistency: code_moniker_query::Consistency::RefreshIfStale,
-			page: Page::default(),
-		})
+			Page::default(),
+		)
 		.map_err(ToolError::failed)?;
 	let QueryResult::ChangeContext(result) = &response.result else {
 		return Err(ToolError::failed(anyhow::anyhow!(

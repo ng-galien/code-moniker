@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_query::{
-	Query, QueryRequest, QueryResult, SymbolUsagesQuery, SymbolUsagesResult, UsageDto,
-	UsageSummaryDto,
+	Query, QueryResult, SymbolUsagesQuery, SymbolUsagesResult, UsageDto, UsageSummaryDto,
 };
 use code_moniker_workspace::snapshot::{
 	LinkageSnapshot, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
@@ -21,6 +20,15 @@ use super::scope::{
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
+mod compact;
+
+use compact::render_compact_usage_map;
+
+const DEFAULT_MAX_EVIDENCE: usize = 4;
+const MAX_EVIDENCE: usize = 12;
+const DEFAULT_USAGE_CONTEXT_LINES: usize = 2;
+const MAX_USAGE_CONTEXT_LINES: usize = 8;
+
 pub(in crate::mcp) struct UsagesTool;
 
 impl UsagesTool {
@@ -35,7 +43,7 @@ impl UsagesTool {
 		"  direction=outgoing — dependencies used by the target symbol\n",
 		"  direction=both     — both sections\n",
 		"Incoming usage diagnostics include file, context, prefix concentration, reference kinds, and a shared-helper signal. ",
-		"Compact output uses response-local aliases and one-line usage facts by default."
+		"Compact output groups repeated references by symbolic context, summarizes technical noise, and includes a bounded set of representative source excerpts."
 	);
 
 	fn input_schema() -> Value {
@@ -56,6 +64,32 @@ impl UsagesTool {
 					"default": true,
 					"description": "Use response-local moniker aliases, one-line facts, and minimal next calls. Defaults true; false preserves canonical verbose output."
 				},
+				"evidence": {
+					"type": "string",
+					"enum": ["none", "representative"],
+					"default": "representative",
+					"description": "In compact mode, attach source excerpts to a bounded, direction-balanced selection of semantic usage groups."
+				},
+				"technical": {
+					"type": "string",
+					"enum": ["summary", "include"],
+					"default": "summary",
+					"description": "Summarize imports, annotations, and non-primary type relations by default; include lists their groups without source excerpts."
+				},
+				"max_evidence": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": MAX_EVIDENCE,
+					"default": DEFAULT_MAX_EVIDENCE,
+					"description": "Maximum representative source excerpts in compact mode."
+				},
+				"context_lines": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": MAX_USAGE_CONTEXT_LINES,
+					"default": DEFAULT_USAGE_CONTEXT_LINES,
+					"description": "Source lines around each representative usage."
+				},
 				"path": {
 					"oneOf": [
 						{ "type": "string" },
@@ -74,7 +108,7 @@ impl UsagesTool {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": super::scope::MAX_LIMIT,
-					"description": "Maximum usage rows to emit."
+					"description": "Target usage-reference page size. A page may extend past it to keep one symbolic group intact."
 				},
 				"cursor": {
 					"oneOf": [{ "type": "integer" }, { "type": "string" }],
@@ -112,6 +146,10 @@ struct UsageRequest {
 	scope: ScopeFilter,
 	paging: Paging,
 	compact: bool,
+	evidence: EvidenceMode,
+	technical: TechnicalMode,
+	max_evidence: usize,
+	context_lines: usize,
 }
 
 impl UsageRequest {
@@ -127,7 +165,98 @@ impl UsageRequest {
 			scope: ScopeFilter::from_arguments(arguments)?,
 			paging: Paging::from_arguments_for_output(arguments, compact)?,
 			compact,
+			evidence: EvidenceMode::from_arguments(arguments)?,
+			technical: TechnicalMode::from_arguments(arguments)?,
+			max_evidence: bounded_usize_argument(
+				arguments,
+				"max_evidence",
+				DEFAULT_MAX_EVIDENCE,
+				MAX_EVIDENCE,
+			)?,
+			context_lines: bounded_usize_argument(
+				arguments,
+				"context_lines",
+				DEFAULT_USAGE_CONTEXT_LINES,
+				MAX_USAGE_CONTEXT_LINES,
+			)?,
 		})
+	}
+}
+
+fn bounded_usize_argument(
+	arguments: &Value,
+	name: &str,
+	default: usize,
+	maximum: usize,
+) -> anyhow::Result<usize> {
+	let Some(value) = arguments.get(name) else {
+		return Ok(default);
+	};
+	let value = value
+		.as_u64()
+		.ok_or_else(|| anyhow::anyhow!("`{name}` must be an unsigned integer"))?;
+	if value > maximum as u64 {
+		anyhow::bail!("`{name}` must be at most {maximum}");
+	}
+	Ok(value as usize)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EvidenceMode {
+	None,
+	Representative,
+}
+
+impl EvidenceMode {
+	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let value = optional_string_argument(arguments, "evidence")?.unwrap_or("representative");
+		match value {
+			"none" => Ok(Self::None),
+			"representative" => Ok(Self::Representative),
+			value => anyhow::bail!("unknown usage evidence mode `{value}`"),
+		}
+	}
+
+	fn as_str(self) -> &'static str {
+		match self {
+			Self::None => "none",
+			Self::Representative => "representative",
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TechnicalMode {
+	Summary,
+	Include,
+}
+
+impl TechnicalMode {
+	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let value = optional_string_argument(arguments, "technical")?.unwrap_or("summary");
+		match value {
+			"summary" => Ok(Self::Summary),
+			"include" => Ok(Self::Include),
+			value => anyhow::bail!("unknown technical usage mode `{value}`"),
+		}
+	}
+
+	fn as_str(self) -> &'static str {
+		match self {
+			Self::Summary => "summary",
+			Self::Include => "include",
+		}
+	}
+}
+
+fn optional_string_argument<'a>(
+	arguments: &'a Value,
+	name: &str,
+) -> anyhow::Result<Option<&'a str>> {
+	match arguments.get(name) {
+		Some(Value::String(value)) => Ok(Some(value)),
+		Some(_) => anyhow::bail!("`{name}` must be a string"),
+		None => Ok(None),
 	}
 }
 
@@ -165,8 +294,8 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 	if is_workspace_uri(&request.uri, context.scheme(), "workspace") {
 		anyhow::bail!("usage reads require an exact symbol URI returned by code_moniker_symbols");
 	}
-	let response = context.query(QueryRequest {
-		query: Query::SymbolUsages(SymbolUsagesQuery {
+	let response = context.query_refreshed(
+		Query::SymbolUsages(SymbolUsagesQuery {
 			workspace: None,
 			uri: request.uri.clone(),
 			direction: match request.direction {
@@ -178,14 +307,13 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 			lang: request.scope.langs.clone(),
 			projection: Vec::new(),
 		}),
-		consistency: code_moniker_query::Consistency::Current,
-		page: request.paging.daemon_page(),
-	})?;
+		request.paging.daemon_page(),
+	)?;
 	let QueryResult::SymbolUsages(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for usages");
 	};
 	Ok(render_daemon_usages_lmnav(
-		context.scheme(),
+		context,
 		request,
 		response.next_cursor.as_ref(),
 		&result,
@@ -207,11 +335,12 @@ pub(in crate::mcp) struct UsageIndexView<'a> {
 }
 
 fn render_daemon_usages_lmnav(
-	scheme: &str,
+	context: &McpContext,
 	request: &UsageRequest,
 	next_cursor: Option<&code_moniker_query::QueryCursor>,
 	result: &SymbolUsagesResult,
 ) -> String {
+	let scheme = context.scheme();
 	let start = request.paging.cursor.min(result.total);
 	let end = start.saturating_add(result.rows.len()).min(result.total);
 	let mut output = String::new();
@@ -265,11 +394,27 @@ fn render_daemon_usages_lmnav(
 		);
 		output.push('\n');
 	}
-	render_daemon_usage_rows(&mut output, &result.rows, request.compact);
+	if request.compact {
+		render_compact_usage_map(&mut output, context, result, request);
+	} else {
+		render_daemon_usage_rows(&mut output, &result.rows, false);
+	}
+	render_daemon_usage_next(&mut output, scheme, request, next_cursor, result);
+	let candidates = usage_dto_alias_candidates(&result.target.uri, &result.rows);
+	apply_response_aliases(output, request.compact, candidates)
+}
+
+fn render_daemon_usage_next(
+	output: &mut String,
+	scheme: &str,
+	request: &UsageRequest,
+	next_cursor: Option<&code_moniker_query::QueryCursor>,
+	result: &SymbolUsagesResult,
+) {
 	output.push_str("\nnext:\n");
 	if let Some(next) = next_cursor {
 		append_daemon_usages_call(
-			&mut output,
+			output,
 			DaemonUsageCall {
 				target_uri: &result.target.uri,
 				direction: request.direction,
@@ -277,19 +422,23 @@ fn render_daemon_usages_lmnav(
 				limit: request.paging.limit,
 				cursor: Some(next),
 				compact: request.compact,
+				evidence: request.evidence,
+				technical: request.technical,
+				max_evidence: request.max_evidence,
+				context_lines: request.context_lines,
 			},
 		);
 	}
 	output.push_str("  - code_moniker_read");
-	append_call_string_arg(&mut output, "uri", &result.target.uri);
-	append_call_number_arg(&mut output, "context_lines", 3);
+	append_call_string_arg(output, "uri", &result.target.uri);
+	append_call_number_arg(output, "context_lines", 3);
 	if !request.compact {
-		append_call_bool_arg(&mut output, "compact", false);
+		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
 	if !request.compact {
 		append_daemon_usages_call(
-			&mut output,
+			output,
 			DaemonUsageCall {
 				target_uri: &result.target.uri,
 				direction: UsageDirection::Incoming,
@@ -297,10 +446,14 @@ fn render_daemon_usages_lmnav(
 				limit: 50,
 				cursor: None,
 				compact: request.compact,
+				evidence: request.evidence,
+				technical: request.technical,
+				max_evidence: request.max_evidence,
+				context_lines: request.context_lines,
 			},
 		);
 		append_daemon_usages_call(
-			&mut output,
+			output,
 			DaemonUsageCall {
 				target_uri: &result.target.uri,
 				direction: UsageDirection::Outgoing,
@@ -308,19 +461,21 @@ fn render_daemon_usages_lmnav(
 				limit: 50,
 				cursor: None,
 				compact: request.compact,
+				evidence: request.evidence,
+				technical: request.technical,
+				max_evidence: request.max_evidence,
+				context_lines: request.context_lines,
 			},
 		);
 		output.push_str(&format!(
 			"  - code_moniker_symbols uri=\"{scheme}workspace\""
 		));
-		request.scope.append_call_args(&mut output);
-		append_call_string_arg(&mut output, "name", &result.target.name);
-		append_call_number_arg(&mut output, "limit", 20);
-		append_call_bool_arg(&mut output, "compact", false);
+		request.scope.append_call_args(output);
+		append_call_string_arg(output, "name", &result.target.name);
+		append_call_number_arg(output, "limit", 20);
+		append_call_bool_arg(output, "compact", false);
 		output.push('\n');
 	}
-	let candidates = usage_dto_alias_candidates(&result.target.uri, &result.rows);
-	apply_response_aliases(output, request.compact, candidates)
 }
 
 fn render_daemon_usage_summary(
@@ -454,6 +609,10 @@ struct DaemonUsageCall<'a> {
 	limit: usize,
 	cursor: Option<&'a code_moniker_query::QueryCursor>,
 	compact: bool,
+	evidence: EvidenceMode,
+	technical: TechnicalMode,
+	max_evidence: usize,
+	context_lines: usize,
 }
 
 fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
@@ -467,6 +626,18 @@ fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
 	}
 	if !call.compact {
 		append_call_bool_arg(output, "compact", false);
+	}
+	if call.evidence != EvidenceMode::Representative {
+		append_call_string_arg(output, "evidence", call.evidence.as_str());
+	}
+	if call.technical != TechnicalMode::Summary {
+		append_call_string_arg(output, "technical", call.technical.as_str());
+	}
+	if call.max_evidence != DEFAULT_MAX_EVIDENCE {
+		append_call_number_arg(output, "max_evidence", call.max_evidence);
+	}
+	if call.context_lines != DEFAULT_USAGE_CONTEXT_LINES {
+		append_call_number_arg(output, "context_lines", call.context_lines);
 	}
 	output.push('\n');
 }
@@ -943,11 +1114,12 @@ impl UsageRow {
 
 fn usage_kind_priority(kind: &str) -> u8 {
 	match kind {
-		"implements" | "extends" => 0,
+		"implements" | "extends" | "inherits" => 0,
 		"method_call" | "calls" => 10,
-		"instantiates" => 20,
+		"constructs" | "instantiates" => 20,
 		"reads" | "uses_type" | "returns_type" | "annotates" => 30,
-		"imports_symbol" | "imports_module" => 40,
+		"imports" | "imports_symbol" | "imports_module" => 40,
+		kind if kind.starts_with("imports_") => 40,
 		_ => 50,
 	}
 }

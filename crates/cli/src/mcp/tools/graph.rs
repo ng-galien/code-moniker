@@ -1,8 +1,8 @@
 use std::fmt::Write as _;
 
 use code_moniker_query::{
-	Page, Query, QueryRequest, QueryResult, SymbolGraphFocus, SymbolGraphNeighbor,
-	SymbolGraphQuery, SymbolGraphResult, UsageDirection,
+	Page, Query, QueryResult, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
+	SymbolGraphResult, UsageDirection,
 };
 use serde_json::{Value, json};
 
@@ -150,8 +150,8 @@ fn optional_u64(arguments: &Value, name: &str) -> anyhow::Result<Option<u64>> {
 }
 
 fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<ToolResult> {
-	let response = context.query(QueryRequest {
-		query: Query::SymbolGraph(SymbolGraphQuery {
+	let response = context.query_refreshed(
+		Query::SymbolGraph(SymbolGraphQuery {
 			workspace: None,
 			focus: request.focus,
 			direction: request.direction,
@@ -159,9 +159,8 @@ fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<Tool
 			min_count: request.min_count,
 			include_internal: request.include_internal,
 		}),
-		consistency: code_moniker_query::Consistency::RefreshIfStale,
-		page: Page::default(),
-	})?;
+		Page::default(),
+	)?;
 	let QueryResult::SymbolGraph(result) = response.result else {
 		anyhow::bail!("unexpected symbol graph response");
 	};
