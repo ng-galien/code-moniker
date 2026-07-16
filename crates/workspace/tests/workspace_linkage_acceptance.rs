@@ -612,6 +612,24 @@ fn python_package_init_reexports_forward_symbols_and_inheritance() {
 }
 
 #[test]
+fn python_from_imports_of_submodules_link_to_their_modules() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"module:orders_service/path:catalog",
+		"package:orders_service/package:catalog/module:__init__",
+	);
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"package:orders_service/module:catalog/path:entries",
+		"package:orders_service/package:catalog/module:entries",
+	);
+}
+
+#[test]
 fn python_self_reads_bind_to_the_method_param() {
 	let snapshot = load_workspace("projects/python/orders-service");
 

@@ -73,6 +73,12 @@ fn python_segment_matches(
 	{
 		return true;
 	}
+	if target.kind == kinds::MODULE
+		&& candidate_segment.kind == kinds::PACKAGE
+		&& target.name == candidate_segment.name
+	{
+		return true;
+	}
 	if is_python_callable_kind(target.kind)
 		&& candidate_segment.kind == kinds::PATH
 		&& bare_callable_name(target.name) == candidate_segment.name
@@ -103,7 +109,7 @@ fn python_segment_name_matches(
 }
 
 fn is_python_path_target_kind(kind: &[u8]) -> bool {
-	matches!(kind, kinds::CLASS | kinds::TYPE) || is_python_callable_kind(kind)
+	matches!(kind, kinds::CLASS | kinds::TYPE | kinds::MODULE) || is_python_callable_kind(kind)
 }
 
 fn is_python_callable_kind(kind: &[u8]) -> bool {
