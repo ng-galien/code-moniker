@@ -188,6 +188,168 @@
           "items": {
             "type": "string"
           }
+        },
+        "query_mcp_tools": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ChangeContextCoverageDto": {
+      "type": "object",
+      "required": [
+        "callees_emitted",
+        "callees_total",
+        "callers_emitted",
+        "callers_total",
+        "changes_emitted",
+        "changes_total",
+        "internal_edges_emitted",
+        "internal_edges_total",
+        "members_emitted",
+        "members_total",
+        "notes_emitted",
+        "notes_total",
+        "rules_emitted",
+        "rules_total"
+      ],
+      "properties": {
+        "callees_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "callees_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "callers_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "callers_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "changes_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "changes_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "internal_edges_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "internal_edges_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "members_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "members_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "notes_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "notes_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "rules_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "rules_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChangeContextResult": {
+      "type": "object",
+      "required": [
+        "changed_files",
+        "changed_symbols",
+        "coverage",
+        "focus",
+        "graph",
+        "notes",
+        "rules",
+        "suggested_checks"
+      ],
+      "properties": {
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangeReviewFile"
+          }
+        },
+        "changed_symbols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangeReviewSymbol"
+          }
+        },
+        "coverage": {
+          "$ref": "#/definitions/ChangeContextCoverageDto"
+        },
+        "focus": {
+          "$ref": "#/definitions/SymbolGraphFocus"
+        },
+        "graph": {
+          "$ref": "#/definitions/SymbolGraphResult"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NoteDto"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleApplicabilityDto"
+          }
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceSnippet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "suggested_checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -1204,6 +1366,26 @@
             "op": {
               "type": "string",
               "enum": [
+                "query_describe"
+              ]
+            },
+            "verb": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
                 "workspace_status"
               ]
             }
@@ -1623,6 +1805,42 @@
         {
           "type": "object",
           "required": [
+            "focus",
+            "op"
+          ],
+          "properties": {
+            "focus": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "rules_applicable"
+              ]
+            },
+            "profile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rules": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "op"
           ],
           "properties": {
@@ -1644,17 +1862,74 @@
           "type": "object",
           "required": [
             "focus",
+            "max_items",
             "op"
           ],
           "properties": {
             "focus": {
               "type": "string"
             },
+            "max_items": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "change_context"
+              ]
+            },
+            "profile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "direction",
+            "focus",
+            "include_internal",
+            "min_count",
+            "op",
+            "relation"
+          ],
+          "properties": {
+            "direction": {
+              "$ref": "#/definitions/UsageDirection"
+            },
+            "focus": {
+              "type": "string"
+            },
+            "include_internal": {
+              "type": "boolean"
+            },
+            "min_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
             "op": {
               "type": "string",
               "enum": [
                 "symbol_graph"
               ]
+            },
+            "relation": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "workspace": {
               "type": [
@@ -1814,6 +2089,61 @@
         }
       ]
     },
+    "QueryCapabilityDto": {
+      "type": "object",
+      "required": [
+        "category",
+        "example",
+        "fields",
+        "mcp_tool",
+        "name",
+        "paginated",
+        "positionals",
+        "projection",
+        "projection_fields",
+        "read_only"
+      ],
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "example": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueryFieldDto"
+          }
+        },
+        "mcp_tool": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "paginated": {
+          "type": "boolean"
+        },
+        "positionals": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "projection": {
+          "type": "boolean"
+        },
+        "projection_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "read_only": {
+          "type": "boolean"
+        }
+      }
+    },
     "QueryCursor": {
       "type": "object",
       "required": [
@@ -1837,6 +2167,20 @@
         }
       }
     },
+    "QueryDescribeResult": {
+      "type": "object",
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueryCapabilityDto"
+          }
+        }
+      }
+    },
     "QueryError": {
       "type": "object",
       "required": [
@@ -1848,6 +2192,35 @@
           "type": "string"
         },
         "message": {
+          "type": "string"
+        }
+      }
+    },
+    "QueryFieldDto": {
+      "type": "object",
+      "required": [
+        "multiple",
+        "name",
+        "required",
+        "value_type"
+      ],
+      "properties": {
+        "default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "multiple": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "value_type": {
           "type": "string"
         }
       }
@@ -1904,6 +2277,24 @@
     },
     "QueryResult": {
       "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/QueryDescribeResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "query_describe"
+              ]
+            }
+          }
+        },
         {
           "type": "object",
           "required": [
@@ -2074,12 +2465,48 @@
           ],
           "properties": {
             "data": {
+              "$ref": "#/definitions/RulesApplicableResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "rules_applicable"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
               "$ref": "#/definitions/ChangeReviewResult"
             },
             "kind": {
               "type": "string",
               "enum": [
                 "change_review"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/ChangeContextResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "change_context"
               ]
             }
           }
@@ -2205,6 +2632,25 @@
         }
       }
     },
+    "RuleApplicabilityDto": {
+      "type": "object",
+      "required": [
+        "reason",
+        "rule",
+        "status"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "rule": {
+          "$ref": "#/definitions/RuleDto"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
     "RuleDto": {
       "type": "object",
       "required": [
@@ -2322,6 +2768,44 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "RulesApplicableResult": {
+      "type": "object",
+      "required": [
+        "file",
+        "focus",
+        "language",
+        "rows",
+        "total"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "focus": {
+          "$ref": "#/definitions/SymbolGraphFocus"
+        },
+        "language": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleApplicabilityDto"
+          }
+        },
+        "symbol_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       }
     },

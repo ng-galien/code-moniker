@@ -95,7 +95,6 @@ impl RulesTool {
 					"description": "Opaque row offset returned in next calls for action=list."
 				}
 			},
-			"required": ["uri"],
 			"additionalProperties": false
 		})
 	}

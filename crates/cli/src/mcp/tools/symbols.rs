@@ -101,7 +101,6 @@ impl SymbolsTool {
 					"description": "Opaque row offset returned in next calls."
 				}
 			},
-			"required": ["uri"],
 			"additionalProperties": false
 		})
 	}

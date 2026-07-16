@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use code_moniker_daemon_client as daemon_client;
-use code_moniker_query::{Consistency, QueryRequest, format_query_response, parse_query};
+use code_moniker_query::{
+	Consistency, QueryRequest, format_query_response_projected, parse_query, query_projection,
+};
 
 use crate::Exit;
 use crate::args::{QueryArgs, QueryConsistency};
@@ -34,6 +36,7 @@ fn run_inner<W1: Write, W2: Write>(
 	if !args.query.contains("consistency") {
 		request.consistency = flag_consistency(args.consistency);
 	}
+	let projection = query_projection(&request.query).to_vec();
 	let client = daemon_client::DaemonClient::connect_or_start_supporting(
 		query_daemon_config(args)?,
 		request.query.capability(),
@@ -43,7 +46,11 @@ fn run_inner<W1: Write, W2: Write>(
 		serde_json::to_writer_pretty(&mut *stdout, &response)?;
 		writeln!(stdout)?;
 	} else {
-		write!(stdout, "{}", format_query_response(&response))?;
+		write!(
+			stdout,
+			"{}",
+			format_query_response_projected(&response, &projection)
+		)?;
 	}
 	Ok(())
 }

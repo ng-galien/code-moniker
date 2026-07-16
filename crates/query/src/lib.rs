@@ -3,6 +3,7 @@ use std::fmt::{self, Write};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 mod discovery;
 pub use discovery::*;
@@ -87,6 +88,8 @@ pub struct DaemonWorkspaceConfig {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CapabilitySet {
 	pub queries: Vec<String>,
+	#[serde(default)]
+	pub query_mcp_tools: BTreeMap<String, String>,
 	pub commands: Vec<String>,
 	pub events: Vec<String>,
 }
@@ -94,26 +97,435 @@ pub struct CapabilitySet {
 impl Default for CapabilitySet {
 	fn default() -> Self {
 		Self {
-			queries: vec![
-				"workspace.status".to_string(),
-				"tree.children".to_string(),
-				"symbol.search".to_string(),
-				"symbol.insights".to_string(),
-				"symbol.detail".to_string(),
-				"symbol.usages".to_string(),
-				"view.read".to_string(),
-				"rules.list".to_string(),
-				"rules.check".to_string(),
-				"change.review".to_string(),
-				"symbol.graph".to_string(),
-				"identity.children".to_string(),
-				"identity.graph".to_string(),
-				"resolution.audit".to_string(),
-				"notes".to_string(),
-			],
+			queries: query_capability_specs()
+				.iter()
+				.map(|spec| spec.name.to_string())
+				.collect(),
+			query_mcp_tools: query_capability_specs()
+				.iter()
+				.map(|spec| (spec.name.to_string(), spec.mcp_tool.to_string()))
+				.collect(),
 			commands: vec!["workspace.refresh".to_string()],
 			events: Vec::new(),
 		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueryCapabilitySpec {
+	pub name: &'static str,
+	pub category: &'static str,
+	pub read_only: bool,
+	pub mcp_tool: &'static str,
+	pub fields: &'static [&'static str],
+	pub required_fields: &'static [&'static str],
+	pub positionals: usize,
+	pub projection: bool,
+	pub paginated: bool,
+	pub example: &'static str,
+}
+
+const COMMON_FIELDS: &[&str] = &["limit", "cursor", "consistency"];
+const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "severity", "relation"];
+const MULTI_VALUE_FIELDS: &[&str] = &[
+	"path", "lang", "kind", "shape", "severity", "file", "relation",
+];
+
+const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
+	QueryCapabilitySpec {
+		name: "query.describe",
+		category: "discovery",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["verb"],
+		required_fields: &[],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "query.describe verb:\"symbol.usages\"",
+	},
+	QueryCapabilitySpec {
+		name: "workspace.status",
+		category: "workspace",
+		read_only: true,
+		mcp_tool: "code_moniker_read",
+		fields: &[],
+		required_fields: &[],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "workspace.status",
+	},
+	QueryCapabilitySpec {
+		name: "tree.children",
+		category: "navigation",
+		read_only: true,
+		mcp_tool: "code_moniker_read",
+		fields: &["workspace", "path", "depth", "lang"],
+		required_fields: &[],
+		positionals: 0,
+		projection: true,
+		paginated: true,
+		example: "tree.children path:\"src/**\" depth:2 limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "symbol.search",
+		category: "symbol",
+		read_only: true,
+		mcp_tool: "code_moniker_symbols",
+		fields: &[
+			"workspace",
+			"path",
+			"lang",
+			"kind",
+			"shape",
+			"name",
+			"include_non_navigable",
+			"include_code",
+			"context_lines",
+		],
+		required_fields: &[],
+		positionals: 1,
+		projection: true,
+		paginated: true,
+		example: "symbol.search name:\"PaymentService\" shape:type limit:10",
+	},
+	QueryCapabilitySpec {
+		name: "symbol.insights",
+		category: "symbol",
+		read_only: true,
+		mcp_tool: "code_moniker_symbols",
+		fields: &[
+			"workspace",
+			"path",
+			"lang",
+			"kind",
+			"shape",
+			"name",
+			"include_non_navigable",
+		],
+		required_fields: &[],
+		positionals: 0,
+		projection: true,
+		paginated: false,
+		example: "symbol.insights path:\"src/**\"",
+	},
+	QueryCapabilitySpec {
+		name: "symbol.detail",
+		category: "symbol",
+		read_only: true,
+		mcp_tool: "code_moniker_read",
+		fields: &["workspace", "uri", "context_lines"],
+		required_fields: &["uri"],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "symbol.detail uri:\"code+moniker://...\" context_lines:2",
+	},
+	QueryCapabilitySpec {
+		name: "symbol.usages",
+		category: "symbol",
+		read_only: true,
+		mcp_tool: "code_moniker_usages",
+		fields: &["workspace", "uri", "direction", "path", "lang"],
+		required_fields: &["uri"],
+		positionals: 1,
+		projection: true,
+		paginated: true,
+		example: "symbol.usages uri:\"code+moniker://...\" direction:incoming limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "view.read",
+		category: "context",
+		read_only: true,
+		mcp_tool: "code_moniker_read",
+		fields: &["uri", "scheme", "context_lines", "include_code"],
+		required_fields: &["uri"],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "view.read uri:\"workspace/views\"",
+	},
+	QueryCapabilitySpec {
+		name: "rules.list",
+		category: "rules",
+		read_only: true,
+		mcp_tool: "code_moniker_rules",
+		fields: &["workspace", "profile", "rules", "lang", "severity"],
+		required_fields: &[],
+		positionals: 0,
+		projection: false,
+		paginated: true,
+		example: "rules.list profile:agent limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "rules.check",
+		category: "rules",
+		read_only: true,
+		mcp_tool: "code_moniker_rules",
+		fields: &["workspace", "profile", "rules", "file", "report"],
+		required_fields: &[],
+		positionals: 0,
+		projection: false,
+		paginated: true,
+		example: "rules.check profile:agent file:\"src/**\" limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "rules.applicable",
+		category: "rules",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["workspace", "focus", "profile", "rules"],
+		required_fields: &["focus"],
+		positionals: 1,
+		projection: false,
+		paginated: true,
+		example: "rules.applicable focus:\"code+moniker://...\" profile:agent limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "change.review",
+		category: "change",
+		read_only: true,
+		mcp_tool: "code_moniker_diff",
+		fields: &["workspace"],
+		required_fields: &[],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "change.review",
+	},
+	QueryCapabilitySpec {
+		name: "change.context",
+		category: "change",
+		read_only: true,
+		mcp_tool: "code_moniker_context",
+		fields: &["workspace", "focus", "profile", "max_items"],
+		required_fields: &["focus"],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "change.context focus:\"code+moniker://...\" profile:agent max_items:20",
+	},
+	QueryCapabilitySpec {
+		name: "symbol.graph",
+		category: "graph",
+		read_only: true,
+		mcp_tool: "code_moniker_graph",
+		fields: &[
+			"workspace",
+			"focus",
+			"direction",
+			"relation",
+			"min_count",
+			"include_internal",
+		],
+		required_fields: &["focus"],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "symbol.graph focus:\"src/service.ts\"",
+	},
+	QueryCapabilitySpec {
+		name: "identity.children",
+		category: "graph",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["workspace", "prefix"],
+		required_fields: &[],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "identity.children prefix:\"lang:rs/dir:crates\"",
+	},
+	QueryCapabilitySpec {
+		name: "identity.graph",
+		category: "graph",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["workspace", "prefix"],
+		required_fields: &[],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "identity.graph prefix:\"lang:rs/dir:crates\"",
+	},
+	QueryCapabilitySpec {
+		name: "resolution.audit",
+		category: "diagnostic",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["workspace", "prefix"],
+		required_fields: &[],
+		positionals: 1,
+		projection: false,
+		paginated: false,
+		example: "resolution.audit prefix:\"lang:java\" limit:20",
+	},
+	QueryCapabilitySpec {
+		name: "notes",
+		category: "notes",
+		read_only: false,
+		mcp_tool: "code_moniker_notes",
+		fields: &[
+			"action",
+			"id",
+			"moniker",
+			"kind",
+			"status",
+			"title",
+			"body",
+			"created_by",
+			"orphan",
+			"include_done",
+		],
+		required_fields: &[],
+		positionals: 0,
+		projection: false,
+		paginated: true,
+		example: "notes action:list limit:20",
+	},
+];
+
+pub fn query_capability_specs() -> &'static [QueryCapabilitySpec] {
+	QUERY_CAPABILITY_SPECS
+}
+
+pub fn query_capability_spec(name: &str) -> Option<&'static QueryCapabilitySpec> {
+	QUERY_CAPABILITY_SPECS.iter().find(|spec| spec.name == name)
+}
+
+pub fn query_projection_fields(name: &str) -> &'static [&'static str] {
+	match name {
+		"tree.children" => &[
+			"root",
+			"path",
+			"kind",
+			"language",
+			"defs",
+			"refs",
+			"change_count",
+		],
+		"symbol.search" => &[
+			"root",
+			"uri",
+			"id",
+			"name",
+			"kind",
+			"visibility",
+			"signature",
+			"file",
+			"language",
+			"line_range",
+			"navigable",
+			"score",
+			"match_reason",
+			"source",
+		],
+		"symbol.insights" => &[
+			"files",
+			"symbols",
+			"references",
+			"navigable_symbols",
+			"non_navigable_symbols",
+			"languages",
+			"kinds",
+			"shapes",
+			"top_files_by_symbols",
+			"top_files_by_refs",
+		],
+		"symbol.usages" => &[
+			"root",
+			"direction",
+			"reference",
+			"kind",
+			"actor",
+			"context",
+			"endpoint",
+			"file",
+			"prefix",
+			"location",
+			"line_range",
+			"via",
+		],
+		_ => &[],
+	}
+}
+
+pub fn describe_query_capabilities(verb: Option<&str>) -> Option<QueryDescribeResult> {
+	let specs: Vec<&QueryCapabilitySpec> = match verb {
+		Some(name) => vec![query_capability_spec(name)?],
+		None => QUERY_CAPABILITY_SPECS.iter().collect(),
+	};
+	Some(QueryDescribeResult {
+		capabilities: specs.into_iter().map(query_capability_dto).collect(),
+	})
+}
+
+fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
+	let fields = spec
+		.fields
+		.iter()
+		.chain(COMMON_FIELDS)
+		.map(|name| QueryFieldDto {
+			name: (*name).to_string(),
+			value_type: query_field_type(name).to_string(),
+			multiple: MULTI_VALUE_FIELDS.contains(name),
+			required: spec.required_fields.contains(name),
+			default: query_field_default(spec.name, name).map(ToOwned::to_owned),
+		})
+		.collect();
+	QueryCapabilityDto {
+		name: spec.name.to_string(),
+		category: spec.category.to_string(),
+		read_only: spec.read_only,
+		mcp_tool: spec.mcp_tool.to_string(),
+		projection: spec.projection,
+		projection_fields: query_projection_fields(spec.name)
+			.iter()
+			.map(|field| (*field).to_string())
+			.collect(),
+		paginated: spec.paginated,
+		positionals: spec.positionals,
+		fields,
+		example: spec.example.to_string(),
+	}
+}
+
+fn query_field_type(name: &str) -> &'static str {
+	match name {
+		"limit" | "depth" | "context_lines" | "max_items" | "min_count" => "unsigned_integer",
+		"include_non_navigable"
+		| "include_code"
+		| "include_internal"
+		| "report"
+		| "orphan"
+		| "include_done" => "boolean",
+		"direction" => "enum:incoming|outgoing|both",
+		"consistency" => "enum:current|refresh-if-stale|stale-ok",
+		"action" => "enum:list|get|create|update|transition|delete",
+		"cursor" => "cursor",
+		name if MULTI_VALUE_FIELDS.contains(&name) => "string_list",
+		_ => "string",
+	}
+}
+
+fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
+	match (verb, name) {
+		("resolution.audit", "limit") => Some("20"),
+		(_, "limit") => Some("80"),
+		(_, "consistency") => Some("current"),
+		("tree.children", "depth") => Some("1"),
+		("symbol.detail" | "view.read", "context_lines") => Some("2"),
+		("symbol.search", "context_lines") => Some("0"),
+		("symbol.usages", "direction") => Some("incoming"),
+		("symbol.graph", "direction") => Some("both"),
+		("symbol.graph", "min_count") => Some("1"),
+		("symbol.graph", "include_internal") => Some("true"),
+		("rules.check", "report") => Some("true"),
+		("change.context", "max_items") => Some("20"),
+		("notes", "action") => Some("list"),
+		(_, "include_non_navigable" | "include_code" | "include_done") => Some("false"),
+		_ => None,
 	}
 }
 
@@ -139,6 +551,7 @@ impl QueryRequest {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Query {
+	QueryDescribe(QueryDescribeQuery),
 	WorkspaceStatus,
 	TreeChildren(TreeChildrenQuery),
 	SymbolSearch(SymbolSearchQuery),
@@ -148,7 +561,9 @@ pub enum Query {
 	ViewRead(ViewReadQuery),
 	RulesList(RulesListQuery),
 	RulesCheck(RulesCheckQuery),
+	RulesApplicable(RulesApplicableQuery),
 	ChangeReview(ChangeReviewQuery),
+	ChangeContext(ChangeContextQuery),
 	SymbolGraph(SymbolGraphQuery),
 	IdentityChildren(IdentityChildrenQuery),
 	IdentityGraph(IdentityChildrenQuery),
@@ -159,6 +574,7 @@ pub enum Query {
 impl Query {
 	pub fn capability(&self) -> &'static str {
 		match self {
+			Self::QueryDescribe(_) => "query.describe",
 			Self::WorkspaceStatus => "workspace.status",
 			Self::TreeChildren(_) => "tree.children",
 			Self::SymbolSearch(_) => "symbol.search",
@@ -168,7 +584,9 @@ impl Query {
 			Self::ViewRead(_) => "view.read",
 			Self::RulesList(_) => "rules.list",
 			Self::RulesCheck(_) => "rules.check",
+			Self::RulesApplicable(_) => "rules.applicable",
 			Self::ChangeReview(_) => "change.review",
+			Self::ChangeContext(_) => "change.context",
 			Self::SymbolGraph(_) => "symbol.graph",
 			Self::IdentityChildren(_) => "identity.children",
 			Self::IdentityGraph(_) => "identity.graph",
@@ -176,6 +594,52 @@ impl Query {
 			Self::Notes(_) => "notes",
 		}
 	}
+}
+
+pub fn query_projection(query: &Query) -> &[String] {
+	match query {
+		Query::TreeChildren(query) => &query.projection,
+		Query::SymbolSearch(query) | Query::SymbolInsights(query) => &query.projection,
+		Query::SymbolUsages(query) => &query.projection,
+		_ => &[],
+	}
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct QueryDescribeQuery {
+	pub verb: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct QueryCapabilityDto {
+	pub name: String,
+	pub category: String,
+	pub read_only: bool,
+	pub mcp_tool: String,
+	pub projection: bool,
+	pub projection_fields: Vec<String>,
+	pub paginated: bool,
+	pub positionals: usize,
+	pub fields: Vec<QueryFieldDto>,
+	pub example: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct QueryFieldDto {
+	pub name: String,
+	pub value_type: String,
+	pub multiple: bool,
+	pub required: bool,
+	pub default: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct QueryDescribeResult {
+	pub capabilities: Vec<QueryCapabilityDto>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -298,15 +762,50 @@ pub struct RulesCheckQuery {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RulesApplicableQuery {
+	pub workspace: Option<String>,
+	pub focus: String,
+	pub profile: Option<String>,
+	pub rules: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ChangeReviewQuery {
 	pub workspace: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeContextQuery {
+	pub workspace: Option<String>,
+	pub focus: String,
+	pub profile: Option<String>,
+	pub max_items: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolGraphQuery {
 	pub workspace: Option<String>,
 	pub focus: String,
+	pub direction: UsageDirection,
+	pub relation: Vec<String>,
+	pub min_count: usize,
+	pub include_internal: bool,
+}
+
+impl Default for SymbolGraphQuery {
+	fn default() -> Self {
+		Self {
+			workspace: None,
+			focus: String::new(),
+			direction: UsageDirection::Both,
+			relation: Vec::new(),
+			min_count: 1,
+			include_internal: true,
+		}
+	}
 }
 
 // One level of the identity tree: children of a moniker identity prefix
@@ -450,6 +949,7 @@ pub struct QueryResponse {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum QueryResult {
+	QueryDescribe(QueryDescribeResult),
 	WorkspaceStatus(WorkspaceStatus),
 	TreeChildren(TreeChildrenResult),
 	SymbolList(SymbolListResult),
@@ -459,7 +959,9 @@ pub enum QueryResult {
 	ViewRead(ViewReadResult),
 	RulesList(RulesListResult),
 	RulesCheck(RulesCheckResult),
+	RulesApplicable(Box<RulesApplicableResult>),
 	ChangeReview(Box<ChangeReviewResult>),
+	ChangeContext(Box<ChangeContextResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
 	IdentityChildren(IdentityChildrenResult),
 	IdentityGraph(Box<IdentityGraphResult>),
@@ -985,6 +1487,58 @@ pub struct RuleDto {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RulesApplicableResult {
+	pub focus: SymbolGraphFocus,
+	pub file: String,
+	pub language: String,
+	pub symbol_kind: Option<String>,
+	pub total: usize,
+	pub rows: Vec<RuleApplicabilityDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RuleApplicabilityDto {
+	pub rule: RuleDto,
+	pub status: String,
+	pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeContextResult {
+	pub focus: SymbolGraphFocus,
+	pub source: Option<SourceSnippet>,
+	pub graph: Box<SymbolGraphResult>,
+	pub notes: Vec<NoteDto>,
+	pub rules: Vec<RuleApplicabilityDto>,
+	pub changed_files: Vec<ChangeReviewFile>,
+	pub changed_symbols: Vec<ChangeReviewSymbol>,
+	pub suggested_checks: Vec<String>,
+	pub coverage: ChangeContextCoverageDto,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeContextCoverageDto {
+	pub members_total: usize,
+	pub members_emitted: usize,
+	pub internal_edges_total: usize,
+	pub internal_edges_emitted: usize,
+	pub callers_total: usize,
+	pub callers_emitted: usize,
+	pub callees_total: usize,
+	pub callees_emitted: usize,
+	pub notes_total: usize,
+	pub notes_emitted: usize,
+	pub rules_total: usize,
+	pub rules_emitted: usize,
+	pub changes_total: usize,
+	pub changes_emitted: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckResult {
 	pub exit: String,
 	pub summary: CheckSummaryDto,
@@ -1173,6 +1727,12 @@ pub enum QueryParseError {
 	UnexpectedArgument { op: String, value: String },
 	#[error("`project` is not supported by `{op}`")]
 	UnsupportedProjection { op: String },
+	#[error("unknown projection field `{field}` for `{op}`{hint}")]
+	UnknownProjectionField {
+		op: String,
+		field: String,
+		hint: String,
+	},
 }
 
 pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
@@ -1189,7 +1749,7 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 	}
 	fields.positional = positional;
 	let spec = verb_spec(&op).ok_or_else(|| QueryParseError::UnknownOperation(op.clone()))?;
-	validate_fields(&op, &spec, &fields)?;
+	validate_fields(&op, spec, &fields)?;
 	if let Some(value) = fields.one("consistency") {
 		fields.consistency = value.parse()?;
 	}
@@ -1247,6 +1807,11 @@ fn collect_line(
 
 fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 	let query = match op {
+		"query.describe" => Query::QueryDescribe(QueryDescribeQuery {
+			verb: fields
+				.one("verb")
+				.or_else(|| fields.positional.first().cloned()),
+		}),
 		"workspace.status" => Query::WorkspaceStatus,
 		"tree.children" => Query::TreeChildren(TreeChildrenQuery {
 			workspace: fields.one("workspace"),
@@ -1302,19 +1867,37 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 			file: fields.many("file"),
 			report: fields.bool("report")?.unwrap_or(true),
 		}),
+		"rules.applicable" => Query::RulesApplicable(RulesApplicableQuery {
+			workspace: fields.one("workspace"),
+			focus: fields
+				.one("focus")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("focus"))?,
+			profile: fields.one("profile"),
+			rules: fields.one("rules"),
+		}),
 		"change.review" => Query::ChangeReview(ChangeReviewQuery {
 			workspace: fields.one("workspace"),
+		}),
+		"change.context" => Query::ChangeContext(ChangeContextQuery {
+			workspace: fields.one("workspace"),
+			focus: fields
+				.one("focus")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("focus"))?,
+			profile: fields.one("profile"),
+			max_items: fields.usize("max_items")?.unwrap_or(20),
 		}),
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
 		"resolution.audit" => Query::ResolutionAudit(ResolutionAuditQuery {
 			workspace: fields.one("workspace"),
-			prefix: fields.one("prefix").unwrap_or_default(),
-			limit: fields
-				.one("limit")
-				.and_then(|value| value.parse().ok())
-				.unwrap_or(20),
+			prefix: fields
+				.one("prefix")
+				.or_else(|| fields.positional.first().cloned())
+				.unwrap_or_default(),
+			limit: fields.usize("limit")?.unwrap_or(20),
 		}),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op.to_string())),
@@ -1322,122 +1905,15 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 	Ok(query)
 }
 
-struct VerbSpec {
-	fields: &'static [&'static str],
-	positionals: usize,
-	projection: bool,
+fn verb_spec(op: &str) -> Option<&'static QueryCapabilitySpec> {
+	query_capability_spec(op)
 }
 
-const COMMON_FIELDS: &[&str] = &["limit", "cursor", "consistency"];
-const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "severity"];
-
-fn verb_spec(op: &str) -> Option<VerbSpec> {
-	let spec = match op {
-		"workspace.status" => VerbSpec {
-			fields: &[],
-			positionals: 0,
-			projection: false,
-		},
-		"tree.children" => VerbSpec {
-			fields: &["workspace", "path", "depth", "lang"],
-			positionals: 0,
-			projection: true,
-		},
-		"symbol.search" => VerbSpec {
-			fields: &[
-				"workspace",
-				"path",
-				"lang",
-				"kind",
-				"shape",
-				"name",
-				"include_non_navigable",
-				"include_code",
-				"context_lines",
-			],
-			positionals: 1,
-			projection: true,
-		},
-		"symbol.insights" => VerbSpec {
-			fields: &[
-				"workspace",
-				"path",
-				"lang",
-				"kind",
-				"shape",
-				"name",
-				"include_non_navigable",
-			],
-			positionals: 0,
-			projection: true,
-		},
-		"symbol.detail" => VerbSpec {
-			fields: &["workspace", "uri", "context_lines"],
-			positionals: 1,
-			projection: false,
-		},
-		"symbol.usages" => VerbSpec {
-			fields: &["workspace", "uri", "direction", "path", "lang"],
-			positionals: 1,
-			projection: true,
-		},
-		"view.read" => VerbSpec {
-			fields: &["uri", "scheme", "context_lines", "include_code"],
-			positionals: 1,
-			projection: false,
-		},
-		"rules.list" => VerbSpec {
-			fields: &["workspace", "profile", "rules", "lang", "severity"],
-			positionals: 0,
-			projection: false,
-		},
-		"rules.check" => VerbSpec {
-			fields: &["workspace", "profile", "rules", "file", "report"],
-			positionals: 0,
-			projection: false,
-		},
-		"change.review" => VerbSpec {
-			fields: &["workspace"],
-			positionals: 0,
-			projection: false,
-		},
-		"symbol.graph" => VerbSpec {
-			fields: &["workspace", "focus"],
-			positionals: 1,
-			projection: false,
-		},
-		"resolution.audit" => VerbSpec {
-			fields: &["workspace", "prefix", "limit", "consistency"],
-			positionals: 1,
-			projection: false,
-		},
-		"identity.children" | "identity.graph" => VerbSpec {
-			fields: &["workspace", "prefix"],
-			positionals: 1,
-			projection: false,
-		},
-		"notes" => VerbSpec {
-			fields: &[
-				"action",
-				"id",
-				"moniker",
-				"kind",
-				"status",
-				"title",
-				"body",
-				"created_by",
-				"orphan",
-				"include_done",
-			],
-			positionals: 0,
-			projection: false,
-		},
-		_ => return None,
-	};
-	Some(spec)
-}
-
-fn validate_fields(op: &str, spec: &VerbSpec, fields: &FieldBag) -> Result<(), QueryParseError> {
+fn validate_fields(
+	op: &str,
+	spec: &QueryCapabilitySpec,
+	fields: &FieldBag,
+) -> Result<(), QueryParseError> {
 	for (key, value) in &fields.values {
 		let key = key.as_str();
 		if !COMMON_FIELDS.contains(&key) && !spec.fields.contains(&key) {
@@ -1463,7 +1939,31 @@ fn validate_fields(op: &str, spec: &VerbSpec, fields: &FieldBag) -> Result<(), Q
 	if !spec.projection && !fields.projection.is_empty() {
 		return Err(QueryParseError::UnsupportedProjection { op: op.to_string() });
 	}
+	let projection_fields = query_projection_fields(op);
+	for field in &fields.projection {
+		if !projection_fields.contains(&field.as_str()) {
+			return Err(QueryParseError::UnknownProjectionField {
+				op: op.to_string(),
+				field: field.clone(),
+				hint: projection_field_hint(field, projection_fields),
+			});
+		}
+	}
 	Ok(())
+}
+
+fn projection_field_hint(field: &str, allowed: &'static [&'static str]) -> String {
+	if let Some(suggestion) = allowed
+		.iter()
+		.copied()
+		.map(|candidate| (candidate, levenshtein(field, candidate)))
+		.filter(|(_, distance)| *distance <= 2)
+		.min_by_key(|(_, distance)| *distance)
+		.map(|(candidate, _)| candidate)
+	{
+		return format!(", did you mean `{suggestion}`?");
+	}
+	format!(" (valid projection fields: {})", allowed.join(", "))
 }
 
 fn field_hint(key: &str, allowed: &'static [&'static str]) -> String {
@@ -1563,6 +2063,13 @@ fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseE
 			.one("focus")
 			.or_else(|| fields.positional.first().cloned())
 			.ok_or(QueryParseError::MissingRequired("focus"))?,
+		direction: fields
+			.one("direction")
+			.unwrap_or_else(|| "both".to_string())
+			.parse()?,
+		relation: fields.many("relation"),
+		min_count: fields.usize("min_count")?.unwrap_or(1).max(1),
+		include_internal: fields.bool("include_internal")?.unwrap_or(true),
 	})
 }
 
@@ -1582,6 +2089,10 @@ fn parse_notes_action(value: &str) -> Result<NotesAction, QueryParseError> {
 }
 
 pub fn format_query_response(response: &QueryResponse) -> String {
+	format_query_response_projected(response, &[])
+}
+
+pub fn format_query_response_projected(response: &QueryResponse, projection: &[String]) -> String {
 	let mut out = String::new();
 	if let Some(generation) = response.generation {
 		let _ = writeln!(out, "generation: {}", generation.0);
@@ -1594,99 +2105,25 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		}
 	}
 	match &response.result {
-		QueryResult::WorkspaceStatus(status) => {
-			let _ = writeln!(out, "workspace: {}", status.root);
-			let _ = writeln!(out, "phase: {}", status.phase);
-			let _ = writeln!(
-				out,
-				"files: {} symbols: {} references: {}",
-				status.files, status.symbols, status.references
-			);
-			let _ = writeln!(out, "stale: {} ({})", status.stale, status.stale_summary);
-			if status.roots.len() > 1 {
-				let _ = writeln!(out, "roots:");
-				for root in &status.roots {
-					let _ = writeln!(
-						out,
-						"- {} files:{} symbols:{} references:{} stale:{}",
-						root.root, root.files, root.symbols, root.references, root.stale
-					);
-				}
-			}
-		}
-		QueryResult::TreeChildren(result) => {
-			let _ = writeln!(out, "tree: {}", result.root);
-			for row in &result.rows {
-				let kind = match row.kind {
-					TreeNodeKind::File => "file",
-					TreeNodeKind::Directory => "dir",
-				};
-				let _ = writeln!(
-					out,
-					"- {kind} {} defs:{} refs:{}",
-					row.path, row.defs, row.refs
-				);
-			}
-		}
-		QueryResult::SymbolList(result) => {
-			let _ = writeln!(out, "symbols: {}", result.total);
-			for row in &result.rows {
-				let _ = writeln!(out, "- {} {} {} {}", row.kind, row.name, row.file, row.uri);
-			}
+		QueryResult::QueryDescribe(result) => format_query_describe(&mut out, result),
+		QueryResult::WorkspaceStatus(status) => format_workspace_status(&mut out, status),
+		QueryResult::TreeChildren(result) => format_tree_children(&mut out, result, projection),
+		QueryResult::SymbolList(result) => format_symbol_list(&mut out, result, projection),
+		QueryResult::SymbolInsights(result) if !projection.is_empty() => {
+			format_projected_value(&mut out, result, projection);
 		}
 		QueryResult::SymbolInsights(result) => format_symbol_insights(&mut out, result),
-		QueryResult::SymbolDetail(result) => {
-			let symbol = &result.symbol;
-			let _ = writeln!(out, "symbol: {} {}", symbol.kind, symbol.name);
-			let _ = writeln!(out, "uri: {}", symbol.uri);
-			let _ = writeln!(out, "file: {}", symbol.file);
-			if let Some(source) = &result.source {
-				for line in &source.lines {
-					let _ = writeln!(out, "{:>6} | {}", line.number, line.text);
-				}
-			}
-		}
-		QueryResult::SymbolUsages(result) => {
-			let _ = writeln!(out, "uri: {}", result.target.uri);
-			let _ = writeln!(out, "direction: {}", result.direction.as_str());
-			let _ = writeln!(out, "usages: {}", result.total);
-			for row in &result.rows {
-				let _ = writeln!(
-					out,
-					"- {} {} {} {}",
-					row.direction.as_str(),
-					row.kind,
-					row.actor,
-					row.file
-				);
-			}
-		}
-		QueryResult::ViewRead(result) => match result {
-			ViewReadResult::List(list) => {
-				let _ = writeln!(out, "views: {}", list.views.len());
-				for view in &list.views {
-					let _ = writeln!(out, "- {} ({})", view.id, view.scope);
-				}
-			}
-			ViewReadResult::Detail(detail) => {
-				let _ = writeln!(out, "view: {}", detail.id);
-				let _ = writeln!(out, "fragment: {}", detail.fragment);
-				let _ = writeln!(out, "scope: {}", detail.scope);
-				let _ = writeln!(
-					out,
-					"rules: {} boundaries: {} gotchas: {}",
-					detail.rules.len(),
-					detail.boundaries.len(),
-					detail.gotchas.len()
-				);
-			}
-		},
+		QueryResult::SymbolDetail(result) => format_symbol_detail(&mut out, result),
+		QueryResult::SymbolUsages(result) => format_symbol_usages(&mut out, result, projection),
+		QueryResult::ViewRead(result) => format_view_read(&mut out, result),
 		QueryResult::RulesList(result) => {
 			let _ = writeln!(out, "rules: {}", result.total);
 			format_rules_list_rows(&mut out, result);
 		}
 		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
+		QueryResult::RulesApplicable(result) => format_rules_applicable(&mut out, result),
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
+		QueryResult::ChangeContext(result) => format_change_context(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
@@ -1694,6 +2131,335 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
+}
+
+fn format_workspace_status(out: &mut String, status: &WorkspaceStatus) {
+	let _ = writeln!(out, "workspace: {}", status.root);
+	let _ = writeln!(out, "phase: {}", status.phase);
+	let _ = writeln!(
+		out,
+		"files: {} symbols: {} references: {}",
+		status.files, status.symbols, status.references
+	);
+	let _ = writeln!(out, "stale: {} ({})", status.stale, status.stale_summary);
+	if status.roots.len() > 1 {
+		let _ = writeln!(out, "roots:");
+		for root in &status.roots {
+			let _ = writeln!(
+				out,
+				"- {} files:{} symbols:{} references:{} stale:{}",
+				root.root, root.files, root.symbols, root.references, root.stale
+			);
+		}
+	}
+}
+
+fn format_tree_children(out: &mut String, result: &TreeChildrenResult, projection: &[String]) {
+	let _ = writeln!(out, "tree: {}", result.root);
+	for row in &result.rows {
+		if !projection.is_empty() {
+			format_projected_value(out, row, projection);
+			continue;
+		}
+		let kind = match row.kind {
+			TreeNodeKind::File => "file",
+			TreeNodeKind::Directory => "dir",
+		};
+		let _ = writeln!(
+			out,
+			"- {kind} {} defs:{} refs:{}",
+			row.path, row.defs, row.refs
+		);
+	}
+}
+
+fn format_symbol_list(out: &mut String, result: &SymbolListResult, projection: &[String]) {
+	let _ = writeln!(out, "symbols: {}", result.total);
+	for row in &result.rows {
+		if projection.is_empty() {
+			let _ = writeln!(out, "- {} {} {} {}", row.kind, row.name, row.file, row.uri);
+		} else {
+			format_projected_value(out, row, projection);
+		}
+	}
+}
+
+fn format_symbol_detail(out: &mut String, result: &SymbolDetailResult) {
+	let symbol = &result.symbol;
+	let _ = writeln!(out, "symbol: {} {}", symbol.kind, symbol.name);
+	let _ = writeln!(out, "uri: {}", symbol.uri);
+	let _ = writeln!(out, "file: {}", symbol.file);
+	if let Some(source) = &result.source {
+		for line in &source.lines {
+			let _ = writeln!(out, "{:>6} | {}", line.number, line.text);
+		}
+	}
+}
+
+fn format_symbol_usages(out: &mut String, result: &SymbolUsagesResult, projection: &[String]) {
+	let _ = writeln!(out, "uri: {}", result.target.uri);
+	let _ = writeln!(out, "direction: {}", result.direction.as_str());
+	let _ = writeln!(out, "usages: {}", result.total);
+	for row in &result.rows {
+		if projection.is_empty() {
+			let _ = writeln!(
+				out,
+				"- {} {} {} {}",
+				row.direction.as_str(),
+				row.kind,
+				row.actor,
+				row.file
+			);
+		} else {
+			format_projected_value(out, row, projection);
+		}
+	}
+}
+
+fn format_view_read(out: &mut String, result: &ViewReadResult) {
+	match result {
+		ViewReadResult::List(list) => {
+			let _ = writeln!(out, "views: {}", list.views.len());
+			for view in &list.views {
+				let _ = writeln!(out, "- {} ({})", view.id, view.scope);
+			}
+		}
+		ViewReadResult::Detail(detail) => {
+			let _ = writeln!(out, "view: {}", detail.id);
+			let _ = writeln!(out, "fragment: {}", detail.fragment);
+			let _ = writeln!(out, "scope: {}", detail.scope);
+			let _ = writeln!(
+				out,
+				"rules: {} boundaries: {} gotchas: {}",
+				detail.rules.len(),
+				detail.boundaries.len(),
+				detail.gotchas.len()
+			);
+		}
+	}
+}
+
+fn format_projected_value(out: &mut String, value: &impl Serialize, projection: &[String]) {
+	let Ok(Value::Object(fields)) = serde_json::to_value(value) else {
+		return;
+	};
+	let rendered = projection
+		.iter()
+		.filter_map(|name| fields.get(name).map(|value| (name, value)))
+		.map(|(name, value)| format!("{name}={}", compact_json_value(value)))
+		.collect::<Vec<_>>()
+		.join(" ");
+	let _ = writeln!(out, "- {rendered}");
+}
+
+fn compact_json_value(value: &Value) -> String {
+	match value {
+		Value::String(value) => value.clone(),
+		Value::Null => "-".to_string(),
+		_ => serde_json::to_string(value).unwrap_or_else(|_| "?".to_string()),
+	}
+}
+
+fn format_query_describe(out: &mut String, result: &QueryDescribeResult) {
+	let _ = writeln!(out, "queries: {}", result.capabilities.len());
+	for capability in &result.capabilities {
+		let _ = writeln!(
+			out,
+			"- {} [{}] read_only={} mcp={} projection={} paginated={}",
+			capability.name,
+			capability.category,
+			capability.read_only,
+			capability.mcp_tool,
+			capability.projection,
+			capability.paginated
+		);
+		let fields = capability
+			.fields
+			.iter()
+			.map(|field| {
+				let required = if field.required { "!" } else { "" };
+				let multiple = if field.multiple { "[]" } else { "" };
+				let default = field
+					.default
+					.as_deref()
+					.map_or(String::new(), |value| format!("={value}"));
+				format!(
+					"{}{}:{}{}{}",
+					field.name, required, field.value_type, multiple, default
+				)
+			})
+			.collect::<Vec<_>>()
+			.join(", ");
+		let _ = writeln!(out, "  fields: {fields}");
+		if !capability.projection_fields.is_empty() {
+			let _ = writeln!(
+				out,
+				"  project: {}",
+				capability.projection_fields.join(", ")
+			);
+		}
+		let _ = writeln!(out, "  example: {}", capability.example);
+	}
+}
+
+fn format_rules_applicable(out: &mut String, result: &RulesApplicableResult) {
+	let _ = writeln!(out, "focus: {}", result.file);
+	let _ = writeln!(out, "language: {}", result.language);
+	if let Some(kind) = &result.symbol_kind {
+		let _ = writeln!(out, "symbol_kind: {kind}");
+	}
+	let applicable = result
+		.rows
+		.iter()
+		.filter(|row| row.status == "applicable")
+		.count();
+	let _ = writeln!(out, "rules: {} applicable: {applicable}", result.total);
+	for row in &result.rows {
+		let _ = writeln!(
+			out,
+			"- {} [{}] {} — {}",
+			row.rule.id, row.rule.severity, row.status, row.reason
+		);
+	}
+}
+
+fn format_change_context(out: &mut String, result: &ChangeContextResult) {
+	let _ = writeln!(out, "facts:");
+	match &result.focus {
+		SymbolGraphFocus::Symbol { symbol } => {
+			let _ = writeln!(out, "focus: {} {}", symbol.kind, symbol.name);
+			let _ = writeln!(out, "uri: {}", symbol.uri);
+			let _ = writeln!(out, "file: {}", symbol.file);
+		}
+		SymbolGraphFocus::File { path } => {
+			let _ = writeln!(out, "focus: file {path}");
+		}
+	}
+	if let Some(source) = &result.source {
+		let _ = writeln!(out, "source:");
+		for line in &source.lines {
+			let _ = writeln!(out, "{:>6} | {}", line.number, line.text);
+		}
+	}
+	format_context_graph(out, &result.graph);
+	let coverage = result.coverage;
+	let _ = writeln!(out, "coverage:");
+	let _ = writeln!(
+		out,
+		"- members {}/{} · internal_edges {}/{} · callers {}/{} · callees {}/{}",
+		coverage.members_emitted,
+		coverage.members_total,
+		coverage.internal_edges_emitted,
+		coverage.internal_edges_total,
+		coverage.callers_emitted,
+		coverage.callers_total,
+		coverage.callees_emitted,
+		coverage.callees_total
+	);
+	let _ = writeln!(
+		out,
+		"- notes {}/{} · rules {}/{} · changes {}/{}",
+		coverage.notes_emitted,
+		coverage.notes_total,
+		coverage.rules_emitted,
+		coverage.rules_total,
+		coverage.changes_emitted,
+		coverage.changes_total
+	);
+	if !result.notes.is_empty() {
+		let _ = writeln!(out, "notes:");
+		for note in &result.notes {
+			let _ = writeln!(out, "- {} [{}] {}", note.id, note.status, note.title);
+		}
+	}
+	if !result.rules.is_empty() {
+		let _ = writeln!(out, "applicable_rules:");
+		for row in &result.rules {
+			let _ = writeln!(out, "- {} [{}]", row.rule.id, row.rule.severity);
+		}
+	}
+	format_context_changes(out, &result.changed_files, &result.changed_symbols);
+	if !result.suggested_checks.is_empty() {
+		let _ = writeln!(out, "suggested_checks:");
+		for check in &result.suggested_checks {
+			let _ = writeln!(out, "- {check}");
+		}
+	}
+}
+
+fn format_context_graph(out: &mut String, graph: &SymbolGraphResult) {
+	if !graph.members.is_empty() {
+		let _ = writeln!(out, "members:");
+		for member in &graph.members {
+			let _ = writeln!(
+				out,
+				"- {} {} ({}) {}",
+				member.kind, member.name, member.file, member.uri
+			);
+		}
+	}
+	if !graph.internal_edges.is_empty() {
+		let _ = writeln!(out, "internal_edges:");
+		for edge in &graph.internal_edges {
+			let _ = writeln!(
+				out,
+				"- {} -> {} x{} [{}]",
+				edge.source,
+				edge.target,
+				edge.count,
+				edge.kinds.join(",")
+			);
+		}
+	}
+	format_unlinked(out, &graph.unlinked);
+	for (marker, neighbors) in [("<", &graph.callers), (">", &graph.callees)] {
+		for neighbor in neighbors {
+			let _ = writeln!(
+				out,
+				"{marker} {} {} x{} [{}] {}",
+				neighbor.symbol.kind,
+				neighbor.symbol.name,
+				neighbor.count,
+				neighbor.kinds.join(","),
+				neighbor.symbol.uri
+			);
+		}
+	}
+}
+
+fn format_context_changes(
+	out: &mut String,
+	files: &[ChangeReviewFile],
+	symbols: &[ChangeReviewSymbol],
+) {
+	if !files.is_empty() {
+		let _ = writeln!(out, "changed_files:");
+		for file in files {
+			let old = file.old_path.as_deref().unwrap_or("-");
+			let new = file.new_path.as_deref().unwrap_or("-");
+			let _ = writeln!(out, "- {old} -> {new} [{}]", file.disposition);
+		}
+	}
+	if !symbols.is_empty() {
+		let _ = writeln!(out, "changed_symbols:");
+		for symbol in symbols {
+			let old = symbol
+				.old
+				.as_ref()
+				.map(|side| side.identity.as_str())
+				.unwrap_or("-");
+			let new = symbol
+				.new
+				.as_ref()
+				.map(|side| side.identity.as_str())
+				.unwrap_or("-");
+			let _ = writeln!(
+				out,
+				"- {} [{}] {old} -> {new}",
+				symbol.kind, symbol.confidence
+			);
+		}
+	}
 }
 
 fn format_resolution_audit(out: &mut String, result: &ResolutionAuditResult) {
@@ -2107,6 +2873,190 @@ pub fn split_csv(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use serde::Serialize;
+
+	fn serialized_fields(value: impl Serialize) -> Vec<String> {
+		let mut fields = serde_json::to_value(value)
+			.expect("serialize query DTO")
+			.as_object()
+			.expect("query DTO object")
+			.keys()
+			.cloned()
+			.collect::<Vec<_>>();
+		fields.sort();
+		fields
+	}
+
+	fn dto_fields(verb: &str) -> Vec<String> {
+		match verb {
+			"query.describe" => serialized_fields(QueryDescribeQuery::default()),
+			"workspace.status" => Vec::new(),
+			"tree.children" => serialized_fields(TreeChildrenQuery::default()),
+			"symbol.search" | "symbol.insights" => serialized_fields(SymbolSearchQuery::default()),
+			"symbol.detail" => serialized_fields(SymbolDetailQuery {
+				workspace: None,
+				uri: String::new(),
+				context_lines: 0,
+			}),
+			"symbol.usages" => serialized_fields(SymbolUsagesQuery {
+				workspace: None,
+				uri: String::new(),
+				direction: UsageDirection::Incoming,
+				path: Vec::new(),
+				lang: Vec::new(),
+				projection: Vec::new(),
+			}),
+			"view.read" => serialized_fields(ViewReadQuery {
+				uri: String::new(),
+				scheme: None,
+				context_lines: 0,
+				include_code: false,
+			}),
+			"rules.list" => serialized_fields(RulesListQuery::default()),
+			"rules.check" => serialized_fields(RulesCheckQuery::default()),
+			"rules.applicable" => serialized_fields(RulesApplicableQuery::default()),
+			"change.review" => serialized_fields(ChangeReviewQuery::default()),
+			"change.context" => serialized_fields(ChangeContextQuery::default()),
+			"symbol.graph" => serialized_fields(SymbolGraphQuery::default()),
+			"identity.children" | "identity.graph" => {
+				serialized_fields(IdentityChildrenQuery::default())
+			}
+			"resolution.audit" => serialized_fields(ResolutionAuditQuery::default()),
+			"notes" => serialized_fields(NotesQuery {
+				action: NotesAction::List,
+				id: None,
+				moniker: None,
+				kind: None,
+				status: None,
+				title: None,
+				body: None,
+				created_by: None,
+				orphan: None,
+				include_done: false,
+			}),
+			other => panic!("missing DTO field fixture for {other}"),
+		}
+	}
+
+	#[test]
+	fn capability_registry_fields_exist_on_query_dtos() {
+		for spec in query_capability_specs() {
+			let dto = dto_fields(spec.name);
+			for field in spec.fields {
+				assert!(
+					dto.iter().any(|candidate| candidate == field),
+					"{} field `{field}` missing from DTO fields {dto:?}",
+					spec.name
+				);
+			}
+			assert!(
+				spec.fields
+					.iter()
+					.all(|field| !COMMON_FIELDS.contains(field)),
+				"{} repeats a common request field",
+				spec.name
+			);
+		}
+	}
+
+	#[test]
+	fn describes_live_query_contract() {
+		let request = parse_query("query.describe symbol.usages").expect("query describe");
+		assert!(matches!(
+			request.query,
+			Query::QueryDescribe(QueryDescribeQuery { verb: Some(ref verb) })
+				if verb == "symbol.usages"
+		));
+		let result = describe_query_capabilities(Some("symbol.usages")).expect("capability");
+		let capability = result.capabilities.first().expect("described query");
+		assert!(capability.read_only);
+		assert_eq!(capability.mcp_tool, "code_moniker_usages");
+		assert!(capability.projection);
+		assert!(capability.paginated);
+		assert!(
+			capability
+				.fields
+				.iter()
+				.any(|field| field.name == "uri" && field.required)
+		);
+		assert!(capability.projection_fields.contains(&"actor".to_string()));
+		assert_eq!(
+			CapabilitySet::default().query_mcp_tools["symbol.usages"],
+			"code_moniker_usages"
+		);
+	}
+
+	#[test]
+	fn parses_symbol_graph_relational_filters() {
+		let request = parse_query(
+			"symbol.graph focus:\"src/lib.rs\" direction:incoming relation:[calls,uses_type] min_count:2 include_internal:false",
+		)
+		.expect("symbol graph filters");
+		let Query::SymbolGraph(query) = request.query else {
+			panic!("expected symbol graph query");
+		};
+		assert_eq!(query.direction, UsageDirection::Incoming);
+		assert_eq!(query.relation, vec!["calls", "uses_type"]);
+		assert_eq!(query.min_count, 2);
+		assert!(!query.include_internal);
+	}
+
+	#[test]
+	fn parses_resolution_audit_positional_prefix() {
+		let request = parse_query("resolution.audit java limit:7").expect("audit query");
+		let Query::ResolutionAudit(query) = request.query else {
+			panic!("expected resolution audit query");
+		};
+		assert_eq!(query.prefix, "java");
+		assert_eq!(query.limit, 7);
+	}
+
+	#[test]
+	fn rejects_unknown_projection_field_with_suggestion() {
+		let error =
+			parse_query("symbol.search name:App\nproject nme uri").expect_err("unknown projection");
+		let message = error.to_string();
+		assert!(
+			message.contains("unknown projection field `nme`"),
+			"{message}"
+		);
+		assert!(message.contains("did you mean `name`?"), "{message}");
+	}
+
+	#[test]
+	fn projected_formatter_emits_only_requested_symbol_fields() {
+		let response = QueryResponse {
+			generation: Some(WorkspaceGeneration(3)),
+			result: QueryResult::SymbolList(SymbolListResult {
+				rows: vec![SymbolDto {
+					root: ".".to_string(),
+					uri: "code+moniker://./lang:rs/fn:run()".to_string(),
+					id: "id".to_string(),
+					name: "run".to_string(),
+					kind: "fn".to_string(),
+					visibility: "public".to_string(),
+					signature: "run()".to_string(),
+					file: "src/lib.rs".to_string(),
+					language: "rs".to_string(),
+					line_range: Some((4, 8)),
+					navigable: true,
+					score: None,
+					match_reason: None,
+					source: None,
+				}],
+				total: 1,
+			}),
+			next_cursor: None,
+		};
+		let formatted =
+			format_query_response_projected(&response, &["name".to_string(), "uri".to_string()]);
+		assert!(
+			formatted.contains("name=run uri=code+moniker://"),
+			"{formatted}"
+		);
+		assert!(!formatted.contains("src/lib.rs"), "{formatted}");
+		assert!(!formatted.contains("signature="), "{formatted}");
+	}
 
 	#[test]
 	fn parses_human_symbol_search() {

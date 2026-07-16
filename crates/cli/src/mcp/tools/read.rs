@@ -97,7 +97,6 @@ impl ReadTool {
 					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
 				}
 			},
-			"required": ["uri"],
 			"additionalProperties": false
 		})
 	}

@@ -12,6 +12,10 @@ export type WorkspaceGeneration = number;
 export type WorkspaceEventKind = "stale" | "refreshed" | "notes" | "git_base";
 export type Query =
   | {
+      op: "query_describe";
+      verb?: string | null;
+    }
+  | {
       op: "workspace_status";
     }
   | {
@@ -89,12 +93,30 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      focus: string;
+      op: "rules_applicable";
+      profile?: string | null;
+      rules?: string | null;
+      workspace?: string | null;
+    }
+  | {
       op: "change_review";
       workspace?: string | null;
     }
   | {
       focus: string;
+      max_items: number;
+      op: "change_context";
+      profile?: string | null;
+      workspace?: string | null;
+    }
+  | {
+      direction: UsageDirection;
+      focus: string;
+      include_internal: boolean;
+      min_count: number;
       op: "symbol_graph";
+      relation: string[];
       workspace?: string | null;
     }
   | {
@@ -130,6 +152,10 @@ export type UsageDirection = "incoming" | "outgoing" | "both";
 export type NotesAction = "list" | "get" | "create" | "update" | "transition" | "delete";
 export type Consistency = "current" | "refresh_if_stale" | "stale_ok";
 export type QueryResult =
+  | {
+      data: QueryDescribeResult;
+      kind: "query_describe";
+    }
   | {
       data: WorkspaceStatus;
       kind: "workspace_status";
@@ -167,8 +193,16 @@ export type QueryResult =
       kind: "rules_check";
     }
   | {
+      data: RulesApplicableResult;
+      kind: "rules_applicable";
+    }
+  | {
       data: ChangeReviewResult;
       kind: "change_review";
+    }
+  | {
+      data: ChangeContextResult;
+      kind: "change_context";
     }
   | {
       data: SymbolGraphResult;
@@ -301,6 +335,9 @@ export interface CapabilitySet {
   commands: string[];
   events: string[];
   queries: string[];
+  query_mcp_tools?: {
+    [k: string]: string;
+  };
 }
 export interface QueryRequest {
   consistency: Consistency;
@@ -319,6 +356,28 @@ export interface QueryResponse {
   generation?: WorkspaceGeneration | null;
   next_cursor?: QueryCursor | null;
   result: QueryResult;
+}
+export interface QueryDescribeResult {
+  capabilities: QueryCapabilityDto[];
+}
+export interface QueryCapabilityDto {
+  category: string;
+  example: string;
+  fields: QueryFieldDto[];
+  mcp_tool: string;
+  name: string;
+  paginated: boolean;
+  positionals: number;
+  projection: boolean;
+  projection_fields: string[];
+  read_only: boolean;
+}
+export interface QueryFieldDto {
+  default?: string | null;
+  multiple: boolean;
+  name: string;
+  required: boolean;
+  value_type: string;
 }
 export interface TreeChildrenResult {
   languages: CountDto[];
@@ -569,6 +628,19 @@ export interface ViolationDto {
   rule_id: string;
   severity: string;
 }
+export interface RulesApplicableResult {
+  file: string;
+  focus: SymbolGraphFocus;
+  language: string;
+  rows: RuleApplicabilityDto[];
+  symbol_kind?: string | null;
+  total: number;
+}
+export interface RuleApplicabilityDto {
+  reason: string;
+  rule: RuleDto;
+  status: string;
+}
 export interface ChangeReviewResult {
   diagnostics: string[];
   files: ChangeReviewFile[];
@@ -636,6 +708,33 @@ export interface ChangeReviewSide {
   name: string;
   visibility: string;
 }
+export interface ChangeContextResult {
+  changed_files: ChangeReviewFile[];
+  changed_symbols: ChangeReviewSymbol[];
+  coverage: ChangeContextCoverageDto;
+  focus: SymbolGraphFocus;
+  graph: SymbolGraphResult;
+  notes: NoteDto[];
+  rules: RuleApplicabilityDto[];
+  source?: SourceSnippet | null;
+  suggested_checks: string[];
+}
+export interface ChangeContextCoverageDto {
+  callees_emitted: number;
+  callees_total: number;
+  callers_emitted: number;
+  callers_total: number;
+  changes_emitted: number;
+  changes_total: number;
+  internal_edges_emitted: number;
+  internal_edges_total: number;
+  members_emitted: number;
+  members_total: number;
+  notes_emitted: number;
+  notes_total: number;
+  rules_emitted: number;
+  rules_total: number;
+}
 export interface SymbolGraphResult {
   callees: SymbolGraphNeighbor[];
   callers: SymbolGraphNeighbor[];
@@ -662,6 +761,17 @@ export interface UnlinkedRefsDto {
   unresolved_reasons: {
     [k: string]: number;
   };
+}
+export interface NoteDto {
+  body: string;
+  created_by: string;
+  id: string;
+  kind: string;
+  moniker: string;
+  resolution: NoteResolutionDto;
+  status: string;
+  title: string;
+  updated_at: string;
 }
 export interface IdentityChildrenResult {
   children: IdentitySegmentDto[];
@@ -730,17 +840,6 @@ export interface NotesResult {
   deleted?: NoteDto | null;
   rows: NoteDto[];
   total: number;
-}
-export interface NoteDto {
-  body: string;
-  created_by: string;
-  id: string;
-  kind: string;
-  moniker: string;
-  resolution: NoteResolutionDto;
-  status: string;
-  title: string;
-  updated_at: string;
 }
 export interface DaemonRegistryEntry {
   cache_dir?: string | null;

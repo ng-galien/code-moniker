@@ -4,6 +4,106 @@ use serde_json::Value;
 
 use code_moniker_workspace::snapshot::SymbolRecord;
 
+const SMALL_OUTPUT_CHARS: usize = 8_000;
+const MEDIUM_OUTPUT_CHARS: usize = 20_000;
+const FULL_OUTPUT_CHARS: usize = 64_000;
+const MIN_OUTPUT_CHARS: usize = 1_000;
+const MAX_OUTPUT_CHARS: usize = 100_000;
+
+pub(in crate::mcp) fn add_output_budget_schema(schema: &mut Value) {
+	let Some(object) = schema.as_object_mut() else {
+		return;
+	};
+	let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) else {
+		return;
+	};
+	properties.insert(
+		"budget".to_string(),
+		serde_json::json!({
+			"type": "string",
+			"enum": ["small", "medium", "full"],
+			"default": "small",
+			"description": "Hard response budget. small=8000, medium=20000, full=64000 characters; full is opt-in."
+		}),
+	);
+	properties.insert(
+		"max_chars".to_string(),
+		serde_json::json!({
+			"type": "integer",
+			"minimum": MIN_OUTPUT_CHARS,
+			"maximum": MAX_OUTPUT_CHARS,
+			"description": "Explicit hard character ceiling overriding budget."
+		}),
+	);
+}
+
+pub(in crate::mcp) fn apply_output_budget(
+	output: String,
+	arguments: &Value,
+) -> anyhow::Result<String> {
+	let max_chars = output_budget_chars(arguments)?;
+	let original_chars = output.chars().count();
+	if original_chars <= max_chars {
+		return Ok(output);
+	}
+	let suffix = format!(
+		"\n\nbudget:\n  max_chars: {max_chars}\n  original_chars: {original_chars}\n  truncated_by: max_chars\n"
+	);
+	let omission = "\n… output omitted by budget …\n";
+	let reserved = suffix.chars().count() + omission.chars().count();
+	if reserved >= max_chars {
+		return Ok(take_chars(&suffix, max_chars));
+	}
+	let available = max_chars - reserved;
+	let next = output
+		.find("\nnext:\n")
+		.map(|offset| output[offset..].to_string())
+		.filter(|tail| tail.chars().count() <= available / 3);
+	let body = match next {
+		Some(tail) => {
+			let head_chars = available.saturating_sub(tail.chars().count());
+			format!(
+				"{}{}{}{}",
+				take_chars(&output, head_chars),
+				omission,
+				tail,
+				suffix
+			)
+		}
+		None => format!("{}{}{}", take_chars(&output, available), omission, suffix),
+	};
+	Ok(body)
+}
+
+pub(in crate::mcp) fn validate_output_budget(arguments: &Value) -> anyhow::Result<()> {
+	output_budget_chars(arguments).map(|_| ())
+}
+
+fn output_budget_chars(arguments: &Value) -> anyhow::Result<usize> {
+	if let Some(value) = arguments.get("max_chars") {
+		let Some(value) = value.as_u64() else {
+			anyhow::bail!("`max_chars` must be an integer");
+		};
+		let value = value as usize;
+		if !(MIN_OUTPUT_CHARS..=MAX_OUTPUT_CHARS).contains(&value) {
+			anyhow::bail!("`max_chars` must be between {MIN_OUTPUT_CHARS} and {MAX_OUTPUT_CHARS}");
+		}
+		return Ok(value);
+	}
+	match arguments.get("budget") {
+		None => Ok(SMALL_OUTPUT_CHARS),
+		Some(Value::String(value)) if value == "small" => Ok(SMALL_OUTPUT_CHARS),
+		Some(Value::String(value)) if value == "medium" => Ok(MEDIUM_OUTPUT_CHARS),
+		Some(Value::String(value)) if value == "full" => Ok(FULL_OUTPUT_CHARS),
+		Some(Value::String(value)) => anyhow::bail!("unknown output budget `{value}`"),
+		Some(_) => anyhow::bail!("`budget` must be a string"),
+	}
+}
+
+fn take_chars(value: &str, count: usize) -> String {
+	value.chars().take(count).collect()
+}
+
 pub(in crate::mcp) fn is_workspace_uri(uri: &str, scheme: &str, default_uri: &str) -> bool {
 	let value = uri.trim();
 	value.is_empty()
@@ -171,7 +271,9 @@ fn escape_call_fragment(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{apply_response_aliases, compact_argument};
+	use super::{
+		apply_output_budget, apply_response_aliases, compact_argument, validate_output_budget,
+	};
 	use serde_json::json;
 
 	#[test]
@@ -179,6 +281,38 @@ mod tests {
 		assert!(compact_argument(&json!({})).unwrap());
 		assert!(!compact_argument(&json!({"compact": false})).unwrap());
 		assert!(compact_argument(&json!({"compact": "yes"})).is_err());
+	}
+
+	#[test]
+	fn output_budget_is_hard_and_preserves_a_small_next_block() {
+		let output = format!(
+			"header\n{}\nnext:\n  - code_moniker_read uri=\"code+moniker://workspace\"\n",
+			"row\n".repeat(3_000)
+		);
+		let bounded = apply_output_budget(output, &json!({"max_chars": 1200})).unwrap();
+		assert!(
+			bounded.chars().count() <= 1200,
+			"{}",
+			bounded.chars().count()
+		);
+		assert!(bounded.contains("truncated_by: max_chars"), "{bounded}");
+		assert!(bounded.contains("code_moniker_read"), "{bounded}");
+	}
+
+	#[test]
+	fn output_budget_defaults_small_and_leaves_short_output_untouched() {
+		let output = "short response\n".to_string();
+		assert_eq!(
+			apply_output_budget(output.clone(), &json!({})).unwrap(),
+			output
+		);
+	}
+
+	#[test]
+	fn output_budget_rejects_non_string_values() {
+		assert!(validate_output_budget(&json!({"budget": 42})).is_err());
+		assert!(validate_output_budget(&json!({"budget": false})).is_err());
+		assert!(validate_output_budget(&json!({"budget": null})).is_err());
 	}
 
 	#[test]

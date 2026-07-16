@@ -1,7 +1,9 @@
 pub(in crate::mcp) mod common;
+pub(super) mod context;
 pub(super) mod diff;
 pub(super) mod graph;
 pub(super) mod notes;
+pub(super) mod query;
 pub(super) mod read;
 pub(super) mod refresh;
 pub(super) mod rules;
@@ -13,9 +15,11 @@ pub(in crate::mcp) mod usages;
 use serde_json::Value;
 
 use super::context::McpContext;
+use context::ContextTool;
 use diff::DiffTool;
 use graph::GraphTool;
 use notes::NotesTool;
+use query::QueryTool;
 use read::ReadTool;
 use refresh::RefreshTool;
 use rmcp::model::{JsonObject, Tool};
@@ -32,7 +36,10 @@ pub(super) struct ToolDescriptor {
 
 impl ToolDescriptor {
 	#[cfg(test)]
-	fn into_mcp_value(self) -> Value {
+	fn into_mcp_value(mut self) -> Value {
+		if supports_output_budget(self.name) {
+			common::add_output_budget_schema(&mut self.input_schema);
+		}
 		serde_json::json!({
 			"name": self.name,
 			"description": self.description,
@@ -100,9 +107,11 @@ enum ToolErrorKind {
 
 pub(super) struct ToolRegistry {
 	read: ReadTool,
+	context: ContextTool,
 	diff: DiffTool,
 	graph: GraphTool,
 	notes: NotesTool,
+	query: QueryTool,
 	refresh: RefreshTool,
 	rules: RulesTool,
 	search: SearchTool,
@@ -114,9 +123,11 @@ impl ToolRegistry {
 	pub(super) fn new() -> Self {
 		Self {
 			read: ReadTool,
+			context: ContextTool,
 			diff: DiffTool,
 			graph: GraphTool,
 			notes: NotesTool,
+			query: QueryTool,
 			refresh: RefreshTool,
 			rules: RulesTool,
 			search: SearchTool,
@@ -125,9 +136,19 @@ impl ToolRegistry {
 		}
 	}
 
-	fn all(&self) -> [&dyn McpTool; 9] {
+	#[cfg(test)]
+	pub(super) fn descriptors(&self) -> Vec<Value> {
+		self.all()
+			.into_iter()
+			.map(|tool| tool.descriptor().into_mcp_value())
+			.collect()
+	}
+
+	fn all(&self) -> [&dyn McpTool; 11] {
 		[
 			&self.read,
+			&self.context,
+			&self.query,
 			&self.notes,
 			&self.search,
 			&self.symbols,
@@ -137,14 +158,6 @@ impl ToolRegistry {
 			&self.graph,
 			&self.refresh,
 		]
-	}
-
-	#[cfg(test)]
-	pub(super) fn descriptors(&self) -> Vec<Value> {
-		self.all()
-			.into_iter()
-			.map(|tool| tool.descriptor().into_mcp_value())
-			.collect()
 	}
 
 	pub(super) fn tools(&self) -> Vec<Tool> {
@@ -167,18 +180,33 @@ impl ToolRegistry {
 		else {
 			return Err(ToolError::unknown_tool(name));
 		};
-		tool.call(context, arguments)
+		if supports_output_budget(name) {
+			common::validate_output_budget(arguments).map_err(ToolError::failed)?;
+		}
+		let mut result = tool.call(context, arguments)?;
+		if !result.is_error && supports_output_budget(name) {
+			result.text =
+				common::apply_output_budget(result.text, arguments).map_err(ToolError::failed)?;
+		}
+		Ok(result)
 	}
 }
 
 impl ToolDescriptor {
-	fn into_rmcp_tool(self) -> Tool {
+	fn into_rmcp_tool(mut self) -> Tool {
+		if supports_output_budget(self.name) {
+			common::add_output_budget_schema(&mut self.input_schema);
+		}
 		Tool::new(
 			self.name,
 			self.description,
 			json_object_schema(self.input_schema),
 		)
 	}
+}
+
+fn supports_output_budget(name: &str) -> bool {
+	name != RefreshTool::NAME
 }
 
 fn json_object_schema(schema: Value) -> JsonObject {

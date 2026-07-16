@@ -12,7 +12,7 @@ use code_moniker_check::{
 	CheckRequest, CheckSkipReason, CheckSummary, CompiledRuleSpec, DefaultRulesSelection,
 	RuleReport, RuleSetRequest, RuleSeverity, Violation,
 };
-use code_moniker_core::core::shape::Shape;
+use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use code_moniker_query::{
 	AuditClusterDto, AuditSampleDto, AuditTotalsDto, AuditZoneDto, CapabilitySet, CheckSummaryDto,
@@ -26,6 +26,7 @@ use code_moniker_query::{
 	SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode, TreeNodeKind,
 	UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto, WorkspaceEventDto,
 	WorkspaceEventKind, WorkspaceGeneration, WorkspaceRootStatus, WorkspaceStatus,
+	describe_query_capabilities,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -47,10 +48,12 @@ use jsonrpsee::types::ErrorObjectOwned;
 const DEFAULT_SCHEME: &str = "code+moniker://";
 
 use code_moniker_query::{
-	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
-	ChangeReviewSummary, ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult,
-	IdentityGraphEdge, IdentityGraphPort, IdentityGraphResult, IdentitySegmentDto, SymbolGraphEdge,
-	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
+	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
+	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide, ChangeReviewSummary,
+	ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphEdge,
+	IdentityGraphPort, IdentityGraphResult, IdentitySegmentDto, RuleApplicabilityDto,
+	RulesApplicableQuery, RulesApplicableResult, SymbolGraphEdge, SymbolGraphFocus,
+	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -511,6 +514,9 @@ fn handle_query(
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
 	drain_live_events(daemon)?;
+	if let Query::QueryDescribe(query) = &request.query {
+		return query_describe_response(query.verb.as_deref());
+	}
 	if matches!(&request.query, Query::WorkspaceStatus) {
 		return workspace_status(&daemon.roots, &daemon.registry);
 	}
@@ -535,32 +541,45 @@ fn handle_query(
 	}
 	let snapshot = snapshot(&daemon.registry)?.clone();
 	let current_generation = generation(&daemon.registry);
+	let response_roots = daemon.roots.clone();
+	let response_config_root = daemon.config_root.clone();
 	let response = ResponseContext {
-		roots: &daemon.roots,
-		config_root: &daemon.config_root,
+		roots: &response_roots,
+		config_root: &response_config_root,
 		generation: current_generation,
 	};
+	dispatch_loaded_query(daemon, &snapshot, response, request)
+}
+
+fn dispatch_loaded_query(
+	daemon: &mut WorkspaceDaemon,
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	request: QueryRequest,
+) -> Result<QueryResponse, QueryError> {
+	let current_generation = response.generation;
 	match request.query {
+		Query::QueryDescribe(_) => unreachable!("query describe handled before snapshot load"),
 		Query::WorkspaceStatus => unreachable!("workspace status handled before snapshot load"),
 		Query::TreeChildren(query) => tree_children_response(
-			&snapshot,
+			snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::SymbolSearch(query) => symbol_search_response(
-			&snapshot,
+			snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::SymbolInsights(query) => {
-			symbol_insights_response(&snapshot, &daemon.roots, query, current_generation)
+			symbol_insights_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::SymbolDetail(query) => symbol_detail_response(
-			&snapshot,
+			snapshot,
 			&daemon.roots,
 			query.workspace.as_deref(),
 			&query.uri,
@@ -568,17 +587,17 @@ fn handle_query(
 			current_generation,
 		),
 		Query::SymbolUsages(query) => symbol_usages_response(
-			&snapshot,
+			snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::ViewRead(query) => {
-			view_read_response(&snapshot, &daemon.roots, query, current_generation)
+			view_read_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::RulesList(query) => rules_list_response(
-			&snapshot,
+			snapshot,
 			response,
 			RulesListEval {
 				workspace: query.workspace,
@@ -602,25 +621,43 @@ fn handle_query(
 				page: request.page,
 			},
 		),
-		Query::ChangeReview(query) => {
-			change_review_response(&snapshot, &daemon.roots, query, current_generation)
+		Query::RulesApplicable(query) => {
+			rules_applicable_response(snapshot, response, query, request.page)
 		}
+		Query::ChangeReview(query) => {
+			change_review_response(snapshot, &daemon.roots, query, current_generation)
+		}
+		Query::ChangeContext(query) => change_context_response(daemon, snapshot, response, query),
 		Query::SymbolGraph(query) => {
-			symbol_graph_response(&snapshot, &daemon.roots, query, current_generation)
+			symbol_graph_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::IdentityChildren(query) => {
-			identity_children_response(&snapshot, &daemon.roots, query, current_generation)
+			identity_children_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::IdentityGraph(query) => {
-			identity_graph_response(&snapshot, &daemon.roots, query, current_generation)
+			identity_graph_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::ResolutionAudit(query) => {
-			resolution_audit_response(&snapshot, &daemon.roots, query, current_generation)
+			resolution_audit_response(snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::Notes(query) => {
-			notes_response(daemon, &snapshot, query, request.page, current_generation)
+			notes_response(daemon, snapshot, query, request.page, current_generation)
 		}
 	}
+}
+
+fn query_describe_response(verb: Option<&str>) -> Result<QueryResponse, QueryError> {
+	let result = describe_query_capabilities(verb).ok_or_else(|| {
+		QueryError::new(
+			"unknown_query",
+			format!("unknown query operation `{}`", verb.unwrap_or_default()),
+		)
+	})?;
+	Ok(QueryResponse {
+		generation: None,
+		result: QueryResult::QueryDescribe(result),
+		next_cursor: None,
+	})
 }
 
 enum UnitBoundary {
@@ -764,20 +801,46 @@ fn symbol_graph_response(
 		})
 		.collect();
 	member_dtos.sort_by_key(|dto| dto.line_range);
+	let relation_matches = |kinds: &[String]| {
+		query.relation.is_empty()
+			|| kinds
+				.iter()
+				.any(|kind| query.relation.iter().any(|expected| expected == kind))
+	};
+	let mut internal_edges = internal
+		.into_iter()
+		.map(|((source, target), (kinds, count))| SymbolGraphEdge {
+			source: source.to_string(),
+			target: target.to_string(),
+			kinds: kinds.into_iter().collect(),
+			count,
+		})
+		.filter(|edge| edge.count >= query.min_count && relation_matches(&edge.kinds))
+		.collect::<Vec<_>>();
+	if !query.include_internal {
+		internal_edges.clear();
+	}
+	let filter_neighbors = |neighbors: Vec<SymbolGraphNeighbor>| {
+		neighbors
+			.into_iter()
+			.filter(|neighbor| {
+				neighbor.count >= query.min_count && relation_matches(&neighbor.kinds)
+			})
+			.collect::<Vec<_>>()
+	};
+	let mut callers = filter_neighbors(callers.into_neighbors(snapshot, roots));
+	let mut callees = filter_neighbors(callees.into_neighbors(snapshot, roots));
+	match query.direction {
+		UsageDirection::Incoming => callees.clear(),
+		UsageDirection::Outgoing => callers.clear(),
+		UsageDirection::Both => {}
+	}
 	let result = SymbolGraphResult {
 		focus,
 		members: member_dtos,
-		internal_edges: internal
-			.into_iter()
-			.map(|((source, target), (kinds, count))| SymbolGraphEdge {
-				source: source.to_string(),
-				target: target.to_string(),
-				kinds: kinds.into_iter().collect(),
-				count,
-			})
-			.collect(),
-		callers: callers.into_neighbors(snapshot, roots),
-		callees: callees.into_neighbors(snapshot, roots),
+		internal_edges,
+		callers,
+		callees,
 		unlinked,
 	};
 	Ok(QueryResponse {
@@ -1355,6 +1418,15 @@ fn change_review_ref(
 
 fn workspace_loading_response(request: ProtocolRequest, roots: &[PathBuf]) -> ProtocolResponse {
 	match request {
+		ProtocolRequest::Query(request) if matches!(&request.query, Query::QueryDescribe(_)) => {
+			match &request.query {
+				Query::QueryDescribe(query) => query_describe_response(query.verb.as_deref())
+					.map_or_else(ProtocolResponse::Error, |response| {
+						ProtocolResponse::Query(Box::new(response))
+					}),
+				_ => unreachable!(),
+			}
+		}
 		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus) => {
 			ProtocolResponse::Query(Box::new(workspace_status_loading(roots)))
 		}
@@ -2332,6 +2404,422 @@ fn rules_list_response(
 			rows: paged.items,
 		}),
 		next_cursor: paged.next_cursor,
+	})
+}
+
+fn rules_applicable_response(
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	query: RulesApplicableQuery,
+	page: Page,
+) -> Result<QueryResponse, QueryError> {
+	let (_, focus) = resolve_unit_boundary(snapshot, response.roots, &query.focus)?;
+	let (file, language, symbol_kind) = focus_rule_coordinates(snapshot, &focus)?;
+	let listed = rules_list_response(
+		snapshot,
+		response,
+		RulesListEval {
+			workspace: query.workspace,
+			profile: query.profile,
+			rules: query.rules,
+			filters: RulesListFilters {
+				langs: vec![language.clone()],
+				severities: Vec::new(),
+			},
+			page: Page {
+				cursor: None,
+				limit: usize::MAX,
+			},
+		},
+	)?;
+	let QueryResult::RulesList(listed) = listed.result else {
+		return Err(QueryError::new(
+			"rules_contract",
+			"unexpected rules list response",
+		));
+	};
+	let rows = listed
+		.rows
+		.into_iter()
+		.map(|rule| rule_applicability(rule, &language, symbol_kind.as_deref()))
+		.collect::<Vec<_>>();
+	let paged = page_rows(rows, page, response.generation)?;
+	Ok(QueryResponse {
+		generation: response.generation,
+		result: QueryResult::RulesApplicable(Box::new(RulesApplicableResult {
+			focus,
+			file,
+			language,
+			symbol_kind,
+			total: paged.total,
+			rows: paged.items,
+		})),
+		next_cursor: paged.next_cursor,
+	})
+}
+
+fn focus_rule_coordinates(
+	snapshot: &WorkspaceSnapshot,
+	focus: &SymbolGraphFocus,
+) -> Result<(String, String, Option<String>), QueryError> {
+	match focus {
+		SymbolGraphFocus::Symbol { symbol } => Ok((
+			symbol.file.clone(),
+			symbol.language.clone(),
+			Some(symbol.kind.clone()),
+		)),
+		SymbolGraphFocus::File { path } => {
+			let source = snapshot
+				.index
+				.sources
+				.iter()
+				.find(|source| &source.rel_path == path)
+				.ok_or_else(|| {
+					QueryError::new("source_not_found", format!("source not found: {path}"))
+				})?;
+			Ok((path.clone(), source.language.clone(), None))
+		}
+	}
+}
+
+fn rule_applicability(
+	rule: RuleDto,
+	language: &str,
+	symbol_kind: Option<&str>,
+) -> RuleApplicabilityDto {
+	let (status, reason) = if rule.lang != language {
+		(
+			"ignored",
+			format!("rule language {} does not match {language}", rule.lang),
+		)
+	} else if rule.domain == "refs" {
+		(
+			"potential",
+			"reference rule may evaluate references anchored in this scope".to_string(),
+		)
+	} else if let (Some(expected), Some(actual)) = (rule.kind.as_deref(), symbol_kind) {
+		if expected == actual {
+			(
+				"applicable",
+				format!("language and symbol kind `{actual}` match"),
+			)
+		} else {
+			(
+				"ignored",
+				format!("rule kind `{expected}` does not match symbol kind `{actual}`"),
+			)
+		}
+	} else if let Some(expected) = rule
+		.domain
+		.strip_prefix("shape:")
+		.and_then(|domain| domain.split_whitespace().next())
+	{
+		match symbol_kind
+			.and_then(|kind| shape_of(kind.as_bytes()))
+			.map(Shape::as_str)
+		{
+			Some(actual) if actual == expected => (
+				"applicable",
+				format!("language and symbol shape `{actual}` match"),
+			),
+			Some(actual) => (
+				"ignored",
+				format!("rule shape `{expected}` does not match symbol shape `{actual}`"),
+			),
+			None => (
+				"potential",
+				format!("file scope matches; select a `{expected}` symbol to prove applicability"),
+			),
+		}
+	} else if rule.kind.is_some() && symbol_kind.is_none() {
+		(
+			"potential",
+			"file scope matches the language; select a symbol to prove kind applicability"
+				.to_string(),
+		)
+	} else {
+		("applicable", "language and scope match".to_string())
+	};
+	RuleApplicabilityDto {
+		rule,
+		status: status.to_string(),
+		reason,
+	}
+}
+
+fn change_context_response(
+	daemon: &mut WorkspaceDaemon,
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	query: ChangeContextQuery,
+) -> Result<QueryResponse, QueryError> {
+	let max_items = query.max_items.clamp(1, 100);
+	let context_graph = bounded_context_graph(snapshot, response, &query, max_items)?;
+	let (notes_total, notes) = context_notes(
+		daemon,
+		snapshot,
+		&context_graph.focus,
+		max_items,
+		response.generation,
+	)?;
+	let (rules_total, rules) = context_rules(snapshot, response, &query, max_items)?;
+	let changes = context_changes(
+		snapshot,
+		response,
+		query.workspace.clone(),
+		&context_graph.file,
+		max_items,
+	)?;
+	let profile_arg = query
+		.profile
+		.as_deref()
+		.map_or_else(String::new, |profile| {
+			format!(" profile=\"{}\"", profile.replace('"', "\\\""))
+		});
+	let escaped_file = context_graph.file.replace('"', "\\\"");
+	let suggested_checks = vec![format!(
+		"code_moniker_rules uri=\"workspace\" action=\"run\"{profile_arg} file=\"{escaped_file}\" limit=20"
+	)];
+	let coverage = ChangeContextCoverageDto {
+		members_total: context_graph.members_total,
+		members_emitted: context_graph.graph.members.len(),
+		internal_edges_total: context_graph.internal_edges_total,
+		internal_edges_emitted: context_graph.graph.internal_edges.len(),
+		callers_total: context_graph.callers_total,
+		callers_emitted: context_graph.graph.callers.len(),
+		callees_total: context_graph.callees_total,
+		callees_emitted: context_graph.graph.callees.len(),
+		notes_total,
+		notes_emitted: notes.len(),
+		rules_total,
+		rules_emitted: rules.len(),
+		changes_total: changes.total,
+		changes_emitted: changes.files.len() + changes.symbols.len(),
+	};
+	Ok(QueryResponse {
+		generation: response.generation,
+		result: QueryResult::ChangeContext(Box::new(ChangeContextResult {
+			focus: context_graph.focus,
+			source: context_graph.source,
+			graph: Box::new(context_graph.graph),
+			notes,
+			rules,
+			changed_files: changes.files,
+			changed_symbols: changes.symbols,
+			suggested_checks,
+			coverage,
+		})),
+		next_cursor: None,
+	})
+}
+
+struct BoundedContextGraph {
+	graph: SymbolGraphResult,
+	focus: SymbolGraphFocus,
+	file: String,
+	source: Option<SourceSnippet>,
+	members_total: usize,
+	internal_edges_total: usize,
+	callers_total: usize,
+	callees_total: usize,
+}
+
+fn bounded_context_graph(
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	query: &ChangeContextQuery,
+	max_items: usize,
+) -> Result<BoundedContextGraph, QueryError> {
+	let graph_response = symbol_graph_response(
+		snapshot,
+		response.roots,
+		SymbolGraphQuery {
+			workspace: query.workspace.clone(),
+			focus: query.focus.clone(),
+			..Default::default()
+		},
+		response.generation,
+	)?;
+	let QueryResult::SymbolGraph(graph) = graph_response.result else {
+		return Err(QueryError::new(
+			"graph_contract",
+			"unexpected symbol graph response",
+		));
+	};
+	let mut graph = *graph;
+	let members_total = graph.members.len();
+	let internal_edges_total = graph.internal_edges.len();
+	let callers_total = graph.callers.len();
+	let callees_total = graph.callees.len();
+	graph.callers.truncate(max_items);
+	graph.callees.truncate(max_items);
+	graph.members.truncate(max_items);
+	graph.internal_edges.truncate(max_items);
+	let focus = graph.focus.clone();
+	let (file, _, _) = focus_rule_coordinates(snapshot, &focus)?;
+	let source = match &focus {
+		SymbolGraphFocus::Symbol { symbol } => {
+			let detail = symbol_detail_response(
+				snapshot,
+				response.roots,
+				query.workspace.as_deref(),
+				&symbol.uri,
+				2,
+				response.generation,
+			)?;
+			match detail.result {
+				QueryResult::SymbolDetail(detail) => detail.source,
+				_ => None,
+			}
+		}
+		SymbolGraphFocus::File { .. } => None,
+	};
+	Ok(BoundedContextGraph {
+		graph,
+		focus,
+		file,
+		source,
+		members_total,
+		internal_edges_total,
+		callers_total,
+		callees_total,
+	})
+}
+
+fn context_notes(
+	daemon: &mut WorkspaceDaemon,
+	snapshot: &WorkspaceSnapshot,
+	focus: &SymbolGraphFocus,
+	max_items: usize,
+	generation: Option<WorkspaceGeneration>,
+) -> Result<(usize, Vec<NoteDto>), QueryError> {
+	Ok(match focus {
+		SymbolGraphFocus::Symbol { symbol } => {
+			let notes = notes_response(
+				daemon,
+				snapshot,
+				NotesQuery {
+					action: NotesAction::List,
+					id: None,
+					moniker: Some(symbol.uri.clone()),
+					kind: None,
+					status: None,
+					title: None,
+					body: None,
+					created_by: None,
+					orphan: None,
+					include_done: false,
+				},
+				Page {
+					cursor: None,
+					limit: max_items,
+				},
+				generation,
+			)?;
+			match notes.result {
+				QueryResult::Notes(notes) => (notes.total, notes.rows),
+				_ => (0, Vec::new()),
+			}
+		}
+		SymbolGraphFocus::File { .. } => (0, Vec::new()),
+	})
+}
+
+fn context_rules(
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	query: &ChangeContextQuery,
+	max_items: usize,
+) -> Result<(usize, Vec<RuleApplicabilityDto>), QueryError> {
+	let applicable = rules_applicable_response(
+		snapshot,
+		response,
+		RulesApplicableQuery {
+			workspace: query.workspace.clone(),
+			focus: query.focus.clone(),
+			profile: query.profile.clone(),
+			rules: None,
+		},
+		Page {
+			cursor: None,
+			limit: usize::MAX,
+		},
+	)?;
+	let QueryResult::RulesApplicable(applicable) = applicable.result else {
+		return Err(QueryError::new(
+			"rules_contract",
+			"unexpected applicable rules response",
+		));
+	};
+	let total = applicable
+		.rows
+		.iter()
+		.filter(|row| row.status == "applicable")
+		.count();
+	let rows = applicable
+		.rows
+		.into_iter()
+		.filter(|row| row.status == "applicable")
+		.take(max_items)
+		.collect::<Vec<_>>();
+	Ok((total, rows))
+}
+
+struct ContextChanges {
+	total: usize,
+	files: Vec<ChangeReviewFile>,
+	symbols: Vec<ChangeReviewSymbol>,
+}
+
+fn context_changes(
+	snapshot: &WorkspaceSnapshot,
+	response: ResponseContext<'_>,
+	workspace: Option<String>,
+	file: &str,
+	max_items: usize,
+) -> Result<ContextChanges, QueryError> {
+	let review = change_review_response(
+		snapshot,
+		response.roots,
+		ChangeReviewQuery { workspace },
+		response.generation,
+	)?;
+	let QueryResult::ChangeReview(review) = review.result else {
+		return Err(QueryError::new(
+			"change_contract",
+			"unexpected change review response",
+		));
+	};
+	let all_changed_files = review
+		.files
+		.iter()
+		.filter(|changed| {
+			changed.old_path.as_deref() == Some(file) || changed.new_path.as_deref() == Some(file)
+		})
+		.cloned()
+		.collect::<Vec<_>>();
+	let all_changed_symbols = review
+		.symbol_changes
+		.iter()
+		.filter(|changed| {
+			changed.old.as_ref().is_some_and(|side| side.file == file)
+				|| changed.new.as_ref().is_some_and(|side| side.file == file)
+		})
+		.cloned()
+		.collect::<Vec<_>>();
+	let changes_total = all_changed_files.len() + all_changed_symbols.len();
+	let changed_files = all_changed_files
+		.into_iter()
+		.take(max_items)
+		.collect::<Vec<_>>();
+	let changed_symbols = all_changed_symbols
+		.into_iter()
+		.take(max_items.saturating_sub(changed_files.len()))
+		.collect::<Vec<_>>();
+	Ok(ContextChanges {
+		total: changes_total,
+		files: changed_files,
+		symbols: changed_symbols,
 	})
 }
 
@@ -3342,6 +3830,163 @@ mod tests {
 		}
 	}
 
+	fn assert_filtered_outgoing_graph(daemon: &mut WorkspaceDaemon, entry_uri: String) {
+		let filtered = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolGraph(code_moniker_query::SymbolGraphQuery {
+				workspace: None,
+				focus: entry_uri,
+				direction: code_moniker_query::UsageDirection::Outgoing,
+				relation: vec!["calls".to_string()],
+				min_count: 2,
+				include_internal: false,
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(filtered) = filtered else {
+			panic!("expected filtered graph response");
+		};
+		let QueryResult::SymbolGraph(filtered) = filtered.result else {
+			panic!("expected filtered graph, got {:?}", filtered.result);
+		};
+		assert!(filtered.callers.is_empty(), "{filtered:?}");
+		assert!(filtered.internal_edges.is_empty(), "{filtered:?}");
+		assert_eq!(filtered.callees.len(), 1, "{filtered:?}");
+		assert!(filtered.callees[0].symbol.name.starts_with("helper"));
+	}
+
+	#[test]
+	fn query_describe_does_not_require_a_loaded_snapshot() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::QueryDescribe(code_moniker_query::QueryDescribeQuery {
+				verb: Some("change.context".to_string()),
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected query response, got {response:?}");
+		};
+		let QueryResult::QueryDescribe(result) = response.result else {
+			panic!("expected query describe, got {:?}", response.result);
+		};
+		assert_eq!(result.capabilities.len(), 1);
+		assert_eq!(result.capabilities[0].name, "change.context");
+	}
+
+	#[test]
+	fn applicable_rules_and_change_context_are_symbol_scoped() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src = temp.path().join("src");
+		fs::create_dir_all(&src).expect("src dir");
+		fs::write(
+			temp.path().join(".code-moniker.toml"),
+			concat!(
+				"default_rules = false\n\n",
+				"[[rust.fn.where]]\n",
+				"id = \"function-snake-case\"\n",
+				"expr = \"name =~ ^[a-z][a-z0-9_]*$\"\n",
+				"severity = \"warn\"\n",
+				"message = \"Function `{name}` should be snake_case.\"\n",
+				"\n[[rust.shape.type.where]]\n",
+				"id = \"type-rule\"\n",
+				"expr = \"name =~ .\"\n",
+				"message = \"Type rule.\"\n",
+				"\n[[refs.where]]\n",
+				"id = \"reference-rule\"\n",
+				"expr = \"source ~ '**'\"\n",
+				"message = \"Reference rule.\"\n",
+			),
+		)
+		.expect("rules config");
+		fs::write(
+			src.join("lib.rs"),
+			"pub fn entry() { helper(); }\nfn helper() {}\n",
+		)
+		.expect("source");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let QueryResult::SymbolList(symbols) = search_symbols(&mut daemon, "entry") else {
+			panic!("expected symbol search result");
+		};
+		let entry = symbols
+			.rows
+			.iter()
+			.find(|symbol| symbol.name.starts_with("entry"))
+			.expect("entry symbol");
+		let entry_uri = entry.uri.clone();
+
+		let applicable =
+			daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+				Query::RulesApplicable(code_moniker_query::RulesApplicableQuery {
+					workspace: None,
+					focus: entry_uri.clone(),
+					profile: None,
+					rules: None,
+				}),
+			))));
+		let ProtocolResponse::Query(applicable) = applicable else {
+			panic!("expected applicable rules response, got {applicable:?}");
+		};
+		let QueryResult::RulesApplicable(applicable) = applicable.result else {
+			panic!("expected applicable rules, got {:?}", applicable.result);
+		};
+		assert_eq!(applicable.file, "src/lib.rs");
+		assert_eq!(applicable.symbol_kind.as_deref(), Some("fn"));
+		assert!(
+			applicable.rows.iter().any(
+				|row| row.status == "applicable" && row.rule.id.contains("function-snake-case")
+			),
+			"{applicable:?}"
+		);
+		assert!(
+			applicable
+				.rows
+				.iter()
+				.any(|row| row.status == "ignored" && row.rule.id.contains("type-rule")),
+			"{applicable:?}"
+		);
+		assert!(
+			applicable
+				.rows
+				.iter()
+				.any(|row| row.status == "potential" && row.rule.id.contains("reference-rule")),
+			"{applicable:?}"
+		);
+
+		let context = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::ChangeContext(code_moniker_query::ChangeContextQuery {
+				workspace: None,
+				focus: entry_uri.clone(),
+				profile: None,
+				max_items: 1,
+			}),
+		))));
+		let ProtocolResponse::Query(context) = context else {
+			panic!("expected change context response");
+		};
+		let QueryResult::ChangeContext(context) = context.result else {
+			panic!("expected change context, got {:?}", context.result);
+		};
+		assert!(
+			matches!(&context.focus, code_moniker_query::SymbolGraphFocus::Symbol { symbol } if symbol.uri == entry_uri),
+			"{context:?}"
+		);
+		assert_eq!(context.coverage.callees_emitted, 1);
+		assert!(context.coverage.callees_total >= context.coverage.callees_emitted);
+		assert_eq!(context.coverage.rules_emitted, 1);
+		assert_eq!(context.suggested_checks.len(), 1);
+		assert!(
+			context.suggested_checks[0].starts_with("code_moniker_rules "),
+			"{:?}",
+			context.suggested_checks
+		);
+		assert!(!context.suggested_checks[0].contains("@m"));
+	}
+
 	#[test]
 	fn change_review_query_serves_semantic_facts_from_the_snapshot() {
 		let temp = tempfile::tempdir().expect("tempdir");
@@ -3467,6 +4112,7 @@ mod tests {
 				query: Query::SymbolGraph(code_moniker_query::SymbolGraphQuery {
 					workspace: None,
 					focus: focus.to_string(),
+					..Default::default()
 				}),
 				consistency: code_moniker_query::Consistency::Current,
 				page: Page::default(),
@@ -3536,6 +4182,7 @@ mod tests {
 			"{unit:?}"
 		);
 		assert!(unit.internal_edges.is_empty(), "{unit:?}");
+		assert_filtered_outgoing_graph(&mut daemon, entry_uri);
 	}
 
 	#[test]

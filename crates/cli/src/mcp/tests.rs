@@ -7,6 +7,7 @@ use std::thread::{self, JoinHandle};
 use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_query::{
 	Command, CommandRequest, Query, QueryRequest, QueryResult, SymbolSearchQuery,
+	query_capability_specs,
 };
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
@@ -141,7 +142,7 @@ fn read_description_matches_esac_style() {
 	assert!(descriptor.description.contains("Read from code-moniker."));
 	assert!(descriptor.description.contains("workspace"));
 	assert!(descriptor.description.contains("limit/cursor"));
-	assert_eq!(descriptor.input_schema["required"][0], "uri");
+	assert!(descriptor.input_schema.get("required").is_none());
 }
 
 #[test]
@@ -184,29 +185,70 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 #[test]
 fn tools_list_returns_mcp_shape() {
 	let tools = ToolRegistry::new().descriptors();
-	assert_eq!(tools[0]["name"], "code_moniker_read");
-	assert_eq!(tools[1]["name"], "code_moniker_notes");
-	assert_eq!(tools[2]["name"], "code_moniker_search");
-	assert_eq!(tools[3]["name"], "code_moniker_symbols");
-	assert_eq!(tools[4]["name"], "code_moniker_usages");
-	assert_eq!(tools[5]["name"], "code_moniker_rules");
-	assert_eq!(tools[6]["name"], "code_moniker_diff");
-	assert_eq!(tools[7]["name"], "code_moniker_graph");
-	assert_eq!(tools[8]["name"], "code_moniker_refresh");
+	let names = tools
+		.iter()
+		.map(|tool| tool["name"].as_str().unwrap())
+		.collect::<Vec<_>>();
+	assert_eq!(
+		names,
+		vec![
+			"code_moniker_read",
+			"code_moniker_context",
+			"code_moniker_query",
+			"code_moniker_notes",
+			"code_moniker_search",
+			"code_moniker_symbols",
+			"code_moniker_usages",
+			"code_moniker_rules",
+			"code_moniker_diff",
+			"code_moniker_graph",
+			"code_moniker_refresh",
+		]
+	);
+	for capability in query_capability_specs() {
+		assert!(
+			names.contains(&capability.mcp_tool),
+			"query {} declares missing MCP surface {}",
+			capability.name,
+			capability.mcp_tool
+		);
+	}
 	assert!(
 		tools[0]["description"]
 			.as_str()
 			.unwrap()
 			.starts_with("When to use:")
 	);
-	for index in [0, 2, 3, 4, 5] {
+	for name in [
+		"code_moniker_read",
+		"code_moniker_context",
+		"code_moniker_query",
+		"code_moniker_search",
+		"code_moniker_symbols",
+		"code_moniker_usages",
+		"code_moniker_rules",
+	] {
+		let tool = tools
+			.iter()
+			.find(|tool| tool["name"] == name)
+			.expect("tool descriptor");
 		assert_eq!(
-			tools[index]["inputSchema"]["properties"]["compact"]["type"],
+			tool["inputSchema"]["properties"]["compact"]["type"],
 			"boolean"
 		);
 		assert_eq!(
-			tools[index]["inputSchema"]["properties"]["compact"]["default"],
+			tool["inputSchema"]["properties"]["compact"]["default"],
 			true
+		);
+	}
+	for tool in &tools[..tools.len() - 1] {
+		assert_eq!(
+			tool["inputSchema"]["properties"]["budget"]["default"],
+			"small"
+		);
+		assert_eq!(
+			tool["inputSchema"]["properties"]["max_chars"]["type"],
+			"integer"
 		);
 	}
 }
@@ -245,6 +287,182 @@ fn refresh_tool_requests_daemon_refresh_and_reports_generation() {
 
 	assert!(result.text.contains("refreshed: generation"));
 	assert!(result.text.contains("workspace refreshed"));
+}
+
+#[test]
+fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+
+	let described = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"query": "query.describe verb:\"identity.graph\""}),
+		)
+		.expect("query describe");
+	assert!(!described.is_error);
+	assert!(
+		described.text.contains("operation: query.describe"),
+		"{}",
+		described.text
+	);
+	assert!(
+		described.text.contains("identity.graph"),
+		"{}",
+		described.text
+	);
+	assert!(
+		described.text.contains("read_only=true"),
+		"{}",
+		described.text
+	);
+
+	let graph = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"query": "identity.graph prefix:\"lang:java\" limit:10"}),
+		)
+		.expect("identity graph");
+	assert!(!graph.is_error);
+	assert!(
+		graph.text.contains("operation: identity.graph"),
+		"{}",
+		graph.text
+	);
+	assert!(graph.text.contains("nodes:"), "{}", graph.text);
+
+	let moniker = app_symbol_moniker(&context);
+	let detail = format!("symbol.detail uri:\"{moniker}\"");
+	let batch = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"queries": [detail.clone(), detail]}),
+		)
+		.expect("query batch");
+	assert!(batch.text.contains("mode: query.batch"), "{}", batch.text);
+	assert!(batch.text.starts_with("aliases:\n"), "{}", batch.text);
+	assert!(batch.text.contains("@1"), "{}", batch.text);
+
+	let projected = "symbol.search name:\"App\" limit:1\nproject name uri";
+	let projected_batch = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"queries": [projected, projected]}),
+		)
+		.expect("projected query batch");
+	assert!(
+		projected_batch.text.starts_with("aliases:\n"),
+		"{}",
+		projected_batch.text
+	);
+	assert!(
+		projected_batch.text.contains("uri=@1"),
+		"{}",
+		projected_batch.text
+	);
+
+	let mutation = registry.call(
+		&context,
+		"code_moniker_query",
+		&json!({"query": "notes action:create title:\"blocked\""}),
+	);
+	assert!(mutation.is_err(), "mixed query must use its dedicated tool");
+}
+
+#[test]
+fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(
+		temp.path(),
+		"class App {\n  void run() { helper(); }\n  void helper() {}\n}\n",
+	);
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+	let result = ToolRegistry::new()
+		.call(
+			&context,
+			"code_moniker_context",
+			&json!({"focus": moniker, "max_items": 1}),
+		)
+		.expect("change context");
+	assert!(!result.is_error);
+	assert!(
+		result.text.contains("mode: change.context"),
+		"{}",
+		result.text
+	);
+	assert!(result.text.contains("coverage:"), "{}", result.text);
+	assert!(result.text.contains("members:"), "{}", result.text);
+	assert!(result.text.starts_with("aliases:\n"), "{}", result.text);
+	assert!(result.text.contains("suggested_checks:"), "{}", result.text);
+	assert!(
+		result.text.contains("code_moniker_rules uri=\"workspace\""),
+		"{}",
+		result.text
+	);
+	assert!(
+		!result.text.contains("code_moniker_rules uri=\"@"),
+		"{}",
+		result.text
+	);
+}
+
+#[test]
+fn invalid_output_budget_is_rejected_before_note_mutation() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+
+	let rejected = registry.call(
+		&context,
+		"code_moniker_notes",
+		&json!({
+			"action": "create",
+			"id": "note_invalid_budget",
+			"moniker": moniker,
+			"kind": "todo",
+			"title": "Must not persist",
+			"body": "The response budget is invalid.",
+			"created_by": "user",
+			"max_chars": 99
+		}),
+	);
+	assert!(rejected.is_err(), "invalid budget must reject the call");
+	assert!(
+		!temp.path().join(".code-moniker/notes.toml").exists(),
+		"note mutation happened before budget validation"
+	);
+}
+
+#[test]
+fn graph_tool_rejects_values_outside_its_schema() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+
+	for arguments in [
+		json!({"focus": moniker.clone(), "max_items": 0}),
+		json!({"focus": moniker.clone(), "min_count": 0}),
+		json!({"focus": moniker.clone(), "include_internal": "yes"}),
+		json!({"focus": moniker, "direction": 1}),
+	] {
+		assert!(
+			registry
+				.call(&context, "code_moniker_graph", &arguments)
+				.is_err(),
+			"invalid graph arguments were accepted: {arguments}"
+		);
+	}
 }
 
 #[test]
