@@ -51,18 +51,7 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
 	) {
-		let tables = build_receiver_field_tables(self, decisions, references);
-		language::enhance_reference_semantics(
-			&self.semantic_context(),
-			&tables.extends_of,
-			decisions,
-			references,
-			None,
-		);
-		enhance_receiver_fields(self, &tables, decisions, references, None);
-		enhance_reexport_aliases(self, &tables, decisions, references, None);
-		let pending = pending_receiver_chains(decisions, references, None);
-		enhance_receiver_chains(self, &tables, decisions, references, pending);
+		enhance_decisions(self, decisions, references, None);
 	}
 
 	pub(in crate::linkage) fn enhance_changed(
@@ -71,30 +60,7 @@ impl<'a> SemanticLinkage<'a> {
 		references: &RecordTable<ReferenceRecord>,
 		changed_references: &FxHashSet<ReferenceId>,
 	) {
-		let tables = build_receiver_field_tables(self, decisions, references);
-		language::enhance_reference_semantics(
-			&self.semantic_context(),
-			&tables.extends_of,
-			decisions,
-			references,
-			Some(changed_references),
-		);
-		enhance_receiver_fields(
-			self,
-			&tables,
-			decisions,
-			references,
-			Some(changed_references),
-		);
-		enhance_reexport_aliases(
-			self,
-			&tables,
-			decisions,
-			references,
-			Some(changed_references),
-		);
-		let pending = pending_receiver_chains(decisions, references, Some(changed_references));
-		enhance_receiver_chains(self, &tables, decisions, references, pending);
+		enhance_decisions(self, decisions, references, Some(changed_references));
 	}
 
 	fn semantic_context(&self) -> language::SemanticContext<'a> {
@@ -127,6 +93,34 @@ impl<'a> SemanticLinkage<'a> {
 		let callable = self.candidates.candidate(symbol)?.moniker;
 		return_types.get(callable).cloned()
 	}
+}
+
+fn enhance_decisions(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	let bootstrap = build_receiver_field_tables(linkage, decisions, references);
+	enhance_reexport_aliases(
+		linkage,
+		&bootstrap,
+		decisions,
+		references,
+		changed_references,
+	);
+	let tables = build_receiver_field_tables(linkage, decisions, references);
+	language::enhance_reference_semantics(
+		&linkage.semantic_context(),
+		&tables.extends_of,
+		decisions,
+		references,
+		changed_references,
+	);
+	enhance_receiver_fields(linkage, &tables, decisions, references, changed_references);
+	enhance_reexport_aliases(linkage, &tables, decisions, references, changed_references);
+	let pending = pending_receiver_chains(decisions, references, changed_references);
+	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
 }
 
 fn enhance_receiver_chains(
@@ -311,6 +305,7 @@ fn enhance_receiver_fields(
 				.or_else(|| {
 					resolve_imported_method_call(linkage, tables, *reference_idx, reference)
 				})
+				.or_else(|| resolve_self_method_call(linkage, tables, *reference_idx, reference))
 				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
@@ -390,6 +385,32 @@ fn resolve_imported_method_call(
 	let owner_raw = raw_target.parent()?;
 	let owner = canonical_type_owner(tables, &owner_raw);
 	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn resolve_self_method_call(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	let method_call = MethodCallReference::new(reference_idx, reference)?;
+	if !matches!(reference.receiver.as_deref(), Some("self") | Some("cls")) {
+		return None;
+	}
+	let source = linkage.material.symbol_moniker(&reference.source_symbol)?;
+	let owner = enclosing_class(source)?;
+	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn enclosing_class(source: &Moniker) -> Option<Moniker> {
+	let mut current = source.parent();
+	while let Some(owner) = current {
+		if owner.as_view().segments().last()?.kind == kinds::CLASS {
+			return Some(owner);
+		}
+		current = owner.parent();
+	}
+	None
 }
 
 fn canonical_type_owner(tables: &ReceiverFieldTables, owner: &Moniker) -> Moniker {
@@ -737,10 +758,14 @@ fn build_reexport_aliases(
 	let mut aliases = FxHashMap::default();
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
-		if reference.kind.as_bytes() != REF_REEXPORTS {
-			continue;
-		}
-		let Some(owner) = material.symbol_moniker(&reference.source_symbol) else {
+		let owner = if reference.kind.as_bytes() == REF_REEXPORTS {
+			match material.symbol_moniker(&reference.source_symbol) {
+				Some(owner) => owner.clone(),
+				None => continue,
+			}
+		} else if let Some(owner) = python_init_reexport_owner(material, reference) {
+			owner
+		} else {
 			continue;
 		};
 		let Some(name) = reexport_alias_name(material, reference) else {
@@ -751,9 +776,41 @@ fn build_reexport_aliases(
 		else {
 			continue;
 		};
-		aliases.insert((owner.clone(), name), target);
+		aliases.insert((owner, name), target);
 	}
 	aliases
+}
+
+// A name imported inside a Python package `__init__.py` is importable from
+// the package itself; alias it under the collapsed `module:<package>` owner
+// that importer targets use.
+fn python_init_reexport_owner(
+	material: &CodeIndexMaterial,
+	reference: &ReferenceRecord,
+) -> Option<Moniker> {
+	if reference.kind.as_bytes() != kinds::IMPORTS_SYMBOL {
+		return None;
+	}
+	let owner = material.symbol_moniker(&reference.source_symbol)?;
+	let segments = owner.as_view().segments().collect::<Vec<_>>();
+	let [first, .., package, module] = segments.as_slice() else {
+		return None;
+	};
+	if first.kind != kinds::LANG
+		|| first.name != b"python"
+		|| module.kind != kinds::MODULE
+		|| module.name != b"__init__"
+		|| package.kind != kinds::PACKAGE
+	{
+		return None;
+	}
+	let package_name = package.name.to_vec();
+	let prefix = owner.parent()?.parent()?;
+	Some(
+		MonikerBuilder::from_view(prefix.as_view())
+			.segment(kinds::MODULE, &package_name)
+			.build(),
+	)
 }
 
 fn reexport_alias_name(

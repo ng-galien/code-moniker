@@ -1640,11 +1640,16 @@ fn collect_base_class_refs(
 ) {
 	let mut cursor = supers.walk();
 	for child in supers.named_children(&mut cursor) {
-		let name = match base_class_name(child, discover.source_bytes) {
-			Some(name) => name,
-			None => continue,
+		let (target, confidence) = match qualified_base_target(discover, child) {
+			Some(qualified) => qualified,
+			None => {
+				let name = match base_class_name(child, discover.source_bytes) {
+					Some(name) => name,
+					None => continue,
+				};
+				resolve_type_target(discover, scope, &name, kinds::CLASS)
+			}
 		};
-		let (target, confidence) = resolve_type_target(discover, scope, &name, kinds::CLASS);
 		out.push(RefSpec {
 			kind: kinds::EXTENDS,
 			target,
@@ -1654,6 +1659,48 @@ fn collect_base_class_refs(
 			alias: b"",
 		});
 	}
+}
+
+// `class C(mod.Base)` anchors the base on the imported module `mod`
+// instead of collapsing to the bare attribute name.
+fn qualified_base_target(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+) -> Option<(Moniker, &'static [u8])> {
+	let base = match node.kind() {
+		"attribute" => node,
+		"subscript" => {
+			let value = node.child_by_field_name("value")?;
+			if value.kind() != "attribute" {
+				return None;
+			}
+			value
+		}
+		_ => return None,
+	};
+	let object = base.child_by_field_name("object")?;
+	if object.kind() != "identifier" {
+		return None;
+	}
+	let object_name = node_slice(object, discover.source_bytes);
+	let module_target = discover.imports.target_for(object_name)?;
+	let attr = base.child_by_field_name("attribute")?;
+	let name = node_slice(attr, discover.source_bytes);
+	if name.is_empty() {
+		return None;
+	}
+	let confidence = if is_external_shaped(&module_target) {
+		kinds::CONF_EXTERNAL
+	} else {
+		discover
+			.imports
+			.confidence_for(object_name)
+			.unwrap_or(kinds::CONF_IMPORTED)
+	};
+	Some((
+		extend_segment(&module_target, kinds::PATH, name),
+		confidence,
+	))
 }
 
 fn base_class_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {

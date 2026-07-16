@@ -532,6 +532,110 @@ fn python_project_links_imported_types_constructors_and_methods() {
 	);
 }
 
+#[test]
+fn python_self_method_calls_resolve_through_inheritance() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:OrderRepository/method:load_orders()",
+		"open_session",
+		0,
+		"package:orders_service/module:storage/class:BaseRepository/method:open_session()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:OrderRepository/method:backend_label()",
+		"describe_backend",
+		0,
+		"package:orders_service/module:storage/class:BaseRepository/method:describe_backend()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:ArchivedOrderRepository/method:load_archived()",
+		"load_orders",
+		0,
+		"package:orders_service/module:repository/class:OrderRepository/method:load_orders()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:ArchivedOrderRepository/method:load_archived()",
+		"open_session",
+		0,
+		"package:orders_service/module:storage/class:BaseRepository/method:open_session()",
+	);
+}
+
+#[test]
+fn python_self_method_calls_resolve_through_multiple_bases() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:AuditedOrderRepository/method:load_audited()",
+		"trace",
+		1,
+		"package:orders_service/module:storage/class:TracingMixin/method:trace(message:str)",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:repository/class:AuditedOrderRepository/method:load_audited()",
+		"open_session",
+		0,
+		"package:orders_service/module:storage/class:BaseRepository/method:open_session()",
+	);
+}
+
+#[test]
+fn python_package_init_reexports_forward_symbols_and_inheritance() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"package:orders_service/module:catalog/path:CatalogEntry",
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry",
+	);
+	assert_linked_to(
+		&snapshot,
+		"extends",
+		"package:orders_service/module:catalog/path:CatalogEntry",
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:listing/class:PricedEntry/method:price_key()",
+		"entry_key",
+		0,
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry/method:entry_key()",
+	);
+}
+
+#[test]
+fn python_self_method_calls_reach_external_stdlib_bases() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"method_call",
+		"class:RepositoryChecks/method:test_open_session()",
+		"unittest",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:orders_service/module:checks/class:LayeredChecks/method:test_layered_label()",
+		"check_label",
+		0,
+		"package:orders_service/module:base_check/class:BaseCheck/method:check_label()",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"method_call",
+		"class:LayeredChecks/method:test_layered_label()",
+		"unittest",
+	);
+}
+
 fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
