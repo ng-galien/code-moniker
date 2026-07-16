@@ -1,136 +1,68 @@
-# Explore — understand a codebase symbolically
+# Explore — understand a codebase through MCP
 
-Recipes for reading structure. Every command here was run for real; sample
-outputs are abbreviated but faithful.
+Use only the `code_moniker_*` MCP tools for agent exploration. They preserve
+the typed query model while enforcing compact output, deterministic budgets,
+response-local aliases and canonical follow-up calls.
 
-## Contents
+## First contact
 
-1. First contact with an unknown repo
-2. Drill the identity tree
-3. Find a symbol
-4. Ego view: who calls it, what it calls
-5. Trace consumers (usages)
-6. Read one file's structure
-7. When something misbehaves
+Call `code_moniker_read uri:"workspace" budget:"small"`. It returns the
+language mix, definition/reference counts, concentration hints and a bounded
+first explorer level. Stop there if it answers the question; otherwise follow
+only the narrow `next` call relevant to the requested scope.
 
-## 1. First contact
+## Drill structure
 
-```sh
-code-moniker stats .
-```
-
-Instant census (no daemon, ~200 ms on 250 files): file/def/ref counts per
-language and per shape. Read it as: which languages dominate, how much
-executable surface (`callable`), how ref-dense the code is.
+Use `code_moniker_read` with `path`, `lang`, `depth` and a small `limit` for
+filesystem-oriented navigation. For a purely symbolic hierarchy or a rolled-up
+scope graph, use the advanced MCP entry without leaving MCP:
 
 ```text
-files 246 / defs 14432 / refs 42961
-lang ts files 229 defs 13900 …   lang java files 17 defs 532 …
-shape callable 2598 / type 541 / namespace 246
+code_moniker_query query:'identity.children prefix:"lang:ts/dir:apps" limit:20'
+code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" limit:20'
 ```
 
-Then start the daemon if not running:
+Discover the live fields first with
+`code_moniker_query query:'query.describe verb:"identity.graph"'` when the
+running server may differ from this reference.
 
-```sh
-code-moniker daemon status .    # health + supported verbs; "stale: rescan required" = restart it
-code-moniker daemon start --live-refresh auto . &
-```
+## Find a symbol
 
-## 2. Drill the identity tree
+Use `code_moniker_symbols action:"list"` with the narrowest available `path`,
+`lang`, `shape`, `kind` and `name`, plus a small `limit`. Every result carries a
+canonical URI or a response-local alias declared above it. Never guess an URI;
+resolve an alias through that response before constructing a call.
 
-The identity tree is the purely symbolic hierarchy (no filesystem noise):
-`srcset:* / lang:* / dir:* / package:* / module:* / class:* / fn:*`.
+## Inspect dependencies
 
-```sh
-code-moniker query 'identity.children prefix:""'          # roots: lang:ts (6485 defs), srcset:test…
-code-moniker query 'identity.children prefix:"lang:ts/dir:apps"'
-```
+Use `code_moniker_graph focus:"<canonical URI or returned file>"` for the ego
+view. `direction`, `relation`, `min_count` and `include_internal` keep only the
+edges needed by the question. The result separates callers, callees, internal
+edges and unresolved coverage.
 
-Each child carries kind, name, aggregate def count, and — when the child is
-itself a definition — its full URI. Drill where the defs are.
+Use `code_moniker_usages uri:"<canonical URI>" direction:"incoming|outgoing|both"`
+when individual consumers or producers matter. Keep the first page unless the
+question explicitly requires more.
 
-To see a level **as a graph** (nodes + rolled-up reference edges), use
-`identity.graph` — that is the coupling map, covered in `diagnose.md`.
+## Prepare a modification
 
-## 3. Find a symbol
+After selecting a target, call `code_moniker_context focus:"<canonical URI>"`
+once. It combines bounded source context, graph facts, notes, applicable rules,
+worktree changes, coverage and canonical suggested checks. Do not re-fetch the
+same sections separately unless coverage shows that the omitted facts matter.
 
-```sh
-code-moniker query 'symbol.search name:"ChangeService" limit:10'
-code-moniker query 'symbol.search name:"change" shape:callable limit:10'
-code-moniker query 'symbol.search path:"src/server/**" shape:type limit:20'
-```
+## Read code only when necessary
 
-- `name:` is a substring match on the symbol name.
-- `shape:` families: `namespace`, `type`, `callable`, `value`, `annotation`
-  (`code-moniker shapes` prints the vocabulary; `code-moniker langs <tag>`
-  the per-language kind mapping). Single value, no brackets.
-- Every hit line ends with the exact URI — copy it for the next calls.
+`code_moniker_read uri:"<canonical symbol URI>" context_lines:2` reads the
+target zone. Source and wider context are opt-in because they dominate token
+cost. Structural questions should stay on symbols, usages and graphs.
 
-## 4. Ego view of a unit
+## Failure modes
 
-```sh
-code-moniker query 'symbol.graph focus:"<URI or workspace-relative file path>"'
-```
-
-The focus defines a boundary (a function; a class = it + members; a file =
-all its symbols). Output partitions every resolved reference:
-
-```text
-focus: interface ChangeService (apps/trust/src/server/changes/changeService.ts)
-members: 6  internal edges: 0  unresolved refs: 5
-< function createChangeService(…) x1 [uses_type]      # callers (outside-in)
-< field changeService (server/container.ts) x1 …
-> interface ChangeView (changes/change.ts) x4 [uses_type]   # callees (inside-out)
-```
-
-Chain it from search in one shot:
-
-```sh
-uri=$(code-moniker query 'symbol.search name:"ChangeService" shape:type limit:1' | grep -o 'code+moniker://[^ ]*' | head -1)
-code-moniker query "symbol.graph focus:\"$uri\""
-```
-
-A file path works as focus too, but only a path that exists — take it from a
-search hit, don't reconstruct it.
-
-## 5. Trace consumers
-
-```sh
-code-moniker query 'symbol.usages uri:"<exact URI>" limit:20'
-```
-
-Incoming usages by default, each with reference kind (`calls`,
-`instantiates`, `imports_symbol`, `uses_type`…) and location. A class picks
-up its members' traffic; a leaf function shows exact call sites.
-
-Interpretation shortcuts: consumers spread across many directories = shared
-contract, handle with care; consumers all in `__tests__` = dead-ish code or
-test fixture; zero usages on a `pub`/exported symbol = entry point or dead
-export — check both ways before deleting.
-
-## 6. Read one file's structure
-
-```sh
-code-moniker extract . --path src/server/container.ts --shape callable --limit 80
-code-moniker extract . --path src/lib/mod.rs --format json --max-symbols 40
-```
-
-Symbol-level table of contents of a file: kinds, names, visibility, nesting.
-Cheaper than reading the file when you only need its shape. Always anchor on
-`.` and filter with `--path`.
-
-For quantitative JSON analysis over many files, pass `--all`: the default
-`--limit 1000` caps emitted monikers silently (check `emitted_refs` against
-`stats` if in doubt).
-
-## 7. When something misbehaves
-
-- Queries answer from the current snapshot (`stale-ok` default) and wait for
-  a loading daemon; pass `--consistency refresh-if-stale` to reindex first.
-- `no daemon` errors → `code-moniker daemon list` shows the registry; every
-  workspace root registers its own daemon, and an old daemon may predate a
-  query verb while reporting the same version (`daemon status` lists the
-  verbs it actually supports).
-- `symbol not found` → you guessed the URI. Search first, paste exactly.
-- Query returns everything despite a filter → wrong field name; the search
-  filter is `name:`, not `text:`. See `query-dsl.md`.
+- `symbol_not_found` or `focus_not_found`: search again; the URI/path was
+  guessed, stale or outside the workspace.
+- `workspace_loading` or `workspace_stale`: retry the same bounded MCP call or
+  use `code_moniker_refresh` after an external change.
+- `completeness: partial`: page only if the omitted rows can change the answer.
+- Missing read-only verb: confirm with `query.describe` and report an MCP
+  parity defect; do not switch to a daemon or shell query.

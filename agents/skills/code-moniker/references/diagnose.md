@@ -1,147 +1,67 @@
-# Diagnose — architecture, coupling, smells, refactor targets
+# Diagnose — architecture and change risk through MCP
 
-Recipes for judging a codebase's health with counts instead of impressions.
-All commands were run for real on multi-language projects.
+Use counted Code Moniker facts, not manual file sampling. Keep
+`budget:"small"`, compact rendering and a narrow scope until evidence requires
+expansion.
 
-## Contents
+## Coupling map
 
-1. Coupling map (who leans on whom, how hard)
-2. Boundary crossings and layering
-3. Smell scan and refactor hotspots
-4. Bootstrap rules on a virgin project
-5. Architecture rules (dependency direction as executable law)
-6. Dependency audit (declared vs used)
-7. Review changes as symbol facts
-8. Reading the health signals
-
-## 1. Coupling map
-
-`identity.graph` projects one level of the identity tree as a graph: nodes =
-that level's children, edges = every resolved reference rolled up to the pair
-of children it connects, with kinds and counts.
-
-```sh
-code-moniker query 'identity.graph prefix:"lang:ts/dir:apps/dir:trust/dir:src"'
-```
+`identity.graph` projects one symbolic level as nodes, weighted relation edges
+and boundary ports. Reach it through the advanced MCP entry:
 
 ```text
-scope: …/dir:src   nodes: 4  edges: 2
-unlinked refs: external 4701 · manifest-blocked 0 · unresolved 179
-unresolved by reason: no_candidate 179
-- dir:client  -> dir:shared x179 [implements,uses_type]
-- dir:plugins -> dir:shared x84  [uses_type]
+code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" limit:20'
 ```
 
-Read it top-down: start at `prefix:""` or `lang:*`, descend into the heavy
-nodes. What to look for:
+Start near the requested area rather than at the workspace root. Heavy edges,
+bidirectional pairs and hub nodes are factual refactor signals; `external`,
+`manifest_blocked` and genuinely `unresolved` references remain separate.
 
-- **Heavy edges** (x100+) = load-bearing dependency; changes to the target
-  ripple. Fine when it points at a `shared`/`core`; alarming between peers.
-- **Bidirectional pairs** (A→B and B→A) = entanglement; a candidate seam to
-  cut.
-- **A node with edges to everything** = hub. Deliberate (kernel) or accreted
-  (god module)? Check its def count and smells.
-- **Missing edges** you expected = the layers are honestly independent, or
-  the traffic goes through something outside this scope (see ports, below).
+For one unit, prefer `code_moniker_graph`. Filter by `direction`, `relation`
+and `min_count` so the response carries only relevant boundary crossings.
 
-## 2. Boundary crossings
+## Smells and architecture rules
 
-The same `identity.graph` output lists `ports_in` / `ports_out`: references
-crossing the scope's boundary, aggregated at the scope's own depth
-(`> lang:ts/dir:packages/… x87 [extends,uses_type]`). Use them to answer
-"what does this subtree need from the outside, and who reaches into it" —
-the two lists a refactor must keep stable.
+Use `code_moniker_rules action:"list" profile:"smells" limit:20` to inspect
+the compiled contract and rationale. Use `action:"run"`, the project profile,
+a touched `file` scope and a bounded `limit` to evaluate it. Start new rules at
+warning severity, review their signal on the project corpus, then promote them
+only after cleanup.
 
-## 3. Smell scan and refactor hotspots
+`rules.applicable` is available through `code_moniker_query` and is already
+included in `code_moniker_context`. It distinguishes applicable, ignored and
+potential rules with a reason instead of dumping the whole ruleset.
 
-Requires a rules file (section 4 if the project has none). If the project
-defines its own packs, respect its profile conventions:
+## Resolution quality
 
-```sh
-code-moniker check . --profile smells --default-rules off --report --max-violations 50
-```
+Use `code_moniker_query query:'resolution.audit prefix:"<narrow prefix>" limit:20'`
+for clustered causes and zones. Treat external dependencies as expected,
+manifest-blocked references as policy facts, and only unresolved causes as
+index coverage gaps.
 
-```text
-37 violation(s) across 25 file(s) (226 scanned, 225 ms)
-Failed rules:
-- ts.shape.callable.smell-long-callable: 24        # ranked = your priority list
-- ts.shape.callable.smell-long-parameter-list: 7
-Rule report:
-- …smell-long-callable: evaluated=2423, matches=2399, violations=24
-```
+## Refactor targets
 
-Triage order: (1) files hit by several *different* rules at once — those are
-the sick zones; (2) the top rule's worst instances (a 288-line function in a
-2400-callable codebase is a real hotspot, not noise). The `--report` block
-tells you how discriminating each rule is (violations vs evaluated).
+Combine evidence rather than ranking by one metric:
 
-Rules files are directory-scoped: run from the directory that owns the
-`.code-moniker.toml` (a monorepo package may hold its own).
+- high weighted coupling from `identity.graph` or `code_moniker_graph`;
+- consumers spread across several prefixes from `code_moniker_usages`;
+- multiple independent rules failing in the same files;
+- unresolved references concentrated in one scope;
+- existing notes or worktree changes from `code_moniker_context`.
 
-## 4. Bootstrap on a virgin project
+The MCP provides facts and coverage. Risk, priority and the refactor decision
+remain the agent's interpretation.
 
-```sh
-code-moniker rules init .        # creates .code-moniker.toml with detected aliases
-code-moniker check . --max-violations 30   # embedded default rules
-code-moniker rules learn         # the full check DSL as copyable snippets
-```
+## Review changes
 
-`rules init` writes a starter with `default_rules = true` and a commented
-dependency-rule example. For a curated smell pack methodology (severity
-`warn` first, promote after signal review), see the companion
-`code-moniker-smell-review` skill if present.
+Use `code_moniker_diff` for HEAD-to-worktree symbol facts: moves, renames, body
+or signature changes, retargeted references and residual hunks. Then run the
+canonical scoped checks returned by `code_moniker_context`. Non-analyzable
+files are explicit coverage limits, not silent omissions.
 
-## 5. Architecture rules as executable law
+## Stop conditions
 
-Dependency direction is checkable. The generated template shows the shape:
-
-```toml
-[[refs.where]]
-id = "domain-no-infra"
-expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
-severity = "warn"
-```
-
-Workflow: express the intended layering as `refs.where` rules at `warn`, run
-`check --report`, inspect the violations (they are either bugs in the code or
-bugs in the stated architecture), migrate, then promote to `error` so the
-boundary stays enforced — in CI and in agent hooks. `code-moniker rules show .
---profile <name>` prints the effective compiled set.
-
-## 6. Dependency audit
-
-```sh
-code-moniker manifest package.json      # or Cargo.toml, or a directory for all manifests
-```
-
-One line per declared dependency (name, version, kind) with a moniker per
-package. Cross-check against reality: search usages of a suspicious package's
-symbols; a declared-but-never-referenced dependency is removable weight.
-
-## 7. Review changes as symbol facts
-
-```sh
-code-moniker diff .          # HEAD..worktree
-code-moniker diff A..B .
-```
-
-Reports moves, renames, body changes and retargeted references per symbol —
-not lines. Use it to review your own (or another agent's) work before
-staging: "what did this change *structurally*" is a different question from
-"what lines moved". Non-code files are listed as `not analyzable` — that is
-honesty, not failure.
-
-## 8. Reading the health signals
-
-- **Unlinked refs** (printed by every graph verb) decompose honestly:
-  `external` and `manifest-blocked` are by design, only `unresolved` (with
-  its by-reason ventilation) measures real resolution gaps. A healthy
-  project runs well under 1% unresolved; concentration of no_candidate in
-  one subtree = generated code, unusual dynamism, or an extraction gap.
-- **Concentration** (`stats`, insights): a few files holding a large share of
-  defs/refs = where reviews and refactors pay off first.
-- **shared_helper_signal** (usages diagnostics via MCP): `localized_not_shared`
-  means the symbol's consumers cluster in one prefix — safe to reshape;
-  a genuinely shared helper deserves contract-level care.
-- **Zero-usage exported symbols**: entry points or dead exports. Decide with
-  the ego graph, not alone.
+Stop when the current facts answer the question and their coverage is adequate.
+Do not request another page, broader prefix, source code, `compact:false` or a
+larger budget merely because it exists. Never replay the same diagnosis by
+direct daemon query or shell command.

@@ -40,6 +40,11 @@ After rebuilding or restarting `cm-mcp`, validate the surface:
   aliases in descriptive data; generated calls must retain canonical URIs.
   Verify `compact:false` returns canonical verbose output and pagination keeps
   that mode.
+- Budget contract: every non-refresh tool defaults to `budget:"small"`; an
+  explicit `max_chars` is a hard ceiling and reports `truncated_by:max_chars`.
+- Parity probes: `code_moniker_query` with `query.describe`, a two-query batch
+  sharing one alias table, and `code_moniker_context` with facts, coverage and
+  canonical suggested checks.
 - Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
 - Rules probes: `action:"list"`, bounded `action:"run"`.
 

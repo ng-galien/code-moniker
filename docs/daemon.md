@@ -47,10 +47,25 @@ registry claim rather than creating competing processes. `query` field syntax is
 
 ### Query verbs (DSL)
 
-`workspace.status`, `tree.children`, `symbol.search`, `symbol.insights`,
-`symbol.detail`, `symbol.usages`, `symbol.graph`, `identity.children`,
-`identity.graph`, `view.read`, `rules.list`, `rules.check`, `change.review`,
-`notes`. Command verbs: `workspace.refresh`.
+`query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
+`symbol.insights`, `symbol.detail`, `symbol.usages`, `symbol.graph`,
+`identity.children`, `identity.graph`, `view.read`, `rules.list`,
+`rules.check`, `rules.applicable`, `change.review`, `change.context`,
+`resolution.audit`, `notes`. Command verbs: `workspace.refresh`.
+
+`query.describe [verb:"..."]` is generated from the canonical capability
+registry. It reports fields, defaults, required values, pagination and
+projectable result fields. MCP agents normally reach this through the
+read-only `code_moniker_query` escape hatch; direct daemon queries remain a
+developer and protocol-diagnostic surface.
+
+`change.context focus:"<symbol URI or rel path>" max_items:20` returns a
+bounded pre-change view: graph neighborhood and resolution coverage, active
+notes, applicable rules, existing worktree changes and canonical suggested
+checks. The specialized MCP entry is `code_moniker_context`.
+
+`rules.applicable focus:"..."` explains whether a compiled rule is
+applicable, ignored or only potential for the selected symbol/file scope.
 
 `symbol.graph focus:"<symbol URI or rel path>"` returns the ego-centric
 neighborhood of a unit: the focus defines a boundary on the identity tree,
@@ -60,6 +75,9 @@ call counts. References without an in-workspace target are decomposed in
 `unlinked` (`external`, `manifest_blocked`, `unresolved` with a by-reason
 ventilation) so external-by-design links never read as resolution gaps. This
 feeds the IDE Graph Explorer and the `code_moniker_graph` MCP tool.
+`direction:incoming|outgoing|both`, repeatable `relation:`, `min_count:` and
+`include_internal:` apply the same bounded relational filters in the DSL and
+MCP surface.
 
 `identity.children prefix:"<identity prefix>"` returns one level of the
 identity tree - the purely symbolic navigation surface, no filesystem. Each
