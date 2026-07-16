@@ -635,7 +635,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:accounts/class:User",
       "kind": "reads",
       "position": [
@@ -643,7 +643,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1097
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:list"
+      "to": "code+moniker://app/external_pkg:builtins/path:list"
     },
     {
       "alias": "",

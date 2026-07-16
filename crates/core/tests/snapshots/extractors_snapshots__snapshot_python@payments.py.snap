@@ -726,7 +726,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:payments/class:Payment",
       "kind": "reads",
       "position": [
@@ -734,7 +734,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         819
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:payments/function:dict"
+      "to": "code+moniker://app/external_pkg:builtins/path:dict"
     },
     {
       "alias": "",

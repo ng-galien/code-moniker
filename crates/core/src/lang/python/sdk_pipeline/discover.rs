@@ -1389,6 +1389,11 @@ fn resolve_identifier_read(
 		import_target
 	} else if let Some(type_target) = resolved_type.clone() {
 		type_target
+	} else if is_python_builtin(name) {
+		return Some((
+			builtin_external_target(&discover.module, name),
+			kinds::CONF_EXTERNAL,
+		));
 	} else {
 		extend_segment(&discover.module, kinds::FUNCTION, name)
 	};

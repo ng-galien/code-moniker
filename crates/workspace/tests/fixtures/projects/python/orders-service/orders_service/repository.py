@@ -1,5 +1,7 @@
 from orders_service.storage import BaseRepository, TracingMixin
 
+RETRYABLE_ERRORS = (KeyError, TimeoutError)
+
 
 class OrderRepository(BaseRepository):
     def load_orders(self) -> list[str]:

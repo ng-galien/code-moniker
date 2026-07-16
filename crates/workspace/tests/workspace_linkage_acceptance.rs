@@ -612,6 +612,22 @@ fn python_package_init_reexports_forward_symbols_and_inheritance() {
 }
 
 #[test]
+fn python_bare_builtin_reads_classify_external() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_external_reference(
+		&snapshot,
+		"reads",
+		"external_pkg:builtins/path:KeyError",
+	);
+	assert_external_reference(
+		&snapshot,
+		"reads",
+		"external_pkg:builtins/path:TimeoutError",
+	);
+}
+
+#[test]
 fn python_top_level_package_reexports_reach_sibling_consumers() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
