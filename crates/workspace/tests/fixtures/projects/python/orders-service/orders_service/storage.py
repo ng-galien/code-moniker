@@ -10,5 +10,9 @@ class BaseRepository:
     def open_session(self) -> str:
         return f"session:{self.dsn}"
 
+    @property
+    def dsn_scheme(self) -> str:
+        return self.dsn.split(":", 1)[0]
+
     def describe_backend(self) -> str:
         return "generic"

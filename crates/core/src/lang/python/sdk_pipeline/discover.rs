@@ -1021,12 +1021,24 @@ fn before_symbol_body(
 	if kind != kinds::FUNCTION && kind != kinds::ASYNC_FUNCTION && kind != kinds::METHOD {
 		return;
 	}
+	let node = effective_definition_node(node);
 	if let Some(rt) = node.child_by_field_name("return_type") {
 		PyTypeRefs::new(discover, moniker).emit(rt, graph);
 	}
 	if let Some(params) = node.child_by_field_name("parameters") {
 		emit_param_defs_and_types(discover, params, moniker, source, graph);
 	}
+}
+
+// Decorated symbols classify from the outer `decorated_definition` node;
+// parameters, return type and body live on the inner definition.
+fn effective_definition_node(node: Node<'_>) -> Node<'_> {
+	if node.kind() == "decorated_definition"
+		&& let Some(def) = decorated_definition_node(node)
+	{
+		return def;
+	}
+	node
 }
 
 fn after_symbol_body(discover: &PyDiscover<'_>, kind: &[u8]) {
@@ -1049,7 +1061,7 @@ fn on_symbol_emitted(
 	{
 		return;
 	}
-	let Some(body) = node.child_by_field_name("body") else {
+	let Some(body) = effective_definition_node(node).child_by_field_name("body") else {
 		return;
 	};
 	if let Some(docstring) = first_docstring(body) {

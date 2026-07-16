@@ -612,6 +612,24 @@ fn python_package_init_reexports_forward_symbols_and_inheritance() {
 }
 
 #[test]
+fn python_self_reads_bind_to_the_method_param() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_linked_to(
+		&snapshot,
+		"reads",
+		"class:BaseRepository/method:open_session()/local:self",
+		"class:BaseRepository/method:open_session()/param:self",
+	);
+	assert_linked_to(
+		&snapshot,
+		"reads",
+		"class:BaseRepository/method:dsn_scheme()/local:self",
+		"class:BaseRepository/method:dsn_scheme()/param:self",
+	);
+}
+
+#[test]
 fn python_bare_builtin_reads_classify_external() {
 	let snapshot = load_workspace("projects/python/orders-service");
 

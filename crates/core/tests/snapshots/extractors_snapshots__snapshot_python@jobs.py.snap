@@ -351,6 +351,32 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "uses_type",
+      "position": [
+        478,
+        491
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:AsyncIterator"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "uses_type",
+      "position": [
+        470,
+        473
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
       "kind": "calls",
       "position": [
         503,

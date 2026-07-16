@@ -98,6 +98,19 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "visibility": ""
     },
     {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:User/comment:709",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:User",
+      "position": [
+        709,
+        1006
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "export",
       "kind": "class",
       "moniker": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError",
