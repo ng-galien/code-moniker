@@ -634,6 +634,27 @@ fn python_module_level_values_type_their_imported_method_calls() {
 }
 
 #[test]
+fn python_method_calls_on_module_values_resolve_through_their_class() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:serve/function:warm_service()",
+		"method_call",
+		"count",
+		0,
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:count()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:tools/module:serve",
+		"register",
+		1,
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:register(name:str)",
+	);
+}
+
+#[test]
 fn python_from_imports_of_submodules_link_to_their_modules() {
 	let snapshot = load_workspace("projects/python/orders-service");
 

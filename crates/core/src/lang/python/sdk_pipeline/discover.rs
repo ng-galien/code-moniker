@@ -1578,6 +1578,7 @@ fn infer_assignment_value_type(
 					let name = node_slice(callee, discover.source_bytes);
 					lookup_discovered_type(discover, scope, name)
 						.or_else(|| external_callee_type(discover, name))
+						.or_else(|| discover.imports.target_for(name))
 				}
 				"attribute" => attribute_callee_type(discover, callee),
 				_ => None,

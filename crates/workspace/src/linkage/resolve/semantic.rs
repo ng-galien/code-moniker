@@ -336,14 +336,28 @@ fn resolve_receiver_field_call(
 		.as_deref()
 		.filter(|name| !name.is_empty())?;
 	let source = linkage.material.symbol_moniker(&reference.source_symbol)?;
-	let mut owner = source.parent();
+	let mut owner = Some(source.clone());
 	while let Some(current) = owner {
 		if let Some(ty) = field_type_through_extends(tables, &current, receiver.as_bytes()) {
+			return typed_receiver_decision(linkage, tables, ty, method_call);
+		}
+		if let Some(ty) = receiver_value_type(tables, &current, receiver.as_bytes()) {
 			return typed_receiver_decision(linkage, tables, ty, method_call);
 		}
 		owner = current.parent();
 	}
 	None
+}
+
+fn receiver_value_type<'a>(
+	tables: &'a ReceiverFieldTables,
+	owner: &Moniker,
+	name: &[u8],
+) -> Option<&'a Moniker> {
+	let value = MonikerBuilder::from_view(owner.as_view())
+		.segment(kinds::PATH, name)
+		.build();
+	tables.value_types.get(&value)
 }
 
 fn field_type_through_extends<'a>(
