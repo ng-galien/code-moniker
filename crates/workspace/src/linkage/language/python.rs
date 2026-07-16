@@ -103,9 +103,18 @@ fn python_segment_name_matches(
 		return query
 			.call_name
 			.is_some_and(|name| Some(name.as_bytes()) == candidate.call_name)
-			&& query.call_arity == candidate.call_arity;
+			&& python_call_arity_matches(query.call_arity, candidate.call_arity);
 	}
 	bare_callable_name(target.name) == bare_callable_name(candidate_segment.name)
+}
+
+// Python defaults and keyword arguments let a call site pass fewer
+// arguments than the definition declares.
+fn python_call_arity_matches(call: Option<usize>, def: Option<usize>) -> bool {
+	match (call, def) {
+		(Some(call), Some(def)) => call <= def,
+		_ => call == def,
+	}
 }
 
 fn is_python_path_target_kind(kind: &[u8]) -> bool {

@@ -657,6 +657,30 @@ fn python_from_imports_of_submodules_link_to_their_modules() {
 		1,
 		"package:orders_service/package:catalog/module:entries/class:CatalogEntry",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:browse/function:browse_all()",
+		"calls",
+		"make_entry",
+		1,
+		"package:orders_service/package:catalog/module:entries/function:make_entry(sku:str)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:browse/function:browse_all()",
+		"calls",
+		"default_entry",
+		0,
+		"package:orders_service/package:catalog/module:__init__/function:default_entry()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:browse/function:browse_fallback()",
+		"calls",
+		"make_default_entry",
+		0,
+		"package:orders_service/package:catalog/module:entries/function:make_default_entry(sku:str)",
+	);
 }
 
 #[test]
