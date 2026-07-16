@@ -1800,7 +1800,10 @@ fn collect_decorator_refs(
 		if name.is_empty() {
 			continue;
 		}
-		let (target, confidence) = resolve_type_target(discover, scope, &name, kinds::FUNCTION);
+		let (target, confidence) = match qualified_decorator_target(discover, name_node) {
+			Some(qualified) => qualified,
+			None => resolve_type_target(discover, scope, &name, kinds::FUNCTION),
+		};
 		out.push(RefSpec {
 			kind: kinds::ANNOTATES,
 			target,
@@ -1810,6 +1813,42 @@ fn collect_decorator_refs(
 			alias: b"",
 		});
 	}
+}
+
+// `@obj.deco` anchors on the imported module or the module-level value
+// `obj` instead of collapsing to the bare attribute name.
+fn qualified_decorator_target(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+) -> Option<(Moniker, &'static [u8])> {
+	if node.kind() != "attribute" {
+		return None;
+	}
+	let object = node.child_by_field_name("object")?;
+	if object.kind() != "identifier" {
+		return None;
+	}
+	let object_name = node_slice(object, discover.source_bytes);
+	let attr = node.child_by_field_name("attribute")?;
+	let name = node_slice(attr, discover.source_bytes);
+	if name.is_empty() {
+		return None;
+	}
+	let (base, confidence) = match discover.imports.target_for(object_name) {
+		Some(target) => {
+			let confidence = if is_external_shaped(&target) {
+				kinds::CONF_EXTERNAL
+			} else {
+				kinds::CONF_IMPORTED
+			};
+			(target, confidence)
+		}
+		None => (
+			extend_segment(&discover.module, kinds::PATH, object_name),
+			kinds::CONF_NAME_MATCH,
+		),
+	};
+	Some((extend_segment(&base, kinds::FUNCTION, name), confidence))
 }
 
 fn decorator_name<'tree>(node: Node<'tree>, source: &[u8]) -> Option<(Vec<u8>, Node<'tree>)> {

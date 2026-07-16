@@ -652,6 +652,20 @@ fn python_method_calls_on_module_values_resolve_through_their_class() {
 		1,
 		"package:orders_service/module:registry/class:RepositoryRegistry/method:register(name:str)",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:serve/function:seed_registry(target:RepositoryRegistry)",
+		"method_call",
+		"count",
+		0,
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:count()",
+	);
+	assert_linked_to(
+		&snapshot,
+		"annotates",
+		"path:service/function:guard",
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:guard(func)",
+	);
 }
 
 #[test]

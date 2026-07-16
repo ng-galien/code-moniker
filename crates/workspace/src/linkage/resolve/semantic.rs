@@ -316,6 +316,9 @@ fn enhance_receiver_fields(
 				})
 				.or_else(|| resolve_self_method_call(linkage, tables, *reference_idx, reference))
 				.or_else(|| resolve_typed_value_call(linkage, tables, *reference_idx, reference))
+				.or_else(|| {
+					resolve_typed_value_annotation(linkage, tables, *reference_idx, reference)
+				})
 				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
@@ -430,6 +433,36 @@ fn resolve_typed_value_call(
 	let value = tables.type_aliases.get(&value).cloned().unwrap_or(value);
 	let ty = tables.value_types.get(&value)?;
 	typed_receiver_decision(linkage, tables, ty, method_call)
+}
+
+fn resolve_typed_value_annotation(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	if reference.kind != "annotates" {
+		return None;
+	}
+	let raw_target = linkage.material.reference_target(&reference.id)?;
+	let segments = raw_target.as_view().segments().collect::<Vec<_>>();
+	let [.., value_segment, last] = segments.as_slice() else {
+		return None;
+	};
+	if !matches!(last.kind, kinds::FUNCTION | kinds::METHOD) || value_segment.kind != kinds::PATH {
+		return None;
+	}
+	let call_name = std::str::from_utf8(bare_callable_name(last.name)).ok()?;
+	let value = raw_target.parent()?;
+	let value = tables.type_aliases.get(&value).cloned().unwrap_or(value);
+	let ty = tables.value_types.get(&value)?;
+	let owner = callable_owner(ty)?;
+	let method_call = MethodCallReference {
+		reference_idx,
+		reference,
+		call_name,
+	};
+	resolve_method_through_supers(linkage, tables, &owner, method_call)
 }
 
 fn resolve_self_method_call(

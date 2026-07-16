@@ -8,5 +8,9 @@ class RepositoryRegistry:
     def count(self) -> int:
         return len(self.names)
 
+    def guard(self, func):
+        self.names.append(func.__name__)
+        return func
+
 
 registry = RepositoryRegistry()
