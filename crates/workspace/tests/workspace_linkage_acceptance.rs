@@ -649,6 +649,14 @@ fn python_from_imports_of_submodules_link_to_their_modules() {
 		"package:orders_service/module:catalog/path:entries",
 		"package:orders_service/package:catalog/module:entries",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:tools/module:browse/function:browse_entry(sku:str)",
+		"calls",
+		"CatalogEntry",
+		1,
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry",
+	);
 }
 
 #[test]

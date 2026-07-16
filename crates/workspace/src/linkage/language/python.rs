@@ -80,7 +80,7 @@ fn python_segment_matches(
 		return true;
 	}
 	if is_python_callable_kind(target.kind)
-		&& candidate_segment.kind == kinds::PATH
+		&& matches!(candidate_segment.kind, kinds::PATH | kinds::CLASS)
 		&& bare_callable_name(target.name) == candidate_segment.name
 	{
 		return true;
