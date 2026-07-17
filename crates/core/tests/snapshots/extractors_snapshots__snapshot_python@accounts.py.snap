@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/accounts.py
 ---
@@ -477,19 +478,6 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
   "refs": [
     {
       "alias": "",
-      "binding": "local",
-      "confidence": "unresolved",
-      "from": "code+moniker://app/lang:python/module:accounts",
-      "kind": "reads",
-      "position": [
-        425,
-        436
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:annotations"
-    },
-    {
-      "alias": "",
       "binding": "import",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:accounts",
@@ -621,7 +609,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:accounts",
       "kind": "reads",
       "position": [
@@ -629,7 +617,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         665
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:__name__"
+      "to": "code+moniker://app/external_pkg:python_runtime/path:__name__"
     },
     {
       "alias": "",
@@ -762,6 +750,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "to": "code+moniker://app/external_pkg:builtins/path:super"
     },
     {
+      "alias": "user_id",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -799,6 +797,26 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:builtins/path:super"
+    },
+    {
+      "alias": "field_name",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "value",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -840,6 +858,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "to": "code+moniker://app/lang:python/module:accounts/class:User"
     },
     {
+      "alias": "user_id",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_id(user_id:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -864,6 +892,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "email",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_email(email:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -905,6 +943,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "to": "code+moniker://app/lang:python/module:accounts/class:User"
     },
     {
+      "alias": "user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:insert(user:User)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -940,6 +988,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         2198,
         2212
       ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository"
+    },
+    {
+      "alias": "repo",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:__init__(repo:UserRepository)",
+      "kind": "typed_as",
+      "position": null,
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository"
     },
@@ -994,6 +1052,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError"
+    },
+    {
+      "alias": "user_id",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -1139,6 +1207,36 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:insert(user:User)"
     },
     {
+      "alias": "email",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "name",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "new_user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "resolved",
@@ -1150,6 +1248,19 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "returns_type",
+      "position": [
+        3121,
+        3131
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:list"
     },
     {
       "alias": "",
@@ -1176,6 +1287,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:scan()"
+    },
+    {
+      "alias": "tag",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -1230,6 +1351,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "to": "code+moniker://app/lang:python/module:accounts/method:get"
     },
     {
+      "alias": "user_id",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -1267,6 +1398,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:python/module:accounts/method:values"
+    },
+    {
+      "alias": "email",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -1332,6 +1473,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:accounts/class:ConflictError"
+    },
+    {
+      "alias": "user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
     },
     {
       "alias": "",
@@ -1423,6 +1574,16 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "email",
       "to": "code+moniker://app/external_pkg:builtins/path:str/method:lower"
+    },
+    {
+      "alias": "email",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     }
   ],
   "root": "code+moniker://app/lang:python/module:accounts"

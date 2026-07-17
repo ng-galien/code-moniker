@@ -1,5 +1,5 @@
 use code_moniker_core::core::code_graph::RefRecord;
-use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_READS};
+use code_moniker_core::core::kinds::{REF_CALLS, REF_INSTANTIATES, REF_METHOD_CALL, REF_READS};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
@@ -86,13 +86,13 @@ impl<'a> SemanticLinkage<'a> {
 		self.methods.resolve_by_name(owner, call_name, call_arity)
 	}
 
-	fn resolved_return_owner(
+	fn resolved_return_types<'b>(
 		&self,
 		symbol: SymbolOrdinal,
-		return_types: &FxHashMap<Moniker, Moniker>,
-	) -> Option<Moniker> {
+		return_types: &'b FxHashMap<Moniker, MonikerTypeSet>,
+	) -> Option<&'b MonikerTypeSet> {
 		let callable = self.candidates.candidate(symbol)?.moniker;
-		return_types.get(callable).cloned()
+		return_types.get(callable)
 	}
 }
 
@@ -133,6 +133,8 @@ fn enhance_decisions(
 	);
 	let pending = pending_receiver_chains(decisions, references, changed_references);
 	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
+	enhance_structural_receivers(linkage, decisions, references, changed_references);
+	classify_open_python_references(linkage, decisions, references, changed_references);
 }
 
 fn classify_runtime_imports(
@@ -212,6 +214,229 @@ fn classify_runtime_imports(
 	}
 }
 
+fn enhance_structural_receivers(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	let mut owners_by_binding: FxHashMap<(crate::snapshot::SymbolId, String), SymbolSet> =
+		FxHashMap::default();
+	if let Some(changed) = changed_references {
+		let mut affected = FxHashMap::default();
+		for reference_id in changed {
+			let Some((source_file, local_reference)) =
+				linkage.material.identity.reference_location(reference_id)
+			else {
+				continue;
+			};
+			let Some(reference_idx) = linkage
+				.locations
+				.reference_idx(source_file, local_reference)
+			else {
+				continue;
+			};
+			let reference = &references[reference_idx];
+			let Some(receiver) = structural_receiver_name(reference) else {
+				continue;
+			};
+			affected.insert((reference.source_symbol, receiver.to_owned()), source_file);
+		}
+		for (binding, source_file) in affected {
+			let Some(file) = linkage.material.files.get(source_file) else {
+				continue;
+			};
+			for local_reference in 0..file.graph.ref_count() {
+				let Some(reference_idx) = linkage
+					.locations
+					.reference_idx(source_file, local_reference)
+				else {
+					continue;
+				};
+				let reference = &references[reference_idx];
+				if reference.source_symbol != binding.0
+					|| structural_receiver_name(reference) != Some(binding.1.as_str())
+				{
+					continue;
+				}
+				accumulate_structural_owner(linkage, &mut owners_by_binding, reference);
+			}
+		}
+	} else {
+		for reference in references.iter() {
+			accumulate_structural_owner(linkage, &mut owners_by_binding, reference);
+		}
+	}
+
+	const MAX_STRUCTURAL_OWNERS: usize = 32;
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		let Some(receiver) = structural_receiver_name(reference) else {
+			continue;
+		};
+		let Some(owners) = owners_by_binding.get(&(reference.source_symbol, receiver.to_owned()))
+		else {
+			continue;
+		};
+		if owners.is_empty() || owners.len() > MAX_STRUCTURAL_OWNERS {
+			continue;
+		}
+		let Some(call_name) = reference.call_name.as_deref() else {
+			continue;
+		};
+		let Some(call_arity) = reference.call_arity else {
+			continue;
+		};
+		let targets =
+			linkage
+				.methods
+				.methods_for_owners(linkage.candidates, owners, call_name, call_arity);
+		if targets.is_empty() {
+			continue;
+		}
+		*decision = ReferenceLinkageDecision::dynamic(
+			crate::snapshot::DynamicReason::DuckTypedCandidateSet,
+			reference_idx,
+			reference.id,
+			targets,
+		);
+	}
+}
+
+fn accumulate_structural_owner(
+	linkage: &SemanticLinkage<'_>,
+	owners_by_binding: &mut FxHashMap<(crate::snapshot::SymbolId, String), SymbolSet>,
+	reference: &ReferenceRecord,
+) {
+	let Some(receiver) = structural_receiver_name(reference) else {
+		return;
+	};
+	let Some(call_name) = reference.call_name.as_deref() else {
+		return;
+	};
+	let Some(call_arity) = reference.call_arity else {
+		return;
+	};
+	let owners = linkage
+		.methods
+		.structural_owners(call_name, call_arity)
+		.cloned()
+		.unwrap_or_else(SymbolSet::new);
+	match owners_by_binding.entry((reference.source_symbol, receiver.to_owned())) {
+		std::collections::hash_map::Entry::Vacant(entry) => {
+			entry.insert(owners);
+		}
+		std::collections::hash_map::Entry::Occupied(mut entry) => {
+			entry.get_mut().intersect_with(&owners);
+		}
+	}
+}
+
+fn structural_receiver_name(reference: &ReferenceRecord) -> Option<&str> {
+	if reference.kind != "method_call" {
+		return None;
+	}
+	let receiver = reference.receiver.as_deref()?;
+	if receiver.is_empty()
+		|| matches!(
+			receiver,
+			"self" | "cls" | "call" | "member" | "subscript" | "python_conditional_import"
+		) || !receiver
+		.bytes()
+		.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+	{
+		return None;
+	}
+	Some(receiver)
+}
+
+fn classify_open_python_references(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		if !reference_is_python(linkage.material, reference) {
+			continue;
+		}
+		let imported_external = reference.confidence.as_deref() == Some("imported")
+			&& linkage
+				.material
+				.reference_target(&reference.id)
+				.is_some_and(external_target_shape);
+		let reason = if imported_external {
+			Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed)
+		} else {
+			match reference.kind.as_str() {
+				"method_call" => Some(match reference.receiver.as_deref() {
+					Some("self" | "cls") if explicit_mixin_source(linkage.material, reference) => {
+						crate::snapshot::DynamicReason::MixinContract
+					}
+					Some("member" | "subscript") => {
+						crate::snapshot::DynamicReason::DynamicAttribute
+					}
+					_ => crate::snapshot::DynamicReason::InsufficientLocalFacts,
+				}),
+				"reads" if reference.confidence.as_deref() == Some("unresolved") => {
+					Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
+				}
+				"annotates" | "uses_type"
+					if reference.confidence.as_deref() == Some("name_match") =>
+				{
+					Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
+				}
+				_ => None,
+			}
+		};
+		let Some(reason) = reason else { continue };
+		let candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(SymbolSet::new);
+		*decision =
+			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
+	}
+}
+
+fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
+	material
+		.symbol_moniker(&reference.source_symbol)
+		.and_then(enclosing_class)
+		.and_then(|class| {
+			class
+				.as_view()
+				.segments()
+				.last()
+				.map(|segment| segment.name.to_vec())
+		})
+		.is_some_and(|name| name.ends_with(b"Mixin"))
+}
+
+fn reference_is_python(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
+	material
+		.symbol_moniker(&reference.source_symbol)
+		.is_some_and(|source| {
+			source
+				.as_view()
+				.segments()
+				.any(|segment| segment.kind == kinds::LANG && segment.name == b"python")
+		})
+}
+
 fn runtime_binding_name(reference: &ReferenceRecord) -> Option<&str> {
 	reference
 		.call_name
@@ -277,7 +502,29 @@ struct ReceiverFieldTables {
 	extends_of: FxHashMap<Moniker, Moniker>,
 	supers: FxHashMap<Moniker, Vec<Moniker>>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
-	value_types: FxHashMap<Moniker, Moniker>,
+	value_types: FxHashMap<Moniker, MonikerTypeSet>,
+}
+
+#[derive(Default)]
+struct MonikerTypeSet {
+	types: Vec<Moniker>,
+	open: bool,
+}
+
+impl MonikerTypeSet {
+	fn insert(&mut self, target: Moniker) {
+		if !self.types.contains(&target) {
+			self.types.push(target);
+		}
+	}
+
+	fn iter(&self) -> impl Iterator<Item = &Moniker> {
+		self.types.iter()
+	}
+
+	fn mark_open(&mut self) {
+		self.open = true;
+	}
 }
 
 fn build_receiver_field_tables(
@@ -312,18 +559,18 @@ fn build_receiver_field_tables(
 		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
 			continue;
 		};
-		insert_type_fact(&mut tables, table_kind, source.clone(), target);
+		insert_type_fact(&mut tables, reference, source.clone(), target);
 	}
 	tables
 }
 
 fn insert_type_fact(
 	tables: &mut ReceiverFieldTables,
-	kind: &[u8],
+	reference: &ReferenceRecord,
 	source: Moniker,
 	target: Moniker,
 ) {
-	match kind {
+	match reference.kind.as_bytes() {
 		kinds::EXTENDS => {
 			tables.extends_of.insert(source.clone(), target.clone());
 			tables.supers.entry(source).or_default().push(target);
@@ -332,7 +579,16 @@ fn insert_type_fact(
 			tables.supers.entry(source).or_default().push(target);
 		}
 		kinds::TYPED_AS => {
-			if let Some((owner, name)) = field_owner_and_name(&source) {
+			if let Some(name) = reference.alias.as_deref().filter(|name| !name.is_empty()) {
+				let value = MonikerBuilder::from_view(source.as_view())
+					.segment(kinds::PATH, name.as_bytes())
+					.build();
+				let types = tables.value_types.entry(value).or_default();
+				types.insert(target);
+				if reference.receiver.as_deref() == Some("python_open_type_set") {
+					types.mark_open();
+				}
+			} else if let Some((owner, name)) = field_owner_and_name(&source) {
 				tables
 					.field_types
 					.entry(owner)
@@ -344,7 +600,11 @@ fn insert_type_fact(
 				.last()
 				.is_some_and(|segment| segment.kind == kinds::PATH)
 			{
-				tables.value_types.insert(source, target);
+				let types = tables.value_types.entry(source).or_default();
+				types.insert(target);
+				if reference.receiver.as_deref() == Some("python_open_type_set") {
+					types.mark_open();
+				}
 			}
 		}
 		_ => {}
@@ -420,8 +680,8 @@ fn resolve_receiver_field_call(
 		if let Some(ty) = field_type_through_extends(tables, &current, receiver.as_bytes()) {
 			return typed_receiver_decision(linkage, tables, ty, method_call);
 		}
-		if let Some(ty) = receiver_value_type(tables, &current, receiver.as_bytes()) {
-			return typed_receiver_decision(linkage, tables, ty, method_call);
+		if let Some(types) = receiver_value_type(tables, &current, receiver.as_bytes()) {
+			return typed_receiver_types_decision(linkage, tables, types, method_call);
 		}
 		owner = current.parent();
 	}
@@ -432,7 +692,7 @@ fn receiver_value_type<'a>(
 	tables: &'a ReceiverFieldTables,
 	owner: &Moniker,
 	name: &[u8],
-) -> Option<&'a Moniker> {
+) -> Option<&'a MonikerTypeSet> {
 	let value = MonikerBuilder::from_view(owner.as_view())
 		.segment(kinds::PATH, name)
 		.build();
@@ -469,8 +729,75 @@ fn typed_receiver_decision(
 	ty: &Moniker,
 	method_call: MethodCallReference<'_>,
 ) -> Option<ReferenceLinkageDecision> {
+	let ty = tables.type_aliases.get(ty).unwrap_or(ty);
 	let owner = callable_owner(ty)?;
 	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn typed_receiver_types_decision(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	types: &MonikerTypeSet,
+	method_call: MethodCallReference<'_>,
+) -> Option<ReferenceLinkageDecision> {
+	let mut targets = SymbolSet::new();
+	let mut external_target = None;
+	let mut open = types.open;
+	for ty in types.iter() {
+		let Some(decision) = typed_receiver_decision(linkage, tables, ty, method_call) else {
+			open = true;
+			continue;
+		};
+		match decision {
+			ReferenceLinkageDecision::Unique { resolution }
+			| ReferenceLinkageDecision::Candidate { resolution, .. } => {
+				for target in resolution.targets.iter() {
+					targets.insert(target);
+				}
+			}
+			ReferenceLinkageDecision::External { target, .. } => {
+				if external_target.is_some() && external_target != target {
+					open = true;
+				}
+				external_target = target;
+			}
+			ReferenceLinkageDecision::Dynamic { candidates, .. } => {
+				for target in candidates.iter() {
+					targets.insert(target);
+				}
+				open = true;
+			}
+			ReferenceLinkageDecision::Blocked { .. } | ReferenceLinkageDecision::Unknown { .. } => {
+				open = true
+			}
+		}
+	}
+	if open || (!targets.is_empty() && external_target.is_some()) {
+		return Some(ReferenceLinkageDecision::dynamic(
+			crate::snapshot::DynamicReason::DuckTypedCandidateSet,
+			method_call.reference_idx,
+			method_call.reference.id,
+			targets,
+		));
+	}
+	if !targets.is_empty() {
+		let resolution = ResolutionDecision::new(
+			ResolutionScope::Global,
+			ResolutionEvidence::TypeConstraint,
+			method_call.reference.id,
+			method_call.reference_idx,
+			targets,
+		);
+		return Some(if resolution.targets.len() == 1 {
+			ReferenceLinkageDecision::resolved(resolution)
+		} else {
+			ReferenceLinkageDecision::candidate(
+				crate::snapshot::CandidateReason::MultipleTargets,
+				resolution,
+			)
+		});
+	}
+	external_target.map(|target| method_call.external_decision(target))
 }
 
 fn resolve_imported_method_call(
@@ -507,8 +834,8 @@ fn resolve_typed_value_call(
 		return None;
 	}
 	let value = tables.type_aliases.get(&value).cloned().unwrap_or(value);
-	let ty = tables.value_types.get(&value)?;
-	typed_receiver_decision(linkage, tables, ty, method_call)
+	let types = tables.value_types.get(&value)?;
+	typed_receiver_types_decision(linkage, tables, types, method_call)
 }
 
 fn resolve_typed_value_annotation(
@@ -531,14 +858,17 @@ fn resolve_typed_value_annotation(
 	let call_name = std::str::from_utf8(bare_callable_name(last.name)).ok()?;
 	let value = raw_target.parent()?;
 	let value = tables.type_aliases.get(&value).cloned().unwrap_or(value);
-	let ty = tables.value_types.get(&value)?;
-	let owner = callable_owner(ty)?;
 	let method_call = MethodCallReference {
 		reference_idx,
 		reference,
 		call_name,
 	};
-	resolve_method_through_supers(linkage, tables, &owner, method_call)
+	typed_receiver_types_decision(
+		linkage,
+		tables,
+		tables.value_types.get(&value)?,
+		method_call,
+	)
 }
 
 fn resolve_self_method_call(
@@ -647,6 +977,7 @@ fn declared_groups_permit_decision(
 	})
 }
 
+#[derive(Clone, Copy)]
 struct MethodCallReference<'a> {
 	reference_idx: usize,
 	reference: &'a ReferenceRecord,
@@ -714,7 +1045,7 @@ type MethodKey = (Moniker, Vec<u8>, usize);
 pub(in crate::linkage) struct MethodTable {
 	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolOrdinal>>,
 	by_owner_name: FxHashMap<(Moniker, Vec<u8>), Vec<SymbolOrdinal>>,
-	keys_by_file: FxHashMap<usize, Vec<MethodKey>>,
+	owners_by_name_arity: FxHashMap<(Vec<u8>, usize), SymbolSet>,
 }
 
 impl MethodTable {
@@ -752,8 +1083,9 @@ impl MethodTable {
 			let Some(symbol) = candidates.symbol_at(file_idx, def_idx) else {
 				continue;
 			};
+			let owner_symbol = candidates.indexes().symbol_by_moniker(&owner);
 			let key = (owner, def.call_name.to_vec(), arity);
-			insert_method_key(self, file_idx, key, symbol);
+			insert_method_key(self, key, symbol, owner_symbol);
 		}
 	}
 
@@ -775,25 +1107,65 @@ impl MethodTable {
 		};
 		(targets.len() == 1).then(|| SymbolSet::from_symbol(targets[0]))
 	}
+
+	fn structural_owners(&self, call_name: &str, call_arity: usize) -> Option<&SymbolSet> {
+		self.owners_by_name_arity
+			.get(&(call_name.as_bytes().to_vec(), call_arity))
+	}
+
+	fn methods_for_owners(
+		&self,
+		candidates: &CandidateCatalog,
+		owners: &SymbolSet,
+		call_name: &str,
+		call_arity: usize,
+	) -> SymbolSet {
+		let mut methods = SymbolSet::new();
+		for owner in owners.iter() {
+			let Some(owner) = candidates
+				.candidate(owner)
+				.map(|candidate| candidate.moniker)
+			else {
+				continue;
+			};
+			if let Some(targets) = self.by_owner_name_arity.get(&(
+				owner.clone(),
+				call_name.as_bytes().to_vec(),
+				call_arity,
+			)) {
+				for target in targets {
+					methods.insert(*target);
+				}
+			}
+		}
+		methods
+	}
 }
 
 fn insert_method_key(
 	table: &mut MethodTable,
-	file_idx: usize,
 	key: MethodKey,
 	symbol: SymbolOrdinal,
+	owner_symbol: Option<SymbolOrdinal>,
 ) {
+	let (owner, name, arity) = key;
+	if let Some(owner) = owner_symbol {
+		table
+			.owners_by_name_arity
+			.entry((name.clone(), arity))
+			.or_default()
+			.insert(owner);
+	}
 	table
 		.by_owner_name
-		.entry((key.0.clone(), key.1.clone()))
+		.entry((owner.clone(), name.clone()))
 		.or_default()
 		.push(symbol);
 	table
 		.by_owner_name_arity
-		.entry(key.clone())
+		.entry((owner, name, arity))
 		.or_default()
 		.push(symbol);
-	table.keys_by_file.entry(file_idx).or_default().push(key);
 }
 
 fn enhance_python_bindings(
@@ -1022,7 +1394,7 @@ fn pending_receiver_chains(
 struct ChainContext<'a> {
 	statuses: &'a FxHashMap<usize, ReferenceStatus>,
 	receiver_calls: &'a ReceiverCallIndex,
-	return_types: &'a FxHashMap<Moniker, Moniker>,
+	return_types: &'a FxHashMap<Moniker, MonikerTypeSet>,
 }
 
 fn resolve_receiver_chain(
@@ -1034,18 +1406,27 @@ fn resolve_receiver_chain(
 ) -> Option<ReferenceLinkageDecision> {
 	let method_call = MethodCallReference::new(reference_idx, reference)?;
 	let receiver = context.receiver_calls.get(reference_idx)?;
-	let owner = match context.statuses.get(&receiver)? {
+	match context.statuses.get(&receiver)? {
 		ReferenceStatus::Resolved(symbol) => {
-			linkage.resolved_return_owner(*symbol, context.return_types)?
+			let callable = linkage.candidates.candidate(*symbol)?.moniker;
+			if callable
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.kind == kinds::CLASS)
+			{
+				typed_receiver_decision(linkage, tables, callable, method_call)
+			} else {
+				let types = linkage.resolved_return_types(*symbol, context.return_types)?;
+				typed_receiver_types_decision(linkage, tables, types, method_call)
+			}
 		}
 		ReferenceStatus::External(target) => {
 			let owner = callable_owner(target)?;
 			let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
-			return Some(method_call.external_decision(target));
+			Some(method_call.external_decision(target))
 		}
-	};
-	let owner = tables.type_aliases.get(&owner).cloned().unwrap_or(owner);
-	resolve_method_through_supers(linkage, tables, &owner, method_call)
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1059,9 +1440,8 @@ fn collect_return_types(
 	candidates: &CandidateCatalog,
 	decisions: &[ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
-) -> FxHashMap<Moniker, Moniker> {
-	let mut out = FxHashMap::default();
-	let mut ambiguous = FxHashSet::default();
+) -> FxHashMap<Moniker, MonikerTypeSet> {
+	let mut out: FxHashMap<Moniker, MonikerTypeSet> = FxHashMap::default();
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
 		if reference.kind != "returns_type" {
@@ -1073,26 +1453,13 @@ fn collect_return_types(
 		let Some(target) = decision_target(material, candidates, decision, references) else {
 			continue;
 		};
-		record_return_type(&mut out, &mut ambiguous, source, target);
+		let types = out.entry(source.clone()).or_default();
+		types.insert(target);
+		if reference.receiver.as_deref() == Some("python_open_type_set") {
+			types.mark_open();
+		}
 	}
 	out
-}
-
-fn record_return_type(
-	out: &mut FxHashMap<Moniker, Moniker>,
-	ambiguous: &mut FxHashSet<Moniker>,
-	source: &Moniker,
-	target: Moniker,
-) {
-	if ambiguous.contains(source) {
-		return;
-	}
-	if out.get(source).is_some_and(|known| known != &target) {
-		out.remove(source);
-		ambiguous.insert(source.clone());
-		return;
-	}
-	out.insert(source.clone(), target);
 }
 
 fn decision_reference<'a>(
@@ -1168,7 +1535,9 @@ fn reference_status(
 }
 
 fn is_call_ref(reference: &RefRecord) -> bool {
-	reference.kind == REF_CALLS || reference.kind == REF_METHOD_CALL
+	reference.kind == REF_CALLS
+		|| reference.kind == REF_INSTANTIATES
+		|| reference.kind == REF_METHOD_CALL
 }
 
 fn contains_position(outer: (u32, u32), inner: (u32, u32)) -> bool {
@@ -1214,11 +1583,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn conflicting_return_types_remain_ambiguous() {
-		let source = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"function", b"make()")
-			.build();
+	fn return_type_sets_preserve_distinct_candidates() {
 		let first = MonikerBuilder::new()
 			.project(b"app")
 			.segment(b"class", b"First")
@@ -1227,13 +1592,14 @@ mod tests {
 			.project(b"app")
 			.segment(b"class", b"Second")
 			.build();
-		let mut out = FxHashMap::default();
-		let mut ambiguous = FxHashSet::default();
+		let mut types = MonikerTypeSet::default();
+		types.insert(first.clone());
+		types.insert(second.clone());
+		types.insert(first.clone());
 
-		record_return_type(&mut out, &mut ambiguous, &source, first);
-		record_return_type(&mut out, &mut ambiguous, &source, second);
-
-		assert!(!out.contains_key(&source));
-		assert!(ambiguous.contains(&source));
+		assert_eq!(
+			types.iter().cloned().collect::<Vec<_>>(),
+			vec![first, second]
+		);
 	}
 }

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::audit::{AuditOptions, resolution_audit};
 use code_moniker_workspace::snapshot::{
-	ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
+	DynamicReason, ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
 };
 use code_moniker_workspace::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 
@@ -692,14 +692,22 @@ fn python_unknown_receivers_do_not_link_to_unrelated_homonyms() {
 
 	assert_eq!(reference.confidence.as_deref(), Some("unresolved"));
 	assert!(linked_symbol_identities(&snapshot, reference).is_empty());
-	assert!(snapshot.linkage.unresolved.iter().any(|unresolved| {
-		unresolved.reference == reference.id
-			&& unresolved.reason == UnresolvedReason::IncompleteExtractorMetadata
-	}));
+	let dynamic = snapshot
+		.linkage
+		.dynamic
+		.iter()
+		.find(|dynamic| dynamic.reference == reference.id)
+		.expect("unknown receiver should be explicitly classified");
+	assert!(matches!(
+		dynamic.reason,
+		DynamicReason::DuckTypedCandidateSet | DynamicReason::InsufficientLocalFacts
+	));
 	let audit = resolution_audit(&snapshot, "module:listing", AuditOptions::default());
 	assert!(audit.clusters.iter().any(|cluster| {
-		cluster.pattern.reason == "incomplete_extractor_metadata"
-			&& cluster.pattern.confidence == "unresolved"
+		matches!(
+			cluster.pattern.reason.as_str(),
+			"duck_typed_candidate_set" | "insufficient_local_facts"
+		) && cluster.pattern.confidence == "unresolved"
 			&& cluster.pattern.kind == "method_call"
 	}));
 	assert!(audit.clusters.iter().any(|cluster| {
@@ -762,9 +770,8 @@ fn python_unknown_reads_do_not_link_to_unrelated_homonyms() {
 
 	assert_eq!(reference.confidence.as_deref(), Some("unresolved"));
 	assert!(linked_symbol_identities(&snapshot, reference).is_empty());
-	assert!(snapshot.linkage.unresolved.iter().any(|unresolved| {
-		unresolved.reference == reference.id
-			&& unresolved.reason == UnresolvedReason::IncompleteExtractorMetadata
+	assert!(snapshot.linkage.dynamic.iter().any(|dynamic| {
+		dynamic.reference == reference.id && dynamic.reason == DynamicReason::InsufficientLocalFacts
 	}));
 }
 
@@ -1037,6 +1044,115 @@ fn python_explicit_reexports_reach_a_fixpoint() {
 		"DeepExplicitClient",
 		0,
 		"package:orders_service/module:explicit_a/class:DeepExplicitClient",
+	);
+}
+
+#[test]
+fn python_local_type_sets_preserve_union_candidates() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_method_call_is_candidate_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_union(",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaRenderer/method:render()",
+			"module:type_sets/class:BetaRenderer/method:render()",
+		],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_optional(",
+		"render",
+		0,
+		&["module:type_sets/class:AlphaRenderer/method:render()"],
+	);
+	assert_method_call_is_candidate_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_reassigned(",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaRenderer/method:render()",
+			"module:type_sets/class:BetaRenderer/method:render()",
+		],
+	);
+	assert_method_call_is_candidate_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_chained(",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaRenderer/method:render()",
+			"module:type_sets/class:BetaRenderer/method:render()",
+		],
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:type_sets/function:render_constructed()",
+		"method_call",
+		"render",
+		0,
+		"module:type_sets/class:AlphaRenderer/method:render()",
+	);
+	assert_method_call_is_candidate_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_loop()",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaRenderer/method:render()",
+			"module:type_sets/class:BetaRenderer/method:render()",
+		],
+	);
+	assert_method_call_is_candidate_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_heterogeneous_tuple(",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaRenderer/method:render()",
+			"module:type_sets/class:BetaRenderer/method:render()",
+		],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_exception(",
+		"render",
+		0,
+		&[
+			"module:type_sets/class:AlphaError/method:render()",
+			"module:type_sets/class:BetaError/method:render()",
+		],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_protocol(",
+		"begins",
+		0,
+		&["module:type_sets/class:FullProtocol/method:begins()"],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:type_sets/function:render_protocol(",
+		"finishes",
+		0,
+		&["module:type_sets/class:FullProtocol/method:finishes()"],
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:type_sets/function:render_open(",
+		"method_call",
+		Some("runtime_only"),
+		DynamicReason::InsufficientLocalFacts,
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:type_sets/function:read_open()",
+		"reads",
+		None,
+		DynamicReason::InsufficientLocalFacts,
 	);
 }
 
@@ -1895,7 +2011,7 @@ fn assert_call_is_dynamic_with_targets(
 		.references
 		.iter()
 		.find(|reference| {
-			reference.kind == "calls"
+			matches!(reference.kind.as_str(), "calls" | "method_call")
 				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
@@ -1941,6 +2057,119 @@ fn assert_call_is_dynamic_with_targets(
 			.all(|edge| edge.reference != reference.id),
 		"dynamic call must remain outside the unique graph"
 	);
+}
+
+fn assert_method_call_is_candidate_with_targets(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+	expected_targets: &[&str],
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.unwrap_or_else(|| panic!("missing `{call_name}`/{call_arity} method call"));
+	let candidate = snapshot
+		.linkage
+		.candidates
+		.iter()
+		.find(|candidate| candidate.reference == reference.id)
+		.unwrap_or_else(|| {
+			panic!(
+				"method call `{}` is not a candidate (resolved={}, dynamic={}, unresolved={})",
+				reference.target_identity,
+				snapshot
+					.linkage
+					.resolved
+					.iter()
+					.any(|edge| edge.reference == reference.id),
+				snapshot
+					.linkage
+					.dynamic
+					.iter()
+					.any(|entry| entry.reference == reference.id),
+				snapshot
+					.linkage
+					.unresolved
+					.iter()
+					.any(|entry| entry.reference == reference.id),
+			)
+		});
+	let identities = candidate
+		.targets
+		.iter()
+		.filter_map(|target| {
+			snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.id == *target)
+		})
+		.map(|symbol| symbol.identity.as_ref())
+		.collect::<Vec<_>>();
+	assert_eq!(identities.len(), expected_targets.len(), "{identities:?}");
+	for expected in expected_targets {
+		assert!(
+			identities
+				.iter()
+				.any(|identity| identity.contains(expected)),
+			"candidate targets {identities:?} do not contain `{expected}`"
+		);
+	}
+	assert!(
+		snapshot
+			.linkage
+			.resolved
+			.iter()
+			.all(|edge| edge.reference != reference.id),
+		"candidate call must remain outside the unique graph"
+	);
+}
+
+fn assert_dynamic_reason(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	kind: &str,
+	call_name: Option<&str>,
+	expected: DynamicReason,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol == source.id
+				&& call_name.is_none_or(|name| reference.call_name.as_deref() == Some(name))
+		})
+		.unwrap_or_else(|| panic!("missing `{kind}` reference from `{source_identity}`"));
+	let dynamic = snapshot
+		.linkage
+		.dynamic
+		.iter()
+		.find(|dynamic| dynamic.reference == reference.id)
+		.unwrap_or_else(|| panic!("reference `{}` is not dynamic", reference.target_identity));
+	assert_eq!(dynamic.reason, expected);
 }
 
 fn assert_named_call_unresolved(

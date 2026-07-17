@@ -396,6 +396,18 @@ fn add_reference_indexes(
 			.or_default()
 			.insert(reference_ordinal);
 	}
+	indexes
+		.references_by_source_symbol
+		.entry(reference.source_symbol)
+		.or_default()
+		.insert(reference_ordinal);
+	if let Some(call_name) = reference.call_name.as_deref() {
+		indexes
+			.references_by_call_name
+			.entry(call_name.as_bytes().to_vec())
+			.or_default()
+			.insert(reference_ordinal);
+	}
 	let Some(query) = LinkageQuery::new(reference, material) else {
 		return;
 	};
@@ -444,6 +456,11 @@ fn store_memory_metrics(
 		&mut metrics,
 	);
 	record_reference_sets(store.indexes.references_by_name.values(), &mut metrics);
+	record_reference_sets(
+		store.indexes.references_by_source_symbol.values(),
+		&mut metrics,
+	);
+	record_reference_sets(store.indexes.references_by_call_name.values(), &mut metrics);
 	if let Some(index) = &store.indexes.resolved_by_target_source {
 		index.record_memory(&mut metrics);
 	}
@@ -680,6 +697,8 @@ pub(in crate::linkage) struct LinkageStoreIndexes {
 	pub(in crate::linkage) reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
 	pub(in crate::linkage) references_by_source_root: FxHashMap<usize, ReferenceSet>,
 	pub(in crate::linkage) references_by_name: FxHashMap<Vec<u8>, ReferenceSet>,
+	pub(in crate::linkage) references_by_source_symbol: FxHashMap<SymbolId, ReferenceSet>,
+	pub(in crate::linkage) references_by_call_name: FxHashMap<Vec<u8>, ReferenceSet>,
 	pub(in crate::linkage) resolved_by_target_source: Option<ResolvedTargetSourceIndex>,
 }
 
@@ -696,6 +715,8 @@ impl LinkageStoreIndexes {
 			reference_indexes: reference_indexes(references),
 			references_by_source_root: references_by_source_root(references, material),
 			references_by_name: references_by_name(references, material),
+			references_by_source_symbol: references_by_source_symbol(references),
+			references_by_call_name: references_by_call_name(references),
 			resolved_by_target_source: None,
 		}
 	}
@@ -719,6 +740,8 @@ impl LinkageStoreIndexes {
 	fn rebase_reference_ordinals(&mut self, rebase: &ReferenceOrdinalRebase) {
 		rebase_reference_maps(&mut self.references_by_source_root, rebase);
 		rebase_reference_maps(&mut self.references_by_name, rebase);
+		rebase_reference_maps(&mut self.references_by_source_symbol, rebase);
+		rebase_reference_maps(&mut self.references_by_call_name, rebase);
 		if let Some(index) = &mut self.resolved_by_target_source {
 			index.rebase_reference_ordinals(rebase);
 		}
@@ -727,6 +750,8 @@ impl LinkageStoreIndexes {
 	fn remove_stale_references(&mut self, stale_references: &ReferenceSet) {
 		remove_references(&mut self.references_by_source_root, stale_references);
 		remove_references(&mut self.references_by_name, stale_references);
+		remove_references(&mut self.references_by_source_symbol, stale_references);
+		remove_references(&mut self.references_by_call_name, stale_references);
 		self.remove_resolved_references(stale_references);
 	}
 
@@ -917,6 +942,35 @@ fn references_by_name(
 			FxHashMap::<Vec<u8>, ReferenceSet>::default,
 			merge_reference_set_maps,
 		)
+}
+
+fn references_by_source_symbol(
+	references: &RecordTable<ReferenceRecord>,
+) -> FxHashMap<SymbolId, ReferenceSet> {
+	let mut by_source_symbol = FxHashMap::default();
+	for (reference_idx, reference) in references.iter().enumerate() {
+		by_source_symbol
+			.entry(reference.source_symbol)
+			.or_insert_with(ReferenceSet::new)
+			.insert(ReferenceOrdinal::from_index(reference_idx));
+	}
+	by_source_symbol
+}
+
+fn references_by_call_name(
+	references: &RecordTable<ReferenceRecord>,
+) -> FxHashMap<Vec<u8>, ReferenceSet> {
+	let mut by_call_name = FxHashMap::default();
+	for (reference_idx, reference) in references.iter().enumerate() {
+		let Some(call_name) = reference.call_name.as_deref() else {
+			continue;
+		};
+		by_call_name
+			.entry(call_name.as_bytes().to_vec())
+			.or_insert_with(ReferenceSet::new)
+			.insert(ReferenceOrdinal::from_index(reference_idx));
+	}
+	by_call_name
 }
 
 fn merge_reference_set_maps<K: Eq + Hash>(

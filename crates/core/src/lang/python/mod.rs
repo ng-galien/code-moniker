@@ -239,6 +239,39 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_future_annotations_does_not_emit_a_runtime_read() {
+		let g = extract_default(
+			"m.py",
+			"from __future__ import annotations\n",
+			&make_anchor(),
+			false,
+		);
+		assert!(!g.refs().any(|reference| {
+			reference.kind == b"reads"
+				&& reference.target.as_view().segments().last().unwrap().name == b"annotations"
+		}));
+	}
+
+	#[test]
+	fn extract_runtime_module_globals_are_external() {
+		let g = extract_default(
+			"m.py",
+			"if __name__ == '__main__':\n    pass\n",
+			&make_anchor(),
+			false,
+		);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"reads")
+			.expect("reads __name__");
+		assert_eq!(reference.confidence, b"external".to_vec());
+		assert_eq!(
+			reference.target.as_view().segments().next().unwrap().name,
+			b"python_runtime"
+		);
+	}
+
+	#[test]
 	fn extract_wildcard_import_preserves_the_star_binding() {
 		let g = extract_default(
 			"acme/facade.py",
@@ -754,6 +787,150 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_builtin_generic_receiver_uses_container_type() {
+		let src = "def add(values: list[str]):\n    values.append('x')\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|reference| reference.kind == b"method_call")
+			.expect("method_call list.append");
+		assert_eq!(r.confidence, b"external".to_vec());
+		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"list");
+	}
+
+	#[test]
+	fn extract_variadic_parameters_use_runtime_container_types() {
+		let src = "def collect(*items: str, **options: int):\n    items.count('x')\n    options.get('limit')\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let targets = g
+			.refs()
+			.filter(|reference| reference.kind == b"method_call")
+			.map(|reference| {
+				reference
+					.target
+					.as_view()
+					.segments()
+					.nth(1)
+					.unwrap()
+					.name
+					.to_vec()
+			})
+			.collect::<Vec<_>>();
+		assert!(targets.contains(&b"tuple".to_vec()), "{targets:?}");
+		assert!(targets.contains(&b"dict".to_vec()), "{targets:?}");
+	}
+
+	#[test]
+	fn extract_with_alias_preserves_constructed_receiver_type() {
+		let src = "class Session:\n    def __enter__(self) -> Session:\n        return self\n\n    def __exit__(self, exc_type, exc, tb):\n        pass\n\n    def close(self):\n        pass\n\ndef run():\n    with Session() as session:\n        session.close()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|reference| reference.kind == b"method_call")
+			.expect("method_call Session.close");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(
+			r.target
+				.parent()
+				.unwrap()
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.name,
+			b"Session"
+		);
+	}
+
+	#[test]
+	fn extract_annotated_iterable_types_the_loop_binding() {
+		let src = "class Item:\n    def label(self):\n        pass\n\ndef render(items: list[Item]):\n    for item in items:\n        item.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|reference| reference.kind == b"method_call")
+			.expect("method_call Item.label");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(
+			r.target
+				.parent()
+				.unwrap()
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.name,
+			b"Item"
+		);
+	}
+
+	#[test]
+	fn extract_heterogeneous_tuple_annotation_keeps_all_loop_element_types() {
+		let src = "class Alpha:\n    pass\n\nclass Beta:\n    pass\n\ndef render(values: tuple[Alpha, Beta]):\n    for value in values:\n        pass\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let mut targets = g
+			.refs()
+			.filter(|reference| reference.kind == b"typed_as" && reference.alias == b"value")
+			.map(|reference| {
+				reference
+					.target
+					.as_view()
+					.segments()
+					.last()
+					.unwrap()
+					.name
+					.to_vec()
+			})
+			.collect::<Vec<_>>();
+		targets.sort();
+		assert_eq!(targets, vec![b"Alpha".to_vec(), b"Beta".to_vec()]);
+	}
+
+	#[test]
+	fn extract_except_alias_uses_the_exception_type() {
+		let src = "class Problem(Exception):\n    def explain(self):\n        pass\n\ndef run():\n    try:\n        pass\n    except Problem as error:\n        error.explain()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|reference| reference.kind == b"method_call")
+			.expect("method_call Problem.explain");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(
+			r.target
+				.parent()
+				.unwrap()
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.name,
+			b"Problem"
+		);
+	}
+
+	#[test]
+	fn extract_exception_tuple_keeps_all_alias_types() {
+		let src = "class AlphaError(Exception):\n    pass\n\nclass BetaError(Exception):\n    pass\n\ndef run():\n    try:\n        pass\n    except (AlphaError, BetaError) as error:\n        pass\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let mut targets = g
+			.refs()
+			.filter(|reference| reference.kind == b"typed_as" && reference.alias == b"error")
+			.map(|reference| {
+				reference
+					.target
+					.as_view()
+					.segments()
+					.last()
+					.unwrap()
+					.name
+					.to_vec()
+			})
+			.collect::<Vec<_>>();
+		targets.sort();
+		assert_eq!(targets, vec![b"AlphaError".to_vec(), b"BetaError".to_vec()]);
+	}
+
+	#[test]
 	fn extract_distinct_builtin_union_does_not_invent_receiver_type() {
 		let src = "def normalize(value: str | bytes):\n    return value.strip()\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
@@ -765,6 +942,28 @@ mod tests {
 			})
 			.expect("method_call strip");
 		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_workspace_union_parameter_emits_each_local_type_fact() {
+		let src = "class Alpha:\n    pass\n\nclass Beta:\n    pass\n\ndef render(value: Alpha | Beta):\n    return value\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let mut targets = g
+			.refs()
+			.filter(|reference| reference.kind == b"typed_as" && reference.alias == b"value")
+			.map(|reference| {
+				reference
+					.target
+					.as_view()
+					.segments()
+					.last()
+					.unwrap()
+					.name
+					.to_vec()
+			})
+			.collect::<Vec<_>>();
+		targets.sort();
+		assert_eq!(targets, vec![b"Alpha".to_vec(), b"Beta".to_vec()]);
 	}
 
 	#[test]
@@ -1049,10 +1248,40 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_union_return_annotation_does_not_invent_unique_return_type() {
+	fn extract_open_union_return_keeps_known_type_with_open_marker() {
 		let src = "class User:\n    pass\n\ndef maybe_make() -> User | None:\n    return None\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
-		assert!(!g.refs().any(|r| r.kind == b"returns_type"));
+		let fact = g
+			.refs()
+			.find(|reference| reference.kind == b"returns_type")
+			.expect("known User return candidate");
+		assert_eq!(
+			fact.target.as_view().segments().last().unwrap().name,
+			b"User"
+		);
+		assert_eq!(fact.receiver_hint, b"python_open_type_set".to_vec());
+	}
+
+	#[test]
+	fn extract_closed_union_return_emits_each_type_fact() {
+		let src = "class Alpha:\n    pass\n\nclass Beta:\n    pass\n\ndef make() -> Alpha | Beta:\n    return Alpha()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let mut targets = g
+			.refs()
+			.filter(|reference| reference.kind == b"returns_type")
+			.map(|reference| {
+				reference
+					.target
+					.as_view()
+					.segments()
+					.last()
+					.unwrap()
+					.name
+					.to_vec()
+			})
+			.collect::<Vec<_>>();
+		targets.sort();
+		assert_eq!(targets, vec![b"Alpha".to_vec(), b"Beta".to_vec()]);
 	}
 
 	#[test]

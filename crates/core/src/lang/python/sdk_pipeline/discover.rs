@@ -16,6 +16,7 @@ use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef};
 use crate::lang::tree_util::{node_position, node_slice};
 
 use super::kinds;
+use super::local_types::LocalTypeSet;
 
 pub(super) struct PyDiscover<'src> {
 	pub(super) module: Moniker,
@@ -36,7 +37,8 @@ pub(super) type TypeTable = HashMap<Vec<u8>, Vec<Moniker>>;
 pub(super) struct CallableEntry {
 	pub(super) kind: &'static [u8],
 	pub(super) segment: Vec<u8>,
-	pub(super) return_type_name: Option<Vec<u8>>,
+	pub(super) return_type_names: Vec<Vec<u8>>,
+	pub(super) return_type_dynamic: bool,
 	pub(super) return_type_ambiguous: bool,
 	pub(super) is_async: bool,
 }
@@ -136,8 +138,8 @@ impl PyImportBindings {
 
 pub(super) struct PyLocalScopes {
 	names: RefCell<Vec<HashSet<Vec<u8>>>>,
-	types: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
-	ambiguous_types: RefCell<Vec<HashSet<Vec<u8>>>>,
+	types: RefCell<Vec<HashMap<Vec<u8>, LocalTypeSet>>>,
+	element_types: RefCell<Vec<HashMap<Vec<u8>, LocalTypeSet>>>,
 	type_bindings: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
 
@@ -146,7 +148,7 @@ impl PyLocalScopes {
 		Self {
 			names: RefCell::new(Vec::new()),
 			types: RefCell::new(Vec::new()),
-			ambiguous_types: RefCell::new(Vec::new()),
+			element_types: RefCell::new(Vec::new()),
 			type_bindings: RefCell::new(Vec::new()),
 		}
 	}
@@ -154,14 +156,14 @@ impl PyLocalScopes {
 	fn push(&self) {
 		self.names.borrow_mut().push(HashSet::new());
 		self.types.borrow_mut().push(HashMap::new());
-		self.ambiguous_types.borrow_mut().push(HashSet::new());
+		self.element_types.borrow_mut().push(HashMap::new());
 		self.type_bindings.borrow_mut().push(HashMap::new());
 	}
 
 	fn pop(&self) {
 		self.names.borrow_mut().pop();
 		self.types.borrow_mut().pop();
-		self.ambiguous_types.borrow_mut().pop();
+		self.element_types.borrow_mut().pop();
 		self.type_bindings.borrow_mut().pop();
 	}
 
@@ -175,30 +177,9 @@ impl PyLocalScopes {
 		self.names.borrow().iter().any(|frame| frame.contains(name))
 	}
 
-	fn record_type(&self, name: &[u8], target: Moniker) {
-		if self
-			.ambiguous_types
-			.borrow()
-			.last()
-			.is_some_and(|ambiguous| ambiguous.contains(name))
-		{
-			return;
-		}
-		let conflicts = self
-			.types
-			.borrow()
-			.last()
-			.and_then(|types| types.get(name))
-			.is_some_and(|known| known != &target);
-		if conflicts {
-			if let Some(types) = self.types.borrow_mut().last_mut() {
-				types.remove(name);
-			}
-			if let Some(ambiguous) = self.ambiguous_types.borrow_mut().last_mut() {
-				ambiguous.insert(name.to_vec());
-			}
-		} else if let Some(types) = self.types.borrow_mut().last_mut() {
-			types.insert(name.to_vec(), target);
+	fn record_type_set(&self, name: &[u8], targets: LocalTypeSet) {
+		if let Some(types) = self.types.borrow_mut().last_mut() {
+			types.entry(name.to_vec()).or_default().union_with(targets);
 		}
 	}
 
@@ -208,28 +189,61 @@ impl PyLocalScopes {
 		}
 	}
 
+	fn record_element_type_set(&self, name: &[u8], targets: LocalTypeSet) {
+		if let Some(types) = self.element_types.borrow_mut().last_mut() {
+			types.entry(name.to_vec()).or_default().union_with(targets);
+		}
+	}
+
+	fn record_unknown_element_type(&self, name: &[u8]) {
+		if let Some(types) = self.element_types.borrow_mut().last_mut() {
+			types.entry(name.to_vec()).or_default().mark_dynamic();
+		}
+	}
+
 	fn record_unknown_type(&self, name: &[u8]) {
 		if let Some(types) = self.types.borrow_mut().last_mut() {
-			types.remove(name);
-		}
-		if let Some(ambiguous) = self.ambiguous_types.borrow_mut().last_mut() {
-			ambiguous.insert(name.to_vec());
+			types.entry(name.to_vec()).or_default().mark_dynamic();
 		}
 	}
 
 	fn lookup_type(&self, name: &[u8]) -> Option<Moniker> {
+		self.lookup_type_set(name)?.unique()
+	}
+
+	fn lookup_type_set(&self, name: &[u8]) -> Option<LocalTypeSet> {
 		let names = self.names.borrow();
 		let types = self.types.borrow();
-		let ambiguous = self.ambiguous_types.borrow();
 		for idx in (0..names.len()).rev() {
-			if ambiguous[idx].contains(name) {
-				return None;
-			}
 			if names[idx].contains(name) {
 				return types[idx].get(name).cloned();
 			}
 		}
 		None
+	}
+
+	fn lookup_element_type_set(&self, name: &[u8]) -> Option<LocalTypeSet> {
+		let names = self.names.borrow();
+		let element_types = self.element_types.borrow();
+		for idx in (0..names.len()).rev() {
+			if names[idx].contains(name) {
+				return element_types[idx].get(name).cloned();
+			}
+		}
+		None
+	}
+
+	fn current_type_sets(&self) -> Vec<(Vec<u8>, LocalTypeSet)> {
+		let mut current = self
+			.types
+			.borrow()
+			.last()
+			.into_iter()
+			.flat_map(|types| types.iter())
+			.map(|(name, types)| (name.clone(), types.clone()))
+			.collect::<Vec<_>>();
+		current.sort_by(|left, right| left.0.cmp(&right.0));
+		current
 	}
 
 	fn lookup_type_binding(&self, name: &[u8]) -> Option<Moniker> {
@@ -613,6 +627,11 @@ impl<'a, 'src> PyTypeRefs<'a, 'src> {
 	}
 
 	fn ref_spec_for_type_node(&self, node: Node<'_>) -> Option<RefSpec> {
+		if node.kind() == "attribute"
+			&& qualified_nonconcrete_typing(self.discover, node, self.scope)
+		{
+			return None;
+		}
 		let (name, position) = match node.kind() {
 			"identifier" => (
 				node_slice(node, self.discover.source_bytes).to_vec(),
@@ -1090,7 +1109,7 @@ impl<'a> PyWalker<'a> {
 		if let Some(body_node) = body {
 			self.walk(body_node, &moniker, graph);
 		}
-		after_symbol_body(self.discover, kind);
+		after_symbol_body(self.discover, kind, &moniker, graph);
 		on_symbol_emitted(self.discover, node, kind, &moniker, graph);
 	}
 
@@ -1167,6 +1186,7 @@ fn classify_node<'src>(
 			PyImportEmitter::new(discover, scope, graph).emit_import_from_statement(node);
 			NodeShape::Skip
 		}
+		"future_import_statement" => NodeShape::Skip,
 		"decorated_definition" => classify_decorated(discover, node, scope, source, graph),
 		"class_definition" => classify_class(discover, node, scope, source, graph, &[]),
 		"type_alias_statement" => classify_type_alias(discover, node, scope),
@@ -1209,6 +1229,14 @@ fn classify_node<'src>(
 		}
 		"for_in_clause" => {
 			handle_for(discover, node, scope, graph);
+			NodeShape::Skip
+		}
+		"with_statement" => {
+			handle_with(discover, node, scope, graph);
+			NodeShape::Skip
+		}
+		"except_clause" => {
+			handle_except(discover, node, scope, graph);
 			NodeShape::Skip
 		}
 		_ => NodeShape::Recurse,
@@ -1264,39 +1292,67 @@ fn emit_callable_return_type(
 	callable: &Moniker,
 	graph: &mut SdkBuilder,
 ) {
-	let Some(name) = unambiguous_return_type_name(node, discover.source_bytes) else {
-		return;
-	};
-	let Some((target, confidence)) = resolve_return_type_name(discover, callable, &name) else {
-		return;
-	};
-	let attrs = RefAttrs {
-		confidence,
-		..RefAttrs::default()
-	};
-	let _ = graph.add_ref_attrs(
-		callable,
-		target,
-		kinds::RETURNS_TYPE,
-		Some(node_position(node)),
-		&attrs,
-	);
+	let types = infer_local_type_set(discover, node, callable);
+	for target in types.static_types() {
+		let attrs = RefAttrs {
+			confidence: if is_external_shaped(target) {
+				kinds::CONF_EXTERNAL
+			} else {
+				kinds::CONF_RESOLVED
+			},
+			receiver_hint: if types.is_dynamic() {
+				b"python_open_type_set"
+			} else {
+				b""
+			},
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(
+			callable,
+			target.clone(),
+			kinds::RETURNS_TYPE,
+			Some(node_position(node)),
+			&attrs,
+		);
+	}
 }
 
-fn unambiguous_return_type_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+fn return_type_names(node: Node<'_>, source: &[u8]) -> (Vec<Vec<u8>>, bool) {
 	match node.kind() {
 		"identifier" => {
 			let name = node_slice(node, source);
-			(!name.is_empty()).then(|| name.to_vec())
+			if name.is_empty() || name == b"None" {
+				(Vec::new(), true)
+			} else {
+				(vec![name.to_vec()], false)
+			}
 		}
+		"none" => (Vec::new(), true),
 		"type" | "parenthesized_expression" => {
 			let mut cursor = node.walk();
 			let children = node.named_children(&mut cursor).collect::<Vec<_>>();
-			(children.len() == 1)
-				.then(|| unambiguous_return_type_name(children[0], source))
-				.flatten()
+			if let [child] = children.as_slice() {
+				return_type_names(*child, source)
+			} else {
+				(Vec::new(), true)
+			}
 		}
-		_ => None,
+		"union_type" | "binary_operator" => {
+			let mut names = Vec::new();
+			let mut dynamic = false;
+			let mut cursor = node.walk();
+			for child in node.named_children(&mut cursor) {
+				let (child_names, child_dynamic) = return_type_names(child, source);
+				for name in child_names {
+					if !names.contains(&name) {
+						names.push(name);
+					}
+				}
+				dynamic |= child_dynamic;
+			}
+			(names, dynamic)
+		}
+		_ => (Vec::new(), true),
 	}
 }
 
@@ -1340,8 +1396,16 @@ fn effective_definition_node(node: Node<'_>) -> Node<'_> {
 	node
 }
 
-fn after_symbol_body(discover: &PyDiscover<'_>, kind: &[u8]) {
+fn after_symbol_body(
+	discover: &PyDiscover<'_>,
+	kind: &[u8],
+	callable: &Moniker,
+	graph: &mut SdkBuilder,
+) {
 	if kind == kinds::FUNCTION || kind == kinds::ASYNC_FUNCTION || kind == kinds::METHOD {
+		for (name, types) in discover.locals.current_type_sets() {
+			emit_local_type_facts(callable, &name, None, &types, graph);
+		}
 		discover.locals.pop();
 	}
 }
@@ -1671,21 +1735,22 @@ fn handle_assignment(
 	scope: &Moniker,
 	graph: &mut SdkBuilder,
 ) {
-	let inferred_type = node
+	let inferred_types = node
 		.child_by_field_name("type")
-		.and_then(|typed| infer_type_target(discover, typed, scope));
+		.map(|typed| infer_local_type_set(discover, typed, scope));
 	if let Some(typed) = node.child_by_field_name("type") {
 		PyTypeRefs::new(discover, scope).emit(typed, graph);
 	}
 	let inside_callable = is_callable_scope(scope, &discover.module);
 	if inside_callable && let Some(left) = node.child_by_field_name("left") {
 		record_local_pattern(discover, left);
+		record_assignment_element_types(discover, left, node.child_by_field_name("right"), scope);
 		record_assignment_type(
 			discover,
 			scope,
 			left,
 			node.child_by_field_name("right"),
-			inferred_type.clone(),
+			inferred_types.clone(),
 		);
 		if discover.deep {
 			emit_local_pattern(discover, left, scope, graph);
@@ -1697,7 +1762,7 @@ fn handle_assignment(
 			discover,
 			left,
 			node.child_by_field_name("right"),
-			inferred_type,
+			inferred_types.and_then(|types| types.unique()),
 			scope,
 			graph,
 		);
@@ -1834,6 +1899,17 @@ fn handle_for(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker, graph:
 		&& let Some(left) = node.child_by_field_name("left")
 	{
 		record_local_pattern(discover, left);
+		if left.kind() == "identifier" {
+			let name = node_slice(left, discover.source_bytes);
+			if let Some(types) = node
+				.child_by_field_name("right")
+				.and_then(|right| infer_iterable_value_element_type_set(discover, right, scope))
+			{
+				discover.locals.record_type_set(name, types);
+			} else {
+				discover.locals.record_unknown_type(name);
+			}
+		}
 		if discover.deep {
 			emit_local_pattern(discover, left, scope, graph);
 		}
@@ -1844,6 +1920,176 @@ fn handle_for(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker, graph:
 	if let Some(body) = node.child_by_field_name("body") {
 		discover.recurse_subtree(body, scope, graph);
 	}
+}
+
+fn handle_with(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+	let body = node.child_by_field_name("body");
+	let mut token_cursor = node.walk();
+	let async_context = node
+		.children(&mut token_cursor)
+		.any(|child| child.kind() == "async");
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if body.is_some_and(|body| body == child) {
+			continue;
+		}
+		record_with_bindings(discover, child, scope, graph, async_context);
+	}
+	if let Some(body) = body {
+		discover.recurse_subtree(body, scope, graph);
+	}
+}
+
+fn handle_except(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	let mut cursor = node.walk();
+	let body = node
+		.named_children(&mut cursor)
+		.find(|child| child.kind() == "block");
+	let value = node
+		.child_by_field_name("value")
+		.or_else(|| node.child_by_field_name("type"));
+	let alias = value
+		.filter(|value| value.kind() == "as_pattern")
+		.and_then(|value| value.child_by_field_name("alias"))
+		.and_then(binding_identifier);
+	let exception = value.and_then(|value| {
+		if value.kind() == "as_pattern" {
+			value.named_child(0)
+		} else {
+			Some(value)
+		}
+	});
+	if let Some(alias) = alias {
+		let name = node_slice(alias, discover.source_bytes);
+		record_local_pattern(discover, alias);
+		if let Some(types) =
+			exception.map(|exception| infer_local_type_set(discover, exception, scope))
+		{
+			discover.locals.record_type_set(name, types);
+		} else {
+			discover.locals.record_unknown_type(name);
+		}
+		if discover.deep {
+			emit_local_pattern(discover, alias, scope, graph);
+		}
+	}
+	if let Some(exception) = exception {
+		discover.recurse_subtree(exception, scope, graph);
+	}
+	if let Some(body) = body {
+		discover.recurse_subtree(body, scope, graph);
+	}
+	if let Some(alias) = alias {
+		discover
+			.locals
+			.record_unknown_type(node_slice(alias, discover.source_bytes));
+	}
+}
+
+fn record_with_bindings(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+	graph: &mut SdkBuilder,
+	async_context: bool,
+) {
+	if node.kind() == "with_item"
+		&& let Some(value) = node.child_by_field_name("value")
+	{
+		if value.kind() == "as_pattern" {
+			record_with_bindings(discover, value, scope, graph, async_context);
+		} else {
+			discover.recurse_subtree(value, scope, graph);
+		}
+		return;
+	}
+	if let Some(alias) = node.child_by_field_name("alias") {
+		let alias = binding_identifier(alias).unwrap_or(alias);
+		let value = node
+			.child_by_field_name("value")
+			.or_else(|| node.child_by_field_name("expression"))
+			.or_else(|| node.named_child(0));
+		record_local_pattern(discover, alias);
+		if alias.kind() == "identifier" {
+			let name = node_slice(alias, discover.source_bytes);
+			if let Some(types) = value.and_then(|value| {
+				infer_context_alias_type_set(discover, value, scope, async_context)
+			}) {
+				discover.locals.record_type_set(name, types);
+			} else {
+				discover.locals.record_unknown_type(name);
+			}
+		}
+		if discover.deep {
+			emit_local_pattern(discover, alias, scope, graph);
+		}
+		if let Some(value) = value {
+			discover.recurse_subtree(value, scope, graph);
+		}
+		return;
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		record_with_bindings(discover, child, scope, graph, async_context);
+	}
+}
+
+fn infer_context_alias_type_set(
+	discover: &PyDiscover<'_>,
+	value: Node<'_>,
+	scope: &Moniker,
+	async_context: bool,
+) -> Option<LocalTypeSet> {
+	let context_types =
+		infer_assignment_value_type_set_with_mode(discover, value, scope, async_context)?;
+	let method = if async_context {
+		b"__aenter__".as_slice()
+	} else {
+		b"__enter__".as_slice()
+	};
+	let mut result = LocalTypeSet::default();
+	let mut saw_context_type = false;
+	for context_type in context_types.static_types() {
+		saw_context_type = true;
+		let Some(entry) = discover
+			.callable_table
+			.get(&(context_type.clone(), method.to_vec()))
+		else {
+			result.mark_dynamic();
+			continue;
+		};
+		if entry.return_type_ambiguous || entry.return_type_dynamic {
+			result.mark_dynamic();
+		}
+		for name in &entry.return_type_names {
+			if name == b"Self" {
+				result.insert(context_type.clone());
+			} else if let Some((target, _)) = resolve_return_type_name(discover, context_type, name)
+			{
+				result.insert(target);
+			} else {
+				result.mark_dynamic();
+			}
+		}
+	}
+	if !saw_context_type {
+		result.mark_dynamic();
+	}
+	Some(result)
+}
+
+fn binding_identifier(node: Node<'_>) -> Option<Node<'_>> {
+	if node.kind() == "identifier" {
+		return Some(node);
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.find_map(binding_identifier)
 }
 
 fn handle_lambda(
@@ -1950,6 +2196,11 @@ fn resolve_identifier_read(
 		(type_target, kinds::CONF_RESOLVED)
 	} else if let Some(callable_target) = lookup_module_callable(discover, name) {
 		(callable_target, kinds::CONF_RESOLVED)
+	} else if is_python_runtime_global(name) {
+		return Some((
+			python_runtime_external_target(&discover.module, name),
+			kinds::CONF_EXTERNAL,
+		));
 	} else if is_python_builtin(name) {
 		return Some((
 			builtin_external_target(&discover.module, name),
@@ -2074,18 +2325,22 @@ fn record_assignment_type(
 	scope: &Moniker,
 	left: Node<'_>,
 	right: Option<Node<'_>>,
-	inferred_type: Option<Moniker>,
+	inferred_types: Option<LocalTypeSet>,
 ) {
-	let right_type = right.and_then(|node| infer_assignment_value_type(discover, node, scope));
-	let target = inferred_type.or(right_type);
+	let mut targets = inferred_types.unwrap_or_default();
+	if let Some(right_types) = right
+		.and_then(|node| infer_assignment_value_type_set_with_mode(discover, node, scope, false))
+	{
+		targets.union_with(right_types);
+	}
 	match left.kind() {
 		"identifier" => {
 			let name = node_slice(left, discover.source_bytes);
 			if name.is_empty() {
 				return;
 			}
-			if let Some(target) = target {
-				discover.locals.record_type(name, target);
+			if !targets.is_empty() {
+				discover.locals.record_type_set(name, targets);
 			} else {
 				discover.locals.record_unknown_type(name);
 			}
@@ -2103,7 +2358,7 @@ fn record_assignment_type(
 			{
 				return;
 			}
-			let Some(target) = target else {
+			let Some(target) = targets.unique() else {
 				discover.instance_attr_types.borrow_mut().remove(&key);
 				discover
 					.ambiguous_instance_attr_types
@@ -2133,61 +2388,160 @@ fn record_assignment_type(
 	}
 }
 
+fn record_assignment_element_types(
+	discover: &PyDiscover<'_>,
+	left: Node<'_>,
+	right: Option<Node<'_>>,
+	scope: &Moniker,
+) {
+	if left.kind() != "identifier" {
+		return;
+	}
+	let name = node_slice(left, discover.source_bytes);
+	if name.is_empty() {
+		return;
+	}
+	if let Some(types) =
+		right.and_then(|right| infer_iterable_value_element_type_set(discover, right, scope))
+	{
+		discover.locals.record_element_type_set(name, types);
+	} else {
+		discover.locals.record_unknown_element_type(name);
+	}
+}
+
+fn infer_iterable_value_element_type_set(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> Option<LocalTypeSet> {
+	match node.kind() {
+		"identifier" => discover
+			.locals
+			.lookup_element_type_set(node_slice(node, discover.source_bytes)),
+		"list" | "tuple" | "set" => {
+			let mut types = LocalTypeSet::default();
+			let mut saw_item = false;
+			let mut cursor = node.walk();
+			for child in node.named_children(&mut cursor) {
+				saw_item = true;
+				if let Some(item_types) =
+					infer_assignment_value_type_set_with_mode(discover, child, scope, false)
+				{
+					types.union_with(item_types);
+				} else {
+					types.mark_dynamic();
+				}
+			}
+			saw_item.then_some(types)
+		}
+		"call" => {
+			let callee = node.child_by_field_name("function")?;
+			(callee.kind() == "identifier" && node_slice(callee, discover.source_bytes) == b"range")
+				.then(|| LocalTypeSet::from_type(builtin_external_target(&discover.module, b"int")))
+		}
+		_ => None,
+	}
+}
+
 fn infer_assignment_value_type(
 	discover: &PyDiscover<'_>,
 	node: Node<'_>,
 	scope: &Moniker,
 ) -> Option<Moniker> {
-	infer_assignment_value_type_with_mode(discover, node, scope, false)
+	infer_assignment_value_type_set_with_mode(discover, node, scope, false)?.unique()
 }
 
-fn infer_assignment_value_type_with_mode(
+fn infer_assignment_value_type_set_with_mode(
 	discover: &PyDiscover<'_>,
 	node: Node<'_>,
 	scope: &Moniker,
 	awaited: bool,
-) -> Option<Moniker> {
+) -> Option<LocalTypeSet> {
 	match node.kind() {
 		"identifier" => discover
 			.locals
-			.lookup_type(node_slice(node, discover.source_bytes)),
+			.lookup_type_set(node_slice(node, discover.source_bytes)),
 		"call" => {
 			let callee = node.child_by_field_name("function")?;
-			match callee.kind() {
+			let target = match callee.kind() {
 				"identifier" => {
 					let name = node_slice(callee, discover.source_bytes);
 					if discover.locals.is_name(name) {
-						return lookup_function_local_type(discover, name);
+						return lookup_function_local_type(discover, name)
+							.map(LocalTypeSet::from_type);
 					}
-					discover
+					if let Some(target) = discover
 						.imports
 						.target_for(scope, &discover.module, name)
 						.or_else(|| lookup_discovered_type(discover, scope, name))
-						.or_else(|| lookup_callable_return_type(discover, name, awaited))
+					{
+						return Some(LocalTypeSet::from_type(target));
+					}
+					return lookup_callable_return_type_set(discover, name, awaited);
 				}
 				"attribute" => attribute_callee_type(discover, callee, scope),
 				_ => None,
-			}
+			};
+			target.map(LocalTypeSet::from_type)
 		}
 		"await" => {
 			let mut cursor = node.walk();
 			node.named_children(&mut cursor).find_map(|child| {
-				infer_assignment_value_type_with_mode(discover, child, scope, true)
+				infer_assignment_value_type_set_with_mode(discover, child, scope, true)
 			})
 		}
-		"string" | "concatenated_string" => Some(builtin_external_target(
+		"conditional_expression" | "boolean_operator" => {
+			let mut types = LocalTypeSet::default();
+			let mut saw_value = false;
+			let condition = node.child_by_field_name("condition");
+			let mut cursor = node.walk();
+			for child in node.named_children(&mut cursor) {
+				if condition.is_some_and(|condition| condition == child) {
+					continue;
+				}
+				saw_value = true;
+				if let Some(child_types) =
+					infer_assignment_value_type_set_with_mode(discover, child, scope, awaited)
+				{
+					types.union_with(child_types);
+				} else {
+					types.mark_dynamic();
+				}
+			}
+			saw_value.then_some(types)
+		}
+		"string" | "concatenated_string" => Some(LocalTypeSet::from_type(builtin_external_target(
 			&discover.module,
 			string_literal_type_name(node, discover.source_bytes),
+		))),
+		"integer" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"int",
+		))),
+		"float" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"float",
+		))),
+		"true" | "false" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"bool",
+		))),
+		"list" | "list_comprehension" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"list",
+		))),
+		"dictionary" | "dictionary_comprehension" => Some(LocalTypeSet::from_type(
+			builtin_external_target(&discover.module, b"dict"),
 		)),
-		"integer" => Some(builtin_external_target(&discover.module, b"int")),
-		"float" => Some(builtin_external_target(&discover.module, b"float")),
-		"true" | "false" => Some(builtin_external_target(&discover.module, b"bool")),
-		"list" | "list_comprehension" => Some(builtin_external_target(&discover.module, b"list")),
-		"dictionary" | "dictionary_comprehension" => {
-			Some(builtin_external_target(&discover.module, b"dict"))
-		}
-		"set" | "set_comprehension" => Some(builtin_external_target(&discover.module, b"set")),
-		"tuple" => Some(builtin_external_target(&discover.module, b"tuple")),
+		"set" | "set_comprehension" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"set",
+		))),
+		"tuple" => Some(LocalTypeSet::from_type(builtin_external_target(
+			&discover.module,
+			b"tuple",
+		))),
 		_ => None,
 	}
 }
@@ -2206,11 +2560,11 @@ fn string_literal_type_name(node: Node<'_>, source: &[u8]) -> &'static [u8] {
 	}
 }
 
-fn lookup_callable_return_type(
+fn lookup_callable_return_type_set(
 	discover: &PyDiscover<'_>,
 	name: &[u8],
 	awaited: bool,
-) -> Option<Moniker> {
+) -> Option<LocalTypeSet> {
 	std::iter::once(discover.module.clone()).find_map(|parent| {
 		let entry = discover
 			.callable_table
@@ -2218,8 +2572,18 @@ fn lookup_callable_return_type(
 		if entry.return_type_ambiguous || entry.is_async != awaited {
 			return None;
 		}
-		let return_name = entry.return_type_name.as_deref()?;
-		resolve_return_type_name(discover, &parent, return_name).map(|resolved| resolved.0)
+		let mut types = LocalTypeSet::default();
+		for return_name in &entry.return_type_names {
+			if let Some((target, _)) = resolve_return_type_name(discover, &parent, return_name) {
+				types.insert(target);
+			} else {
+				types.mark_dynamic();
+			}
+		}
+		if entry.return_type_dynamic {
+			types.mark_dynamic();
+		}
+		(!entry.return_type_names.is_empty() || entry.return_type_dynamic).then_some(types)
 	})
 }
 
@@ -2295,10 +2659,25 @@ fn record_param_locals(
 			continue;
 		}
 		discover.locals.record_name(name);
-		if let Some(type_node) = type_node
-			&& let Some(target) = infer_type_target(discover, type_node, scope)
-		{
-			discover.locals.record_type(name, target);
+		if parameter_has_pattern(child, "dictionary_splat_pattern") {
+			discover.locals.record_type_set(
+				name,
+				LocalTypeSet::from_type(builtin_external_target(&discover.module, b"dict")),
+			);
+		} else if parameter_has_pattern(child, "list_splat_pattern") {
+			discover.locals.record_type_set(
+				name,
+				LocalTypeSet::from_type(builtin_external_target(&discover.module, b"tuple")),
+			);
+		} else if let Some(type_node) = type_node {
+			discover
+				.locals
+				.record_type_set(name, infer_local_type_set(discover, type_node, scope));
+			if let Some(element_types) =
+				infer_iterable_annotation_element_type_set(discover, type_node, scope)
+			{
+				discover.locals.record_element_type_set(name, element_types);
+			}
 		}
 	}
 }
@@ -2325,6 +2704,32 @@ fn emit_param_defs_and_types(
 		if let Some(typed) = type_node {
 			PyTypeRefs::new(discover, callable).emit(typed, graph);
 		}
+	}
+}
+
+fn emit_local_type_facts(
+	scope: &Moniker,
+	name: &[u8],
+	position: Option<Position>,
+	types: &LocalTypeSet,
+	graph: &mut SdkBuilder,
+) {
+	for target in types.static_types() {
+		let attrs = RefAttrs {
+			confidence: if is_external_shaped(target) {
+				kinds::CONF_EXTERNAL
+			} else {
+				kinds::CONF_RESOLVED
+			},
+			alias: name,
+			receiver_hint: if types.is_dynamic() {
+				b"python_open_type_set"
+			} else {
+				b""
+			},
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(scope, target.clone(), kinds::TYPED_AS, position, &attrs);
 	}
 }
 
@@ -2569,6 +2974,150 @@ fn infer_type_target(
 		}
 		_ => None,
 	}
+}
+
+fn infer_local_type_set(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> LocalTypeSet {
+	if matches!(node.kind(), "type" | "parenthesized_expression") {
+		let mut cursor = node.walk();
+		let children = node.named_children(&mut cursor).collect::<Vec<_>>();
+		if let [child] = children.as_slice() {
+			return infer_local_type_set(discover, *child, scope);
+		}
+	}
+	if matches!(node.kind(), "union_type" | "binary_operator") {
+		return infer_child_type_set(discover, node, scope);
+	}
+	if matches!(
+		node.kind(),
+		"type_parameter" | "tuple" | "list" | "expression_list"
+	) {
+		let mut cursor = node.walk();
+		if node.named_children(&mut cursor).count() > 1 {
+			return infer_child_type_set(discover, node, scope);
+		}
+	}
+	if matches!(node.kind(), "subscript" | "generic_type")
+		&& let Some(base) = node.named_child(0)
+		&& base.kind() == "identifier"
+	{
+		let name = node_slice(base, discover.source_bytes);
+		if is_inferable_builtin_type(name) {
+			return LocalTypeSet::from_type(builtin_external_target(&discover.module, name));
+		}
+	}
+	if is_none_type(node, discover.source_bytes) {
+		let mut types = LocalTypeSet::default();
+		types.mark_dynamic();
+		return types;
+	}
+	infer_type_target(discover, node, scope)
+		.map(LocalTypeSet::from_type)
+		.unwrap_or_else(|| {
+			let mut types = LocalTypeSet::default();
+			types.mark_dynamic();
+			types
+		})
+}
+
+fn infer_child_type_set(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> LocalTypeSet {
+	let mut types = LocalTypeSet::default();
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if is_none_type(child, discover.source_bytes) {
+			types.mark_dynamic();
+		} else {
+			types.union_with(infer_local_type_set(discover, child, scope));
+		}
+	}
+	if types.is_empty() {
+		types.mark_dynamic();
+	}
+	types
+}
+
+fn infer_iterable_annotation_element_type_set(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> Option<LocalTypeSet> {
+	if matches!(node.kind(), "type" | "parenthesized_expression") {
+		let mut cursor = node.walk();
+		let children = node.named_children(&mut cursor).collect::<Vec<_>>();
+		if let [child] = children.as_slice() {
+			return infer_iterable_annotation_element_type_set(discover, *child, scope);
+		}
+	}
+	if matches!(node.kind(), "union_type" | "binary_operator") {
+		let mut types = LocalTypeSet::default();
+		let mut saw_iterable = false;
+		let mut cursor = node.walk();
+		for child in node.named_children(&mut cursor) {
+			if let Some(child_types) =
+				infer_iterable_annotation_element_type_set(discover, child, scope)
+			{
+				types.union_with(child_types);
+				saw_iterable = true;
+			} else {
+				types.mark_dynamic();
+			}
+		}
+		return saw_iterable.then_some(types);
+	}
+	if !matches!(node.kind(), "subscript" | "generic_type") {
+		return None;
+	}
+	let base = node.named_child(0)?;
+	let base_name = match base.kind() {
+		"identifier" => node_slice(base, discover.source_bytes).to_vec(),
+		"attribute" => last_attribute(base, discover.source_bytes)
+			.as_bytes()
+			.to_vec(),
+		_ => return None,
+	};
+	if !is_iterable_annotation_container(&base_name) {
+		return None;
+	}
+	let arguments = node.named_child(1)?;
+	if matches!(base_name.as_slice(), b"tuple" | b"Tuple") {
+		return Some(infer_child_type_set(discover, arguments, scope));
+	}
+	let mut cursor = arguments.walk();
+	let first = arguments
+		.named_children(&mut cursor)
+		.next()
+		.unwrap_or(arguments);
+	Some(infer_local_type_set(discover, first, scope))
+}
+
+fn is_iterable_annotation_container(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"list"
+			| b"set" | b"tuple"
+			| b"dict" | b"List"
+			| b"Set" | b"Tuple"
+			| b"Dict" | b"Iterable"
+			| b"Iterator"
+			| b"AsyncIterable"
+			| b"AsyncIterator"
+			| b"Sequence"
+			| b"Collection"
+			| b"Generator"
+			| b"Mapping"
+			| b"MutableMapping"
+	)
+}
+
+fn is_none_type(node: Node<'_>, source: &[u8]) -> bool {
+	node.kind() == "none" || node_slice(node, source) == b"None"
 }
 
 fn infer_unique_child_type(
@@ -2890,9 +3439,10 @@ pub(super) fn collect_callable_table<'src>(
 			} else {
 				kinds::FUNCTION
 			};
-			let return_type_name = function_node
+			let (return_type_names, return_type_dynamic) = function_node
 				.child_by_field_name("return_type")
-				.and_then(|node| unambiguous_return_type_name(node, source));
+				.map(|node| return_type_names(node, source))
+				.unwrap_or_else(|| (Vec::new(), true));
 			let is_async = is_async_function(function_node);
 			let key = (parent.clone(), name.to_vec());
 			match out.entry(key) {
@@ -2900,20 +3450,27 @@ pub(super) fn collect_callable_table<'src>(
 					entry.insert(CallableEntry {
 						kind,
 						segment: seg,
-						return_type_name,
+						return_type_names,
+						return_type_dynamic,
 						return_type_ambiguous: false,
 						is_async,
 					});
 				}
 				std::collections::hash_map::Entry::Occupied(mut entry) => {
 					let callable = entry.get_mut();
-					callable.return_type_ambiguous |= callable.return_type_name != return_type_name
+					callable.return_type_ambiguous |= callable.return_type_names
+						!= return_type_names
+						|| callable.return_type_dynamic != return_type_dynamic
 						|| callable.is_async != is_async;
 					callable.kind = kind;
 					callable.segment = seg;
-					callable.return_type_name = (!callable.return_type_ambiguous)
-						.then_some(return_type_name)
-						.flatten();
+					callable.return_type_names = if callable.return_type_ambiguous {
+						Vec::new()
+					} else {
+						return_type_names
+					};
+					callable.return_type_dynamic =
+						callable.return_type_ambiguous || return_type_dynamic;
 					callable.is_async = is_async;
 				}
 			}
@@ -3339,11 +3896,15 @@ fn parameter_name_and_type<'tree>(
 			let mut cursor = param.walk();
 			let mut name = None;
 			for c in param.named_children(&mut cursor) {
-				if matches!(
-					c.kind(),
-					"identifier" | "list_splat_pattern" | "dictionary_splat_pattern"
-				) {
+				if c.kind() == "identifier" {
 					name = Some(c);
+					break;
+				}
+				if matches!(c.kind(), "list_splat_pattern" | "dictionary_splat_pattern") {
+					let mut pattern_cursor = c.walk();
+					name = c
+						.named_children(&mut pattern_cursor)
+						.find(|child| child.kind() == "identifier");
 					break;
 				}
 			}
@@ -3366,6 +3927,15 @@ fn parameter_name_and_type<'tree>(
 		}
 		_ => (None, None),
 	}
+}
+
+fn parameter_has_pattern(node: Node<'_>, expected: &str) -> bool {
+	if node.kind() == expected {
+		return true;
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.any(|child| parameter_has_pattern(child, expected))
 }
 
 fn call_argument_count(call: Node<'_>) -> usize {
@@ -3829,6 +4399,27 @@ pub(crate) const PY_BUILTIN_NAMES: &[&[u8]] = &[
 
 fn is_python_builtin(name: &[u8]) -> bool {
 	PY_BUILTIN_NAMES.binary_search(&name).is_ok()
+}
+
+fn is_python_runtime_global(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"__builtins__"
+			| b"__cached__"
+			| b"__file__"
+			| b"__loader__"
+			| b"__name__"
+			| b"__package__"
+			| b"__spec__"
+	)
+}
+
+fn python_runtime_external_target(module: &Moniker, name: &[u8]) -> Moniker {
+	let mut builder = MonikerBuilder::new();
+	builder.project(module.as_view().project());
+	builder.segment(kinds::EXTERNAL_PKG, b"python_runtime");
+	builder.segment(kinds::PATH, name);
+	builder.build()
 }
 
 fn builtin_external_target(module: &Moniker, name: &[u8]) -> Moniker {

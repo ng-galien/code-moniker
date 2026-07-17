@@ -3,6 +3,7 @@ use crate::core::moniker::Moniker;
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 
 mod discover;
+mod local_types;
 
 use discover::PyDiscover;
 

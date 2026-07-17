@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::build_manifest::Manifest;
 use code_moniker_core::lang::{Lang, kinds};
 
@@ -65,6 +66,13 @@ impl RebindScope {
 				&edited_sources,
 			));
 		}
+		expand_python_semantic_dependencies(
+			&bindings,
+			&graph,
+			impact,
+			&edited_sources,
+			&mut stale_references,
+		);
 		let target_index_references =
 			references_needing_target_index_refresh(&bindings, impact, &stale_references);
 		Self {
@@ -123,6 +131,115 @@ impl RebindCause {
 			Self::PythonBindings => {
 				references_affected_by_python_bindings(graph, impact, edited_sources)
 			}
+		}
+	}
+}
+
+fn expand_python_semantic_dependencies(
+	bindings: &BindingReadModel<'_>,
+	graph: &EditedGraph<'_>,
+	impact: &LinkageRefreshImpact,
+	edited_sources: &EditedSources,
+	affected: &mut ReferenceSet,
+) {
+	let python_sources = edited_sources
+		.source_ids
+		.iter()
+		.filter(|source| {
+			graph
+				.material
+				.files
+				.iter()
+				.any(|file| file.source_id == **source && file.lang == Lang::Python)
+		})
+		.cloned()
+		.collect::<BTreeSet<_>>();
+	if python_sources.is_empty() {
+		return;
+	}
+
+	let semantic_fact_changed = impact.references().removed_semantic_fact()
+		|| impact.references().changed_ids().iter().any(|id| {
+			graph
+				.references
+				.iter()
+				.find(|reference| reference.id == *id)
+				.is_some_and(|reference| {
+					matches!(
+						reference.kind.as_bytes(),
+						kinds::TYPED_AS | kinds::RETURNS_TYPE
+					)
+				})
+		});
+	if semantic_fact_changed {
+		affected.union_with(&references_in_sources(graph, &python_sources));
+	}
+	if semantic_fact_changed
+		&& let Some(resolved) = &bindings.store.indexes.resolved_by_target_source
+	{
+		for (symbol_id, _) in graph.material.symbols() {
+			if !graph
+				.material
+				.symbol_source(&symbol_id)
+				.is_some_and(|source| python_sources.contains(&source))
+			{
+				continue;
+			}
+			let Some((symbol, _)) = graph.candidates.candidate_for_symbol_id(&symbol_id) else {
+				continue;
+			};
+			if let Some(references) = resolved.get_symbol(symbol) {
+				affected.union_with(references);
+			}
+		}
+	}
+
+	let definitions_changed = !impact.definitions().candidate_ids().is_empty()
+		|| !impact.definitions().changed_ids().is_empty()
+		|| !impact.definitions().retargeted_identities().is_empty();
+	for symbol_id in impact
+		.definitions()
+		.candidate_ids()
+		.iter()
+		.chain(impact.definitions().changed_ids())
+	{
+		let Some(last) = graph
+			.material
+			.symbol_moniker(symbol_id)
+			.and_then(|moniker| moniker.as_view().segments().last())
+		else {
+			continue;
+		};
+		if last.kind != kinds::METHOD {
+			continue;
+		}
+		if let Some(references) = bindings
+			.store
+			.indexes
+			.references_by_call_name
+			.get(bare_callable_name(last.name))
+		{
+			affected.union_with(references);
+		}
+	}
+	let source_symbols = affected
+		.iter()
+		.filter_map(|reference| graph.references.get(reference.index()))
+		.filter(|reference| {
+			semantic_fact_changed
+				|| (definitions_changed
+					&& matches!(reference.kind.as_bytes(), b"method_call" | b"calls"))
+		})
+		.map(|reference| reference.source_symbol)
+		.collect::<BTreeSet<_>>();
+	for source_symbol in source_symbols {
+		if let Some(references) = bindings
+			.store
+			.indexes
+			.references_by_source_symbol
+			.get(&source_symbol)
+		{
+			affected.union_with(references);
 		}
 	}
 }

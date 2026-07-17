@@ -40,6 +40,7 @@ pub(in crate::linkage) enum ReferenceDelta {
 		changed: Vec<ReferenceId>,
 		removed: Vec<ReferenceId>,
 		removed_binding: bool,
+		removed_semantic_fact: bool,
 		remapped: Vec<(ReferenceId, ReferenceId)>,
 	},
 }
@@ -209,6 +210,13 @@ impl ReferenceDelta {
 						| code_moniker_core::core::kinds::REF_REEXPORTS
 				)
 			}),
+			removed_semantic_fact: graph_diff.removed_reference_kinds.iter().any(|kind| {
+				matches!(
+					kind.as_bytes(),
+					code_moniker_core::lang::kinds::TYPED_AS
+						| code_moniker_core::lang::kinds::RETURNS_TYPE
+				)
+			}),
 			remapped: graph_diff.reference_id_remaps.clone(),
 		}
 	}
@@ -243,6 +251,16 @@ impl ReferenceDelta {
 			self,
 			Self::Changed {
 				removed_binding: true,
+				..
+			}
+		)
+	}
+
+	pub(in crate::linkage) fn removed_semantic_fact(&self) -> bool {
+		matches!(
+			self,
+			Self::Changed {
+				removed_semantic_fact: true,
 				..
 			}
 		)

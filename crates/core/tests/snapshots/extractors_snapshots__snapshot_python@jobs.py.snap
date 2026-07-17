@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/jobs.py
 ---
@@ -177,32 +178,6 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:935",
-      "origin": "extracted",
-      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
-      "position": [
-        935,
-        978
-      ],
-      "signature": "",
-      "visibility": ""
-    },
-    {
-      "binding": "none",
-      "kind": "comment",
-      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:1028",
-      "origin": "extracted",
-      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
-      "position": [
-        1028,
-        1073
-      ],
-      "signature": "",
-      "visibility": ""
-    },
-    {
-      "binding": "none",
-      "kind": "comment",
       "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:1121",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
@@ -212,22 +187,22 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:935",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "position": [
+        935,
+        978
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "unresolved",
-      "from": "code+moniker://app/lang:python/module:jobs",
-      "kind": "reads",
-      "position": [
-        23,
-        34
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:jobs/function:annotations"
-    },
     {
       "alias": "",
       "binding": "import",
@@ -359,6 +334,16 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
       "to": "code+moniker://app/lang:python/module:jobs/class:Job"
     },
     {
+      "alias": "job_id",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:JobStore/method:complete(job_id:str)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -424,6 +409,16 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
       "to": "code+moniker://app/external_pkg:builtins/path:print"
     },
     {
+      "alias": "job",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "typed_as",
+      "position": null,
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:Job"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "resolved",
@@ -433,6 +428,16 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         663,
         671
       ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:JobStore"
+    },
+    {
+      "alias": "store",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:__init__(store:JobStore)",
+      "kind": "typed_as",
+      "position": null,
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:jobs/class:JobStore"
     },

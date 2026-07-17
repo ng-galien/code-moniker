@@ -25,6 +25,8 @@ struct NormalForm {
 	symbols: BTreeMap<String, Vec<String>>,
 	references: BTreeMap<String, usize>,
 	resolved: BTreeSet<String>,
+	candidates: BTreeSet<String>,
+	dynamic: BTreeSet<String>,
 	external: BTreeSet<String>,
 	manifest_blocked: BTreeSet<String>,
 	unresolved: BTreeSet<String>,
@@ -93,6 +95,43 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 					"{} -> {}",
 					reference_key(edge.reference),
 					symbol_identity(&edge.target)
+				)
+			})
+			.collect(),
+		candidates: linkage
+			.candidates
+			.iter()
+			.map(|candidate| {
+				let mut targets = candidate
+					.targets
+					.iter()
+					.map(symbol_identity)
+					.collect::<Vec<_>>();
+				targets.sort();
+				format!(
+					"{} -> {:?} reason={} scope={}",
+					reference_key(candidate.reference),
+					targets,
+					candidate.reason.as_str(),
+					candidate.scope.as_str()
+				)
+			})
+			.collect(),
+		dynamic: linkage
+			.dynamic
+			.iter()
+			.map(|dynamic| {
+				let mut candidates = dynamic
+					.candidates
+					.iter()
+					.map(symbol_identity)
+					.collect::<Vec<_>>();
+				candidates.sort();
+				format!(
+					"{} -> {:?} reason={}",
+					reference_key(dynamic.reference),
+					candidates,
+					dynamic.reason.as_str()
 				)
 			})
 			.collect(),
@@ -279,6 +318,58 @@ fn assert_equivalent_after(edits: &[(&str, &str)]) {
 			"incremental refresh diverged from full rebuild after editing {rel_path}"
 		);
 	}
+}
+
+fn seed_python_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
+	let temp = tempfile::tempdir().expect("tempdir");
+	for (path, content) in files {
+		fs::write(temp.path().join(path), content).expect("python fixture");
+	}
+	temp
+}
+
+#[test]
+fn changing_python_union_return_types_matches_full_rebuild() {
+	let temp = seed_python_workspace(&[
+		(
+			"models.py",
+			"class Alpha:\n    def render(self): pass\n\nclass Beta:\n    def render(self): pass\n\nclass Gamma:\n    def render(self): pass\n",
+		),
+		(
+			"factory.py",
+			"from models import Alpha, Beta, Gamma\n\ndef make() -> Alpha | Beta:\n    return Alpha()\n",
+		),
+		(
+			"consumer.py",
+			"from factory import make\n\ndef consume():\n    return make().render()\n",
+		),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"factory.py",
+		"from models import Alpha, Beta, Gamma\n\ndef make() -> Alpha | Gamma:\n    return Alpha()\n",
+	);
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn changing_python_structural_method_set_matches_full_rebuild() {
+	let temp = seed_python_workspace(&[
+		(
+			"protocols.py",
+			"class Alpha:\n    def first(self): pass\n    def second(self): pass\n\nclass Beta:\n    def first(self): pass\n    def second(self): pass\n\nclass Gamma:\n    def first(self): pass\n",
+		),
+		(
+			"consumer.py",
+			"def consume(value):\n    value.first()\n    value.second()\n",
+		),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"protocols.py",
+		"class Alpha:\n    def first(self): pass\n    def second(self): pass\n\nclass Beta:\n    def first(self): pass\n    def second(self): pass\n\nclass Gamma:\n    def first(self): pass\n    def second(self): pass\n",
+	);
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
 }
 
 #[test]
