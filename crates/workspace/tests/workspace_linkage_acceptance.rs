@@ -889,6 +889,261 @@ fn python_top_level_package_reexports_reach_sibling_consumers() {
 }
 
 #[test]
+fn python_wildcard_reexports_follow_static_all_across_multiple_modules() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:open_exported_client()",
+		"calls",
+		"ExportedClient",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:audit/function:audit_exported_client()",
+		"calls",
+		"ExportedClient",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:create_exported_client()",
+		"calls",
+		"create",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient/method:create(name:str)",
+	);
+}
+
+#[test]
+fn python_regular_module_facade_preserves_external_provenance() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:report/function:open_exported_path()",
+		"external_pkg:pathlib/function:Path",
+	);
+}
+
+#[test]
+fn python_conditional_imports_are_dynamic_with_bounded_candidates() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:open_conditional_client()",
+		"ConditionalClient",
+		1,
+		&[
+			"package:orders_service/module:conditional_a/class:ConditionalClient",
+			"package:orders_service/module:conditional_b/class:ConditionalClient",
+		],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:open_single_conditional_client()",
+		"ConditionalSingleClient",
+		1,
+		&["package:orders_service/module:wildcard_impl/class:ExportedClient"],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:call_function_conditional_client(",
+		"FunctionConditionalClient",
+		1,
+		&["package:orders_service/module:wildcard_impl/class:ExportedClient"],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:call_multi_function_conditional_client(",
+		"RuntimeClient",
+		1,
+		&[
+			"package:orders_service/module:conditional_a/class:ConditionalClient",
+			"package:orders_service/module:conditional_b/class:ConditionalClient",
+		],
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:conditional/function:build_conditional_client()",
+		"ConditionalClient",
+		1,
+		&[
+			"package:orders_service/module:conditional_a/class:ConditionalClient",
+			"package:orders_service/module:conditional_b/class:ConditionalClient",
+		],
+	);
+}
+
+#[test]
+fn python_function_imports_do_not_leak_into_sibling_scopes() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:configure_scoped_client()",
+		"calls",
+		"ScopedClient",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+	assert_named_call_unresolved(
+		&snapshot,
+		"module:report/function:call_leaked_scoped_client()",
+		"ScopedClient",
+		1,
+	);
+}
+
+#[test]
+fn python_external_wildcards_do_not_leave_colliding_local_bindings_unique() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:call_shadowed_client()",
+		"ShadowedClient",
+		1,
+		&["package:orders_service/module:wildcard_impl/class:ExportedClient"],
+	);
+}
+
+#[test]
+fn python_conditional_all_keeps_wildcard_consumers_dynamic() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:call_conditional_export()",
+		"ConditionalExport",
+		0,
+		&[],
+	);
+}
+
+#[test]
+fn python_explicit_reexports_reach_a_fixpoint() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:call_deep_explicit_client()",
+		"calls",
+		"DeepExplicitClient",
+		0,
+		"package:orders_service/module:explicit_a/class:DeepExplicitClient",
+	);
+}
+
+#[test]
+fn python_all_state_controls_wildcards_without_false_unique_edges() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_named_call_unresolved(
+		&snapshot,
+		"module:report/function:call_hidden_client()",
+		"HiddenClient",
+		0,
+	);
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:report/function:call_dynamic_client()",
+		"DynamicClient",
+		0,
+		&[],
+	);
+}
+
+#[test]
+fn python_regular_module_imports_participate_in_facade_bindings() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:call_exported_module_client()",
+		"calls",
+		"ExportedClient",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:report/function:call_exported_external_module()",
+		"external_pkg:pathlib/function:Path",
+	);
+}
+
+#[test]
+fn python_local_import_aliases_follow_the_exported_binding_name() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:open_aliased_client()",
+		"calls",
+		"ClientAlias",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+}
+
+#[test]
+fn python_nested_package_init_exports_match_module_path_access() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:open_nested_facade_client()",
+		"calls",
+		"ExportedClient",
+		1,
+		"package:orders_service/module:wildcard_impl/class:ExportedClient",
+	);
+}
+
+#[test]
+fn python_nested_package_wildcards_forward_static_exports() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:open_nested_wildcard_field()",
+		"calls",
+		"NestedField",
+		1,
+		"package:orders_service/package:nested/package:fields/module:__init__/class:NestedField",
+	);
+}
+
+#[test]
+fn python_package_init_definitions_are_explicitly_importable() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:call_package_helper()",
+		"calls",
+		"package_helper",
+		1,
+		"package:orders_service/package:nested/package:facade/module:__init__/function:package_helper(value:str)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:report/function:call_private_package_helper()",
+		"calls",
+		"_private_helper",
+		1,
+		"package:orders_service/package:nested/package:facade/module:__init__/function:_private_helper(value:str)",
+	);
+}
+
+#[test]
 fn python_self_method_calls_reach_external_stdlib_bases() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
@@ -1622,6 +1877,114 @@ fn assert_call_resolves_only_to(
 	);
 }
 
+fn assert_call_is_dynamic_with_targets(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+	expected_targets: &[&str],
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "calls"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.unwrap_or_else(|| panic!("missing `{call_name}`/{call_arity} call"));
+	let dynamic = snapshot
+		.linkage
+		.dynamic
+		.iter()
+		.find(|dynamic| dynamic.reference == reference.id)
+		.unwrap_or_else(|| {
+			panic!(
+				"call `{}` is not classified dynamic",
+				reference.target_identity
+			)
+		});
+	let identities = dynamic
+		.candidates
+		.iter()
+		.filter_map(|target| {
+			snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.id == *target)
+		})
+		.map(|symbol| symbol.identity.as_ref())
+		.collect::<Vec<_>>();
+	assert_eq!(identities.len(), expected_targets.len(), "{identities:?}");
+	for expected in expected_targets {
+		assert!(
+			identities
+				.iter()
+				.any(|identity| identity.contains(expected)),
+			"candidate targets {identities:?} do not contain `{expected}`"
+		);
+	}
+	assert!(
+		snapshot
+			.linkage
+			.resolved
+			.iter()
+			.all(|edge| edge.reference != reference.id),
+		"dynamic call must remain outside the unique graph"
+	);
+}
+
+fn assert_named_call_unresolved(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "calls"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.unwrap_or_else(|| panic!("missing `{call_name}`/{call_arity} call"));
+	assert!(
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.any(|item| item.reference == reference.id),
+		"call `{}` should remain unresolved",
+		reference.target_identity
+	);
+	assert!(
+		snapshot
+			.linkage
+			.resolved
+			.iter()
+			.all(|edge| edge.reference != reference.id),
+		"unresolved call must remain outside the unique graph"
+	);
+}
+
 fn assert_external_call(
 	snapshot: &WorkspaceSnapshot,
 	source_identity: &str,
@@ -1839,9 +2202,21 @@ fn assert_external_reference_from_symbol(
 					.any(|identity| identity.contains(reference_target))
 		})
 		.unwrap_or_else(|| {
+			let observed = snapshot
+				.index
+				.references
+				.iter()
+				.filter(|reference| reference.kind == kind && reference.source_symbol == source.id)
+				.map(|reference| {
+					(
+						reference.target_identity.as_ref(),
+						external_target_identities(snapshot, reference),
+					)
+				})
+				.collect::<Vec<_>>();
 			panic!(
-				"missing external {kind} reference from `{}` to target containing `{reference_target}`",
-				source.identity
+				"missing external {kind} reference from `{}` to target containing `{reference_target}`; observed {observed:?}",
+				source.identity,
 			)
 		});
 	assert!(

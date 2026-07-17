@@ -102,7 +102,7 @@ impl FromIterator<ReferenceOrdinal> for ReferenceSet {
 	}
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::linkage) struct SymbolSet {
 	bitmap: RoaringBitmap,
 }

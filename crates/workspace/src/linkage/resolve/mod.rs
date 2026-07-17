@@ -2,6 +2,7 @@ mod crate_forwards;
 mod full;
 mod manifest;
 mod method_indexer;
+mod python_bindings;
 mod reference_resolver;
 mod scope;
 mod semantic;

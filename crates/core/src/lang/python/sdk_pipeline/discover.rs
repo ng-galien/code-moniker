@@ -47,9 +47,12 @@ pub(super) struct DiscoveredPythonFile {
 	pub refs: Vec<ResolvedRef>,
 }
 
+type ScopedBindings<T> = HashMap<Moniker, HashMap<Vec<u8>, T>>;
+
 pub(super) struct PyImportBindings {
-	confidences: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
-	targets: RefCell<HashMap<Vec<u8>, Moniker>>,
+	confidences: RefCell<ScopedBindings<&'static [u8]>>,
+	targets: RefCell<ScopedBindings<Moniker>>,
+	runtime_bindings: RefCell<HashMap<Moniker, HashSet<Vec<u8>>>>,
 }
 
 impl PyImportBindings {
@@ -57,30 +60,77 @@ impl PyImportBindings {
 		Self {
 			confidences: RefCell::new(HashMap::new()),
 			targets: RefCell::new(HashMap::new()),
+			runtime_bindings: RefCell::new(HashMap::new()),
 		}
 	}
 
-	fn bind(&self, name: &[u8], confidence: &'static [u8]) {
+	fn bind(&self, scope: &Moniker, name: &[u8], confidence: &'static [u8], conditional: bool) {
 		self.confidences
 			.borrow_mut()
+			.entry(scope.clone())
+			.or_default()
 			.insert(name.to_vec(), confidence);
+		let mut runtime_bindings = self.runtime_bindings.borrow_mut();
+		let bindings = runtime_bindings.entry(scope.clone()).or_default();
+		if conditional {
+			bindings.insert(name.to_vec());
+		} else {
+			bindings.remove(name);
+		}
 	}
 
-	fn bind_target(&self, name: &[u8], target: &Moniker) {
+	fn bind_target(&self, scope: &Moniker, name: &[u8], target: &Moniker) {
 		if name.is_empty() {
 			return;
 		}
 		self.targets
 			.borrow_mut()
+			.entry(scope.clone())
+			.or_default()
 			.insert(name.to_vec(), target.clone());
 	}
 
-	fn confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
-		self.confidences.borrow().get(name).copied()
+	fn confidence_for(
+		&self,
+		scope: &Moniker,
+		module: &Moniker,
+		name: &[u8],
+	) -> Option<&'static [u8]> {
+		let confidences = self.confidences.borrow();
+		confidences
+			.get(scope)
+			.and_then(|bindings| bindings.get(name))
+			.or_else(|| {
+				confidences
+					.get(module)
+					.and_then(|bindings| bindings.get(name))
+			})
+			.copied()
 	}
 
-	fn target_for(&self, name: &[u8]) -> Option<Moniker> {
-		self.targets.borrow().get(name).cloned()
+	fn target_for(&self, scope: &Moniker, module: &Moniker, name: &[u8]) -> Option<Moniker> {
+		let targets = self.targets.borrow();
+		targets
+			.get(scope)
+			.and_then(|bindings| bindings.get(name))
+			.or_else(|| targets.get(module).and_then(|bindings| bindings.get(name)))
+			.cloned()
+	}
+
+	fn is_runtime_binding(&self, scope: &Moniker, module: &Moniker, name: &[u8]) -> bool {
+		let confidences = self.confidences.borrow();
+		let binding_scope = if confidences
+			.get(scope)
+			.is_some_and(|bindings| bindings.contains_key(name))
+		{
+			scope
+		} else {
+			module
+		};
+		let runtime = self.runtime_bindings.borrow();
+		runtime
+			.get(binding_scope)
+			.is_some_and(|bindings| bindings.contains(name))
 	}
 }
 
@@ -284,17 +334,29 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 
 	fn resolve_identifier_call(&self, call: Node<'_>, name: &[u8]) -> Option<CallResolution> {
 		let arity = call_argument_count(call);
-		if let Some(target) = self.discover.imports.target_for(name) {
+		if let Some(target) =
+			self.discover
+				.imports
+				.target_for(self.scope, &self.discover.module, name)
+		{
 			let confidence = self
 				.discover
 				.imports
-				.confidence_for(name)
+				.confidence_for(self.scope, &self.discover.module, name)
 				.unwrap_or(kinds::CONF_IMPORTED);
 			return Some(CallResolution {
 				target,
 				kind: kinds::CALLS,
 				confidence,
-				receiver_hint: Vec::new(),
+				receiver_hint: if self.discover.imports.is_runtime_binding(
+					self.scope,
+					&self.discover.module,
+					name,
+				) {
+					kinds::HINT_PY_CONDITIONAL_IMPORT.to_vec()
+				} else {
+					Vec::new()
+				},
 				call_name: name.to_vec(),
 				call_arity: Some(arity),
 			});
@@ -415,16 +477,28 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 			return None;
 		}
 		let receiver_name = node_slice(receiver, self.discover.source_bytes);
-		let import_target = self.discover.imports.target_for(receiver_name)?;
+		let import_target =
+			self.discover
+				.imports
+				.target_for(self.scope, &self.discover.module, receiver_name)?;
+		let receiver_hint = if self.discover.imports.is_runtime_binding(
+			self.scope,
+			&self.discover.module,
+			receiver_name,
+		) {
+			kinds::HINT_PY_CONDITIONAL_IMPORT
+		} else {
+			hint
+		};
 		Some(CallResolution {
 			target: extend_segment(&import_target, kinds::FUNCTION, name),
 			kind: kinds::CALLS,
 			confidence: self
 				.discover
 				.imports
-				.confidence_for(receiver_name)
+				.confidence_for(self.scope, &self.discover.module, receiver_name)
 				.unwrap_or(kinds::CONF_NAME_MATCH),
-			receiver_hint: hint.to_vec(),
+			receiver_hint: receiver_hint.to_vec(),
 			call_name: name.to_vec(),
 			call_arity: Some(arity),
 		})
@@ -585,13 +659,14 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 
 	fn emit_import_statement(&mut self, node: Node<'_>) {
 		let pos = node_position(node);
+		let conditional = is_conditionally_executed(node);
 		let mut cursor = node.walk();
 		let targets: Vec<_> = node
 			.children(&mut cursor)
 			.filter(|child| matches!(child.kind(), "dotted_name" | "aliased_import"))
 			.collect();
 		for target in targets {
-			self.emit_import_module(target, pos);
+			self.emit_import_module(target, pos, conditional);
 		}
 	}
 
@@ -606,18 +681,30 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 		};
 		let confidence = module_import.confidence();
 		let module_target = module_import.module_target(&self.discover.module);
+		let receiver_hint = if is_conditionally_executed(node) {
+			kinds::HINT_PY_CONDITIONAL_IMPORT
+		} else {
+			b""
+		};
 
 		if has_wildcard_import(node) {
-			self.emit_ref(module_target, kinds::IMPORTS_MODULE, confidence, b"", pos);
+			self.emit_ref(
+				module_target,
+				kinds::IMPORTS_MODULE,
+				confidence,
+				b"*",
+				receiver_hint,
+				pos,
+			);
 			return;
 		}
 
 		for (name, alias) in collect_from_import_names(node, self.discover.source_bytes) {
-			self.emit_imported_symbol(&module_import, name, alias, confidence, pos);
+			self.emit_imported_symbol(&module_import, name, alias, confidence, receiver_hint, pos);
 		}
 	}
 
-	fn emit_import_module(&mut self, node: Node<'_>, pos: Position) {
+	fn emit_import_module(&mut self, node: Node<'_>, pos: Position, conditional: bool) {
 		let Some((path_node, alias)) =
 			import_module_path_and_alias(node, self.discover.source_bytes)
 		else {
@@ -629,15 +716,24 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 		}
 		let confidence = external_or_imported(&pieces);
 		let bind = if !alias.is_empty() { alias } else { pieces[0] };
-		self.discover.imports.bind(bind.as_bytes(), confidence);
+		self.discover
+			.imports
+			.bind(self.scope, bind.as_bytes(), confidence, conditional);
 
 		let target = build_module_target(&self.discover.module, &pieces, 0, confidence);
-		self.discover.imports.bind_target(bind.as_bytes(), &target);
+		self.discover
+			.imports
+			.bind_target(self.scope, bind.as_bytes(), &target);
 		self.emit_ref(
 			target,
 			kinds::IMPORTS_MODULE,
 			confidence,
 			alias.as_bytes(),
+			if conditional {
+				kinds::HINT_PY_CONDITIONAL_IMPORT
+			} else {
+				b""
+			},
 			pos,
 		);
 	}
@@ -648,10 +744,16 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 		name: &str,
 		alias: &str,
 		confidence: &'static [u8],
+		receiver_hint: &'static [u8],
 		pos: Position,
 	) {
 		let bind = if !alias.is_empty() { alias } else { name };
-		self.discover.imports.bind(bind.as_bytes(), confidence);
+		self.discover.imports.bind(
+			self.scope,
+			bind.as_bytes(),
+			confidence,
+			receiver_hint == kinds::HINT_PY_CONDITIONAL_IMPORT,
+		);
 		let target = build_imported_symbol_target(
 			&self.discover.module,
 			&module_import.pieces,
@@ -659,12 +761,15 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 			name.as_bytes(),
 			confidence,
 		);
-		self.discover.imports.bind_target(bind.as_bytes(), &target);
+		self.discover
+			.imports
+			.bind_target(self.scope, bind.as_bytes(), &target);
 		self.emit_ref(
 			target,
 			kinds::IMPORTS_SYMBOL,
 			confidence,
 			alias.as_bytes(),
+			receiver_hint,
 			pos,
 		);
 	}
@@ -675,17 +780,32 @@ impl<'a, 'src> PyImportEmitter<'a, 'src> {
 		kind: &'static [u8],
 		confidence: &'static [u8],
 		alias: &[u8],
+		receiver_hint: &[u8],
 		pos: Position,
 	) {
 		let attrs = RefAttrs {
 			confidence,
 			alias,
+			receiver_hint,
 			..RefAttrs::default()
 		};
 		let _ = self
 			.graph
 			.add_ref_attrs(self.scope, target, kind, Some(pos), &attrs);
 	}
+}
+
+fn is_conditionally_executed(node: Node<'_>) -> bool {
+	let mut parent = node.parent();
+	while let Some(current) = parent {
+		match current.kind() {
+			"module" | "function_definition" | "class_definition" => return false,
+			"if_statement" | "try_statement" | "for_statement" | "while_statement"
+			| "with_statement" | "match_statement" => return true,
+			_ => parent = current.parent(),
+		}
+	}
+	false
 }
 
 struct ModuleImport<'src> {
@@ -1063,6 +1183,10 @@ fn classify_node<'src>(
 				NodeShape::Skip
 			}
 		}
+		"augmented_assignment" if is_module_all_assignment(discover, node, scope) => {
+			handle_all_augmented_assignment(discover, node, scope, graph);
+			NodeShape::Skip
+		}
 		"keyword_argument" => {
 			handle_keyword_argument(discover, node, scope, graph);
 			NodeShape::Skip
@@ -1184,13 +1308,13 @@ fn resolve_return_type_name(
 	if let Some(target) = lookup_discovered_type(discover, scope, name) {
 		return Some((target, kinds::CONF_RESOLVED));
 	}
-	if imported_nonconcrete_typing(discover, name) {
+	if imported_nonconcrete_typing(discover, scope, name) {
 		return None;
 	}
-	if let Some(target) = discover.imports.target_for(name) {
+	if let Some(target) = discover.imports.target_for(scope, &discover.module, name) {
 		let confidence = discover
 			.imports
-			.confidence_for(name)
+			.confidence_for(scope, &discover.module, name)
 			.unwrap_or(kinds::CONF_IMPORTED);
 		return Some((target, confidence));
 	}
@@ -1577,10 +1701,132 @@ fn handle_assignment(
 			scope,
 			graph,
 		);
+		emit_static_all_exports(
+			discover,
+			left,
+			node.child_by_field_name("right"),
+			scope,
+			graph,
+			kinds::HINT_PY_ALL_REPLACE,
+		);
 	}
 	if let Some(right) = node.child_by_field_name("right") {
 		discover.recurse_subtree(right, scope, graph);
 	}
+}
+
+fn emit_static_all_exports(
+	discover: &PyDiscover<'_>,
+	left: Node<'_>,
+	right: Option<Node<'_>>,
+	scope: &Moniker,
+	graph: &mut SdkBuilder,
+	directive: &'static [u8],
+) {
+	if scope != &discover.module || node_slice(left, discover.source_bytes) != b"__all__" {
+		return;
+	}
+	let conditional = is_conditionally_executed(left);
+	let items = (!conditional)
+		.then(|| right.and_then(|right| static_string_collection(right, discover.source_bytes)))
+		.flatten();
+	let marker_target = MonikerBuilder::from_view(scope.as_view())
+		.segment(kinds::PATH, b"__all__")
+		.build();
+	let marker_attrs = RefAttrs {
+		confidence: kinds::CONF_RESOLVED,
+		receiver_hint: if items.is_some() {
+			directive
+		} else {
+			kinds::HINT_PY_ALL_DYNAMIC
+		},
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(
+		scope,
+		marker_target,
+		kinds::REEXPORTS,
+		Some(node_position(left)),
+		&marker_attrs,
+	);
+	let Some(items) = items else { return };
+	for (name, position) in items {
+		let target = MonikerBuilder::from_view(scope.as_view())
+			.segment(kinds::PATH, &name)
+			.build();
+		let attrs = RefAttrs {
+			confidence: kinds::CONF_RESOLVED,
+			alias: &name,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(position), &attrs);
+	}
+}
+
+fn is_module_all_assignment(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker) -> bool {
+	scope == &discover.module
+		&& node
+			.child_by_field_name("left")
+			.is_some_and(|left| node_slice(left, discover.source_bytes) == b"__all__")
+}
+
+fn handle_all_augmented_assignment(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	let Some(left) = node.child_by_field_name("left") else {
+		return;
+	};
+	let right = node.child_by_field_name("right");
+	emit_static_all_exports(
+		discover,
+		left,
+		right,
+		scope,
+		graph,
+		kinds::HINT_PY_ALL_EXTEND,
+	);
+	if let Some(right) = right {
+		discover.recurse_subtree(right, scope, graph);
+	}
+}
+
+fn static_string_collection(node: Node<'_>, source: &[u8]) -> Option<Vec<(Vec<u8>, Position)>> {
+	if !matches!(node.kind(), "list" | "tuple" | "set") {
+		return None;
+	}
+	let mut items = Vec::new();
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if child.kind() == "comment" {
+			continue;
+		}
+		if child.kind() != "string" {
+			return None;
+		}
+		items.push((static_export_name(child, source)?, node_position(child)));
+	}
+	Some(items)
+}
+
+fn static_export_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	let text = node_slice(node, source);
+	let quote = text.iter().position(|byte| matches!(byte, b'\'' | b'"'))?;
+	let delimiter = text[quote];
+	if text.get(quote + 1) == Some(&delimiter) || text.last() != Some(&delimiter) {
+		return None;
+	}
+	let name = text.get(quote + 1..text.len().checked_sub(1)?)?;
+	if name.is_empty()
+		|| !name
+			.iter()
+			.all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+	{
+		return None;
+	}
+	Some(name.to_vec())
 }
 
 fn handle_for(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
@@ -1684,17 +1930,21 @@ fn resolve_identifier_read(
 ) -> Option<(Moniker, &'static [u8])> {
 	let confidence = discover
 		.imports
-		.confidence_for(name)
+		.confidence_for(scope, &discover.module, name)
 		.or_else(|| name_confidence(discover, name))?;
-	let resolved_type =
-		if confidence != kinds::CONF_LOCAL && discover.imports.confidence_for(name).is_none() {
-			lookup_discovered_type(discover, scope, name)
-		} else {
-			None
-		};
+	let resolved_type = if confidence != kinds::CONF_LOCAL
+		&& discover
+			.imports
+			.confidence_for(scope, &discover.module, name)
+			.is_none()
+	{
+		lookup_discovered_type(discover, scope, name)
+	} else {
+		None
+	};
 	let (target, confidence) = if confidence == kinds::CONF_LOCAL {
 		(extend_segment(scope, kinds::LOCAL, name), confidence)
-	} else if let Some(import_target) = discover.imports.target_for(name) {
+	} else if let Some(import_target) = discover.imports.target_for(scope, &discover.module, name) {
 		(import_target, confidence)
 	} else if let Some(type_target) = resolved_type.clone() {
 		(type_target, kinds::CONF_RESOLVED)
@@ -1911,11 +2161,11 @@ fn infer_assignment_value_type_with_mode(
 					}
 					discover
 						.imports
-						.target_for(name)
+						.target_for(scope, &discover.module, name)
 						.or_else(|| lookup_discovered_type(discover, scope, name))
 						.or_else(|| lookup_callable_return_type(discover, name, awaited))
 				}
-				"attribute" => attribute_callee_type(discover, callee),
+				"attribute" => attribute_callee_type(discover, callee, scope),
 				_ => None,
 			}
 		}
@@ -1973,13 +2223,19 @@ fn lookup_callable_return_type(
 	})
 }
 
-fn attribute_callee_type(discover: &PyDiscover<'_>, callee: Node<'_>) -> Option<Moniker> {
+fn attribute_callee_type(
+	discover: &PyDiscover<'_>,
+	callee: Node<'_>,
+	scope: &Moniker,
+) -> Option<Moniker> {
 	let object = callee.child_by_field_name("object")?;
 	if object.kind() != "identifier" {
 		return None;
 	}
 	let object_name = node_slice(object, discover.source_bytes);
-	let module_target = discover.imports.target_for(object_name)?;
+	let module_target = discover
+		.imports
+		.target_for(scope, &discover.module, object_name)?;
 	if !is_external_shaped(&module_target) {
 		return None;
 	}
@@ -2080,7 +2336,7 @@ fn collect_base_class_refs(
 ) {
 	let mut cursor = supers.walk();
 	for child in supers.named_children(&mut cursor) {
-		let (target, confidence) = match qualified_base_target(discover, child) {
+		let (target, confidence) = match qualified_base_target(discover, child, scope) {
 			Some(qualified) => qualified,
 			None => {
 				let name = match base_class_name(child, discover.source_bytes) {
@@ -2106,6 +2362,7 @@ fn collect_base_class_refs(
 fn qualified_base_target(
 	discover: &PyDiscover<'_>,
 	node: Node<'_>,
+	scope: &Moniker,
 ) -> Option<(Moniker, &'static [u8])> {
 	let base = match node.kind() {
 		"attribute" => node,
@@ -2123,7 +2380,9 @@ fn qualified_base_target(
 		return None;
 	}
 	let object_name = node_slice(object, discover.source_bytes);
-	let module_target = discover.imports.target_for(object_name)?;
+	let module_target = discover
+		.imports
+		.target_for(scope, &discover.module, object_name)?;
 	let attr = base.child_by_field_name("attribute")?;
 	let name = node_slice(attr, discover.source_bytes);
 	if name.is_empty() {
@@ -2134,7 +2393,7 @@ fn qualified_base_target(
 	} else {
 		discover
 			.imports
-			.confidence_for(object_name)
+			.confidence_for(scope, &discover.module, object_name)
 			.unwrap_or(kinds::CONF_IMPORTED)
 	};
 	Some((
@@ -2175,7 +2434,7 @@ fn collect_decorator_refs(
 		if name.is_empty() {
 			continue;
 		}
-		let (target, confidence) = match qualified_decorator_target(discover, name_node) {
+		let (target, confidence) = match qualified_decorator_target(discover, name_node, scope) {
 			Some(qualified) => qualified,
 			None => resolve_type_target(discover, scope, &name, kinds::FUNCTION),
 		};
@@ -2195,6 +2454,7 @@ fn collect_decorator_refs(
 fn qualified_decorator_target(
 	discover: &PyDiscover<'_>,
 	node: Node<'_>,
+	scope: &Moniker,
 ) -> Option<(Moniker, &'static [u8])> {
 	if node.kind() != "attribute" {
 		return None;
@@ -2209,7 +2469,10 @@ fn qualified_decorator_target(
 	if name.is_empty() {
 		return None;
 	}
-	let (base, confidence) = match discover.imports.target_for(object_name) {
+	let (base, confidence) = match discover
+		.imports
+		.target_for(scope, &discover.module, object_name)
+	{
 		Some(target) => {
 			let confidence = if is_external_shaped(&target) {
 				kinds::CONF_EXTERNAL
@@ -2263,10 +2526,10 @@ fn infer_type_target(
 			if let Some(target) = lookup_discovered_type(discover, scope, name) {
 				return Some(target);
 			}
-			if imported_nonconcrete_typing(discover, name) {
+			if imported_nonconcrete_typing(discover, scope, name) {
 				return None;
 			}
-			if let Some(target) = discover.imports.target_for(name) {
+			if let Some(target) = discover.imports.target_for(scope, &discover.module, name) {
 				return Some(target);
 			}
 			if should_skip_type_name(name) || is_typing_container(name) {
@@ -2277,7 +2540,7 @@ fn infer_type_target(
 			Some(target)
 		}
 		"attribute" => {
-			if qualified_nonconcrete_typing(discover, node) {
+			if qualified_nonconcrete_typing(discover, node, scope) {
 				return None;
 			}
 			let name = last_attribute(node, discover.source_bytes);
@@ -2288,7 +2551,7 @@ fn infer_type_target(
 			Some(target)
 		}
 		"union_type" | "binary_operator" => infer_unique_child_type(discover, node, scope),
-		"subscript" | "generic_type" if has_typing_container_base(discover, node) => None,
+		"subscript" | "generic_type" if has_typing_container_base(discover, node, scope) => None,
 		"type"
 		| "subscript"
 		| "generic_type"
@@ -2325,7 +2588,7 @@ fn infer_unique_child_type(
 	unique
 }
 
-fn has_typing_container_base(discover: &PyDiscover<'_>, node: Node<'_>) -> bool {
+fn has_typing_container_base(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker) -> bool {
 	let mut cursor = node.walk();
 	let Some(base) = node.named_children(&mut cursor).next() else {
 		return false;
@@ -2333,7 +2596,7 @@ fn has_typing_container_base(discover: &PyDiscover<'_>, node: Node<'_>) -> bool 
 	let name = match base.kind() {
 		"identifier" => {
 			let name = node_slice(base, discover.source_bytes);
-			if imported_typing_container(discover, name) {
+			if imported_typing_container(discover, scope, name) {
 				return true;
 			}
 			name
@@ -2344,12 +2607,12 @@ fn has_typing_container_base(discover: &PyDiscover<'_>, node: Node<'_>) -> bool 
 	is_typing_container(name)
 }
 
-fn imported_typing_container(discover: &PyDiscover<'_>, name: &[u8]) -> bool {
-	imported_nonconcrete_typing(discover, name)
+fn imported_typing_container(discover: &PyDiscover<'_>, scope: &Moniker, name: &[u8]) -> bool {
+	imported_nonconcrete_typing(discover, scope, name)
 }
 
-fn imported_nonconcrete_typing(discover: &PyDiscover<'_>, name: &[u8]) -> bool {
-	let Some(target) = discover.imports.target_for(name) else {
+fn imported_nonconcrete_typing(discover: &PyDiscover<'_>, scope: &Moniker, name: &[u8]) -> bool {
+	let Some(target) = discover.imports.target_for(scope, &discover.module, name) else {
 		return false;
 	};
 	let segments = target.as_view().segments().collect::<Vec<_>>();
@@ -2365,7 +2628,11 @@ fn imported_nonconcrete_typing(discover: &PyDiscover<'_>, name: &[u8]) -> bool {
 			|| matches!(last.name, b"Any" | b"Self" | b"Never" | b"NoReturn"))
 }
 
-fn qualified_nonconcrete_typing(discover: &PyDiscover<'_>, node: Node<'_>) -> bool {
+fn qualified_nonconcrete_typing(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> bool {
 	let Some(object) = node.child_by_field_name("object") else {
 		return false;
 	};
@@ -2373,7 +2640,10 @@ fn qualified_nonconcrete_typing(discover: &PyDiscover<'_>, node: Node<'_>) -> bo
 		return false;
 	}
 	let object_name = node_slice(object, discover.source_bytes);
-	let Some(module) = discover.imports.target_for(object_name) else {
+	let Some(module) = discover
+		.imports
+		.target_for(scope, &discover.module, object_name)
+	else {
 		return false;
 	};
 	let Some(root) = module.as_view().segments().next() else {
@@ -2403,10 +2673,10 @@ fn resolve_type_target(
 	if let Some(m) = lookup_discovered_type(discover, scope, name) {
 		return (m, kinds::CONF_RESOLVED);
 	}
-	if let Some(m) = discover.imports.target_for(name) {
+	if let Some(m) = discover.imports.target_for(scope, &discover.module, name) {
 		let confidence = discover
 			.imports
-			.confidence_for(name)
+			.confidence_for(scope, &discover.module, name)
 			.unwrap_or(kinds::CONF_NAME_MATCH);
 		return (m, confidence);
 	}
@@ -2419,7 +2689,7 @@ fn resolve_type_target(
 	let target = extend_segment(&discover.module, fallback_kind, name);
 	let confidence = discover
 		.imports
-		.confidence_for(name)
+		.confidence_for(scope, &discover.module, name)
 		.unwrap_or(kinds::CONF_NAME_MATCH);
 	(target, confidence)
 }

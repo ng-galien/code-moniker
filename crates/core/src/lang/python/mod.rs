@@ -239,6 +239,154 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_wildcard_import_preserves_the_star_binding() {
+		let g = extract_default(
+			"acme/facade.py",
+			"from .implementation import *\n",
+			&make_anchor(),
+			false,
+		);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"imports_module")
+			.expect("wildcard module import");
+
+		assert_eq!(reference.alias, b"*".to_vec());
+	}
+
+	#[test]
+	fn extract_static_all_emits_named_export_bindings() {
+		let src = "__all__ = [\n    \"PublicClient\",\n    # Kept public for compatibility.\n    'helper',\n]\nclass PublicClient:\n    pass\ndef helper():\n    pass\n";
+		let g = extract_default("acme/implementation.py", src, &make_anchor(), false);
+		let exports = g
+			.refs()
+			.filter(|reference| reference.kind == b"reexports" && !reference.alias.is_empty())
+			.map(|reference| reference.alias.clone())
+			.collect::<Vec<_>>();
+
+		assert_eq!(exports, vec![b"PublicClient".to_vec(), b"helper".to_vec()]);
+	}
+
+	#[test]
+	fn extract_all_assignments_preserve_empty_dynamic_and_extend_state() {
+		let src = "__all__ = []\n__all__ += ['Later']\n__all__ = build_exports()\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let directives = g
+			.refs()
+			.filter(|reference| reference.kind == b"reexports" && reference.alias.is_empty())
+			.map(|reference| reference.receiver_hint.clone())
+			.collect::<Vec<_>>();
+
+		assert_eq!(
+			directives,
+			vec![
+				b"python_all_replace".to_vec(),
+				b"python_all_extend".to_vec(),
+				b"python_all_dynamic".to_vec(),
+			]
+		);
+	}
+
+	#[test]
+	fn extract_conditional_import_marks_runtime_binding() {
+		let src = "if enabled:\n    from acme.client import Client\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"imports_symbol")
+			.expect("conditional import");
+
+		assert_eq!(
+			reference.receiver_hint,
+			b"python_conditional_import".to_vec()
+		);
+	}
+
+	#[test]
+	fn extract_calls_through_conditional_imports_as_runtime_bindings() {
+		let src = "def build(enabled):\n    if enabled:\n        from acme.client import Client\n    return Client()\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"calls")
+			.expect("call through conditional import");
+
+		assert_eq!(
+			reference.receiver_hint,
+			b"python_conditional_import".to_vec()
+		);
+	}
+
+	#[test]
+	fn extract_function_imports_do_not_leak_into_sibling_scopes() {
+		let src = "def configure():\n    from acme.client import Client\n    return Client()\n\ndef build():\n    return Client()\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let calls = g
+			.refs()
+			.filter(|reference| reference.kind == b"calls")
+			.map(|reference| {
+				let source = g
+					.def_at(reference.source)
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.expect("call source")
+					.name
+					.to_vec();
+				(source, reference.confidence.to_vec())
+			})
+			.collect::<Vec<_>>();
+
+		assert!(
+			calls.contains(&(b"configure()".to_vec(), b"imported".to_vec())),
+			"{calls:?}"
+		);
+		assert!(
+			calls.contains(&(b"build()".to_vec(), b"name_match".to_vec())),
+			"{calls:?}"
+		);
+	}
+
+	#[test]
+	fn extract_local_import_shadows_conditional_module_binding() {
+		let src = "try:\n    from acme.a import Client\nexcept ImportError:\n    from acme.b import Client\n\ndef build():\n    from acme.c import Client\n    return Client()\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let call = g
+			.refs()
+			.find(|reference| reference.kind == b"calls")
+			.expect("locally shadowed call");
+
+		assert_eq!(call.receiver_hint, b"");
+		assert_eq!(call.confidence, b"imported");
+		assert!(
+			call.target
+				.as_view()
+				.segments()
+				.any(|segment| { segment.kind == b"module" && segment.name == b"c" })
+		);
+	}
+
+	#[test]
+	fn extract_conditional_all_as_dynamic() {
+		let src = "if enabled:\n    __all__ = ['Client']\nelse:\n    __all__ = ['Fallback']\n";
+		let g = extract_default("acme/facade.py", src, &make_anchor(), false);
+		let directives = g
+			.refs()
+			.filter(|reference| reference.kind == b"reexports")
+			.map(|reference| (reference.alias.to_vec(), reference.receiver_hint.to_vec()))
+			.collect::<Vec<_>>();
+
+		assert_eq!(
+			directives,
+			vec![
+				(Vec::new(), b"python_all_dynamic".to_vec()),
+				(Vec::new(), b"python_all_dynamic".to_vec()),
+			]
+		);
+	}
+
+	#[test]
 	fn extract_relative_import_resolves_against_importer() {
 		let src = "from .util import helper\n";
 		let g = extract_default("acme/m.py", src, &make_anchor(), false);

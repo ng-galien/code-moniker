@@ -1,5 +1,5 @@
 use code_moniker_core::core::code_graph::RefRecord;
-use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_READS, REF_REEXPORTS};
+use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_READS};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
@@ -14,6 +14,7 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::linkage::resolve::WorkspacePackageIndex;
+use crate::linkage::resolve::python_bindings::PythonBindingGraph;
 use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
@@ -101,10 +102,14 @@ fn enhance_decisions(
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
+	classify_runtime_imports(linkage.material, decisions, references, changed_references);
 	let bootstrap = build_receiver_field_tables(linkage, decisions, references);
-	enhance_reexport_aliases(
+	let bindings =
+		PythonBindingGraph::build(linkage.material, linkage.candidates, decisions, references);
+	enhance_python_bindings(
 		linkage,
 		&bootstrap,
+		&bindings,
 		decisions,
 		references,
 		changed_references,
@@ -118,9 +123,101 @@ fn enhance_decisions(
 		changed_references,
 	);
 	enhance_receiver_fields(linkage, &tables, decisions, references, changed_references);
-	enhance_reexport_aliases(linkage, &tables, decisions, references, changed_references);
+	enhance_python_bindings(
+		linkage,
+		&tables,
+		&bindings,
+		decisions,
+		references,
+		changed_references,
+	);
 	let pending = pending_receiver_chains(decisions, references, changed_references);
 	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
+}
+
+fn classify_runtime_imports(
+	material: &CodeIndexMaterial,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	let mut local_import_candidates = FxHashMap::default();
+	let mut module_import_candidates = FxHashMap::default();
+	for decision in decisions.iter() {
+		let reference = &references[decision.reference_idx()];
+		if reference.receiver.as_deref() != Some("python_conditional_import")
+			|| !matches!(
+				reference.kind.as_bytes(),
+				kinds::IMPORTS_MODULE | kinds::IMPORTS_SYMBOL
+			) {
+			continue;
+		}
+		let Some(name) = runtime_binding_name(reference) else {
+			continue;
+		};
+		let source_is_module = material
+			.symbol_moniker(&reference.source_symbol)
+			.and_then(|moniker| moniker.as_view().segments().last())
+			.is_some_and(|segment| segment.kind == kinds::MODULE);
+		let candidates = if source_is_module {
+			module_import_candidates
+				.entry((reference.source, name.to_owned()))
+				.or_insert_with(SymbolSet::new)
+		} else {
+			local_import_candidates
+				.entry((reference.source_symbol, name.to_owned()))
+				.or_insert_with(SymbolSet::new)
+		};
+		if let Some(targets) = decision.linkage_targets() {
+			for target in targets.iter() {
+				candidates.insert(target);
+			}
+		}
+	}
+	for decision in decisions {
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference_idx = decision.reference_idx();
+		let reference = &references[reference_idx];
+		if reference.receiver.as_deref() != Some("python_conditional_import") {
+			continue;
+		}
+		let mut candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(SymbolSet::new);
+		if let Some(name) = runtime_binding_name(reference) {
+			if let Some(imports) =
+				local_import_candidates.get(&(reference.source_symbol, name.to_owned()))
+			{
+				for target in imports.iter() {
+					candidates.insert(target);
+				}
+			}
+			if let Some(imports) =
+				module_import_candidates.get(&(reference.source, name.to_owned()))
+			{
+				for target in imports.iter() {
+					candidates.insert(target);
+				}
+			}
+		}
+		*decision = ReferenceLinkageDecision::dynamic(
+			crate::snapshot::DynamicReason::RuntimeImport,
+			reference_idx,
+			reference.id,
+			candidates,
+		);
+	}
+}
+
+fn runtime_binding_name(reference: &ReferenceRecord) -> Option<&str> {
+	reference
+		.call_name
+		.as_deref()
+		.or_else(|| reference.alias.as_deref().filter(|alias| !alias.is_empty()))
+		.or_else(|| reference.target_identity.rsplit(':').next())
 }
 
 fn enhance_receiver_chains(
@@ -699,17 +796,14 @@ fn insert_method_key(
 	table.keys_by_file.entry(file_idx).or_default().push(key);
 }
 
-fn enhance_reexport_aliases(
+fn enhance_python_bindings(
 	linkage: &SemanticLinkage<'_>,
 	tables: &ReceiverFieldTables,
+	bindings: &PythonBindingGraph,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	let aliases = build_reexport_aliases(linkage.material, decisions, references);
-	if aliases.is_empty() {
-		return;
-	}
 	for decision in decisions.iter_mut() {
 		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
 			continue;
@@ -718,195 +812,59 @@ fn enhance_reexport_aliases(
 			continue;
 		}
 		let Some((owner, name)) =
-			reference_target_alias_key(linkage.material, &references[reference_idx])
+			PythonBindingGraph::target_key(linkage.material, &references[reference_idx])
 		else {
 			continue;
 		};
-		let owner = tables.type_aliases.get(&owner).cloned().unwrap_or(owner);
-		let Some(alias) = aliases.get(&(owner, name)) else {
-			continue;
-		};
+		let raw_owner = owner;
+		let owner = tables
+			.type_aliases
+			.get(&raw_owner)
+			.cloned()
+			.unwrap_or_else(|| raw_owner.clone());
 		let reference = &references[reference_idx];
 		let requested_target = linkage.material.reference_target(&reference.id);
-		*decision = alias.to_decision(reference_idx, reference, requested_target);
-	}
-}
-
-#[derive(Clone)]
-enum ReexportAliasTarget {
-	Resolved {
-		scope: ResolutionScope,
-		evidence: ResolutionEvidence,
-		targets: SymbolSet,
-	},
-	External {
-		origin: ExternalOrigin,
-		target: Moniker,
-	},
-}
-
-impl ReexportAliasTarget {
-	fn from_decision(
-		decision: &ReferenceLinkageDecision,
-		fallback_external_target: Option<Moniker>,
-	) -> Option<Self> {
-		match decision {
-			ReferenceLinkageDecision::Unique { resolution } if resolution.targets.len() == 1 => {
-				Some(Self::Resolved {
-					scope: resolution.scope,
-					evidence: resolution.evidence,
-					targets: resolution.targets.clone(),
-				})
-			}
-			ReferenceLinkageDecision::External { origin, target, .. } => Some(Self::External {
-				origin: *origin,
-				target: target.clone().or(fallback_external_target)?,
-			}),
-			_ => None,
-		}
-	}
-
-	fn to_decision(
-		&self,
-		reference_idx: usize,
-		reference: &ReferenceRecord,
-		requested_target: Option<&Moniker>,
-	) -> ReferenceLinkageDecision {
-		match self {
-			Self::Resolved {
-				scope,
-				evidence,
-				targets,
-			} => ReferenceLinkageDecision::resolved(ResolutionDecision::new(
-				*scope,
-				*evidence,
-				reference.id,
-				reference_idx,
-				targets.clone(),
-			)),
-			Self::External { origin, target } => ReferenceLinkageDecision::external_target(
-				*origin,
-				reference_idx,
-				reference.id,
-				reexport_external_target(target, requested_target),
-			),
-		}
-	}
-}
-
-fn reexport_external_target(alias_target: &Moniker, requested_target: Option<&Moniker>) -> Moniker {
-	let Some(requested_target) = requested_target else {
-		return alias_target.clone();
-	};
-	let Some(alias_last) = alias_target.as_view().segments().last() else {
-		return alias_target.clone();
-	};
-	let Some(requested_last) = requested_target.as_view().segments().last() else {
-		return alias_target.clone();
-	};
-	if bare_callable_name(alias_last.name) != bare_callable_name(requested_last.name) {
-		return alias_target.clone();
-	}
-	let Some(owner) = alias_target.parent() else {
-		return alias_target.clone();
-	};
-	MonikerBuilder::from_view(owner.as_view())
-		.segment(requested_last.kind, requested_last.name)
-		.build()
-}
-
-fn build_reexport_aliases(
-	material: &CodeIndexMaterial,
-	decisions: &[ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-) -> FxHashMap<(Moniker, Vec<u8>), ReexportAliasTarget> {
-	let mut aliases = FxHashMap::default();
-	for decision in decisions {
-		let reference = decision_reference(decision, references);
-		let Some(raw_owner) = material.symbol_moniker(&reference.source_symbol) else {
-			continue;
-		};
-		let collapsed = python_init_reexport_owner(reference, raw_owner);
-		if reference.kind.as_bytes() != REF_REEXPORTS && collapsed.is_none() {
+		if let Some(resolved) = bindings.decision(
+			&raw_owner,
+			&name,
+			reference_idx,
+			reference,
+			requested_target,
+		) {
+			*decision = resolved;
 			continue;
 		}
-		let Some(name) = reexport_alias_name(material, reference) else {
+		if owner != raw_owner
+			&& let Some(resolved) =
+				bindings.decision(&owner, &name, reference_idx, reference, requested_target)
+		{
+			*decision = resolved;
 			continue;
-		};
-		let fallback_external_target = material.reference_target(&reference.id).cloned();
-		let Some(target) = ReexportAliasTarget::from_decision(decision, fallback_external_target)
+		}
+		let Some(bound_owner) = bindings.canonical_workspace_owner(&owner, linkage.candidates)
 		else {
 			continue;
 		};
-		if let Some(collapsed) = collapsed {
-			aliases.insert((collapsed, name.clone()), target.clone());
+		if let Some(resolved) = bindings.decision(
+			&bound_owner,
+			&name,
+			reference_idx,
+			reference,
+			requested_target,
+		) {
+			*decision = resolved;
+			continue;
 		}
-		aliases.insert((raw_owner.clone(), name), target);
+		let Some(method_call) = MethodCallReference::new(reference_idx, reference) else {
+			continue;
+		};
+		let Some(resolved) =
+			resolve_method_through_supers(linkage, tables, &bound_owner, method_call)
+		else {
+			continue;
+		};
+		*decision = resolved;
 	}
-	aliases
-}
-
-// A name imported inside a Python package `__init__.py` is importable from
-// the package itself; alias it under the collapsed `module:<package>` owner
-// that importer targets use.
-fn python_init_reexport_owner(reference: &ReferenceRecord, owner: &Moniker) -> Option<Moniker> {
-	if reference.kind.as_bytes() != kinds::IMPORTS_SYMBOL {
-		return None;
-	}
-	let segments = owner.as_view().segments().collect::<Vec<_>>();
-	let [first, .., package, module] = segments.as_slice() else {
-		return None;
-	};
-	if first.kind != kinds::LANG
-		|| first.name != b"python"
-		|| module.kind != kinds::MODULE
-		|| module.name != b"__init__"
-		|| package.kind != kinds::PACKAGE
-	{
-		return None;
-	}
-	let package_name = package.name.to_vec();
-	let prefix = owner.parent()?.parent()?;
-	Some(
-		MonikerBuilder::from_view(prefix.as_view())
-			.segment(kinds::MODULE, &package_name)
-			.build(),
-	)
-}
-
-fn reexport_alias_name(
-	material: &CodeIndexMaterial,
-	reference: &ReferenceRecord,
-) -> Option<Vec<u8>> {
-	if let Some(alias) = reference.alias.as_deref().filter(|alias| !alias.is_empty()) {
-		return Some(alias.as_bytes().to_vec());
-	}
-	let target = material.reference_target(&reference.id)?;
-	let last = target.as_view().segments().last()?;
-	if last.kind != kinds::PATH {
-		return None;
-	}
-	Some(bare_callable_name(last.name).to_vec())
-}
-
-fn reference_target_alias_key(
-	material: &CodeIndexMaterial,
-	reference: &ReferenceRecord,
-) -> Option<(Moniker, Vec<u8>)> {
-	let target = material.reference_target(&reference.id)?;
-	let name = reference
-		.call_name
-		.as_deref()
-		.map(|name| name.as_bytes().to_vec())
-		.or_else(|| {
-			target
-				.as_view()
-				.segments()
-				.last()
-				.map(|segment| bare_callable_name(segment.name).to_vec())
-		})?;
-	let owner = target.parent()?;
-	Some((owner, name))
 }
 
 fn build_receiver_call_index(

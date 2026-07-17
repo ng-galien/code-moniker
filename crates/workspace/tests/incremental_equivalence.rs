@@ -152,7 +152,7 @@ impl IncrementalSession {
 		}
 	}
 
-	fn edit(&mut self, rel_path: &str, content: &str) {
+	fn edit(&mut self, rel_path: &str, content: &str) -> usize {
 		let path = self.root.join(rel_path);
 		fs::write(&path, content).expect("write edit");
 		let refreshed = self
@@ -164,13 +164,15 @@ impl IncrementalSession {
 			vec![path],
 			LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 		);
-		self.snapshot = self
+		let refreshed_linkage = self
 			.linkage
 			.refresh_linkage_with_timings(&self.snapshot, &refreshed.index, impact)
-			.expect("refresh linkage")
-			.snapshot;
+			.expect("refresh linkage");
+		let changed_refs = refreshed_linkage.timings.changed_refs;
+		self.snapshot = refreshed_linkage.snapshot;
 		self.index = refreshed.index;
 		let _ = &self.catalog;
+		changed_refs
 	}
 
 	fn create(&mut self, rel_path: &str, content: &str) {
@@ -199,7 +201,7 @@ impl IncrementalSession {
 		self.catalog = extended;
 	}
 
-	fn remove(&mut self, rel_path: &str) {
+	fn remove(&mut self, rel_path: &str) -> usize {
 		let path = self.root.join(rel_path);
 		fs::remove_file(&path).expect("remove file");
 		let extended = self
@@ -216,13 +218,15 @@ impl IncrementalSession {
 			vec![path],
 			LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 		);
-		self.snapshot = self
+		let refreshed_linkage = self
 			.linkage
 			.refresh_linkage_with_timings(&self.snapshot, &refreshed.index, impact)
-			.expect("refresh linkage")
-			.snapshot;
+			.expect("refresh linkage");
+		let changed_refs = refreshed_linkage.timings.changed_refs;
+		self.snapshot = refreshed_linkage.snapshot;
 		self.index = refreshed.index;
 		self.catalog = extended;
+		changed_refs
 	}
 
 	fn normal_form(&self) -> NormalForm {
@@ -432,6 +436,128 @@ fn removing_then_recreating_a_file_matches_full_rebuild() {
 		full_build_normal_form(temp.path()),
 		"a recreated file should re-index in its original slot"
 	);
+}
+
+#[test]
+fn changing_python_all_relinks_unchanged_wildcard_consumers() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let package = temp.path().join("sample");
+	fs::create_dir_all(&package).expect("package");
+	fs::write(package.join("__init__.py"), "from sample.impl import *\n").expect("facade");
+	fs::write(
+		package.join("impl.py"),
+		"__all__ = ['Client']\nclass Client:\n    pass\n",
+	)
+	.expect("implementation");
+	fs::write(
+		temp.path().join("consumer.py"),
+		"from sample import Client\ndef build():\n    return Client()\n",
+	)
+	.expect("consumer");
+	let mut session = IncrementalSession::open(temp.path());
+
+	session.edit("sample/impl.py", "__all__ = []\nclass Client:\n    pass\n");
+
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"changing __all__ must invalidate unchanged wildcard consumers"
+	);
+}
+
+#[test]
+fn removing_an_ordinary_python_call_does_not_relink_the_workspace() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(
+		temp.path().join("provider.py"),
+		"def stable():\n    return 1\n",
+	)
+	.expect("provider");
+	fs::write(
+		temp.path().join("consumer.py"),
+		"from provider import stable\ndef run():\n    return stable()\n",
+	)
+	.expect("consumer");
+	fs::write(
+		temp.path().join("unrelated.py"),
+		"def helper():\n    return 2\ndef run():\n    return helper()\n",
+	)
+	.expect("unrelated");
+	let mut session = IncrementalSession::open(temp.path());
+
+	let changed_refs = session.edit(
+		"consumer.py",
+		"from provider import stable\ndef run():\n    return 0\n",
+	);
+
+	assert_eq!(changed_refs, 0, "a removed call is not a binding change");
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn removing_a_python_facade_relinks_unchanged_consumers() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let package = temp.path().join("sample");
+	fs::create_dir_all(&package).expect("package");
+	fs::write(
+		package.join("__init__.py"),
+		"from sample.facade import Client\n",
+	)
+	.expect("package init");
+	fs::write(
+		package.join("facade.py"),
+		"from sample.impl import Client\n",
+	)
+	.expect("facade");
+	fs::write(package.join("impl.py"), "class Client:\n    pass\n").expect("implementation");
+	fs::write(
+		temp.path().join("consumer.py"),
+		"from sample import Client\ndef build():\n    return Client()\n",
+	)
+	.expect("consumer");
+	fs::write(
+		temp.path().join("unrelated.py"),
+		"def helper():\n    return 1\ndef run():\n    return helper()\n",
+	)
+	.expect("unrelated");
+	let mut session = IncrementalSession::open(temp.path());
+	let total_references = session.index.references.len();
+
+	let changed_refs = session.remove("sample/facade.py");
+
+	assert!(
+		changed_refs < total_references,
+		"removing one facade must only relink its dependency closure"
+	);
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"removing a facade must invalidate unchanged consumers"
+	);
+}
+
+#[test]
+fn removing_an_unreferenced_python_module_has_an_empty_dependency_closure() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(
+		temp.path().join("orphan.py"),
+		"def orphan():\n    return 1\n",
+	)
+	.expect("orphan");
+	fs::write(
+		temp.path().join("unrelated.py"),
+		"def helper():\n    return 2\ndef run():\n    return helper()\n",
+	)
+	.expect("unrelated");
+	let mut session = IncrementalSession::open(temp.path());
+
+	let changed_refs = session.remove("orphan.py");
+
+	assert_eq!(
+		changed_refs, 0,
+		"an unreferenced deleted module has no dependent references"
+	);
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
 }
 
 const ALPHA_VARIANTS: &[&str] = &[

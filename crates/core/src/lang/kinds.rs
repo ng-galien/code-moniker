@@ -50,6 +50,10 @@ pub const HINT_CLS: &[u8] = b"cls";
 pub const HINT_CALL: &[u8] = b"call";
 pub const HINT_MEMBER: &[u8] = b"member";
 pub const HINT_SUBSCRIPT: &[u8] = b"subscript";
+pub const HINT_PY_CONDITIONAL_IMPORT: &[u8] = b"python_conditional_import";
+pub const HINT_PY_ALL_REPLACE: &[u8] = b"python_all_replace";
+pub const HINT_PY_ALL_EXTEND: &[u8] = b"python_all_extend";
+pub const HINT_PY_ALL_DYNAMIC: &[u8] = b"python_all_dynamic";
 
 pub const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
 

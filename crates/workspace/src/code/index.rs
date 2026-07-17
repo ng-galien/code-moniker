@@ -55,6 +55,7 @@ pub struct CodeIndexGraphDiff {
 	pub removed_symbol_identities: Vec<String>,
 	pub changed_references: Vec<ReferenceId>,
 	pub removed_references: Vec<ReferenceId>,
+	pub removed_reference_kinds: Vec<String>,
 	pub symbol_id_remaps: Vec<(SymbolId, SymbolId)>,
 	pub reference_id_remaps: Vec<(ReferenceId, ReferenceId)>,
 	pub unchanged_symbols: usize,
@@ -538,10 +539,14 @@ fn diff_references(
 	for previous_reference in previous {
 		let Some(key) = reference_key(previous_reference, previous_material) else {
 			diff.removed_references.push(previous_reference.id);
+			diff.removed_reference_kinds
+				.push(previous_reference.kind.clone());
 			continue;
 		};
 		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
 			diff.removed_references.push(previous_reference.id);
+			diff.removed_reference_kinds
+				.push(previous_reference.kind.clone());
 			continue;
 		};
 		let next_reference = &next[next_idx];
