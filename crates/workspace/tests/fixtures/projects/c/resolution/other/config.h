@@ -1,0 +1,1 @@
+#define OTHER_CONFIG 1

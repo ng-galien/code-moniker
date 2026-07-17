@@ -44,6 +44,8 @@ pub struct Config {
 	#[serde(default)]
 	pub go: LangRules,
 	#[serde(default)]
+	pub c: LangRules,
+	#[serde(default)]
 	pub cs: LangRules,
 	#[serde(default)]
 	pub sql: LangRules,
@@ -442,6 +444,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	merge_lang(&mut base.java, ov.java);
 	merge_lang(&mut base.python, ov.python);
 	merge_lang(&mut base.go, ov.go);
+	merge_lang(&mut base.c, ov.c);
 	merge_lang(&mut base.cs, ov.cs);
 	merge_lang(&mut base.sql, ov.sql);
 }
@@ -772,6 +775,7 @@ impl Config {
 			Lang::Java => &self.java,
 			Lang::Python => &self.python,
 			Lang::Go => &self.go,
+			Lang::C => &self.c,
 			Lang::Cs => &self.cs,
 			Lang::Sql => &self.sql,
 		}
@@ -784,6 +788,7 @@ impl Config {
 			Lang::Java => &mut self.java,
 			Lang::Python => &mut self.python,
 			Lang::Go => &mut self.go,
+			Lang::C => &mut self.c,
 			Lang::Cs => &mut self.cs,
 			Lang::Sql => &mut self.sql,
 		}

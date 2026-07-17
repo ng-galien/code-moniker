@@ -17,6 +17,7 @@ pub(in crate::linkage) struct LinkageCandidate<'a> {
 	pub(in crate::linkage) segment_count: usize,
 	pub(in crate::linkage) call_name: Option<&'a [u8]>,
 	pub(in crate::linkage) call_arity: Option<usize>,
+	pub(in crate::linkage) visibility: &'a [u8],
 	pub(in crate::linkage) source_file: usize,
 }
 
@@ -277,6 +278,7 @@ fn candidate(file_idx: usize, def: &DefRecord) -> LinkageCandidate<'_> {
 		segment_count: segment_summary.count,
 		call_name: (!def.call_name.is_empty()).then_some(def.call_name.as_ref()),
 		call_arity: def.call_arity,
+		visibility: def.visibility.as_ref(),
 		source_file: file_idx,
 	}
 }

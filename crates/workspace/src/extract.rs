@@ -57,6 +57,13 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			deep,
 			&code_moniker_core::lang::go::Presets::default(),
 		),
+		Lang::C => code_moniker_core::lang::c::extract(
+			uri,
+			source,
+			&anchor,
+			deep,
+			&code_moniker_core::lang::c::Presets::default(),
+		),
 		Lang::Cs => code_moniker_core::lang::cs::extract(
 			uri,
 			source,

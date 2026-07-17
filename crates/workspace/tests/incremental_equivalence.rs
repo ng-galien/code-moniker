@@ -336,6 +336,14 @@ fn seed_csharp_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 	temp
 }
 
+fn seed_c_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
+	let temp = tempfile::tempdir().expect("tempdir");
+	for (path, content) in files {
+		fs::write(temp.path().join(path), content).expect("C fixture");
+	}
+	temp
+}
+
 fn seed_sql_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 	let temp = tempfile::tempdir().expect("tempdir");
 	for (path, content) in files {
@@ -410,6 +418,21 @@ fn csharp_typed_receiver_changes_match_full_rebuild() {
 		"Program.cs",
 		"public class Program { public void Run() { Rival value = new Rival(); value.Format(); } }\n",
 	);
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn c_call_arity_changes_match_full_rebuild() {
+	let temp = seed_c_workspace(&[
+		(
+			"math.c",
+			"int add(int left, int right) { return left + right; }\n",
+		),
+		("main.c", "int run(void) { return add(1); }\n"),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit("main.c", "int run(void) { return add(1, 2); }\n");
 
 	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
 }

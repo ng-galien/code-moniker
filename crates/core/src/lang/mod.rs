@@ -1,4 +1,5 @@
 pub mod build_manifest;
+pub mod c;
 pub mod callable;
 pub mod cs;
 pub mod extractor;
@@ -125,6 +126,7 @@ define_languages! {
 	Java   => crate::lang::java::Lang,
 	Python => crate::lang::python::Lang,
 	Go     => crate::lang::go::Lang,
+	C      => crate::lang::c::Lang,
 	Cs     => crate::lang::cs::Lang,
 	Sql    => crate::lang::sql::Lang,
 }
@@ -322,6 +324,19 @@ mod comment_collapse_tests {
 				},
 			},
 			Case {
+				tag: "c",
+				uri: "test.c",
+				run: |src| {
+					super::c::extract(
+						"test.c",
+						src,
+						&anchor(),
+						false,
+						&super::c::Presets::default(),
+					)
+				},
+			},
+			Case {
 				tag: "cs",
 				uri: "test.cs",
 				run: |src| {
@@ -356,6 +371,7 @@ mod comment_collapse_tests {
 		("python", "# a\n# b\n# c\nclass Foo: pass\n"),
 		("go", "package x\n// a\n// b\n// c\nfunc Foo() {}\n"),
 		("java", "// a\n// b\n// c\nclass Foo {}\n"),
+		("c", "// a\n// b\n// c\nint foo(void) { return 0; }\n"),
 		("cs", "// a\n// b\n// c\nclass Foo {}\n"),
 		(
 			"sql",
@@ -369,6 +385,7 @@ mod comment_collapse_tests {
 		("python", "# a\n# b\n\n# c\nclass Foo: pass\n"),
 		("go", "package x\n// a\n// b\n\n// c\nfunc Foo() {}\n"),
 		("java", "// a\n// b\n\n// c\nclass Foo {}\n"),
+		("c", "// a\n// b\n\n// c\nint foo(void) { return 0; }\n"),
 		("cs", "// a\n// b\n\n// c\nclass Foo {}\n"),
 		(
 			"sql",

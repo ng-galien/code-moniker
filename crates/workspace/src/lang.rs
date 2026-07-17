@@ -7,7 +7,7 @@ use code_moniker_core::lang::Lang;
 #[derive(Debug, Error)]
 pub enum LangError {
 	#[error(
-		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, cs, sql/sql.in/plpgsql)"
+		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, c/h, cs, sql/sql.in/plpgsql)"
 	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]
@@ -36,6 +36,7 @@ pub fn path_to_lang(path: &Path) -> Result<Lang, LangError> {
 		"java" => Ok(Lang::Java),
 		"py" | "pyi" => Ok(Lang::Python),
 		"go" => Ok(Lang::Go),
+		"c" | "h" => Ok(Lang::C),
 		"cs" => Ok(Lang::Cs),
 		"sql" | "plpgsql" => Ok(Lang::Sql),
 		other => Err(LangError::UnknownExtension(other.to_string())),
@@ -73,6 +74,8 @@ mod tests {
 		assert_eq!(dispatch("a.py").unwrap(), Lang::Python);
 		assert_eq!(dispatch("a.pyi").unwrap(), Lang::Python);
 		assert_eq!(dispatch("a.go").unwrap(), Lang::Go);
+		assert_eq!(dispatch("a.c").unwrap(), Lang::C);
+		assert_eq!(dispatch("a.h").unwrap(), Lang::C);
 		assert_eq!(dispatch("a.cs").unwrap(), Lang::Cs);
 	}
 
@@ -96,6 +99,7 @@ mod tests {
 	fn case_is_insensitive() {
 		assert_eq!(dispatch("X.JAVA").unwrap(), Lang::Java);
 		assert_eq!(dispatch("X.RS").unwrap(), Lang::Rs);
+		assert_eq!(dispatch("X.H").unwrap(), Lang::C);
 	}
 
 	#[test]

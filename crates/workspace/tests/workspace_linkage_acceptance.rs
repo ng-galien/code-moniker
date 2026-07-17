@@ -66,6 +66,74 @@ fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
 }
 
 #[test]
+fn c_sdk_links_program_wide_functions_and_local_headers() {
+	let snapshot = load_workspace("projects/c/resolution");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:main/func:run()",
+		"calls",
+		"add",
+		2,
+		"module:math/func:add(left:int,right:int)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:main/func:run()",
+		"calls",
+		"open",
+		1,
+		"module:math/func:open(flags:int)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:main/func:run()",
+		"calls",
+		"DOUBLE",
+		1,
+		"module:math.h/macro:DOUBLE(value)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:main/func:run()",
+		"calls",
+		"twice",
+		1,
+		"module:math.h/func:twice(value:int)",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:main/func:run()",
+		"module:main/var:MATH_VERSION",
+		"module:math.h/const:MATH_VERSION",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"imports_module",
+		"module:main",
+		"module:math.h",
+		"module:math.h",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"imports_module",
+		"module:main",
+		"dir:project/module:config.h",
+		"dir:project/module:config.h",
+	);
+	assert_named_call_unresolved(&snapshot, "module:main/func:run()", "hidden", 1);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:main/func:run()",
+		"calls",
+		"handler",
+		0,
+		"module:main/func:run()/local:handler",
+	);
+}
+
+#[test]
 fn sql_sdk_links_schema_qualified_overloads_and_classifies_open_calls() {
 	let snapshot = load_workspace("projects/sql/resolution");
 

@@ -1,0 +1,780 @@
+---
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 131
+expression: body
+input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kventry",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        116,
+        295
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/type:kventry",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        108,
+        304
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kvstore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        341,
+        468
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/type:kvstore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        333,
+        477
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:81",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        81,
+        107
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:key",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kventry",
+      "position": [
+        140,
+        143
+      ],
+      "signature": "char*",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:value",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kventry",
+      "position": [
+        152,
+        157
+      ],
+      "signature": "void*",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:next",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kventry",
+      "position": [
+        288,
+        292
+      ],
+      "signature": "structkventry*",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:306",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        306,
+        332
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:head",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kvstore",
+      "position": [
+        368,
+        372
+      ],
+      "signature": "kventry*",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:size",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kvstore",
+      "position": [
+        389,
+        393
+      ],
+      "signature": "unsignedlong",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:free_value",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/struct:kvstore",
+      "position": [
+        441,
+        451
+      ],
+      "signature": "void*",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_hash(key:char*)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        479,
+        635
+      ],
+      "signature": "key:char*",
+      "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:637",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        637,
+        657
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        658,
+        820
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_create()/comment:686",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "position": [
+        686,
+        721
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:822",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        822,
+        842
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        843,
+        1173
+      ],
+      "signature": "store:kvstore*,key:char*,value:void*",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)/comment:949",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "position": [
+        949,
+        984
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)/comment:1102",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "position": [
+        1102,
+        1137
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:1175",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        1175,
+        1196
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        1197,
+        1501
+      ],
+      "signature": "store:kvstore*",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)/comment:1340",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "position": [
+        1340,
+        1391
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/comment:1503",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        1503,
+        1539
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore",
+      "position": [
+        1540,
+        1654
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()/comment:1577",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()",
+      "position": [
+        1577,
+        1625
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:next",
+      "kind": "typed_as",
+      "position": [
+        288,
+        292
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:head",
+      "kind": "typed_as",
+      "position": [
+        368,
+        372
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore",
+      "kind": "imports_module",
+      "position": [
+        0,
+        19
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:stdio"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore",
+      "kind": "imports_module",
+      "position": [
+        19,
+        39
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:stdlib"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore",
+      "kind": "imports_module",
+      "position": [
+        39,
+        59
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:string"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:c/module:kvstore",
+      "kind": "imports_module",
+      "position": [
+        59,
+        80
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore.h"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/struct:kventry",
+      "kind": "uses_type",
+      "position": [
+        272,
+        286
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/struct:kvstore",
+      "kind": "uses_type",
+      "position": [
+        359,
+        366
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "kind": "uses_type",
+      "position": [
+        658,
+        665
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "kind": "returns_type",
+      "position": [
+        658,
+        665
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "kind": "uses_type",
+      "position": [
+        723,
+        730
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_create()",
+      "kind": "calls",
+      "position": [
+        740,
+        763
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:malloc"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "uses_type",
+      "position": [
+        857,
+        864
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "uses_type",
+      "position": [
+        906,
+        913
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "calls",
+      "position": [
+        923,
+        946
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:malloc"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "calls",
+      "position": [
+        999,
+        1010
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:strdup"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "reads",
+      "position": [
+        1057,
+        1061
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:head"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "reads",
+      "position": [
+        1093,
+        1097
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:size"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)",
+      "kind": "calls",
+      "position": [
+        1152,
+        1164
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/func:kv_hash(key:char*)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "uses_type",
+      "position": [
+        1213,
+        1220
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "uses_type",
+      "position": [
+        1232,
+        1239
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "reads",
+      "position": [
+        1256,
+        1260
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:head"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "uses_type",
+      "position": [
+        1281,
+        1288
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "reads",
+      "position": [
+        1304,
+        1308
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:next"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "reads",
+      "position": [
+        1323,
+        1333
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:free_value"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "calls",
+      "position": [
+        1395,
+        1426
+      ],
+      "receiver_hint": "store",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:free_value"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "reads",
+      "position": [
+        1420,
+        1425
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:value"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "calls",
+      "position": [
+        1434,
+        1450
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:free"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "reads",
+      "position": [
+        1446,
+        1449
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:key"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "calls",
+      "position": [
+        1454,
+        1465
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:free"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)",
+      "kind": "calls",
+      "position": [
+        1487,
+        1498
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:libc/func:free"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()",
+      "kind": "reads",
+      "position": [
+        1647,
+        1651
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:size"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()",
+      "kind": "calls",
+      "position": [
+        1634,
+        1645
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:kvstore/func:kv_create()"
+    }
+  ],
+  "root": "code+moniker://app/lang:c/module:kvstore"
+}

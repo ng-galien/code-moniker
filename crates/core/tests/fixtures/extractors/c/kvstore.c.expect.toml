@@ -1,0 +1,108 @@
+root = "code+moniker://app/lang:c/module:kvstore"
+
+[[defs]]
+label = "kv entry struct"
+kind = "struct"
+moniker = "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+visibility = "public"
+
+[[defs]]
+label = "kv store struct"
+kind = "struct"
+moniker = "code+moniker://app/lang:c/module:kvstore/struct:kvstore"
+
+[[defs]]
+label = "next field"
+kind = "field"
+moniker = "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:next"
+parent = "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+
+[[defs]]
+label = "free method pointer field"
+kind = "field"
+moniker = "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:free_value"
+
+[[defs]]
+label = "kv create"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore/func:kv_create()"
+visibility = "public"
+
+[[defs]]
+label = "kv insert"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)"
+
+[[defs]]
+label = "kv destroy"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)"
+
+[[defs]]
+label = "chain through return type"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()"
+
+[[refs]]
+label = "next field typed as kventry"
+kind = "typed_as"
+from = "code+moniker://app/lang:c/module:kvstore/struct:kventry/field:next"
+to = "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+confidence = "resolved"
+
+[[refs]]
+label = "create calls libc malloc"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:kvstore/func:kv_create()"
+to = "code+moniker://app/external_pkg:libc/func:malloc"
+confidence = "external"
+
+[[refs]]
+label = "insert calls libc strdup"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)"
+to = "code+moniker://app/external_pkg:libc/func:strdup"
+confidence = "external"
+
+[[refs]]
+label = "insert calls static hash"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)"
+to = "code+moniker://app/lang:c/module:kvstore/func:kv_hash(key:char*)"
+confidence = "resolved"
+
+[[refs]]
+label = "typed field pointer call binds the field"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:kvstore/func:kv_destroy(store:kvstore*)"
+to = "code+moniker://app/lang:c/module:kvstore/struct:kvstore/field:free_value"
+confidence = "resolved"
+
+[[refs]]
+label = "chained receiver via kv_create return"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:kvstore/func:kv_first_hash()"
+to = "code+moniker://app/lang:c/module:kvstore/func:kv_create()"
+confidence = "resolved"
+
+[[refs]]
+label = "entry struct field uses its own type"
+kind = "uses_type"
+from = "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+to = "code+moniker://app/lang:c/module:kvstore/struct:kventry"
+confidence = "resolved"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:c/module:kvstore"
+to = "code+moniker://app/external_pkg:stdio"
+confidence = "external"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:c/module:kvstore"
+to = "code+moniker://app/lang:c/module:kvstore.h"
+confidence = "imported"
+
+[[absent.defs]]
+kind = "local"

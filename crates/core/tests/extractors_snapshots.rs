@@ -128,6 +128,12 @@ snapshot_lang!(
 	lang::python::Lang
 );
 snapshot_lang!(snapshot_go, "fixtures/extractors/go/*.go", lang::go::Lang);
+snapshot_lang!(snapshot_c, "fixtures/extractors/c/*.c", lang::c::Lang);
+snapshot_lang!(
+	snapshot_c_headers,
+	"fixtures/extractors/c/*.h",
+	lang::c::Lang
+);
 snapshot_lang!(
 	snapshot_java,
 	"fixtures/extractors/java/*.java",

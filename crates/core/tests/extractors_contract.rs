@@ -382,6 +382,8 @@ expectation_lang!(
 	lang::python::Lang
 );
 expectation_lang!(expect_go, "fixtures/extractors/go/*.go", lang::go::Lang);
+expectation_lang!(expect_c, "fixtures/extractors/c/*.c", lang::c::Lang);
+expectation_lang!(expect_c_headers, "fixtures/extractors/c/*.h", lang::c::Lang);
 expectation_lang!(
 	expect_java,
 	"fixtures/extractors/java/*.java",

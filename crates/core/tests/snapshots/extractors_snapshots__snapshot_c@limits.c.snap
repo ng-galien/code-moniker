@@ -1,0 +1,312 @@
+---
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 131
+expression: body
+input_file: crates/core/tests/fixtures/extractors/c/limits.c
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:c/module:limits/enum:limit_mode",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        192,
+        267
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:21",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        21,
+        46
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:c/module:limits/const:MAX_LEN",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        47,
+        68
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:68",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        68,
+        90
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "macro",
+      "moniker": "code+moniker://app/lang:c/module:limits/macro:CLAMP(x,lo,hi)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        91,
+        164
+      ],
+      "signature": "x,lo,hi",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:165",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        165,
+        191
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:c/module:limits/enum:limit_mode/enum_constant:LIMIT_SOFT",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits/enum:limit_mode",
+      "position": [
+        237,
+        247
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:c/module:limits/enum:limit_mode/enum_constant:LIMIT_HARD",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits/enum:limit_mode",
+      "position": [
+        250,
+        264
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:270",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        270,
+        331
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:c/module:limits/enum_constant:FLAG_NONE",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        340,
+        353
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:c/module:limits/enum_constant:FLAG_STRICT",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        386,
+        401
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:limits/func:platform_limit()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        506,
+        551
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:473",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        473,
+        505
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/comment:560",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        560,
+        582
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits",
+      "position": [
+        583,
+        842
+      ],
+      "signature": "value:int",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)/comment:613",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "position": [
+        613,
+        651
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)/comment:694",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "position": [
+        694,
+        732
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)/comment:764",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "position": [
+        764,
+        803
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:c/module:limits",
+      "kind": "imports_module",
+      "position": [
+        0,
+        20
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:assert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "kind": "calls",
+      "position": [
+        667,
+        691
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:limits/macro:CLAMP(x,lo,hi)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "kind": "reads",
+      "position": [
+        683,
+        690
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:limits/const:MAX_LEN"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "kind": "calls",
+      "position": [
+        745,
+        761
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:limits/func:platform_limit()"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)",
+      "kind": "calls",
+      "position": [
+        812,
+        839
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:c/module:limits/func:merge_limits"
+    }
+  ],
+  "root": "code+moniker://app/lang:c/module:limits"
+}

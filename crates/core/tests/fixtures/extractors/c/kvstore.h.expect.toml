@@ -1,0 +1,24 @@
+root = "code+moniker://app/lang:c/module:kvstore.h"
+
+[[defs]]
+label = "opaque store typedef"
+kind = "type"
+moniker = "code+moniker://app/lang:c/module:kvstore.h/type:kvstore"
+visibility = "public"
+
+[[defs]]
+label = "create prototype"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore.h/func:kv_create()"
+visibility = "public"
+
+[[defs]]
+label = "insert prototype"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:kvstore.h/func:kv_insert(store:kvstore*,key:char*,value:void*)"
+
+[[defs]]
+label = "exported counter"
+kind = "var"
+moniker = "code+moniker://app/lang:c/module:kvstore.h/var:kv_total_inserts"
+visibility = "public"

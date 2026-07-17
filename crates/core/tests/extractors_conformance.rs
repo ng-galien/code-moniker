@@ -48,6 +48,12 @@ conformance_lang!(
 	"fixtures/extractors/go/*.go",
 	lang::go::Lang
 );
+conformance_lang!(conformance_c, "fixtures/extractors/c/*.c", lang::c::Lang);
+conformance_lang!(
+	conformance_c_headers,
+	"fixtures/extractors/c/*.h",
+	lang::c::Lang
+);
 conformance_lang!(
 	conformance_java,
 	"fixtures/extractors/java/*.java",

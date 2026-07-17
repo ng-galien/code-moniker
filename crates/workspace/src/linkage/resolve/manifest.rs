@@ -1,6 +1,7 @@
 // code-moniker: ignore-file[smell-vertical-layout]
 use std::path::{Path, PathBuf};
 
+use code_moniker_core::lang::Lang;
 use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -263,6 +264,7 @@ fn candidate_permission(
 	target_file: usize,
 ) -> Option<LinkPermission> {
 	if let Some(import_root) = external_import_root(query)
+		&& !c_libc_symbol_may_be_overridden(query, import_root)
 		&& !policy.target_file_declares_import_root(query.material, target_file, import_root)
 	{
 		return None;
@@ -270,6 +272,15 @@ fn candidate_permission(
 	Some(declared(target_file).unwrap_or_else(|| {
 		policy.source_can_link_to_file(query.material, query.source_file, target_file)
 	}))
+}
+
+fn c_libc_symbol_may_be_overridden(query: &LinkageQuery<'_>, import_root: &str) -> bool {
+	import_root == "libc"
+		&& query
+			.material
+			.files
+			.get(query.source_file)
+			.is_some_and(|source| source.lang == Lang::C)
 }
 
 fn source_declares_language_package_target(

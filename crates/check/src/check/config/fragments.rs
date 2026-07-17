@@ -49,6 +49,8 @@ struct RawFragmentConfig {
 	#[serde(default)]
 	go: LangRules,
 	#[serde(default)]
+	c: LangRules,
+	#[serde(default)]
 	cs: LangRules,
 	#[serde(default)]
 	sql: LangRules,
@@ -74,6 +76,7 @@ impl RawFragmentConfig {
 			java: self.java,
 			python: self.python,
 			go: self.go,
+			c: self.c,
 			cs: self.cs,
 			sql: self.sql,
 			views: self.views,

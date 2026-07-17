@@ -9,6 +9,7 @@ use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
 use crate::snapshot::{RecordTable, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
+mod c;
 mod csharp;
 mod generic;
 mod go;
@@ -22,6 +23,7 @@ pub(super) trait LanguageLinkageStrategy: Sync {
 	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool;
 }
 
+static C_STRATEGY: c::CLanguageLinkageStrategy = c::CLanguageLinkageStrategy;
 static CSHARP_STRATEGY: csharp::CsharpLanguageLinkageStrategy =
 	csharp::CsharpLanguageLinkageStrategy;
 static GO_STRATEGY: go::GoLanguageLinkageStrategy = go::GoLanguageLinkageStrategy;
@@ -39,6 +41,7 @@ pub(super) fn language_strategy(lang: Lang) -> &'static dyn LanguageLinkageStrat
 		Lang::Rs => &RUST_STRATEGY,
 		Lang::Ts => &TS_STRATEGY,
 		Lang::Go => &GO_STRATEGY,
+		Lang::C => &C_STRATEGY,
 		Lang::Cs => &CSHARP_STRATEGY,
 		Lang::Sql => &SQL_STRATEGY,
 	}
@@ -67,7 +70,7 @@ pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 		Lang::Python => Some(Manifest::Pyproject),
 		Lang::Go => Some(Manifest::GoMod),
 		Lang::Cs => Some(Manifest::Csproj),
-		Lang::Sql => None,
+		Lang::C | Lang::Sql => None,
 	}
 }
 
@@ -78,6 +81,7 @@ pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
 		Lang::Ts => ts::builtin_external_root(root),
 		Lang::Python => code_moniker_core::lang::python::builtin_external_root(root),
 		Lang::Go => code_moniker_core::lang::go::builtin_external_root(root),
+		Lang::C => code_moniker_core::lang::c::builtin_external_root(root),
 		Lang::Cs => csharp::builtin_external_root(root),
 		Lang::Sql => sql::builtin_external_root(root),
 	}

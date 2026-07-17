@@ -1,0 +1,66 @@
+root = "code+moniker://app/lang:c/module:limits"
+
+[[defs]]
+label = "max len define"
+kind = "const"
+moniker = "code+moniker://app/lang:c/module:limits/const:MAX_LEN"
+
+[[defs]]
+label = "clamp macro"
+kind = "macro"
+moniker = "code+moniker://app/lang:c/module:limits/macro:CLAMP(x,lo,hi)"
+
+[[defs]]
+label = "limit mode enum"
+kind = "enum"
+moniker = "code+moniker://app/lang:c/module:limits/enum:limit_mode"
+
+[[defs]]
+label = "soft constant"
+kind = "enum_constant"
+moniker = "code+moniker://app/lang:c/module:limits/enum:limit_mode/enum_constant:LIMIT_SOFT"
+parent = "code+moniker://app/lang:c/module:limits/enum:limit_mode"
+
+[[defs]]
+label = "module level flag"
+kind = "enum_constant"
+moniker = "code+moniker://app/lang:c/module:limits/enum_constant:FLAG_STRICT"
+
+[[defs]]
+label = "posix branch function"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:limits/func:platform_limit()"
+visibility = "module"
+
+[[defs]]
+label = "apply limit"
+kind = "func"
+moniker = "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)"
+visibility = "public"
+
+[[refs]]
+label = "apply calls the clamp macro"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)"
+to = "code+moniker://app/lang:c/module:limits/macro:CLAMP(x,lo,hi)"
+confidence = "resolved"
+
+[[refs]]
+label = "apply calls platform branch"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)"
+to = "code+moniker://app/lang:c/module:limits/func:platform_limit()"
+confidence = "resolved"
+
+[[refs]]
+label = "bare call stays a name claim"
+kind = "calls"
+from = "code+moniker://app/lang:c/module:limits/func:apply_limit(value:int)"
+to = "code+moniker://app/lang:c/module:limits/func:merge_limits"
+confidence = "name_match"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:c/module:limits"
+to = "code+moniker://app/external_pkg:assert"
+confidence = "external"

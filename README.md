@@ -19,7 +19,7 @@ It turns source files into stable symbol identities for inspecting code and
 enforcing architecture rules in hooks or CI.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
-Python, Go, C#, SQL, and PL/pgSQL.
+Python, Go, C, C#, SQL, and PL/pgSQL.
 
 Extractor maturity is uneven by design. `code-moniker` is a fast symbol graph
 extractor, not a replacement for each language compiler or type checker.
@@ -40,7 +40,7 @@ extractor, not a replacement for each language compiler or type checker.
 ```mermaid
 flowchart LR
   subgraph Input["Inputs"]
-    S["Source code<br/>TS, Rust, Java, Python,<br/>Go, C#, SQL"]
+    S["Source code<br/>TS, Rust, Java, Python,<br/>Go, C, C#, SQL"]
     M["Build manifests<br/>Cargo.toml, package.json,<br/>pom.xml, pyproject.toml,<br/>go.mod, csproj"]
   end
 
