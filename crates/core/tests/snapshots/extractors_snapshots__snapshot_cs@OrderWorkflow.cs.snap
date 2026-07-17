@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 136
 expression: body
 input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
 ---
@@ -386,11 +385,37 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
       "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:DateTimeOffset"
     },
     {
+      "alias": "now",
+      "binding": "none",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "typed_as",
+      "position": [
+        427,
+        441
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:DateTimeOffset"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
       "kind": "uses_type",
+      "position": [
+        447,
+        464
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
+      "alias": "token",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "typed_as",
       "position": [
         447,
         464
@@ -425,11 +450,37 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
       "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
     },
     {
+      "alias": "token",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:CancelAsync(id:string,token:CancellationToken)",
+      "kind": "typed_as",
+      "position": [
+        502,
+        519
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
       "kind": "uses_type",
+      "position": [
+        610,
+        626
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/field:_repository",
+      "kind": "typed_as",
       "position": [
         610,
         626
@@ -452,10 +503,36 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/field:_timeProvider",
+      "kind": "typed_as",
+      "position": [
+        658,
+        670
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:TimeProvider"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
       "kind": "uses_type",
+      "position": [
+        709,
+        725
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository"
+    },
+    {
+      "alias": "repository",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
+      "kind": "typed_as",
       "position": [
         709,
         725
@@ -469,6 +546,19 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
       "confidence": "name_match",
       "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
       "kind": "uses_type",
+      "position": [
+        738,
+        750
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:TimeProvider"
+    },
+    {
+      "alias": "timeProvider",
+      "binding": "none",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
+      "kind": "typed_as",
       "position": [
         738,
         750
@@ -495,6 +585,19 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
       "confidence": "external",
       "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
       "kind": "uses_type",
+      "position": [
+        920,
+        937
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
+      "alias": "token",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "typed_as",
       "position": [
         920,
         937

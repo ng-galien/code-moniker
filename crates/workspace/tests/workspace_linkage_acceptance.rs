@@ -45,6 +45,27 @@ fn rust_multiproject_links_public_cross_crate_symbols() {
 }
 
 #[test]
+fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
+	let snapshot = load_workspace("projects/cs/resolution");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:Program/class:Program/method:Run(worker:Worker,runtime:object)",
+		"method_call",
+		"Format",
+		1,
+		"module:Worker/class:Worker/method:Format(value:string)",
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:Program/class:Program/method:Run(worker:Worker,runtime:object)",
+		"method_call",
+		Some("MissingRuntimeMember"),
+		DynamicReason::InsufficientLocalFacts,
+	);
+}
+
+#[test]
 fn rust_multiproject_canonicalizes_mod_rs_modules() {
 	let snapshot = load_workspace("projects/rust/multiproject");
 

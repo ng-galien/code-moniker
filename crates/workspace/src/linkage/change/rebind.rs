@@ -66,7 +66,7 @@ impl RebindScope {
 				&edited_sources,
 			));
 		}
-		expand_python_semantic_dependencies(
+		expand_typed_semantic_dependencies(
 			&bindings,
 			&graph,
 			impact,
@@ -135,26 +135,24 @@ impl RebindCause {
 	}
 }
 
-fn expand_python_semantic_dependencies(
+fn expand_typed_semantic_dependencies(
 	bindings: &BindingReadModel<'_>,
 	graph: &EditedGraph<'_>,
 	impact: &LinkageRefreshImpact,
 	edited_sources: &EditedSources,
 	affected: &mut ReferenceSet,
 ) {
-	let python_sources = edited_sources
+	let typed_sources = edited_sources
 		.source_ids
 		.iter()
 		.filter(|source| {
-			graph
-				.material
-				.files
-				.iter()
-				.any(|file| file.source_id == **source && file.lang == Lang::Python)
+			graph.material.files.iter().any(|file| {
+				file.source_id == **source && matches!(file.lang, Lang::Python | Lang::Cs)
+			})
 		})
 		.cloned()
 		.collect::<BTreeSet<_>>();
-	if python_sources.is_empty() {
+	if typed_sources.is_empty() {
 		return;
 	}
 
@@ -172,7 +170,7 @@ fn expand_python_semantic_dependencies(
 				})
 		});
 	if semantic_fact_changed {
-		affected.union_with(&references_in_sources(graph, &python_sources));
+		affected.union_with(&references_in_sources(graph, &typed_sources));
 	}
 	if semantic_fact_changed
 		&& let Some(resolved) = &bindings.store.indexes.resolved_by_target_source
@@ -181,7 +179,7 @@ fn expand_python_semantic_dependencies(
 			if !graph
 				.material
 				.symbol_source(&symbol_id)
-				.is_some_and(|source| python_sources.contains(&source))
+				.is_some_and(|source| typed_sources.contains(&source))
 			{
 				continue;
 			}

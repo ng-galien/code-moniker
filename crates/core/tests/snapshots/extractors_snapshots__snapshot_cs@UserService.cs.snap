@@ -1,7 +1,7 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
 expression: body
-input_file: crates/core/tests/fixtures/cs/UserService.cs
+input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
 ---
 {
   "defs": [
@@ -697,6 +697,19 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       "to": "code+moniker://app/lang:cs/module:UserService/record:User"
     },
     {
+      "alias": "user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:InsertAsync(user:User)",
+      "kind": "typed_as",
+      "position": [
+        1450,
+        1454
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "external",
@@ -760,6 +773,19 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/field:_byId",
+      "kind": "typed_as",
+      "position": [
+        1644,
+        1678
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
     },
     {
       "alias": "",
@@ -905,6 +931,19 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       "to": "code+moniker://app/lang:cs/module:UserService/record:User"
     },
     {
+      "alias": "user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "typed_as",
+      "position": [
+        2088,
+        2092
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
@@ -984,10 +1023,36 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/field:_repo",
+      "kind": "typed_as",
+      "position": [
+        2778,
+        2793
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/constructor:UserService(repo:IUserRepository)",
       "kind": "uses_type",
+      "position": [
+        2822,
+        2837
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+    },
+    {
+      "alias": "repo",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/constructor:UserService(repo:IUserRepository)",
+      "kind": "typed_as",
       "position": [
         2822,
         2837
@@ -1087,6 +1152,19 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
     },
     {
+      "alias": "tags",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "typed_as",
+      "position": [
+        3389,
+        3410
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+    },
+    {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
@@ -1111,6 +1189,19 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:cs/module:UserService/class:ConflictException"
+    },
+    {
+      "alias": "user",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "typed_as",
+      "position": [
+        3575,
+        3579
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
     },
     {
       "alias": "",

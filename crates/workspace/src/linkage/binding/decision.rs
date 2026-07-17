@@ -300,6 +300,13 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
+	pub(in crate::linkage) fn semantic_type_refinable_reference_idx(&self) -> Option<usize> {
+		match self {
+			Self::Candidate { resolution, .. } => Some(resolution.reference_idx),
+			_ => self.semantic_pending_reference_idx(),
+		}
+	}
+
 	pub(in crate::linkage) fn reference(&self) -> &ReferenceId {
 		match self {
 			Self::Unique { resolution } | Self::Candidate { resolution, .. } => {

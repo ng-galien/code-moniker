@@ -330,6 +330,11 @@ fn candidate_keys(candidate: &LinkageCandidate<'_>) -> Vec<Vec<u8>> {
 	}
 	if let Some(segment) = candidate.last_segment {
 		push_key(&mut keys, bare_callable_name(segment.name));
+		if segment.kind == kinds::CLASS
+			&& let Some(short_name) = segment.name.strip_suffix(b"Attribute")
+		{
+			push_key(&mut keys, short_name);
+		}
 	}
 	if let Some(package) = python_init_package_name(candidate) {
 		push_key(&mut keys, package);

@@ -242,6 +242,11 @@ fn push_symbol_query_keys(
 	}
 	if let Some(segment) = def.moniker.as_view().segments().last() {
 		push_unique_query_key(keys, bare_callable_name(segment.name).to_vec());
+		if segment.kind == code_moniker_core::lang::kinds::CLASS
+			&& let Some(short_name) = segment.name.strip_suffix(b"Attribute")
+		{
+			push_unique_query_key(keys, short_name.to_vec());
+		}
 	}
 }
 

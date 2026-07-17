@@ -135,6 +135,7 @@ fn enhance_decisions(
 	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
 	enhance_structural_receivers(linkage, decisions, references, changed_references);
 	classify_open_python_references(linkage, decisions, references, changed_references);
+	classify_open_csharp_references(linkage, decisions, references, changed_references);
 }
 
 fn classify_runtime_imports(
@@ -412,6 +413,53 @@ fn classify_open_python_references(
 	}
 }
 
+fn classify_open_csharp_references(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		if !reference_is_language(linkage.material, reference, b"cs") {
+			continue;
+		}
+		let imported_external = reference.confidence.as_deref() == Some("imported")
+			&& linkage
+				.material
+				.reference_target(&reference.id)
+				.is_some_and(external_target_shape);
+		let reason = if imported_external {
+			Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed)
+		} else if reference.confidence.as_deref() == Some("name_match")
+			&& matches!(
+				reference.kind.as_str(),
+				"method_call"
+					| "calls" | "uses_type"
+					| "typed_as" | "annotates"
+					| "instantiates"
+					| "extends"
+			) {
+			Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
+		} else {
+			None
+		};
+		let Some(reason) = reason else { continue };
+		let candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(SymbolSet::new);
+		*decision =
+			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
+	}
+}
+
 fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
 	material
 		.symbol_moniker(&reference.source_symbol)
@@ -427,13 +475,21 @@ fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceReco
 }
 
 fn reference_is_python(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
+	reference_is_language(material, reference, b"python")
+}
+
+fn reference_is_language(
+	material: &CodeIndexMaterial,
+	reference: &ReferenceRecord,
+	language: &[u8],
+) -> bool {
 	material
 		.symbol_moniker(&reference.source_symbol)
 		.is_some_and(|source| {
 			source
 				.as_view()
 				.segments()
-				.any(|segment| segment.kind == kinds::LANG && segment.name == b"python")
+				.any(|segment| segment.kind == kinds::LANG && segment.name == language)
 		})
 }
 
@@ -646,7 +702,7 @@ fn enhance_receiver_fields(
 			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 				return None;
 			}
-			let reference_idx = decision.semantic_pending_reference_idx()?;
+			let reference_idx = decision.semantic_type_refinable_reference_idx()?;
 			let reference = &references[reference_idx];
 			resolve_receiver_field_call(linkage, tables, reference_idx, reference)
 				.or_else(|| resolve_imported_method_call(linkage, tables, reference_idx, reference))

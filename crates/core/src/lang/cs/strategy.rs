@@ -362,15 +362,16 @@ impl<'src_lang> Strategy<'src_lang> {
 			if p.kind() != "parameter" {
 				continue;
 			}
-			if let Some(t) = p.child_by_field_name("type") {
-				self.emit_uses_type(t, callable, graph);
-			}
 			let Some(name_node) = p.child_by_field_name("name") else {
 				continue;
 			};
 			let name = node_slice(name_node, self.source_bytes);
 			if name.is_empty() || name == b"_" {
 				continue;
+			}
+			if let Some(type_node) = p.child_by_field_name("type") {
+				self.emit_uses_type(type_node, callable, graph);
+				self.emit_typed_binding(type_node, callable, name, graph);
 			}
 			if self.deep {
 				let m = extend_segment(callable, kinds::PARAM, name);
@@ -379,14 +380,66 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
+	fn emit_typed_binding(
+		&self,
+		type_node: Node<'_>,
+		scope: &Moniker,
+		name: &[u8],
+		graph: &mut CodeGraph,
+	) {
+		let resolved = match type_node.kind() {
+			"generic_name" => first_identifier_child(type_node)
+				.and_then(|identifier| self.resolve_type_node(identifier)),
+			_ => self.resolve_type_node(type_node),
+		};
+		let Some((target, confidence)) = resolved else {
+			return;
+		};
+		let attrs = RefAttrs {
+			confidence,
+			alias: name,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(
+			scope,
+			target,
+			kinds::TYPED_AS,
+			Some(node_position(type_node)),
+			&attrs,
+		);
+	}
+
+	fn emit_typed_source(&self, type_node: Node<'_>, source: &Moniker, graph: &mut CodeGraph) {
+		let resolved = match type_node.kind() {
+			"generic_name" => first_identifier_child(type_node)
+				.and_then(|identifier| self.resolve_type_node(identifier)),
+			_ => self.resolve_type_node(type_node),
+		};
+		let Some((target, confidence)) = resolved else {
+			return;
+		};
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(
+			source,
+			target,
+			kinds::TYPED_AS,
+			Some(node_position(type_node)),
+			&attrs,
+		);
+	}
+
 	fn handle_field(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let visibility = modifier_visibility(node, kinds::VIS_PRIVATE);
 		self.emit_attribute_refs_on(node, scope, graph);
 		let Some(decl) = find_named_child(node, "variable_declaration") else {
 			return;
 		};
-		if let Some(t) = decl.child_by_field_name("type") {
-			self.emit_uses_type(t, scope, graph);
+		let type_node = decl.child_by_field_name("type");
+		if let Some(type_node) = type_node {
+			self.emit_uses_type(type_node, scope, graph);
 		}
 		let mut cursor = decl.walk();
 		for child in decl.named_children(&mut cursor) {
@@ -402,7 +455,16 @@ impl<'src_lang> Strategy<'src_lang> {
 				visibility,
 				..DefAttrs::default()
 			};
-			let _ = graph.add_def_attrs(m, kinds::FIELD, scope, Some(node_position(child)), &attrs);
+			let _ = graph.add_def_attrs(
+				m.clone(),
+				kinds::FIELD,
+				scope,
+				Some(node_position(child)),
+				&attrs,
+			);
+			if let Some(type_node) = type_node {
+				self.emit_typed_source(type_node, &m, graph);
+			}
 		}
 	}
 
@@ -410,8 +472,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(decl) = find_named_child(node, "variable_declaration") else {
 			return;
 		};
-		if let Some(t) = decl.child_by_field_name("type") {
-			self.emit_uses_type(t, scope, graph);
+		let type_node = decl.child_by_field_name("type");
+		if let Some(type_node) = type_node {
+			self.emit_uses_type(type_node, scope, graph);
 		}
 		let in_callable = is_callable_scope(scope, &self.module);
 		let mut cursor = decl.walk();
@@ -423,6 +486,13 @@ impl<'src_lang> Strategy<'src_lang> {
 				let name = node_slice(name_node, self.source_bytes);
 				if !name.is_empty() && name != b"_" {
 					self.record_local(name);
+					if let Some(type_node) = type_node {
+						if type_node.kind() == "implicit_type" {
+							self.emit_inferred_local_type(child, scope, name, graph);
+						} else {
+							self.emit_typed_binding(type_node, scope, name, graph);
+						}
+					}
 					if self.deep {
 						let m = extend_segment(scope, kinds::LOCAL, name);
 						let _ =
@@ -437,6 +507,28 @@ impl<'src_lang> Strategy<'src_lang> {
 				}
 			}
 		}
+	}
+
+	fn emit_inferred_local_type(
+		&self,
+		declarator: Node<'_>,
+		scope: &Moniker,
+		name: &[u8],
+		graph: &mut CodeGraph,
+	) {
+		let initializer = declarator.child_by_field_name("value").or_else(|| {
+			let mut cursor = declarator.walk();
+			declarator
+				.named_children(&mut cursor)
+				.find(|child| child.kind() == "object_creation_expression")
+		});
+		let Some(type_node) = initializer
+			.filter(|initializer| initializer.kind() == "object_creation_expression")
+			.and_then(|initializer| initializer.child_by_field_name("type"))
+		else {
+			return;
+		};
+		self.emit_typed_binding(type_node, scope, name, graph);
 	}
 
 	fn handle_foreach(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -518,14 +610,17 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn handle_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
+		let call_arity = node
+			.child_by_field_name("arguments")
+			.map(|arguments| arguments.named_child_count());
 		let Some(callee) = node.child_by_field_name("function") else {
 			self.walk_children(node, scope, graph);
 			return;
 		};
 		match callee.kind() {
-			"identifier" => self.emit_simple_call(callee, scope, pos, graph),
+			"identifier" => self.emit_simple_call(callee, scope, pos, call_arity, graph),
 			"member_access_expression" => {
-				self.emit_member_call(callee, scope, pos, graph);
+				self.emit_member_call(callee, scope, pos, call_arity, graph);
 			}
 			_ => self.recurse_subtree(callee, scope, graph),
 		}
@@ -539,6 +634,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		callee: Node<'_>,
 		scope: &Moniker,
 		pos: (u32, u32),
+		call_arity: Option<usize>,
 		graph: &mut CodeGraph,
 	) {
 		let name = node_slice(callee, self.source_bytes);
@@ -549,6 +645,8 @@ impl<'src_lang> Strategy<'src_lang> {
 			let target = extend_segment(&entry.module_prefix, kinds::FUNCTION, name);
 			let attrs = RefAttrs {
 				confidence: entry.confidence,
+				call_name: name,
+				call_arity,
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
@@ -565,6 +663,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let attrs = RefAttrs {
 			confidence: conf,
+			call_name: name,
+			call_arity,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
@@ -575,6 +675,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		callee: Node<'_>,
 		scope: &Moniker,
 		pos: (u32, u32),
+		call_arity: Option<usize>,
 		graph: &mut CodeGraph,
 	) {
 		let Some(name_node) = callee.child_by_field_name("name") else {
@@ -593,6 +694,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		let attrs = RefAttrs {
 			receiver_hint: hint,
 			confidence: kinds::CONF_NAME_MATCH,
+			call_name: name,
+			call_arity,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
@@ -694,6 +797,9 @@ impl<'src_lang> Strategy<'src_lang> {
 				Some(self.resolve_type_target(name, kinds::CLASS))
 			}
 			"qualified_name" => {
+				if let Some((target, confidence)) = self.resolve_qualified_type(type_node) {
+					return Some((target, confidence));
+				}
 				let leaf = qualified_leaf_identifier(type_node)?;
 				let name = node_slice(leaf, self.source_bytes);
 				if name.is_empty() {
@@ -703,6 +809,19 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			_ => None,
 		}
+	}
+
+	fn resolve_qualified_type(&self, type_node: Node<'_>) -> Option<(Moniker, &'static [u8])> {
+		let raw = type_node.utf8_text(self.source_bytes).ok()?;
+		let normalized = raw.strip_prefix("global::").unwrap_or(raw);
+		let pieces = normalized.split('.').collect::<Vec<_>>();
+		if pieces.len() < 2 || !matches!(pieces[0], "System" | "Microsoft" | "mscorlib") {
+			return None;
+		}
+		Some((
+			build_module_target(self.module.as_view().project(), &pieces),
+			kinds::CONF_EXTERNAL,
+		))
 	}
 
 	fn collect_base_list_refs(&self, base_list: Node<'_>, out: &mut Vec<RefSpec>) {
@@ -884,6 +1003,7 @@ pub(super) fn collect_callable_table<'src>(
 	source: &'src [u8],
 	parent: &Moniker,
 	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	metadata: &mut HashMap<Moniker, (Vec<u8>, Option<usize>)>,
 ) {
 	let mut cursor = node.walk();
 	for child in node.children(&mut cursor) {
@@ -913,7 +1033,7 @@ pub(super) fn collect_callable_table<'src>(
 					.child_by_field_name("body")
 					.or_else(|| find_named_child(child, "declaration_list"))
 				{
-					collect_callable_table(body, source, &scope, out);
+					collect_callable_table(body, source, &scope, out, metadata);
 				}
 				if matches!(
 					child.kind(),
@@ -922,6 +1042,14 @@ pub(super) fn collect_callable_table<'src>(
 				{
 					let slots = parameter_list_slots(plist, source);
 					let seg = callable_segment_slots(name.as_bytes(), &slots);
+					let moniker = extend_segment(&scope, kinds::CONSTRUCTOR, &seg);
+					metadata.insert(
+						moniker,
+						(
+							name.as_bytes().to_vec(),
+							parameter_list_arity(plist, source),
+						),
+					);
 					out.insert((scope.clone(), name.as_bytes().to_vec()), seg);
 				}
 			}
@@ -932,11 +1060,42 @@ pub(super) fn collect_callable_table<'src>(
 				let name = node_slice(name_node, source);
 				let slots = parameter_slots(child, source);
 				let seg = callable_segment_slots(name, &slots);
+				let kind = match child.kind() {
+					"method_declaration" => Some(kinds::METHOD),
+					"constructor_declaration" => Some(kinds::CONSTRUCTOR),
+					_ => None,
+				};
+				if let Some(kind) = kind {
+					metadata.insert(
+						extend_segment(parent, kind, &seg),
+						(name.to_vec(), callable_node_arity(child, source)),
+					);
+				}
 				out.insert((parent.clone(), name.to_vec()), seg);
 			}
-			_ => collect_callable_table(child, source, parent, out),
+			_ => collect_callable_table(child, source, parent, out, metadata),
 		}
 	}
+}
+
+fn callable_node_arity(callable: Node<'_>, source: &[u8]) -> Option<usize> {
+	callable
+		.child_by_field_name("parameters")
+		.or_else(|| find_named_child(callable, "parameter_list"))
+		.and_then(|parameters| parameter_list_arity(parameters, source))
+}
+
+fn parameter_list_arity(parameters: Node<'_>, _source: &[u8]) -> Option<usize> {
+	let mut count = 0;
+	let mut cursor = parameters.walk();
+	for parameter in parameters.children(&mut cursor) {
+		match parameter.kind() {
+			"params" => return None,
+			"parameter" => count += 1,
+			_ => {}
+		}
+	}
+	Some(count)
 }
 
 pub(super) fn collect_type_table<'src>(
@@ -1072,6 +1231,15 @@ fn clr_system_path(name: &[u8]) -> Option<&'static [&'static str]> {
 	let path: &[&'static str] = match n {
 		"Object" => &["System", "Object"],
 		"String" => &["System", "String"],
+		"StringBuilder" => &["System", "Text", "StringBuilder"],
+		"Encoding" => &["System", "Text", "Encoding"],
+		"Regex" => &["System", "Text", "RegularExpressions", "Regex"],
+		"CultureInfo" => &["System", "Globalization", "CultureInfo"],
+		"ResourceManager" => &["System", "Resources", "ResourceManager"],
+		"Stream" => &["System", "IO", "Stream"],
+		"MemoryStream" => &["System", "IO", "MemoryStream"],
+		"FileInfo" => &["System", "IO", "FileInfo"],
+		"DirectoryInfo" => &["System", "IO", "DirectoryInfo"],
 		"Exception" => &["System", "Exception"],
 		"ArgumentException" => &["System", "ArgumentException"],
 		"ArgumentNullException" => &["System", "ArgumentNullException"],

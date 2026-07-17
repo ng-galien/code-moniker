@@ -112,9 +112,10 @@ fn resolve_scopes(
 ) -> ReferenceLinkageDecision {
 	let local_targets = resolver.local.resolve(query, policies.candidates);
 	if !local_targets.is_empty() {
+		let evidence = local_resolution_evidence(query, policies.candidates, &local_targets);
 		return ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 			ResolutionScope::Local,
-			ResolutionEvidence::LocalBinding,
+			evidence,
 			site.reference.id,
 			site.reference_idx,
 			local_targets,
@@ -137,6 +138,30 @@ fn resolve_scopes(
 		);
 	}
 	site.unknown(UnknownReason::NoCandidate)
+}
+
+fn local_resolution_evidence(
+	query: &LinkageQuery<'_>,
+	candidates: &CandidateCatalog,
+	targets: &SymbolSet,
+) -> ResolutionEvidence {
+	if query.confidence != Some("name_match") {
+		return ResolutionEvidence::LocalBinding;
+	}
+	if query
+		.material
+		.files
+		.get(query.source_file)
+		.is_none_or(|file| file.lang != Lang::Cs)
+	{
+		return ResolutionEvidence::LocalBinding;
+	}
+	let exact = candidates.indexes().symbol_by_moniker(query.target);
+	if exact.is_some_and(|exact| targets.iter().any(|target| target == exact)) {
+		ResolutionEvidence::LocalBinding
+	} else {
+		ResolutionEvidence::NameMatch
+	}
 }
 
 // A name-backed resolution is only trustworthy when language semantics back

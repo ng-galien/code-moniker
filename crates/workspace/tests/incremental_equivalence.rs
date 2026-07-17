@@ -328,6 +328,51 @@ fn seed_python_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 	temp
 }
 
+fn seed_csharp_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
+	let temp = tempfile::tempdir().expect("tempdir");
+	for (path, content) in files {
+		fs::write(temp.path().join(path), content).expect("C# fixture");
+	}
+	temp
+}
+
+#[test]
+fn csharp_attribute_short_name_changes_match_full_rebuild() {
+	let temp = seed_csharp_workspace(&[
+		("Program.cs", "[Marker] public class Program {}\n"),
+		("Marker.cs", "public class OtherAttribute {}\n"),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit("Marker.cs", "public class MarkerAttribute {}\n");
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn csharp_typed_receiver_changes_match_full_rebuild() {
+	let temp = seed_csharp_workspace(&[
+		(
+			"Program.cs",
+			"public class Program { public void Run() { Worker value = new Worker(); value.Format(); } }\n",
+		),
+		(
+			"Worker.cs",
+			"public class Worker { public void Format() {} }\n",
+		),
+		(
+			"Rival.cs",
+			"public class Rival { public void Format() {} }\n",
+		),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"Program.cs",
+		"public class Program { public void Run() { Rival value = new Rival(); value.Format(); } }\n",
+	);
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
 #[test]
 fn changing_python_union_return_types_matches_full_rebuild() {
 	let temp = seed_python_workspace(&[

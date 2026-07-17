@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -8,15 +5,11 @@ use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
 use crate::lang::KindSpec;
-use crate::lang::canonical_walker::CanonicalWalker;
-
 pub mod build;
 mod canonicalize;
 mod kinds;
+mod sdk_pipeline;
 mod strategy;
-
-use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -39,36 +32,7 @@ pub fn extract(
 	deep: bool,
 	_presets: &Presets,
 ) -> CodeGraph {
-	let tree = parse(source);
-	let module = compute_module_moniker(anchor, uri);
-	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
-	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
-	collect_type_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		&mut type_table,
-	);
-	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
-	collect_callable_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		&mut callable_table,
-	);
-	let strat = Strategy {
-		module: module.clone(),
-		source_bytes: source.as_bytes(),
-		deep,
-		imports: RefCell::new(HashMap::new()),
-		local_scope: RefCell::new(Vec::new()),
-		type_table,
-		callable_table,
-	};
-	let walker = CanonicalWalker::new(&strat, source.as_bytes());
-	walker.walk(tree.root_node(), &module, &mut graph);
-	graph
+	sdk_pipeline::extract(uri, source, anchor, deep)
 }
 
 pub struct Lang;
@@ -255,6 +219,28 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_global_qualified_system_type_is_external() {
+		let src = "class B { global::System.Resources.ResourceManager Resources { get; } }";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"uses_type")
+			.expect("uses_type reference");
+		assert_eq!(reference.confidence, b"external".to_vec());
+		let segments = reference.target.as_view().segments().collect::<Vec<_>>();
+		assert!(
+			segments
+				.iter()
+				.any(|segment| { segment.kind == b"external_pkg" && segment.name == b"System" })
+		);
+		assert!(
+			segments
+				.iter()
+				.any(|segment| { segment.kind == b"path" && segment.name == b"ResourceManager" })
+		);
+	}
+
+	#[test]
 	fn extract_base_list_emits_extends_per_entry() {
 		let src = "namespace Foo;\npublic class Base {}\npublic class Foo : Base, IBar {}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
@@ -330,6 +316,8 @@ mod tests {
 			})
 			.expect("calls Helper (name-only)");
 		assert_eq!(r.confidence, b"name_match".to_vec());
+		assert_eq!(r.call_name, b"Helper".to_vec());
+		assert_eq!(r.call_arity, Some(2));
 	}
 
 	#[test]
@@ -344,6 +332,67 @@ mod tests {
 			})
 			.expect("method_call bar");
 		assert_eq!(r.receiver_hint, b"call".to_vec());
+		assert_eq!(r.call_name, b"bar".to_vec());
+		assert_eq!(r.call_arity, Some(0));
+	}
+
+	#[test]
+	fn extract_callable_defs_expose_linkage_metadata() {
+		let src = "class B { int Sum(int left, int right) => left + right; }";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let def = g
+			.defs()
+			.find(|def| def.kind == b"method")
+			.expect("method definition");
+		assert_eq!(def.call_name, b"Sum".to_vec());
+		assert_eq!(def.call_arity, Some(2));
+	}
+
+	#[test]
+	fn extract_callable_arity_comes_from_syntax_not_type_commas() {
+		let src = "using System.Collections.Generic; class B { void One(Dictionary<string, int> value) {} void Many(params\nobject[] values) {} }";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let one = g
+			.defs()
+			.find(|def| def.call_name == b"One")
+			.expect("One definition");
+		let many = g
+			.defs()
+			.find(|def| def.call_name == b"Many")
+			.expect("Many definition");
+		assert_eq!(one.call_arity, Some(1));
+		assert_eq!(many.call_arity, None);
+	}
+
+	#[test]
+	fn extract_parameter_type_emits_typed_binding() {
+		let src = "class Worker {} class B { void Run(Worker worker) {} }";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"typed_as")
+			.expect("typed_as reference");
+		assert_eq!(reference.alias, b"worker".to_vec());
+		assert_eq!(reference.confidence, b"resolved".to_vec());
+	}
+
+	#[test]
+	fn extract_field_and_inferred_local_types_emit_typed_bindings() {
+		let src =
+			"class Worker {} class B { Worker worker; void Run() { var local = new Worker(); } }";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let typed = g
+			.refs()
+			.filter(|reference| reference.kind == b"typed_as")
+			.collect::<Vec<_>>();
+		assert!(typed.iter().any(|reference| {
+			reference.alias.is_empty() && g.def_at(reference.source).kind == b"field"
+		}));
+		assert!(
+			typed
+				.iter()
+				.any(|reference| reference.alias == b"local".to_vec())
+		);
 	}
 
 	#[test]
