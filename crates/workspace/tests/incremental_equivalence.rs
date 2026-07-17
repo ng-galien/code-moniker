@@ -336,6 +336,32 @@ fn seed_csharp_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 	temp
 }
 
+fn seed_sql_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
+	let temp = tempfile::tempdir().expect("tempdir");
+	for (path, content) in files {
+		fs::write(temp.path().join(path), content).expect("SQL fixture");
+	}
+	temp
+}
+
+#[test]
+fn sql_default_arity_changes_match_full_rebuild() {
+	let temp = seed_sql_workspace(&[
+		(
+			"definitions.sql",
+			"CREATE FUNCTION public.finish(value int) RETURNS void LANGUAGE sql AS $$ SELECT value $$;\n",
+		),
+		("usage.sql", "SELECT public.finish();\n"),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"definitions.sql",
+		"CREATE FUNCTION public.finish(value int DEFAULT 1) RETURNS void LANGUAGE sql AS $$ SELECT value $$;\n",
+	);
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
 #[test]
 fn csharp_attribute_short_name_changes_match_full_rebuild() {
 	let temp = seed_csharp_workspace(&[

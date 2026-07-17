@@ -23,9 +23,12 @@ pub(super) fn split_uri(uri: &str) -> (Vec<&str>, &str) {
 }
 
 pub(super) fn file_stem(name: &str) -> &str {
-	for ext in [".plpgsql", ".pgsql", ".psql", ".sql"] {
-		if let Some(s) = name.strip_suffix(ext) {
-			return s;
+	for ext in [".sql.in", ".plpgsql", ".pgsql", ".psql", ".sql"] {
+		if name
+			.get(name.len().saturating_sub(ext.len())..)
+			.is_some_and(|suffix| suffix.eq_ignore_ascii_case(ext))
+		{
+			return &name[..name.len() - ext.len()];
 		}
 	}
 	name
@@ -53,6 +56,8 @@ mod tests {
 	fn file_stem_strips_known_sql_extensions() {
 		assert_eq!(file_stem("create_plan.sql"), "create_plan");
 		assert_eq!(file_stem("create_plan.psql"), "create_plan");
+		assert_eq!(file_stem("create_plan.sql.in"), "create_plan");
+		assert_eq!(file_stem("create_plan.SQL.IN"), "create_plan");
 		assert_eq!(file_stem("create_plan.pgsql"), "create_plan");
 		assert_eq!(file_stem("noext"), "noext");
 	}

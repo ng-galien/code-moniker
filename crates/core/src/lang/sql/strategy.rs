@@ -41,7 +41,8 @@ pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 	})
 }
 
-pub(super) type CallableTable = std::collections::HashMap<(Moniker, Vec<u8>), Moniker>;
+pub(super) type CallableTable = std::collections::HashMap<(Moniker, Vec<u8>, bool), Moniker>;
+pub(super) type CallableMetadata = std::collections::HashMap<Moniker, (Vec<u8>, Option<usize>)>;
 
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
@@ -97,7 +98,7 @@ impl LangStrategy for Strategy<'_> {
 		source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		if sym_kind == kinds::FUNCTION {
+		if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
 			emit_function_type_refs(node, source, sym_moniker, &self.module, graph);
 			if function_language(node, source).eq_ignore_ascii_case(b"plpgsql")
 				&& let Some(body_text) = dollar_body(node, self.source_str)
@@ -144,6 +145,8 @@ fn classify_create_function<'src>(
 		return NodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(func_name, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
 	if name.is_empty() {
 		return NodeShape::Recurse;
 	}
@@ -151,13 +154,14 @@ fn classify_create_function<'src>(
 	let slots = params
 		.map(|p| collect_param_slots(p, source))
 		.unwrap_or_default();
-	let parent = maybe_schema(module, schema);
-	let moniker = extend_callable_slots(&parent, kinds::FUNCTION, name, &slots);
+	let parent = maybe_schema(module, &schema);
+	let kind = routine_kind(node);
+	let moniker = extend_callable_slots(&parent, kind, &name, &slots);
 	let signature =
 		join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 	NodeShape::Symbol(Symbol {
 		moniker,
-		kind: kinds::FUNCTION,
+		kind,
 		visibility: kinds::VIS_NONE,
 		signature: Some(signature),
 		body: None,
@@ -177,11 +181,13 @@ fn classify_qualified_relation<'src>(
 		return NodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(q, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
 	if name.is_empty() {
 		return NodeShape::Recurse;
 	}
-	let parent = maybe_schema(module, schema);
-	let moniker = extend_segment(&parent, kind, name);
+	let parent = maybe_schema(module, &schema);
+	let moniker = extend_segment(&parent, kind, &name);
 	NodeShape::Symbol(Symbol {
 		moniker,
 		kind,
@@ -197,8 +203,9 @@ pub(super) fn collect_callable_table(
 	root: Node<'_>,
 	source: &[u8],
 	module: &Moniker,
-) -> CallableTable {
+) -> (CallableTable, CallableMetadata) {
 	let mut out = CallableTable::new();
+	let mut metadata = CallableMetadata::new();
 	visit(root, &mut |n| {
 		if n.kind() != "CreateFunctionStmt" {
 			return;
@@ -207,6 +214,8 @@ pub(super) fn collect_callable_table(
 			return;
 		};
 		let (schema, name) = split_qualified_name(func_name, source);
+		let schema = canonical_identifier(schema);
+		let name = canonical_identifier(name);
 		if name.is_empty() {
 			return;
 		}
@@ -214,11 +223,47 @@ pub(super) fn collect_callable_table(
 		let slots = params
 			.map(|p| collect_param_slots(p, source))
 			.unwrap_or_default();
-		let parent = maybe_schema(module, schema);
-		let m = extend_callable_slots(&parent, kinds::FUNCTION, name, &slots);
-		out.insert((parent, name.to_vec()), m);
+		let call_arity = Some(params.map(required_input_arity).unwrap_or(0));
+		let parent = maybe_schema(module, &schema);
+		let kind = routine_kind(n);
+		let m = extend_callable_slots(&parent, kind, &name, &slots);
+		metadata.insert(m.clone(), (name.clone(), call_arity));
+		out.insert((parent, name, kind == kinds::PROCEDURE), m);
 	});
-	out
+	(out, metadata)
+}
+
+fn required_input_arity(params: Node<'_>) -> usize {
+	let mut required = 0;
+	visit(params, &mut |node| {
+		if node.kind() != "func_arg_with_default" {
+			return;
+		}
+		let Some(argument) = find_child(node, "func_arg") else {
+			return;
+		};
+		if find_descendant(argument, "kw_out").is_none()
+			&& find_descendant(argument, "kw_variadic").is_none()
+			&& !has_default_marker(node)
+		{
+			required += 1;
+		}
+	});
+	required
+}
+
+fn has_default_marker(node: Node<'_>) -> bool {
+	let mut cursor = node.walk();
+	node.children(&mut cursor)
+		.any(|child| matches!(child.kind(), "kw_default" | "="))
+}
+
+fn routine_kind(node: Node<'_>) -> &'static [u8] {
+	if find_descendant(node, "kw_procedure").is_some() {
+		kinds::PROCEDURE
+	} else {
+		kinds::FUNCTION
+	}
 }
 
 fn emit_call(
@@ -233,36 +278,92 @@ fn emit_call(
 		return;
 	};
 	let (schema, name) = split_qualified_name(name_node, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
 	if name.is_empty() {
 		return;
 	}
+	let builtin_name = name.as_slice();
+	let procedure_call = inside_call_statement(node);
+	let callable_kind = if procedure_call {
+		kinds::PROCEDURE
+	} else {
+		kinds::FUNCTION
+	};
 	let mut confidence =
-		if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(name)) {
+		if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(builtin_name)) {
 			kinds::CONF_EXTERNAL
 		} else {
 			kinds::CONF_NAME_MATCH
 		};
-	let target = if confidence == kinds::CONF_EXTERNAL && schema != b"pg_catalog" {
+	let target = if confidence == kinds::CONF_EXTERNAL {
 		let mut b = MonikerBuilder::new();
 		b.project(module.as_view().project());
 		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
-		b.segment(kinds::PATH, name);
+		b.segment(kinds::PATH, builtin_name);
 		b.build()
 	} else {
-		let parent = maybe_schema(module, schema);
-		if let Some(resolved) = callable_table.get(&(parent.clone(), name.to_vec())) {
+		let parent = maybe_schema(module, &schema);
+		if let Some(resolved) = callable_table.get(&(parent.clone(), name.clone(), procedure_call))
+		{
 			confidence = kinds::CONF_RESOLVED;
 			resolved.clone()
 		} else {
-			extend_segment(&parent, kinds::FUNCTION, name)
+			extend_segment(&parent, callable_kind, &name)
 		}
 	};
 	let s = node.start_byte() as u32;
 	let attrs = RefAttrs {
 		confidence,
+		call_name: &name,
+		call_arity: Some(call_arity(node)),
 		..RefAttrs::default()
 	};
 	let _ = graph.add_ref_attrs(scope, target, kinds::REF_CALLS, Some((s, s)), &attrs);
+}
+
+fn inside_call_statement(mut node: Node<'_>) -> bool {
+	while let Some(parent) = node.parent() {
+		if parent.kind() == "CallStmt" {
+			return true;
+		}
+		node = parent;
+	}
+	false
+}
+
+fn call_arity(node: Node<'_>) -> usize {
+	find_child(node, "func_arg_list")
+		.map(count_call_arguments)
+		.unwrap_or(0)
+}
+
+fn count_call_arguments(node: Node<'_>) -> usize {
+	let mut count = 0;
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		match child.kind() {
+			"func_arg_expr" => count += 1,
+			"func_arg_list" => count += count_call_arguments(child),
+			_ => {}
+		}
+	}
+	count
+}
+
+fn canonical_identifier(value: &[u8]) -> Vec<u8> {
+	if value.first() != Some(&b'"') || value.last() != Some(&b'"') {
+		return value.iter().map(u8::to_ascii_lowercase).collect();
+	}
+	let mut canonical = Vec::with_capacity(value.len().saturating_sub(2));
+	let mut bytes = value[1..value.len() - 1].iter().copied().peekable();
+	while let Some(byte) = bytes.next() {
+		canonical.push(byte);
+		if byte == b'"' && bytes.peek() == Some(&b'"') {
+			bytes.next();
+		}
+	}
+	canonical
 }
 
 fn is_builtin_function(name: &[u8]) -> bool {
@@ -366,6 +467,8 @@ fn collect_qualified_parts<'src>(node: Node<'src>, src: &'src [u8], out: &mut Ve
 					.or_else(|| find_descendant(c, "quoted_identifier"))
 				{
 					out.push(node_slice(id, src));
+				} else {
+					out.push(node_slice(c, src));
 				}
 			}
 			"indirection" | "indirection_el" => collect_qualified_parts(c, src, out),
@@ -379,6 +482,9 @@ fn collect_param_slots(params: Node, src: &[u8]) -> Vec<CallableSlot> {
 	let mut out = Vec::new();
 	visit(params, &mut |n| {
 		if n.kind() != "func_arg" {
+			return;
+		}
+		if find_descendant(n, "kw_out").is_some() {
 			return;
 		}
 		let r#type = find_child(n, "func_type")
@@ -400,6 +506,9 @@ fn normalize_type(raw: &[u8]) -> Vec<u8> {
 			collapsed.push(' ');
 		}
 		collapsed.push_str(w);
+	}
+	if !collapsed.contains('"') {
+		collapsed.make_ascii_lowercase();
 	}
 	match collapsed.as_str() {
 		"int" | "integer" => b"int4".to_vec(),
@@ -519,7 +628,7 @@ fn emit_uses_type(
 }
 
 fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
-	if is_builtin_type(canonical) {
+	if is_builtin_type(canonical_type_base(canonical)) {
 		let mut b = MonikerBuilder::new();
 		b.project(module.as_view().project());
 		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
@@ -530,17 +639,32 @@ fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
 	(target, kinds::CONF_NAME_MATCH)
 }
 
+fn canonical_type_base(name: &[u8]) -> &[u8] {
+	let name = name.strip_prefix(b"setof ").unwrap_or(name);
+	let end = name
+		.iter()
+		.position(|byte| matches!(byte, b'(' | b'['))
+		.unwrap_or(name.len());
+	&name[..end]
+}
+
 fn is_builtin_type(name: &[u8]) -> bool {
 	matches!(
 		name,
-		b"int2"
-			| b"int4" | b"int8"
+		b"int"
+			| b"integer"
+			| b"int2" | b"int4"
+			| b"int8" | b"bigint"
+			| b"smallint"
 			| b"float4"
 			| b"float8"
 			| b"numeric"
+			| b"decimal"
+			| b"money"
 			| b"text" | b"varchar"
 			| b"bpchar"
-			| b"char" | b"bool"
+			| b"char" | b"\"char\""
+			| b"bool" | b"boolean"
 			| b"date" | b"time"
 			| b"timestamp"
 			| b"timestamptz"
@@ -548,15 +672,28 @@ fn is_builtin_type(name: &[u8]) -> bool {
 			| b"uuid" | b"json"
 			| b"jsonb"
 			| b"bytea"
+			| b"serial"
+			| b"bigserial"
+			| b"smallserial"
 			| b"oid" | b"regclass"
+			| b"refcursor"
 			| b"regproc"
 			| b"regprocedure"
 			| b"regtype"
 			| b"cstring"
+			| b"xml" | b"inet"
+			| b"cidr" | b"macaddr"
+			| b"macaddr8"
+			| b"bit" | b"varbit"
+			| b"tsvector"
+			| b"tsquery"
 			| b"name" | b"void"
 			| b"trigger"
 			| b"record"
 			| b"any" | b"anyelement"
 			| b"anyarray"
+			| b"anynonarray"
+			| b"anyenum"
+			| b"anyrange"
 	)
 }

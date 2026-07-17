@@ -7,7 +7,7 @@ binding = "local"
 
 [[defs]]
 kind = "table"
-moniker = "code+moniker://app/lang:sql/module:users/schema:app/table:\"UserAccounts\""
+moniker = "code+moniker://app/lang:sql/module:users/schema:app/table:UserAccounts"
 binding = "local"
 
 [[defs]]

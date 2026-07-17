@@ -145,6 +145,8 @@ mod tests {
 			kind: kind.to_string(),
 			visibility: String::new(),
 			signature: String::new(),
+			call_name: None,
+			call_arity: None,
 			navigable: true,
 			line_range: None,
 			parent: None,

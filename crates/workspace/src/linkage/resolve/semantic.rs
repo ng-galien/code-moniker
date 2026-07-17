@@ -136,6 +136,7 @@ fn enhance_decisions(
 	enhance_structural_receivers(linkage, decisions, references, changed_references);
 	classify_open_python_references(linkage, decisions, references, changed_references);
 	classify_open_csharp_references(linkage, decisions, references, changed_references);
+	classify_open_sql_references(linkage, decisions, references, changed_references);
 }
 
 fn classify_runtime_imports(
@@ -449,6 +450,52 @@ fn classify_open_csharp_references(
 			Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
 		} else {
 			None
+		};
+		let Some(reason) = reason else { continue };
+		let candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(SymbolSet::new);
+		*decision =
+			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
+	}
+}
+
+fn classify_open_sql_references(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		if !reference_is_language(linkage.material, reference, b"sql") {
+			continue;
+		}
+		if reference.kind == "calls"
+			&& decision
+				.linkage_targets()
+				.is_some_and(|targets| !targets.is_empty())
+		{
+			continue;
+		}
+		let reason = match reference.kind.as_str() {
+			"calls" => Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed),
+			"uses_type"
+				if matches!(
+					reference.confidence.as_deref(),
+					Some("name_match" | "resolved")
+				) =>
+			{
+				Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
+			}
+			_ => None,
 		};
 		let Some(reason) = reason else { continue };
 		let candidates = decision

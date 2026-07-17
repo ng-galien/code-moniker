@@ -72,9 +72,10 @@ $$;
 ```
 
 The public API file breaks the naming rules — a quoted CamelCase table, a
-view without the `v_` prefix, a CamelCase function — and `v_owner_secrets`
-calls straight into the private schema instead of going through a sanctioned
-interface:
+view without the `v_` prefix, a quoted CamelCase function and procedure — and
+`v_owner_secrets` calls straight into the private schema instead of going
+through a sanctioned interface. Unquoted SQL identifiers are folded to
+lowercase, so the CamelCase violations are quoted deliberately:
 
 ```sql cm:file=db/public_api.sql
 CREATE TABLE public."UserAccounts" (
@@ -93,7 +94,7 @@ SELECT id, account_id FROM public.user_sessions;
 CREATE VIEW public.v_account_emails AS
 SELECT id, email FROM public."UserAccounts";
 
-CREATE FUNCTION public.GetAccountEmail(p_id bigint) RETURNS text
+CREATE FUNCTION public."GetAccountEmail"(p_id bigint) RETURNS text
 LANGUAGE plpgsql AS $$
 BEGIN
 	RETURN (SELECT email FROM public."UserAccounts" WHERE id = p_id);
@@ -104,7 +105,7 @@ CREATE VIEW public.v_owner_secrets AS
 SELECT owner_id, private.fetch_secret(owner_id) AS token
 FROM public.user_sessions;
 
-CREATE PROCEDURE public.purge_sessions()
+CREATE PROCEDURE public."PurgeSessions"()
 LANGUAGE plpgsql AS $$
 BEGIN
 	DELETE FROM public.user_sessions;
@@ -112,15 +113,10 @@ END;
 $$;
 ```
 
-A note on `procedure-snakecase`: the SQL extractor canonicalizes
-`CREATE PROCEDURE` statements as `function` symbols (see `purge_sessions`
-above, which is checked by `function-snakecase` instead), so no `procedure`
-symbol ever exists and the rule cannot fire today.
-
 ```cm:expect
-! sql.procedure.procedure-snakecase the SQL extractor emits CREATE PROCEDURE as function symbols, so procedure defs never exist
 sql.table.table-snakecase @ db/public_api.sql:L1-L4
 sql.view.view-prefix @ db/public_api.sql:L11-L12
 sql.function.function-snakecase @ db/public_api.sql:L17-L22
 sql.refs.public-no-private @ db/public_api.sql:L25
+sql.procedure.procedure-snakecase @ db/public_api.sql:L28-L33
 ```

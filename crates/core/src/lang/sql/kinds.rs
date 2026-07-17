@@ -4,3 +4,4 @@ pub(super) use crate::lang::kinds::{
 };
 
 pub(super) const SCHEMA: &[u8] = b"schema";
+pub(super) const PROCEDURE: &[u8] = b"procedure";

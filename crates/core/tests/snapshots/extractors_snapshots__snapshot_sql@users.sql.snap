@@ -60,7 +60,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "table",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:\"UserAccounts\"",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:UserAccounts",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
       "position": [
@@ -271,7 +271,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:\"UserAccounts\"",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:UserAccounts",
       "kind": "uses_type",
       "position": [
         827,
@@ -408,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         2410
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:sql/module:users/type:`SETOF app.users`"
+      "to": "code+moniker://app/lang:sql/module:users/type:`setof app.users`"
     },
     {
       "alias": "",

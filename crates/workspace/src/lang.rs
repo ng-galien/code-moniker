@@ -7,7 +7,7 @@ use code_moniker_core::lang::Lang;
 #[derive(Debug, Error)]
 pub enum LangError {
 	#[error(
-		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, cs, sql/plpgsql)"
+		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, cs, sql/sql.in/plpgsql)"
 	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]
@@ -15,6 +15,13 @@ pub enum LangError {
 }
 
 pub fn path_to_lang(path: &Path) -> Result<Lang, LangError> {
+	if path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.is_some_and(|name| name.to_ascii_lowercase().ends_with(".sql.in"))
+	{
+		return Ok(Lang::Sql);
+	}
 	let ext = path
 		.extension()
 		.and_then(|s| s.to_str())
@@ -95,5 +102,6 @@ mod tests {
 	fn sql_extension_resolves() {
 		assert_eq!(dispatch("a.sql").unwrap(), Lang::Sql);
 		assert_eq!(dispatch("a.plpgsql").unwrap(), Lang::Sql);
+		assert_eq!(dispatch("extension.SQL.IN").unwrap(), Lang::Sql);
 	}
 }

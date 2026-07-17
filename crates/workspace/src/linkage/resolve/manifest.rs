@@ -10,7 +10,7 @@ use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::SymbolSet;
 use crate::linkage::language;
 use crate::linkage::source_groups::LinkPermission;
-use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
+use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
 
@@ -377,11 +377,12 @@ impl GlobalTargetPolicy {
 		self,
 		reference_idx: usize,
 		reference: &ReferenceRecord,
+		evidence: crate::snapshot::ResolutionEvidence,
 	) -> Option<ReferenceLinkageDecision> {
 		if !self.allowed.is_empty() {
 			return Some(ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 				ResolutionScope::Global,
-				ResolutionEvidence::GlobalBinding,
+				evidence,
 				reference.id,
 				reference_idx,
 				self.allowed,

@@ -1,16 +1,14 @@
 mod body;
 mod canonicalize;
 mod kinds;
+mod sdk_pipeline;
 mod strategy;
-
-use canonicalize::compute_module_moniker;
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
 use crate::lang::KindSpec;
-use crate::lang::canonical_walker::CanonicalWalker;
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -21,24 +19,10 @@ pub fn extract(
 	uri: &str,
 	source: &str,
 	anchor: &Moniker,
-	_deep: bool,
-	_presets: &Presets,
+	deep: bool,
+	presets: &Presets,
 ) -> CodeGraph {
-	let module = compute_module_moniker(anchor, uri);
-	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
-	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let tree = strategy::parse(source);
-	let callable_table =
-		strategy::collect_callable_table(tree.root_node(), source.as_bytes(), &module);
-	let strat = strategy::Strategy {
-		module: module.clone(),
-		source_str: source,
-		emit_comments: true,
-		callable_table: &callable_table,
-	};
-	let walker = CanonicalWalker::new(&strat, source.as_bytes());
-	walker.walk(tree.root_node(), &module, &mut graph);
-	graph
+	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;
@@ -239,6 +223,117 @@ $$;
 			b"external".to_vec(),
 			"builtin functions like now() must be marked external, got {:?}",
 			std::str::from_utf8(&r.confidence).unwrap_or("?")
+		);
+	}
+
+	#[test]
+	fn callable_metadata_uses_sql_argument_nodes() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION Public.Combine(a int, b numeric(10, 2)) RETURNS int LANGUAGE sql AS $$ SELECT 1 $$; SELECT PUBLIC.combine(1, 2); SELECT nested(2, 3);",
+		);
+		let definition = g
+			.defs()
+			.find(|def| def.kind == b"function" && def.call_name == b"combine")
+			.expect("combine definition");
+		assert_eq!(definition.call_arity, Some(2));
+		let combine = g
+			.refs()
+			.find(|reference| reference.call_name == b"combine")
+			.expect("combine call");
+		let nested = g
+			.refs()
+			.find(|reference| reference.call_name == b"nested")
+			.expect("nested call");
+		assert_eq!(combine.call_arity, Some(2));
+		assert_eq!(nested.call_arity, Some(2));
+	}
+
+	#[test]
+	fn callable_metadata_models_defaults_and_out_parameters() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION optional_arg(value int DEFAULT 1) RETURNS int LANGUAGE sql AS $$ SELECT value $$; CREATE FUNCTION parse_type(value text, OUT type_id oid, OUT modifier int) RETURNS record LANGUAGE sql AS $$ SELECT 1, 2 $$;",
+		);
+		let optional = g
+			.defs()
+			.find(|def| def.call_name == b"optional_arg")
+			.expect("optional_arg definition");
+		let parse_type = g
+			.defs()
+			.find(|def| def.call_name == b"parse_type")
+			.expect("parse_type definition");
+		assert_eq!(optional.call_arity, Some(0));
+		assert_eq!(parse_type.call_arity, Some(1));
+	}
+
+	#[test]
+	fn uppercase_builtin_types_and_catalog_calls_are_external() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION answer() RETURNS NUMERIC LANGUAGE sql AS $$ SELECT 1 $$; SELECT pg_catalog.current_setting('search_path');",
+		);
+		let type_ref = g
+			.refs()
+			.find(|reference| reference.kind == b"uses_type")
+			.expect("return type");
+		assert_eq!(type_ref.confidence, b"external");
+		let catalog_call = g
+			.refs()
+			.find(|reference| reference.kind == b"calls")
+			.expect("catalog call");
+		assert_eq!(catalog_call.confidence, b"external");
+		assert_eq!(
+			crate::core::uri::to_uri(&catalog_call.target, &Default::default()),
+			"code+moniker://app/external_pkg:pg_catalog/path:current_setting"
+		);
+	}
+
+	#[test]
+	fn create_procedure_emits_procedure_callable() {
+		let src = "CREATE PROCEDURE refresh(value int) LANGUAGE sql AS $$ SELECT 1 $$;";
+		let g = run("foo.sql", src);
+		let procedure = g
+			.defs()
+			.find(|def| def.kind == b"procedure")
+			.expect("procedure definition");
+		assert_eq!(procedure.call_name, b"refresh");
+		assert_eq!(procedure.call_arity, Some(1));
+	}
+
+	#[test]
+	fn call_statements_target_procedures_and_quoted_names_are_canonical() {
+		let g = run(
+			"foo.sql",
+			"CREATE PROCEDURE public.\"RefreshCache\"() LANGUAGE sql AS $$ SELECT 1 $$; CALL public.\"RefreshCache\"(); SELECT PUBLIC.REFRESHCACHE();",
+		);
+		let procedure_call = g
+			.refs()
+			.find(|reference| reference.call_name == b"RefreshCache")
+			.expect("quoted procedure call");
+		assert_eq!(
+			procedure_call
+				.target
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.kind,
+			b"procedure"
+		);
+		let unquoted_call = g
+			.refs()
+			.find(|reference| reference.call_name == b"refreshcache")
+			.expect("unquoted function call");
+		assert_eq!(
+			unquoted_call
+				.target
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.kind,
+			b"function"
 		);
 	}
 }

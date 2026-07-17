@@ -96,7 +96,25 @@ impl<'a> ReferenceResolver<'a> {
 				)
 			},
 		);
-		global_decision.for_reference(site.reference_idx, site.reference)
+		global_decision.for_reference(
+			site.reference_idx,
+			site.reference,
+			global_resolution_evidence(query),
+		)
+	}
+}
+
+fn global_resolution_evidence(query: &LinkageQuery<'_>) -> ResolutionEvidence {
+	if query.reference_kind == "calls"
+		&& query
+			.material
+			.files
+			.get(query.source_file)
+			.is_some_and(|file| file.lang == Lang::Sql)
+	{
+		ResolutionEvidence::NameMatch
+	} else {
+		ResolutionEvidence::GlobalBinding
 	}
 }
 
@@ -145,15 +163,18 @@ fn local_resolution_evidence(
 	candidates: &CandidateCatalog,
 	targets: &SymbolSet,
 ) -> ResolutionEvidence {
-	if query.confidence != Some("name_match") {
-		return ResolutionEvidence::LocalBinding;
-	}
-	if query
+	let lang = query
 		.material
 		.files
 		.get(query.source_file)
-		.is_none_or(|file| file.lang != Lang::Cs)
-	{
+		.map(|file| file.lang);
+	if lang == Some(Lang::Sql) && query.reference_kind == "calls" {
+		return ResolutionEvidence::NameMatch;
+	}
+	if lang != Some(Lang::Sql) && query.confidence != Some("name_match") {
+		return ResolutionEvidence::LocalBinding;
+	}
+	if !matches!(lang, Some(Lang::Cs | Lang::Sql)) {
 		return ResolutionEvidence::LocalBinding;
 	}
 	let exact = candidates.indexes().symbol_by_moniker(query.target);

@@ -66,6 +66,66 @@ fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
 }
 
 #[test]
+fn sql_sdk_links_schema_qualified_overloads_and_classifies_open_calls() {
+	let snapshot = load_workspace("projects/sql/resolution");
+
+	assert_call_is_candidate_with_targets(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"finish",
+		0,
+		&["module:definitions/schema:public/function:finish()"],
+	);
+	assert_call_is_candidate_with_targets(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"pick",
+		2,
+		&["module:definitions/schema:public/function:pick(left_value:int4,right_value:int4)"],
+	);
+	assert_call_is_candidate_with_targets(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"refresh",
+		0,
+		&["module:definitions/schema:public/procedure:refresh()"],
+	);
+	assert_call_is_candidate_with_targets(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"lowercase",
+		0,
+		&["module:definitions/schema:public/function:lowercase()"],
+	);
+	assert_call_is_candidate_with_targets(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"MixedCase",
+		0,
+		&["module:definitions/schema:public/function:MixedCase()"],
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:usage",
+		"calls",
+		Some("mixedcase"),
+		DynamicReason::ExternalDependencyUnindexed,
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:usage",
+		"calls",
+		Some("missing_runtime_function"),
+		DynamicReason::ExternalDependencyUnindexed,
+	);
+}
+
+#[test]
 fn rust_multiproject_canonicalizes_mod_rs_modules() {
 	let snapshot = load_workspace("projects/rust/multiproject");
 
@@ -1072,9 +1132,10 @@ fn python_explicit_reexports_reach_a_fixpoint() {
 fn python_local_type_sets_preserve_union_candidates() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
-	assert_method_call_is_candidate_with_targets(
+	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:type_sets/function:render_union(",
+		"method_call",
 		"render",
 		0,
 		&[
@@ -1089,9 +1150,10 @@ fn python_local_type_sets_preserve_union_candidates() {
 		0,
 		&["module:type_sets/class:AlphaRenderer/method:render()"],
 	);
-	assert_method_call_is_candidate_with_targets(
+	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:type_sets/function:render_reassigned(",
+		"method_call",
 		"render",
 		0,
 		&[
@@ -1099,9 +1161,10 @@ fn python_local_type_sets_preserve_union_candidates() {
 			"module:type_sets/class:BetaRenderer/method:render()",
 		],
 	);
-	assert_method_call_is_candidate_with_targets(
+	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:type_sets/function:render_chained(",
+		"method_call",
 		"render",
 		0,
 		&[
@@ -1117,9 +1180,10 @@ fn python_local_type_sets_preserve_union_candidates() {
 		0,
 		"module:type_sets/class:AlphaRenderer/method:render()",
 	);
-	assert_method_call_is_candidate_with_targets(
+	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:type_sets/function:render_loop()",
+		"method_call",
 		"render",
 		0,
 		&[
@@ -1127,9 +1191,10 @@ fn python_local_type_sets_preserve_union_candidates() {
 			"module:type_sets/class:BetaRenderer/method:render()",
 		],
 	);
-	assert_method_call_is_candidate_with_targets(
+	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:type_sets/function:render_heterogeneous_tuple(",
+		"method_call",
 		"render",
 		0,
 		&[
@@ -2080,9 +2145,10 @@ fn assert_call_is_dynamic_with_targets(
 	);
 }
 
-fn assert_method_call_is_candidate_with_targets(
+fn assert_call_is_candidate_with_targets(
 	snapshot: &WorkspaceSnapshot,
 	source_identity: &str,
+	kind: &str,
 	call_name: &str,
 	call_arity: usize,
 	expected_targets: &[&str],
@@ -2098,12 +2164,12 @@ fn assert_method_call_is_candidate_with_targets(
 		.references
 		.iter()
 		.find(|reference| {
-			reference.kind == "method_call"
+			reference.kind == kind
 				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
-		.unwrap_or_else(|| panic!("missing `{call_name}`/{call_arity} method call"));
+		.unwrap_or_else(|| panic!("missing `{call_name}`/{call_arity} {kind} reference"));
 	let candidate = snapshot
 		.linkage
 		.candidates
@@ -2111,7 +2177,7 @@ fn assert_method_call_is_candidate_with_targets(
 		.find(|candidate| candidate.reference == reference.id)
 		.unwrap_or_else(|| {
 			panic!(
-				"method call `{}` is not a candidate (resolved={}, dynamic={}, unresolved={})",
+				"{kind} reference `{}` is not a candidate (resolved={}, dynamic={}, unresolved={})",
 				reference.target_identity,
 				snapshot
 					.linkage

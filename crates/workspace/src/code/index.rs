@@ -606,6 +606,8 @@ fn symbol_linkage_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -
 		|| previous.kind != next.kind
 		|| previous.visibility != next.visibility
 		|| previous.signature != next.signature
+		|| previous.call_name != next.call_name
+		|| previous.call_arity != next.call_arity
 		|| previous.navigable != next.navigable
 }
 
@@ -665,6 +667,9 @@ fn collect_symbols(
 			kind: def_kind(def),
 			visibility: def_visibility(def),
 			signature: String::from_utf8_lossy(&def.signature).to_string(),
+			call_name: (!def.call_name.is_empty())
+				.then(|| String::from_utf8_lossy(&def.call_name).to_string()),
+			call_arity: def.call_arity,
 			navigable: is_navigable_def(file.lang, def),
 			line_range: def
 				.position
