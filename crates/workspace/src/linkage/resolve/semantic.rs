@@ -6,9 +6,7 @@ use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::binding::{
-	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
-};
+use crate::linkage::binding::{ExternalOrigin, ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
@@ -150,20 +148,16 @@ fn enhance_receiver_chains(
 		};
 		let replacements = pending
 			.par_iter()
-			.filter_map(|idx| match &decisions[*idx] {
-				ReferenceLinkageDecision::Unknown {
-					reason: UnknownReason::NoCandidate,
-					reference_idx,
-					..
-				} => resolve_receiver_chain(
+			.filter_map(|idx| {
+				let reference_idx = decisions[*idx].semantic_pending_reference_idx()?;
+				resolve_receiver_chain(
 					linkage,
 					tables,
 					&context,
-					*reference_idx,
-					&references[*reference_idx],
+					reference_idx,
+					&references[reference_idx],
 				)
-				.map(|replacement| (*idx, replacement)),
-				_ => None,
+				.map(|replacement| (*idx, replacement))
 			})
 			.collect::<Vec<_>>();
 		if replacements.is_empty() {
@@ -175,15 +169,7 @@ fn enhance_receiver_chains(
 			}
 			decisions[idx] = replacement;
 		}
-		pending.retain(|idx| {
-			matches!(
-				decisions[*idx],
-				ReferenceLinkageDecision::Unknown {
-					reason: UnknownReason::NoCandidate,
-					..
-				}
-			)
-		});
+		pending.retain(|idx| decisions[*idx].semantic_pending_reference_idx().is_some());
 	}
 }
 
@@ -301,23 +287,14 @@ fn enhance_receiver_fields(
 			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 				return None;
 			}
-			let ReferenceLinkageDecision::Unknown {
-				reason: UnknownReason::NoCandidate,
-				reference_idx,
-				..
-			} = decision
-			else {
-				return None;
-			};
-			let reference = &references[*reference_idx];
-			resolve_receiver_field_call(linkage, tables, *reference_idx, reference)
+			let reference_idx = decision.semantic_pending_reference_idx()?;
+			let reference = &references[reference_idx];
+			resolve_receiver_field_call(linkage, tables, reference_idx, reference)
+				.or_else(|| resolve_imported_method_call(linkage, tables, reference_idx, reference))
+				.or_else(|| resolve_self_method_call(linkage, tables, reference_idx, reference))
+				.or_else(|| resolve_typed_value_call(linkage, tables, reference_idx, reference))
 				.or_else(|| {
-					resolve_imported_method_call(linkage, tables, *reference_idx, reference)
-				})
-				.or_else(|| resolve_self_method_call(linkage, tables, *reference_idx, reference))
-				.or_else(|| resolve_typed_value_call(linkage, tables, *reference_idx, reference))
-				.or_else(|| {
-					resolve_typed_value_annotation(linkage, tables, *reference_idx, reference)
+					resolve_typed_value_annotation(linkage, tables, reference_idx, reference)
 				})
 				.map(|replacement| (idx, replacement))
 		})
@@ -726,13 +703,8 @@ fn enhance_reexport_aliases(
 		return;
 	}
 	for decision in decisions.iter_mut() {
-		let reference_idx = match decision {
-			ReferenceLinkageDecision::Unknown {
-				reason: UnknownReason::NoCandidate,
-				reference_idx,
-				..
-			} => *reference_idx,
-			_ => continue,
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
 		};
 		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 			continue;
@@ -1068,15 +1040,8 @@ fn pending_receiver_chains(
 			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 				return None;
 			}
-			let ReferenceLinkageDecision::Unknown {
-				reason: UnknownReason::NoCandidate,
-				reference_idx,
-				..
-			} = decision
-			else {
-				return None;
-			};
-			MethodCallReference::new(*reference_idx, &references[*reference_idx]).map(|_| idx)
+			let reference_idx = decision.semantic_pending_reference_idx()?;
+			MethodCallReference::new(reference_idx, &references[reference_idx]).map(|_| idx)
 		})
 		.collect()
 }

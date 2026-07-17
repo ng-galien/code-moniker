@@ -35,6 +35,7 @@ pub struct AuditCluster {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct AuditPattern {
 	pub status: String,
+	pub reason: String,
 	pub confidence: String,
 	pub kind: String,
 	pub receiver: String,
@@ -90,7 +91,7 @@ pub fn resolution_audit(
 		.linkage
 		.unresolved
 		.iter()
-		.map(|item| (item.reference, ()))
+		.map(|item| (item.reference, item.reason.as_str()))
 		.collect();
 	let blocked: HashMap<_, _> = snapshot
 		.linkage
@@ -124,27 +125,27 @@ pub fn resolution_audit(
 			continue;
 		}
 		totals.references += 1;
-		let status = if resolved.contains_key(&reference.id) {
+		let (status, reason) = if resolved.contains_key(&reference.id) {
 			totals.resolved += 1;
 			if reference.confidence.as_deref() != Some("name_match") {
 				continue;
 			}
 			totals.name_match_resolved += 1;
-			"resolved_name_match"
+			("resolved_name_match", "")
 		} else if external.contains_key(&reference.id) {
 			totals.external += 1;
 			continue;
 		} else if blocked.contains_key(&reference.id) {
 			totals.blocked += 1;
 			continue;
-		} else if unresolved.contains_key(&reference.id) {
+		} else if let Some(reason) = unresolved.get(&reference.id) {
 			totals.unresolved += 1;
-			"unresolved"
+			("unresolved", *reason)
 		} else {
 			continue;
 		};
 
-		let pattern = pattern_for(status, reference, source);
+		let pattern = pattern_for(status, reason, reference, source);
 		let entry = clusters.entry(pattern.clone()).or_default();
 		entry.0 += 1;
 		if entry.1.len() < options.sample_limit {
@@ -193,6 +194,9 @@ pub fn resolution_audit(
 
 pub fn pattern_label(pattern: &AuditPattern) -> String {
 	let mut label = format!("{} {}/{}", pattern.status, pattern.confidence, pattern.kind);
+	if !pattern.reason.is_empty() {
+		label.push_str(&format!(" reason:{}", pattern.reason));
+	}
 	if !pattern.receiver.is_empty() {
 		label.push_str(&format!(" recv:{}", pattern.receiver));
 	}
@@ -208,10 +212,16 @@ pub fn pattern_label(pattern: &AuditPattern) -> String {
 	label
 }
 
-fn pattern_for(status: &str, reference: &ReferenceRecord, source: &str) -> AuditPattern {
+fn pattern_for(
+	status: &str,
+	reason: &str,
+	reference: &ReferenceRecord,
+	source: &str,
+) -> AuditPattern {
 	let target = reference.target_identity.as_ref();
 	AuditPattern {
 		status: status.to_string(),
+		reason: reason.to_string(),
 		confidence: reference.confidence.clone().unwrap_or_default(),
 		kind: reference.kind.clone(),
 		receiver: receiver_class(reference).to_string(),

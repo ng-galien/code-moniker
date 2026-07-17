@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use code_moniker_workspace::audit::{AuditOptions, resolution_audit};
 use code_moniker_workspace::snapshot::{
 	ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
 };
@@ -669,6 +670,89 @@ fn python_method_calls_on_module_values_resolve_through_their_class() {
 }
 
 #[test]
+fn python_unknown_receivers_do_not_link_to_unrelated_homonyms() {
+	let snapshot = load_workspace("projects/python/orders-service");
+	let source_identity = "package:orders_service/module:listing/function:normalize_unknown(value)";
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some("normalize")
+		})
+		.expect("missing normalize method call");
+
+	assert_eq!(reference.confidence.as_deref(), Some("unresolved"));
+	assert!(linked_symbol_identities(&snapshot, reference).is_empty());
+	assert!(snapshot.linkage.unresolved.iter().any(|unresolved| {
+		unresolved.reference == reference.id
+			&& unresolved.reason == UnresolvedReason::IncompleteExtractorMetadata
+	}));
+	let audit = resolution_audit(&snapshot, "module:listing", AuditOptions::default());
+	assert!(audit.clusters.iter().any(|cluster| {
+		cluster.pattern.reason == "incomplete_extractor_metadata"
+			&& cluster.pattern.confidence == "unresolved"
+			&& cluster.pattern.kind == "method_call"
+	}));
+	assert!(audit.clusters.iter().any(|cluster| {
+		cluster.pattern.reason == "no_candidate"
+			&& cluster.pattern.confidence == "name_match"
+			&& cluster.pattern.kind == "calls"
+	}));
+}
+
+#[test]
+fn python_unknown_reads_do_not_link_to_unrelated_homonyms() {
+	let snapshot = load_workspace("projects/python/orders-service");
+	let source_identity = "package:orders_service/module:listing/function:read_unknown()";
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "reads"
+				&& reference.source_symbol == source.id
+				&& reference
+					.target_identity
+					.contains("function:workspace_only_flag")
+		})
+		.expect("missing workspace_only_flag read");
+
+	assert_eq!(reference.confidence.as_deref(), Some("unresolved"));
+	assert!(linked_symbol_identities(&snapshot, reference).is_empty());
+	assert!(snapshot.linkage.unresolved.iter().any(|unresolved| {
+		unresolved.reference == reference.id
+			&& unresolved.reason == UnresolvedReason::IncompleteExtractorMetadata
+	}));
+}
+
+#[test]
+fn python_same_module_callable_reads_keep_their_exact_binding() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_linked_once_to(
+		&snapshot,
+		"reads",
+		"module:listing/function:local_callback",
+		"module:listing/function:local_callback()",
+	);
+}
+
+#[test]
 fn python_from_imports_of_submodules_link_to_their_modules() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
@@ -740,11 +824,7 @@ fn python_self_reads_bind_to_the_method_param() {
 fn python_bare_builtin_reads_classify_external() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
-	assert_external_reference(
-		&snapshot,
-		"reads",
-		"external_pkg:builtins/path:KeyError",
-	);
+	assert_external_reference(&snapshot, "reads", "external_pkg:builtins/path:KeyError");
 	assert_external_reference(
 		&snapshot,
 		"reads",

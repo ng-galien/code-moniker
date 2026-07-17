@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/jobs.py
 ---
@@ -219,7 +218,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:jobs",
       "kind": "reads",
       "position": [

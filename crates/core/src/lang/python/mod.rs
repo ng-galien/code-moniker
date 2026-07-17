@@ -339,6 +339,63 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_unknown_identifier_read_marks_incomplete_resolution() {
+		let src = "def f():\n    return missing_name\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"reads"
+					&& r.target.as_view().segments().last().unwrap().name == b"missing_name"
+			})
+			.expect("reads missing_name");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_same_module_callable_read_keeps_exact_resolution() {
+		let src = "def f():\n    return callback\n\ndef callback():\n    pass\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"reads"
+					&& r.target.as_view().segments().last().unwrap().name == b"callback()"
+			})
+			.expect("reads callback");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+	}
+
+	#[test]
+	fn extract_module_callable_read_respects_local_shadowing() {
+		let src = "def callback():\n    pass\n\ndef f(callback):\n    return callback\n";
+		let g = extract_default("m.py", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"reads"
+					&& r.target.as_view().segments().last().unwrap().name == b"callback"
+			})
+			.expect("reads local callback");
+		assert_eq!(r.confidence, b"local".to_vec());
+		assert_eq!(r.target.as_view().segments().last().unwrap().kind, b"local");
+	}
+
+	#[test]
+	fn extract_unknown_receiver_method_call_marks_incomplete_resolution() {
+		let src = "def f(value):\n    return value.normalize()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"normalize"
+			})
+			.expect("method_call normalize");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
 	fn extract_self_member_call_resolves_via_typed_constructor_param() {
 		let src = "class Store:\n    def reserve(self) -> None:\n        pass\n\nclass Worker:\n    def __init__(self, store: Store) -> None:\n        self._store = store\n\n    def run(self) -> None:\n        self._store.reserve()\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);

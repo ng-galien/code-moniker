@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/accounts.py
 ---
@@ -479,7 +478,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts",
       "kind": "reads",
       "position": [
@@ -622,7 +621,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts",
       "kind": "reads",
       "position": [
@@ -700,7 +699,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
       "kind": "method_call",
       "position": [
@@ -739,7 +738,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
       "kind": "method_call",
       "position": [
@@ -1025,7 +1024,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
       "kind": "method_call",
       "position": [
@@ -1038,7 +1037,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
       "kind": "reads",
       "position": [
@@ -1077,7 +1076,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
       "kind": "reads",
       "position": [
@@ -1142,7 +1141,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
       "kind": "method_call",
       "position": [
@@ -1181,7 +1180,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
       "kind": "method_call",
       "position": [
@@ -1272,7 +1271,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
       "kind": "method_call",
       "position": [
@@ -1285,7 +1284,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
       "kind": "method_call",
       "position": [
@@ -1298,7 +1297,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
       "kind": "method_call",
       "position": [
@@ -1311,7 +1310,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "unresolved",
       "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
       "kind": "method_call",
       "position": [

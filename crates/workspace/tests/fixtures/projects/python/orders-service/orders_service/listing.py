@@ -8,3 +8,28 @@ class PricedEntry(CatalogEntry):
 
 def first_entry() -> CatalogEntry:
     return CatalogEntry("default")
+
+
+class LocalNormalizer:
+    def normalize(self) -> str:
+        return "local"
+
+
+def normalize_unknown(value):
+    return value.normalize()
+
+
+def read_unknown():
+    return workspace_only_flag
+
+
+def local_callback():
+    return "local"
+
+
+def read_local_callback():
+    return local_callback
+
+
+def call_missing():
+    return missing_callable()

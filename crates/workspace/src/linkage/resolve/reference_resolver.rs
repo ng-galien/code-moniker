@@ -9,6 +9,7 @@ use crate::linkage::resolve::{
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
+use code_moniker_core::lang::Lang;
 
 pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) candidates: &'a CandidateCatalog,
@@ -59,6 +60,15 @@ impl<'a> ReferenceResolver<'a> {
 		let Some(location) = location else {
 			return site.unknown(UnknownReason::MissingQuery);
 		};
+		if reference.confidence.as_deref() == Some("unresolved")
+			&& self
+				.material
+				.files
+				.get(location.source_file)
+				.is_some_and(|file| file.lang == Lang::Python)
+		{
+			return site.unknown(UnknownReason::IncompleteExtractorMetadata);
+		}
 		let Some(query) = LinkageQuery::at(reference, self.material, location) else {
 			return site.unknown(UnknownReason::MissingQuery);
 		};

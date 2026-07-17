@@ -167,6 +167,17 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
+	pub(in crate::linkage) fn semantic_pending_reference_idx(&self) -> Option<usize> {
+		match self {
+			Self::Unknown {
+				reason: UnknownReason::NoCandidate | UnknownReason::IncompleteExtractorMetadata,
+				reference_idx,
+				..
+			} => Some(*reference_idx),
+			_ => None,
+		}
+	}
+
 	pub(in crate::linkage) fn reference(&self) -> &ReferenceId {
 		match self {
 			Self::Resolved { reference, .. }

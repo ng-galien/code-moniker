@@ -317,7 +317,7 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 		Some(CallResolution {
 			target: extend_segment(&self.discover.module, kinds::METHOD, name),
 			kind: kinds::METHOD_CALL,
-			confidence: kinds::CONF_NAME_MATCH,
+			confidence: kinds::CONF_UNRESOLVED,
 			receiver_hint: hint.to_vec(),
 			call_name: name.to_vec(),
 			call_arity: Some(arity),
@@ -1403,24 +1403,24 @@ fn resolve_identifier_read(
 		} else {
 			None
 		};
-	let target = if confidence == kinds::CONF_LOCAL {
-		extend_segment(scope, kinds::LOCAL, name)
+	let (target, confidence) = if confidence == kinds::CONF_LOCAL {
+		(extend_segment(scope, kinds::LOCAL, name), confidence)
 	} else if let Some(import_target) = discover.imports.target_for(name) {
-		import_target
+		(import_target, confidence)
 	} else if let Some(type_target) = resolved_type.clone() {
-		type_target
+		(type_target, kinds::CONF_RESOLVED)
+	} else if let Some(callable_target) = lookup_module_callable(discover, name) {
+		(callable_target, kinds::CONF_RESOLVED)
 	} else if is_python_builtin(name) {
 		return Some((
 			builtin_external_target(&discover.module, name),
 			kinds::CONF_EXTERNAL,
 		));
 	} else {
-		extend_segment(&discover.module, kinds::FUNCTION, name)
-	};
-	let confidence = if resolved_type.is_some() {
-		kinds::CONF_RESOLVED
-	} else {
-		confidence
+		(
+			extend_segment(&discover.module, kinds::FUNCTION, name),
+			kinds::CONF_UNRESOLVED,
+		)
 	};
 	Some((target, confidence))
 }
@@ -1981,6 +1981,12 @@ fn lookup_callable_in_scope(
 		}
 	}
 	None
+}
+
+fn lookup_module_callable(discover: &PyDiscover<'_>, name: &[u8]) -> Option<Moniker> {
+	[kinds::FUNCTION, kinds::ASYNC_FUNCTION]
+		.into_iter()
+		.find_map(|kind| lookup_callable_in_scope(discover, &discover.module, name, kind))
 }
 
 fn lookup_callable(discover: &PyDiscover<'_>, scope: &Moniker, name: &[u8]) -> Moniker {
@@ -3367,6 +3373,8 @@ fn static_confidence(value: &[u8]) -> &'static [u8] {
 		kinds::CONF_IMPORTED
 	} else if value == kinds::CONF_EXTERNAL {
 		kinds::CONF_EXTERNAL
+	} else if value == kinds::CONF_UNRESOLVED {
+		kinds::CONF_UNRESOLVED
 	} else {
 		kinds::CONF_NAME_MATCH
 	}

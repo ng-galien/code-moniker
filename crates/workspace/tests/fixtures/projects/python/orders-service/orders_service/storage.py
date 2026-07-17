@@ -3,6 +3,10 @@ class TracingMixin:
         return f"trace:{message}"
 
 
+def workspace_only_flag() -> str:
+    return "storage"
+
+
 class BaseRepository:
     def __init__(self, dsn: str) -> None:
         self.dsn = dsn
