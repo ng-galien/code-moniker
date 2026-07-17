@@ -16,7 +16,7 @@ it touches no supported source file, it exits without running a broad scan.
 | File                                      | Bytes  | Time   |
 |-------------------------------------------|--------|--------|
 | `crates/cli/src/check/eval.rs`            | 62 KB  | 14 ms  |
-| `crates/core/src/lang/ts/strategy.rs`     | 43 KB  | 6 ms   |
+| `crates/core/src/lang/ts/sdk_pipeline/discover.rs` | 67 KB  | 6 ms   |
 | `crates/core/src/core/moniker/mod.rs`     | 3 KB   | 4 ms   |
 
 ## Project scan

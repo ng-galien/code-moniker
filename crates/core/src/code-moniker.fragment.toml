@@ -6,7 +6,6 @@ fragment = "core"
 [aliases]
 core    = "moniker ~ '**/dir:src/*:core/**'"
 lang    = "moniker ~ '**/dir:src/*:lang/**'"
-canonical_walker = "moniker ~ '**/*:lang/*:canonical_walker'"
 tree_sitter_sdk_extractor = "moniker ~ '**/dir:src/*:lang/*/*:sdk_pipeline/**'"
 text_mini_parser_call = """
   kind = 'method_call'
@@ -53,47 +52,4 @@ rationale = """
 The core model must stay reusable by every extractor and surface. Letting it import language
 internals would invert the dependency graph and make later language additions affect the base
 model.
-"""
-
-# Shared extractor walker contract.
-
-[[rust.module.where]]
-id      = "walker-struct-exists"
-expr    = "$canonical_walker => any(struct, name = 'CanonicalWalker')"
-message = "`canonical_walker.rs` must define `CanonicalWalker` (state + dispatch methods)."
-rationale = """
-Extractor traversal has one shared coordination point so language strategies inherit the
-same recursion and graph-building behavior instead of each reimplementing traversal policy.
-"""
-
-[[rust.struct.where]]
-id      = "walker-has-walk-method"
-expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'walk')"
-message = "CanonicalWalker must expose `walk(node, scope, graph)` — iterates children and recurses on NodeShape::Recurse."
-rationale = """
-`walk` is the recursive traversal entrypoint. Keeping it explicit makes the fallback path
-inspectable and prevents dispatch-only refactors from silently dropping child nodes.
-"""
-
-[[rust.struct.where]]
-id      = "walker-has-dispatch-method"
-expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'dispatch')"
-message = "CanonicalWalker must expose `dispatch(node, scope, graph)` — single-node classification with recurse fallback."
-rationale = """
-`dispatch` centralizes node classification. Language strategy changes should extend
-classification behavior without hiding recursion or splitting the walker contract across
-helpers.
-"""
-
-# Walker recursion invariant.
-[[rust.method.where]]
-id      = "walker-dispatch-recurses-into-walk"
-expr    = """
-  parent.name = 'CanonicalWalker' AND name = 'dispatch'
-  => any(out_refs, kind = 'method_call' AND target.name = 'walk')
-"""
-message = "CanonicalWalker.dispatch must call `self.walk(...)` for recurse cases. Missing this drops sub-trees."
-rationale = """
-A previous class of extractor regressions comes from treating unknown or recurse-shaped
-nodes as empty. The rule checks the symbolic call edge that keeps recursive descent alive.
 """

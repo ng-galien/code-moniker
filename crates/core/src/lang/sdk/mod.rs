@@ -1,7 +1,6 @@
 //! Shared extraction SDK for the target multi-pass language pipeline.
 //!
-//! This module is intentionally separate from `canonical_walker` and
-//! `LangStrategy`. It defines the stable IR exchanged by the target phases:
+//! This module defines the stable IR exchanged by language extraction phases:
 //! discover definitions and imports, elaborate unresolved references, resolve
 //! them locally, then emit the public `CodeGraph`.
 

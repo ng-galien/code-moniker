@@ -1,6 +1,5 @@
 pub mod build_manifest;
 pub mod callable;
-pub mod canonical_walker;
 pub mod cs;
 pub mod extractor;
 pub mod go;
@@ -10,7 +9,6 @@ pub mod python;
 pub mod rs;
 pub mod sdk;
 pub mod sql;
-pub mod strategy;
 pub mod tree_util;
 pub mod ts;
 
