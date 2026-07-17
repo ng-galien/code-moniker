@@ -1088,6 +1088,7 @@ fn collect_return_types(
 	references: &RecordTable<ReferenceRecord>,
 ) -> FxHashMap<Moniker, Moniker> {
 	let mut out = FxHashMap::default();
+	let mut ambiguous = FxHashSet::default();
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
 		if reference.kind != "returns_type" {
@@ -1099,9 +1100,26 @@ fn collect_return_types(
 		let Some(target) = decision_target(material, candidates, decision, references) else {
 			continue;
 		};
-		out.insert(source.clone(), target);
+		record_return_type(&mut out, &mut ambiguous, source, target);
 	}
 	out
+}
+
+fn record_return_type(
+	out: &mut FxHashMap<Moniker, Moniker>,
+	ambiguous: &mut FxHashSet<Moniker>,
+	source: &Moniker,
+	target: Moniker,
+) {
+	if ambiguous.contains(source) {
+		return;
+	}
+	if out.get(source).is_some_and(|known| known != &target) {
+		out.remove(source);
+		ambiguous.insert(source.clone());
+		return;
+	}
+	out.insert(source.clone(), target);
 }
 
 fn decision_reference<'a>(
@@ -1214,4 +1232,33 @@ fn external_target_shape(target: &Moniker) -> bool {
 		.as_view()
 		.segments()
 		.any(|segment| segment.kind == kinds::EXTERNAL_PKG)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn conflicting_return_types_remain_ambiguous() {
+		let source = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"function", b"make()")
+			.build();
+		let first = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"class", b"First")
+			.build();
+		let second = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"class", b"Second")
+			.build();
+		let mut out = FxHashMap::default();
+		let mut ambiguous = FxHashSet::default();
+
+		record_return_type(&mut out, &mut ambiguous, &source, first);
+		record_return_type(&mut out, &mut ambiguous, &source, second);
+
+		assert!(!out.contains_key(&source));
+		assert!(ambiguous.contains(&source));
+	}
 }

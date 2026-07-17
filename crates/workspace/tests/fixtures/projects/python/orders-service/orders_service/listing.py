@@ -10,6 +10,19 @@ def first_entry() -> CatalogEntry:
     return CatalogEntry("default")
 
 
+def first_entry_key_direct() -> str:
+    return first_entry().entry_key()
+
+
+def first_entry_key_assigned() -> str:
+    entry = first_entry()
+    return entry.entry_key()
+
+
+def first_entry_key_normalized() -> str:
+    return first_entry().entry_key().strip()
+
+
 class LocalNormalizer:
     def normalize(self) -> str:
         return "local"

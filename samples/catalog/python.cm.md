@@ -161,6 +161,7 @@ rule can never fire.
 python.refs.domain-no-infra @ domain/order.py:L1
 python.class.class-pascalcase @ domain/order.py:L4-L5
 python.refs.domain-no-infra @ domain/order.py:L10
+python.refs.domain-no-infra @ domain/order.py:L13
 python.function.function-snakecase @ domain/order.py:L16-L17
 python.refs.domain-no-infra @ domain/order.py:L17
 python.class.class-budget @ domain/order.py:L20-L82

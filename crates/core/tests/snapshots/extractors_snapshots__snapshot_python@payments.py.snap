@@ -633,6 +633,32 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentStatus/path:PENDING",
+      "kind": "typed_as",
+      "position": [
+        486,
+        493
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentStatus/path:CAPTURED",
+      "kind": "typed_as",
+      "position": [
+        510,
+        518
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
@@ -643,6 +669,32 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:typing/function:TypedDict"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:id",
+      "kind": "typed_as",
+      "position": [
+        605,
+        607
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:amount",
+      "kind": "typed_as",
+      "position": [
+        617,
+        623
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",
@@ -682,6 +734,19 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment/path:id",
+      "kind": "typed_as",
+      "position": [
+        714,
+        716
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
     },
     {
       "alias": "",

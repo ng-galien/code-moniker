@@ -710,6 +710,34 @@ fn python_unknown_receivers_do_not_link_to_unrelated_homonyms() {
 }
 
 #[test]
+fn python_annotated_factory_returns_resolve_direct_and_assigned_chains() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:orders_service/module:listing/function:first_entry_key_direct()",
+		"method_call",
+		"entry_key",
+		0,
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry/method:entry_key()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:orders_service/module:listing/function:first_entry_key_assigned()",
+		"method_call",
+		"entry_key",
+		0,
+		"package:orders_service/package:catalog/module:entries/class:CatalogEntry/method:entry_key()",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"method_call",
+		"package:orders_service/module:listing/function:first_entry_key_normalized()",
+		"external_pkg:builtins/path:str/method:strip",
+	);
+}
+
+#[test]
 fn python_unknown_reads_do_not_link_to_unrelated_homonyms() {
 	let snapshot = load_workspace("projects/python/orders-service");
 	let source_identity = "package:orders_service/module:listing/function:read_unknown()";

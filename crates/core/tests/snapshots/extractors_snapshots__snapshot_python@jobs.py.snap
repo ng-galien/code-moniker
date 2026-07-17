@@ -308,6 +308,32 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job/path:id",
+      "kind": "typed_as",
+      "position": [
+        213,
+        215
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:str"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job/path:payload",
+      "kind": "typed_as",
+      "position": [
+        225,
+        232
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:builtins/path:dict"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:jobs/class:JobStore",

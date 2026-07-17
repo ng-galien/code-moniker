@@ -24,6 +24,8 @@ pub(super) struct PyDiscover<'src> {
 	pub(super) imports: PyImportBindings,
 	pub(super) locals: PyLocalScopes,
 	pub(super) instance_attr_types: RefCell<HashMap<(Moniker, Vec<u8>), Moniker>>,
+	pub(super) declared_instance_attr_types: HashSet<(Moniker, Vec<u8>)>,
+	pub(super) ambiguous_instance_attr_types: RefCell<HashSet<(Moniker, Vec<u8>)>>,
 	pub(super) type_table: TypeTable,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 }
@@ -34,6 +36,9 @@ pub(super) type TypeTable = HashMap<Vec<u8>, Vec<Moniker>>;
 pub(super) struct CallableEntry {
 	pub(super) kind: &'static [u8],
 	pub(super) segment: Vec<u8>,
+	pub(super) return_type_name: Option<Vec<u8>>,
+	pub(super) return_type_ambiguous: bool,
+	pub(super) is_async: bool,
 }
 
 pub(super) struct DiscoveredPythonFile {
@@ -82,6 +87,8 @@ impl PyImportBindings {
 pub(super) struct PyLocalScopes {
 	names: RefCell<Vec<HashSet<Vec<u8>>>>,
 	types: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
+	ambiguous_types: RefCell<Vec<HashSet<Vec<u8>>>>,
+	type_bindings: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
 
 impl PyLocalScopes {
@@ -89,17 +96,23 @@ impl PyLocalScopes {
 		Self {
 			names: RefCell::new(Vec::new()),
 			types: RefCell::new(Vec::new()),
+			ambiguous_types: RefCell::new(Vec::new()),
+			type_bindings: RefCell::new(Vec::new()),
 		}
 	}
 
 	fn push(&self) {
 		self.names.borrow_mut().push(HashSet::new());
 		self.types.borrow_mut().push(HashMap::new());
+		self.ambiguous_types.borrow_mut().push(HashSet::new());
+		self.type_bindings.borrow_mut().push(HashMap::new());
 	}
 
 	fn pop(&self) {
 		self.names.borrow_mut().pop();
 		self.types.borrow_mut().pop();
+		self.ambiguous_types.borrow_mut().pop();
+		self.type_bindings.borrow_mut().pop();
 	}
 
 	fn record_name(&self, name: &[u8]) {
@@ -113,17 +126,71 @@ impl PyLocalScopes {
 	}
 
 	fn record_type(&self, name: &[u8], target: Moniker) {
-		if let Some(top) = self.types.borrow_mut().last_mut() {
-			top.insert(name.to_vec(), target);
+		if self
+			.ambiguous_types
+			.borrow()
+			.last()
+			.is_some_and(|ambiguous| ambiguous.contains(name))
+		{
+			return;
+		}
+		let conflicts = self
+			.types
+			.borrow()
+			.last()
+			.and_then(|types| types.get(name))
+			.is_some_and(|known| known != &target);
+		if conflicts {
+			if let Some(types) = self.types.borrow_mut().last_mut() {
+				types.remove(name);
+			}
+			if let Some(ambiguous) = self.ambiguous_types.borrow_mut().last_mut() {
+				ambiguous.insert(name.to_vec());
+			}
+		} else if let Some(types) = self.types.borrow_mut().last_mut() {
+			types.insert(name.to_vec(), target);
+		}
+	}
+
+	fn record_type_binding(&self, name: &[u8], target: Moniker) {
+		if let Some(bindings) = self.type_bindings.borrow_mut().last_mut() {
+			bindings.insert(name.to_vec(), target);
+		}
+	}
+
+	fn record_unknown_type(&self, name: &[u8]) {
+		if let Some(types) = self.types.borrow_mut().last_mut() {
+			types.remove(name);
+		}
+		if let Some(ambiguous) = self.ambiguous_types.borrow_mut().last_mut() {
+			ambiguous.insert(name.to_vec());
 		}
 	}
 
 	fn lookup_type(&self, name: &[u8]) -> Option<Moniker> {
-		self.types
-			.borrow()
-			.iter()
-			.rev()
-			.find_map(|frame| frame.get(name).cloned())
+		let names = self.names.borrow();
+		let types = self.types.borrow();
+		let ambiguous = self.ambiguous_types.borrow();
+		for idx in (0..names.len()).rev() {
+			if ambiguous[idx].contains(name) {
+				return None;
+			}
+			if names[idx].contains(name) {
+				return types[idx].get(name).cloned();
+			}
+		}
+		None
+	}
+
+	fn lookup_type_binding(&self, name: &[u8]) -> Option<Moniker> {
+		let names = self.names.borrow();
+		let bindings = self.type_bindings.borrow();
+		for idx in (0..names.len()).rev() {
+			if names[idx].contains(name) {
+				return bindings[idx].get(name).cloned();
+			}
+		}
+		None
 	}
 }
 
@@ -217,14 +284,14 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 
 	fn resolve_identifier_call(&self, call: Node<'_>, name: &[u8]) -> Option<CallResolution> {
 		let arity = call_argument_count(call);
-		let confidence = self
-			.discover
-			.imports
-			.confidence_for(name)
-			.or_else(|| name_confidence(self.discover, name))?;
-		if confidence == kinds::CONF_LOCAL {
+		if let Some(target) = self.discover.imports.target_for(name) {
+			let confidence = self
+				.discover
+				.imports
+				.confidence_for(name)
+				.unwrap_or(kinds::CONF_IMPORTED);
 			return Some(CallResolution {
-				target: extend_segment(self.scope, kinds::LOCAL, name),
+				target,
 				kind: kinds::CALLS,
 				confidence,
 				receiver_hint: Vec::new(),
@@ -232,9 +299,20 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 				call_arity: Some(arity),
 			});
 		}
-		if let Some(target) = self.discover.imports.target_for(name) {
+		if self.discover.locals.is_name(name) {
+			if let Some(target) = lookup_function_local_type(self.discover, name) {
+				return Some(CallResolution {
+					target,
+					kind: kinds::INSTANTIATES,
+					confidence: kinds::CONF_RESOLVED,
+					receiver_hint: Vec::new(),
+					call_name: name.to_vec(),
+					call_arity: Some(arity),
+				});
+			}
+			let confidence = name_confidence(self.discover, name)?;
 			return Some(CallResolution {
-				target,
+				target: extend_segment(self.scope, kinds::LOCAL, name),
 				kind: kinds::CALLS,
 				confidence,
 				receiver_hint: Vec::new(),
@@ -262,6 +340,7 @@ impl<'a, 'src> PyCallResolver<'a, 'src> {
 				call_arity: Some(arity),
 			});
 		}
+		let confidence = name_confidence(self.discover, name)?;
 		Some(CallResolution {
 			target: lookup_callable(self.discover, self.scope, name),
 			kind: kinds::CALLS,
@@ -934,7 +1013,9 @@ impl<'a> PyDiscover<'a> {
 			deep,
 			imports: PyImportBindings::new(),
 			locals: PyLocalScopes::new(),
+			declared_instance_attr_types: instance_attr_types.keys().cloned().collect(),
 			instance_attr_types: RefCell::new(instance_attr_types),
+			ambiguous_instance_attr_types: RefCell::new(HashSet::new()),
 			type_table,
 			callable_table,
 		};
@@ -1024,10 +1105,104 @@ fn before_symbol_body(
 	let node = effective_definition_node(node);
 	if let Some(rt) = node.child_by_field_name("return_type") {
 		PyTypeRefs::new(discover, moniker).emit(rt, graph);
+		if !is_async_function(node) && !callable_return_is_ambiguous(discover, node, moniker) {
+			emit_callable_return_type(discover, rt, moniker, graph);
+		}
 	}
 	if let Some(params) = node.child_by_field_name("parameters") {
 		emit_param_defs_and_types(discover, params, moniker, source, graph);
 	}
+}
+
+fn callable_return_is_ambiguous(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	moniker: &Moniker,
+) -> bool {
+	let Some(name_node) = node.child_by_field_name("name") else {
+		return true;
+	};
+	let Some(parent) = moniker.parent() else {
+		return true;
+	};
+	discover
+		.callable_table
+		.get(&(
+			parent,
+			node_slice(name_node, discover.source_bytes).to_vec(),
+		))
+		.is_none_or(|entry| entry.return_type_ambiguous)
+}
+
+fn emit_callable_return_type(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	callable: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	let Some(name) = unambiguous_return_type_name(node, discover.source_bytes) else {
+		return;
+	};
+	let Some((target, confidence)) = resolve_return_type_name(discover, callable, &name) else {
+		return;
+	};
+	let attrs = RefAttrs {
+		confidence,
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(
+		callable,
+		target,
+		kinds::RETURNS_TYPE,
+		Some(node_position(node)),
+		&attrs,
+	);
+}
+
+fn unambiguous_return_type_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	match node.kind() {
+		"identifier" => {
+			let name = node_slice(node, source);
+			(!name.is_empty()).then(|| name.to_vec())
+		}
+		"type" | "parenthesized_expression" => {
+			let mut cursor = node.walk();
+			let children = node.named_children(&mut cursor).collect::<Vec<_>>();
+			(children.len() == 1)
+				.then(|| unambiguous_return_type_name(children[0], source))
+				.flatten()
+		}
+		_ => None,
+	}
+}
+
+fn resolve_return_type_name(
+	discover: &PyDiscover<'_>,
+	scope: &Moniker,
+	name: &[u8],
+) -> Option<(Moniker, &'static [u8])> {
+	if let Some(target) = lookup_discovered_type(discover, scope, name) {
+		return Some((target, kinds::CONF_RESOLVED));
+	}
+	if imported_nonconcrete_typing(discover, name) {
+		return None;
+	}
+	if let Some(target) = discover.imports.target_for(name) {
+		let confidence = discover
+			.imports
+			.confidence_for(name)
+			.unwrap_or(kinds::CONF_IMPORTED);
+		return Some((target, confidence));
+	}
+	if should_skip_type_name(name) || is_typing_container(name) {
+		return is_inferable_builtin_type(name).then(|| {
+			(
+				builtin_external_target(&discover.module, name),
+				kinds::CONF_EXTERNAL,
+			)
+		});
+	}
+	None
 }
 
 // Decorated symbols classify from the outer `decorated_definition` node;
@@ -1237,6 +1412,9 @@ fn classify_function<'src>(
 	if let Some(params) = node.child_by_field_name("parameters") {
 		record_param_locals(discover, params, source, &moniker);
 	}
+	if let Some(body) = node.child_by_field_name("body") {
+		precollect_callable_local_names(discover, body, &moniker);
+	}
 	let _ = graph;
 
 	NodeShape::Symbol(Symbol {
@@ -1250,6 +1428,117 @@ fn classify_function<'src>(
 		position: node_position(node),
 		annotated_by,
 	})
+}
+
+fn precollect_callable_local_names(discover: &PyDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	match node.kind() {
+		"function_definition" => {
+			if let Some(name) = node.child_by_field_name("name") {
+				discover
+					.locals
+					.record_name(node_slice(name, discover.source_bytes));
+			}
+			return;
+		}
+		"class_definition" => {
+			if let Some(name_node) = node.child_by_field_name("name") {
+				let name = node_slice(name_node, discover.source_bytes);
+				discover.locals.record_name(name);
+				discover
+					.locals
+					.record_type_binding(name, extend_segment(scope, kinds::CLASS, name));
+			}
+			return;
+		}
+		"import_statement" => {
+			let mut cursor = node.walk();
+			for child in node
+				.children(&mut cursor)
+				.filter(|child| matches!(child.kind(), "dotted_name" | "aliased_import"))
+			{
+				let Some((path, alias)) =
+					import_module_path_and_alias(child, discover.source_bytes)
+				else {
+					continue;
+				};
+				let pieces = dotted_pieces(path, discover.source_bytes);
+				if let Some(bind) = (!alias.is_empty())
+					.then_some(alias)
+					.or_else(|| pieces.first().copied())
+				{
+					discover.locals.record_name(bind.as_bytes());
+				}
+			}
+			return;
+		}
+		"import_from_statement" => {
+			for (name, alias) in collect_from_import_names(node, discover.source_bytes) {
+				let bind = if alias.is_empty() { name } else { alias };
+				discover.locals.record_name(bind.as_bytes());
+			}
+			return;
+		}
+		"list_comprehension"
+		| "set_comprehension"
+		| "dictionary_comprehension"
+		| "generator_expression" => {
+			precollect_comprehension_walrus(discover, node);
+			return;
+		}
+		"lambda" => return,
+		"assignment" | "augmented_assignment" => {
+			if let Some(left) = node.child_by_field_name("left") {
+				record_local_pattern(discover, left);
+			}
+		}
+		"named_expression" => {
+			if let Some(name) = node.child_by_field_name("name") {
+				record_local_pattern(discover, name);
+			}
+		}
+		"as_pattern" | "except_clause" => {
+			if let Some(alias) = node.child_by_field_name("alias") {
+				record_local_pattern(discover, alias);
+			}
+		}
+		"case_pattern" => {
+			let mut cursor = node.walk();
+			let children = node.named_children(&mut cursor).collect::<Vec<_>>();
+			if let [capture] = children.as_slice()
+				&& capture.kind() == "dotted_name"
+			{
+				let name = node_slice(*capture, discover.source_bytes);
+				if !name.contains(&b'.') && name != b"_" {
+					discover.locals.record_name(name);
+				}
+			}
+		}
+		"for_statement" | "for_in_clause" => {
+			if let Some(left) = node.child_by_field_name("left") {
+				record_local_pattern(discover, left);
+			}
+		}
+		_ => {}
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		precollect_callable_local_names(discover, child, scope);
+	}
+}
+
+fn precollect_comprehension_walrus(discover: &PyDiscover<'_>, node: Node<'_>) {
+	if node.kind() == "lambda" || node.kind() == "function_definition" {
+		return;
+	}
+	if node.kind() == "named_expression"
+		&& let Some(name) = node.child_by_field_name("name")
+	{
+		record_local_pattern(discover, name);
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		precollect_comprehension_walrus(discover, child);
+	}
 }
 
 fn handle_assignment(
@@ -1541,22 +1830,54 @@ fn record_assignment_type(
 	let target = inferred_type.or(right_type);
 	match left.kind() {
 		"identifier" => {
-			let Some(target) = target else { return };
 			let name = node_slice(left, discover.source_bytes);
-			if !name.is_empty() {
+			if name.is_empty() {
+				return;
+			}
+			if let Some(target) = target {
 				discover.locals.record_type(name, target);
+			} else {
+				discover.locals.record_unknown_type(name);
 			}
 		}
 		"attribute" => {
-			let Some(target) = target else { return };
 			let Some((class, attr)) = self_attr_key(discover, scope, left) else {
 				return;
 			};
-			discover
+			let key = (class, attr);
+			if discover.declared_instance_attr_types.contains(&key)
+				|| discover
+					.ambiguous_instance_attr_types
+					.borrow()
+					.contains(&key)
+			{
+				return;
+			}
+			let Some(target) = target else {
+				discover.instance_attr_types.borrow_mut().remove(&key);
+				discover
+					.ambiguous_instance_attr_types
+					.borrow_mut()
+					.insert(key);
+				return;
+			};
+			let conflicts = discover
 				.instance_attr_types
-				.borrow_mut()
-				.entry((class, attr))
-				.or_insert(target);
+				.borrow()
+				.get(&key)
+				.is_some_and(|known| known != &target);
+			if conflicts {
+				discover.instance_attr_types.borrow_mut().remove(&key);
+				discover
+					.ambiguous_instance_attr_types
+					.borrow_mut()
+					.insert(key);
+			} else {
+				discover
+					.instance_attr_types
+					.borrow_mut()
+					.insert(key, target);
+			}
 		}
 		_ => {}
 	}
@@ -1567,6 +1888,15 @@ fn infer_assignment_value_type(
 	node: Node<'_>,
 	scope: &Moniker,
 ) -> Option<Moniker> {
+	infer_assignment_value_type_with_mode(discover, node, scope, false)
+}
+
+fn infer_assignment_value_type_with_mode(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+	awaited: bool,
+) -> Option<Moniker> {
 	match node.kind() {
 		"identifier" => discover
 			.locals
@@ -1576,9 +1906,14 @@ fn infer_assignment_value_type(
 			match callee.kind() {
 				"identifier" => {
 					let name = node_slice(callee, discover.source_bytes);
-					lookup_discovered_type(discover, scope, name)
-						.or_else(|| external_callee_type(discover, name))
-						.or_else(|| discover.imports.target_for(name))
+					if discover.locals.is_name(name) {
+						return lookup_function_local_type(discover, name);
+					}
+					discover
+						.imports
+						.target_for(name)
+						.or_else(|| lookup_discovered_type(discover, scope, name))
+						.or_else(|| lookup_callable_return_type(discover, name, awaited))
 				}
 				"attribute" => attribute_callee_type(discover, callee),
 				_ => None,
@@ -1586,16 +1921,56 @@ fn infer_assignment_value_type(
 		}
 		"await" => {
 			let mut cursor = node.walk();
-			node.named_children(&mut cursor)
-				.find_map(|child| infer_assignment_value_type(discover, child, scope))
+			node.named_children(&mut cursor).find_map(|child| {
+				infer_assignment_value_type_with_mode(discover, child, scope, true)
+			})
 		}
+		"string" | "concatenated_string" => Some(builtin_external_target(
+			&discover.module,
+			string_literal_type_name(node, discover.source_bytes),
+		)),
+		"integer" => Some(builtin_external_target(&discover.module, b"int")),
+		"float" => Some(builtin_external_target(&discover.module, b"float")),
+		"true" | "false" => Some(builtin_external_target(&discover.module, b"bool")),
+		"list" | "list_comprehension" => Some(builtin_external_target(&discover.module, b"list")),
+		"dictionary" | "dictionary_comprehension" => {
+			Some(builtin_external_target(&discover.module, b"dict"))
+		}
+		"set" | "set_comprehension" => Some(builtin_external_target(&discover.module, b"set")),
+		"tuple" => Some(builtin_external_target(&discover.module, b"tuple")),
 		_ => None,
 	}
 }
 
-fn external_callee_type(discover: &PyDiscover<'_>, name: &[u8]) -> Option<Moniker> {
-	let target = discover.imports.target_for(name)?;
-	is_external_shaped(&target).then_some(target)
+fn lookup_function_local_type(discover: &PyDiscover<'_>, name: &[u8]) -> Option<Moniker> {
+	discover.locals.lookup_type_binding(name)
+}
+
+fn string_literal_type_name(node: Node<'_>, source: &[u8]) -> &'static [u8] {
+	let text = node_slice(node, source);
+	let prefix = text.iter().take_while(|byte| !matches!(byte, b'\'' | b'"'));
+	if prefix.into_iter().any(|byte| matches!(byte, b'b' | b'B')) {
+		b"bytes"
+	} else {
+		b"str"
+	}
+}
+
+fn lookup_callable_return_type(
+	discover: &PyDiscover<'_>,
+	name: &[u8],
+	awaited: bool,
+) -> Option<Moniker> {
+	std::iter::once(discover.module.clone()).find_map(|parent| {
+		let entry = discover
+			.callable_table
+			.get(&(parent.clone(), name.to_vec()))?;
+		if entry.return_type_ambiguous || entry.is_async != awaited {
+			return None;
+		}
+		let return_name = entry.return_type_name.as_deref()?;
+		resolve_return_type_name(discover, &parent, return_name).map(|resolved| resolved.0)
+	})
 }
 
 fn attribute_callee_type(discover: &PyDiscover<'_>, callee: Node<'_>) -> Option<Moniker> {
@@ -1885,13 +2260,26 @@ fn infer_type_target(
 	match node.kind() {
 		"identifier" => {
 			let name = node_slice(node, discover.source_bytes);
-			if should_skip_type_name(name) || is_typing_container(name) {
+			if let Some(target) = lookup_discovered_type(discover, scope, name) {
+				return Some(target);
+			}
+			if imported_nonconcrete_typing(discover, name) {
 				return None;
+			}
+			if let Some(target) = discover.imports.target_for(name) {
+				return Some(target);
+			}
+			if should_skip_type_name(name) || is_typing_container(name) {
+				return is_inferable_builtin_type(name)
+					.then(|| builtin_external_target(&discover.module, name));
 			}
 			let (target, _) = resolve_type_target(discover, scope, name, kinds::CLASS);
 			Some(target)
 		}
 		"attribute" => {
+			if qualified_nonconcrete_typing(discover, node) {
+				return None;
+			}
 			let name = last_attribute(node, discover.source_bytes);
 			if should_skip_type_name(name.as_bytes()) || is_typing_container(name.as_bytes()) {
 				return None;
@@ -1899,6 +2287,8 @@ fn infer_type_target(
 			let (target, _) = resolve_type_target(discover, scope, name.as_bytes(), kinds::CLASS);
 			Some(target)
 		}
+		"union_type" | "binary_operator" => infer_unique_child_type(discover, node, scope),
+		"subscript" | "generic_type" if has_typing_container_base(discover, node) => None,
 		"type"
 		| "subscript"
 		| "generic_type"
@@ -1908,8 +2298,6 @@ fn infer_type_target(
 		| "splat_type"
 		| "tuple"
 		| "list"
-		| "union_type"
-		| "binary_operator"
 		| "expression_list"
 		| "parenthesized_expression" => {
 			let mut cursor = node.walk();
@@ -1918,6 +2306,84 @@ fn infer_type_target(
 		}
 		_ => None,
 	}
+}
+
+fn infer_unique_child_type(
+	discover: &PyDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> Option<Moniker> {
+	let mut unique = None;
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		let candidate = infer_type_target(discover, child, scope)?;
+		if unique.as_ref().is_some_and(|known| known != &candidate) {
+			return None;
+		}
+		unique = Some(candidate);
+	}
+	unique
+}
+
+fn has_typing_container_base(discover: &PyDiscover<'_>, node: Node<'_>) -> bool {
+	let mut cursor = node.walk();
+	let Some(base) = node.named_children(&mut cursor).next() else {
+		return false;
+	};
+	let name = match base.kind() {
+		"identifier" => {
+			let name = node_slice(base, discover.source_bytes);
+			if imported_typing_container(discover, name) {
+				return true;
+			}
+			name
+		}
+		"attribute" => last_attribute(base, discover.source_bytes).as_bytes(),
+		_ => return false,
+	};
+	is_typing_container(name)
+}
+
+fn imported_typing_container(discover: &PyDiscover<'_>, name: &[u8]) -> bool {
+	imported_nonconcrete_typing(discover, name)
+}
+
+fn imported_nonconcrete_typing(discover: &PyDiscover<'_>, name: &[u8]) -> bool {
+	let Some(target) = discover.imports.target_for(name) else {
+		return false;
+	};
+	let segments = target.as_view().segments().collect::<Vec<_>>();
+	let Some(root) = segments.first() else {
+		return false;
+	};
+	let Some(last) = segments.last() else {
+		return false;
+	};
+	root.kind == kinds::EXTERNAL_PKG
+		&& matches!(root.name, b"typing" | b"typing_extensions")
+		&& (is_typing_container(last.name)
+			|| matches!(last.name, b"Any" | b"Self" | b"Never" | b"NoReturn"))
+}
+
+fn qualified_nonconcrete_typing(discover: &PyDiscover<'_>, node: Node<'_>) -> bool {
+	let Some(object) = node.child_by_field_name("object") else {
+		return false;
+	};
+	if object.kind() != "identifier" {
+		return false;
+	}
+	let object_name = node_slice(object, discover.source_bytes);
+	let Some(module) = discover.imports.target_for(object_name) else {
+		return false;
+	};
+	let Some(root) = module.as_view().segments().next() else {
+		return false;
+	};
+	let leaf = last_attribute(node, discover.source_bytes);
+	root.kind == kinds::EXTERNAL_PKG
+		&& matches!(root.name, b"typing" | b"typing_extensions")
+		&& (is_typing_container(leaf.as_bytes())
+			|| matches!(leaf.as_bytes(), b"Any" | b"Self" | b"Never" | b"NoReturn"))
 }
 
 fn lookup_discovered_type(
@@ -2075,7 +2541,11 @@ fn lookup_callable_on_type(
 		.filter(|segment| segment.kind == kinds::PATH)
 		.map(|_| CallableTarget {
 			moniker: extend_segment(type_moniker, kind, name),
-			confidence: kinds::CONF_IMPORTED,
+			confidence: if is_external_shaped(type_moniker) {
+				kinds::CONF_EXTERNAL
+			} else {
+				kinds::CONF_IMPORTED
+			},
 		})
 }
 
@@ -2150,10 +2620,33 @@ pub(super) fn collect_callable_table<'src>(
 			} else {
 				kinds::FUNCTION
 			};
-			out.insert(
-				(parent.clone(), name.to_vec()),
-				CallableEntry { kind, segment: seg },
-			);
+			let return_type_name = function_node
+				.child_by_field_name("return_type")
+				.and_then(|node| unambiguous_return_type_name(node, source));
+			let is_async = is_async_function(function_node);
+			let key = (parent.clone(), name.to_vec());
+			match out.entry(key) {
+				std::collections::hash_map::Entry::Vacant(entry) => {
+					entry.insert(CallableEntry {
+						kind,
+						segment: seg,
+						return_type_name,
+						return_type_ambiguous: false,
+						is_async,
+					});
+				}
+				std::collections::hash_map::Entry::Occupied(mut entry) => {
+					let callable = entry.get_mut();
+					callable.return_type_ambiguous |= callable.return_type_name != return_type_name
+						|| callable.is_async != is_async;
+					callable.kind = kind;
+					callable.segment = seg;
+					callable.return_type_name = (!callable.return_type_ambiguous)
+						.then_some(return_type_name)
+						.flatten();
+					callable.is_async = is_async;
+				}
+			}
 		} else {
 			collect_callable_table(child, source, parent, is_class_scope, out);
 		}
@@ -2883,6 +3376,10 @@ fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 
 fn should_skip_type_name(name: &[u8]) -> bool {
 	name.is_empty() || BUILTIN_TYPE_NAMES.binary_search(&name).is_ok()
+}
+
+fn is_inferable_builtin_type(name: &[u8]) -> bool {
+	BUILTIN_TYPE_NAMES.binary_search(&name).is_ok() && !matches!(name, b"None" | b"TypeAlias")
 }
 
 fn type_ref_container(kind: &str) -> bool {

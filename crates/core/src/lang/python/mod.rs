@@ -485,6 +485,429 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_callable_return_annotation_emits_returns_type() {
+		let src = "class User:\n    pass\n\ndef make() -> User:\n    return User()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"returns_type")
+			.expect("returns_type User");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(r.target.as_view().segments().last().unwrap().kind, b"class");
+		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"User");
+	}
+
+	#[test]
+	fn extract_local_assignment_uses_annotated_factory_return_type() {
+		let src = "class User:\n    def label(self) -> str:\n        return 'user'\n\ndef make() -> User:\n    return User()\n\ndef render():\n    value = make()\n    return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"label()"
+			})
+			.expect("method_call User.label");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(
+			r.target
+				.parent()
+				.expect("method parent")
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.name,
+			b"User"
+		);
+	}
+
+	#[test]
+	fn extract_shadowed_factory_does_not_leak_module_return_type() {
+		let src = "class User:\n    def label(self) -> str:\n        return 'user'\n\ndef make() -> User:\n    return User()\n\ndef render(make):\n    value = make()\n    return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"label"
+			})
+			.expect("method_call label");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_later_assignment_still_shadows_module_factory() {
+		let src = "class User:\n    def label(self) -> str:\n        return 'user'\n\ndef make() -> User:\n    return User()\n\ndef render():\n    value = make()\n    make = lambda: None\n    return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"label"
+			})
+			.expect("method_call label");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_factory_return_type_uses_defining_scope() {
+		let src = "class Product:\n    def label(self) -> str:\n        return 'product'\n\ndef make() -> Product:\n    return Product()\n\nclass View:\n    class Product:\n        def label(self) -> str:\n            return 'shadow'\n\n    def render(self):\n        value = make()\n        return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& g.defs().nth(r.source).is_some_and(|source| {
+						source
+							.moniker
+							.as_view()
+							.segments()
+							.last()
+							.is_some_and(|segment| segment.name == b"render()")
+					}) && r.target.as_view().segments().last().unwrap().name == b"label()"
+			})
+			.expect("method_call Product.label");
+		let owner = r.target.parent().expect("method owner");
+		assert_eq!(owner.as_view().segments().last().unwrap().name, b"Product");
+		assert_eq!(owner.parent(), Some(g.root().clone()));
+	}
+
+	#[test]
+	fn extract_bare_call_in_method_does_not_bind_sibling_method() {
+		let src = "class Product:\n    def label(self):\n        pass\n\nclass Factory:\n    def make(self) -> Product:\n        return Product()\n\n    def render(self):\n        value = make()\n        return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"label"
+			})
+			.expect("method_call label");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_builtin_annotated_receiver_method_is_external() {
+		let src = "def normalize(value: str) -> str:\n    return value.strip()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"strip"
+			})
+			.expect("method_call str.strip");
+		assert_eq!(r.confidence, b"external".to_vec());
+		let segments = r.target.as_view().segments().collect::<Vec<_>>();
+		assert_eq!(segments[0].kind, b"external_pkg");
+		assert_eq!(segments[0].name, b"builtins");
+		assert_eq!(segments[1].name, b"str");
+	}
+
+	#[test]
+	fn extract_distinct_builtin_union_does_not_invent_receiver_type() {
+		let src = "def normalize(value: str | bytes):\n    return value.strip()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"strip"
+			})
+			.expect("method_call strip");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_optional_builtin_does_not_invent_receiver_type() {
+		let src = "from typing import Optional\n\ndef normalize(value: Optional[str]):\n    return value.strip()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"strip"
+			})
+			.expect("method_call strip");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_workspace_type_shadows_builtin_name() {
+		let src = "class str:\n    def custom(self):\n        pass\n\ndef use(value: str):\n    value.custom()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"custom()"
+			})
+			.expect("method_call workspace str.custom");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(r.target.parent().unwrap().parent(), Some(g.root().clone()));
+	}
+
+	#[test]
+	fn extract_literal_assignment_infers_builtin_receiver_type() {
+		let src = "def normalize():\n    value = ' user '\n    return value.strip()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"strip"
+			})
+			.expect("method_call str.strip");
+		assert_eq!(r.confidence, b"external".to_vec());
+		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"str");
+	}
+
+	#[test]
+	fn extract_raw_bytes_literal_infers_bytes_receiver_type() {
+		let src = "def decode():\n    value = rb'user'\n    return value.decode()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"decode"
+			})
+			.expect("method_call bytes.decode");
+		assert_eq!(r.confidence, b"external".to_vec());
+		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"bytes");
+	}
+
+	#[test]
+	fn extract_builtin_return_annotation_emits_external_returns_type() {
+		let src = "def label() -> str:\n    return 'user'\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"returns_type")
+			.expect("returns_type str");
+		assert_eq!(r.confidence, b"external".to_vec());
+		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"str");
+	}
+
+	#[test]
+	fn extract_async_return_type_requires_await_for_local_inference() {
+		let src = "class User:\n    def label(self) -> str:\n        return 'user'\n\nasync def make() -> User:\n    return User()\n\nasync def direct():\n    value = make()\n    return value.label()\n\nasync def awaited():\n    value = await make()\n    return value.label()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| r.kind == b"returns_type" && {
+			g.defs().nth(r.source).is_some_and(|source| {
+				source
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|segment| segment.name == b"make()")
+			})
+		}));
+		let method_calls = g
+			.refs()
+			.filter(|r| r.kind == b"method_call")
+			.map(|r| {
+				let source = g.defs().nth(r.source).unwrap();
+				(
+					source
+						.moniker
+						.as_view()
+						.segments()
+						.last()
+						.unwrap()
+						.name
+						.to_vec(),
+					r.confidence.to_vec(),
+				)
+			})
+			.collect::<Vec<_>>();
+		assert!(method_calls.contains(&(b"direct()".to_vec(), b"unresolved".to_vec())));
+		assert!(method_calls.contains(&(b"awaited()".to_vec(), b"resolved".to_vec())));
+	}
+
+	#[test]
+	fn extract_async_method_does_not_emit_direct_return_type() {
+		let src = "class User:\n    pass\n\nclass Factory:\n    async def make(self) -> User:\n        return User()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| r.kind == b"returns_type"));
+	}
+
+	#[test]
+	fn extract_conflicting_factory_returns_do_not_type_local_assignment() {
+		let src = "class First:\n    def marker(self):\n        pass\n\nclass Second:\n    def marker(self):\n        pass\n\ndef make() -> First:\n    return First()\n\ndef make() -> Second:\n    return Second()\n\ndef render():\n    value = make()\n    return value.marker()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"marker"
+			})
+			.expect("method_call marker");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+		assert!(!g.refs().any(|r| r.kind == b"returns_type"));
+	}
+
+	#[test]
+	fn extract_local_import_shadows_module_factory_return() {
+		let src = "class Local:\n    def marker(self):\n        pass\n\ndef make() -> Local:\n    return Local()\n\ndef render():\n    from other import make\n    value = make()\n    return value.marker()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"marker"
+			})
+			.expect("method_call marker");
+		assert_ne!(
+			r.target
+				.parent()
+				.unwrap()
+				.as_view()
+				.segments()
+				.last()
+				.unwrap()
+				.name,
+			b"Local"
+		);
+	}
+
+	#[test]
+	fn extract_aliased_optional_does_not_become_receiver_type() {
+		let src = "from typing import Optional as Maybe\n\ndef normalize(value: Maybe[str]):\n    return value.strip()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"strip"
+			})
+			.expect("method_call strip");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_typing_any_remains_dynamic() {
+		let src = "from typing import Any\n\ndef make() -> Any:\n    raise RuntimeError\n\ndef use(value: Any):\n    return value.dynamic()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| r.kind == b"returns_type"));
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"dynamic"
+			})
+			.expect("method_call dynamic");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_conflicting_local_assignment_types_remain_ambiguous() {
+		let src = "def mutate(flag):\n    if flag:\n        value = []\n    else:\n        value = {}\n    value.append(1)\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"append"
+			})
+			.expect("method_call append");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_unknown_reassignment_invalidates_known_local_type() {
+		let src = "def mutate():\n    value = []\n    value = unknown()\n    value.append(1)\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"append"
+			})
+			.expect("method_call append");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_conflicting_instance_attribute_types_remain_ambiguous() {
+		let src = "class Holder:\n    def mutate(self, flag):\n        if flag:\n            self.value = []\n        else:\n            self.value = {}\n        self.value.append(1)\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"append"
+			})
+			.expect("method_call append");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_qualified_typing_any_does_not_bind_workspace_homonym() {
+		let src = "import typing\n\nclass Any:\n    def dynamic(self):\n        pass\n\ndef use(value: typing.Any):\n    value.dynamic()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"dynamic"
+			})
+			.expect("method_call dynamic");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_match_capture_shadows_module_factory() {
+		let src = "class Local:\n    def marker(self):\n        pass\n\ndef make() -> Local:\n    return Local()\n\ndef render(subject):\n    value = make()\n    match subject:\n        case make:\n            pass\n    return value.marker()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"marker"
+			})
+			.expect("method_call marker");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_comprehension_walrus_shadows_module_factory() {
+		let src = "class Local:\n    def marker(self):\n        pass\n\ndef make() -> Local:\n    return Local()\n\ndef render(items):\n    value = make()\n    selected = [item for item in items if (make := item)]\n    return value.marker()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"marker"
+			})
+			.expect("method_call marker");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_inner_param_shadows_outer_inferred_type() {
+		let src =
+			"def outer():\n    value = []\n\n    def inner(value):\n        value.append(1)\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"append"
+			})
+			.expect("method_call append");
+		assert_eq!(r.confidence, b"unresolved".to_vec());
+	}
+
+	#[test]
+	fn extract_union_return_annotation_does_not_invent_unique_return_type() {
+		let src = "class User:\n    pass\n\ndef maybe_make() -> User | None:\n    return None\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| r.kind == b"returns_type"));
+	}
+
+	#[test]
 	fn extract_local_class_call_prefers_function_scoped_type() {
 		let src = "class Local:\n    pass\n\ndef make():\n    class Local:\n        pass\n    return Local()\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
