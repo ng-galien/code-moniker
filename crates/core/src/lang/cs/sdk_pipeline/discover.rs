@@ -1,22 +1,189 @@
 // code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type, smell-vertical-layout]
-// TODO(smell): split C# Strategy into classification, member/local declaration handling, using resolution, call/type-ref resolution, and graph emission phases before enabling these guardrails here.
+// TODO(smell): split C# discovery into classification, member/local declaration handling, using resolution, call/type-ref resolution, and emission phases before enabling these guardrails here.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
 
-use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
+use crate::core::code_graph::Position;
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use crate::lang::callable::{
 	callable_segment_slots, extend_callable_slots, extend_segment, join_bytes_with_comma,
 	slot_signature_bytes,
 };
-use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
+use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
-use super::canonicalize::{parameter_list_slots, parameter_slots};
-use super::kinds;
+use super::super::canonicalize::{parameter_list_slots, parameter_slots};
+use super::super::kinds;
+
+type CallableMetadata = HashMap<Moniker, (Vec<u8>, Option<usize>)>;
+
+pub(super) struct DiscoveredCsFile {
+	pub(super) root: Moniker,
+	pub(super) defs: Vec<DiscoveredDef>,
+	pub(super) refs: Vec<ResolvedRef>,
+}
+
+#[derive(Default)]
+struct CsDefAttrs<'a> {
+	visibility: &'static [u8],
+	signature: &'a [u8],
+}
+
+#[derive(Default)]
+struct CsRefAttrs<'a> {
+	confidence: &'static [u8],
+	receiver_hint: &'a [u8],
+	alias: &'a [u8],
+	call_name: &'a [u8],
+	call_arity: Option<usize>,
+}
+
+struct CsRefSpec {
+	kind: &'static [u8],
+	target: Moniker,
+	confidence: &'static [u8],
+	position: Position,
+	receiver_hint: &'static [u8],
+	alias: &'static [u8],
+}
+
+struct CsSymbol<'src> {
+	moniker: Moniker,
+	kind: &'static [u8],
+	visibility: &'static [u8],
+	signature: Option<Vec<u8>>,
+	body: Option<Node<'src>>,
+	position: Position,
+	annotated_by: Vec<CsRefSpec>,
+}
+
+enum CsNodeShape<'src> {
+	Annotation { kind: &'static [u8] },
+	CsSymbol(CsSymbol<'src>),
+	Skip,
+	Recurse,
+}
+
+struct CsBuilder {
+	root: Moniker,
+	defs: Vec<DiscoveredDef>,
+	refs: Vec<ResolvedRef>,
+	seen_defs: HashSet<Moniker>,
+}
+
+impl CsBuilder {
+	fn new(root: Moniker) -> Self {
+		Self {
+			root,
+			defs: Vec::new(),
+			refs: Vec::new(),
+			seen_defs: HashSet::new(),
+		}
+	}
+
+	fn contains(&self, moniker: &Moniker) -> bool {
+		moniker == &self.root || self.seen_defs.contains(moniker)
+	}
+
+	fn add_def(
+		&mut self,
+		moniker: Moniker,
+		kind: &'static [u8],
+		parent: &Moniker,
+		position: Option<Position>,
+	) -> Result<(), ()> {
+		self.add_def_attrs(moniker, kind, parent, position, &CsDefAttrs::default())
+	}
+
+	fn add_def_attrs(
+		&mut self,
+		moniker: Moniker,
+		kind: &'static [u8],
+		parent: &Moniker,
+		position: Option<Position>,
+		attrs: &CsDefAttrs<'_>,
+	) -> Result<(), ()> {
+		if self.contains(&moniker) || !self.contains(parent) || !parent.is_ancestor_of(&moniker) {
+			return Err(());
+		}
+		let name = moniker
+			.as_view()
+			.segments()
+			.last()
+			.map(|segment| segment.name.to_vec())
+			.unwrap_or_default();
+		self.seen_defs.insert(moniker.clone());
+		self.defs.push(DiscoveredDef {
+			moniker,
+			parent: parent.clone(),
+			namespace: namespace_for(kind),
+			name,
+			kind,
+			visibility: attrs.visibility,
+			signature: attrs.signature.to_vec(),
+			position,
+			call_name: Vec::new(),
+			call_arity: None,
+		});
+		Ok(())
+	}
+
+	fn add_ref_attrs(
+		&mut self,
+		source: &Moniker,
+		target: Moniker,
+		kind: &'static [u8],
+		position: Option<Position>,
+		attrs: &CsRefAttrs<'_>,
+	) -> Result<(), ()> {
+		if !self.contains(source) {
+			return Err(());
+		}
+		self.refs.push(ResolvedRef {
+			source: source.clone(),
+			target,
+			kind,
+			position,
+			confidence: attrs.confidence,
+			hints: RefHints {
+				receiver_hint: attrs.receiver_hint.to_vec(),
+				alias: attrs.alias.to_vec(),
+				namespace: None,
+				call_name: attrs.call_name.to_vec(),
+				call_arity: attrs.call_arity,
+			},
+		});
+		Ok(())
+	}
+
+	fn finish(mut self, metadata: &CallableMetadata) -> DiscoveredCsFile {
+		for definition in &mut self.defs {
+			if let Some((call_name, call_arity)) = metadata.get(&definition.moniker) {
+				definition.call_name.clone_from(call_name);
+				definition.call_arity = *call_arity;
+			} else if matches!(definition.kind, b"method" | b"constructor") {
+				definition.call_name =
+					crate::core::moniker::query::bare_callable_name(&definition.name).to_vec();
+			}
+		}
+		DiscoveredCsFile {
+			root: self.root,
+			defs: self.defs,
+			refs: self.refs,
+		}
+	}
+}
+
+fn namespace_for(kind: &[u8]) -> Namespace {
+	match kind {
+		b"class" | b"interface" | b"struct" | b"record" | b"enum" | b"delegate" => Namespace::Type,
+		b"module" => Namespace::Module,
+		_ => Namespace::Value,
+	}
+}
 
 #[derive(Clone)]
 pub(super) struct ImportEntry {
@@ -24,7 +191,7 @@ pub(super) struct ImportEntry {
 	pub module_prefix: Moniker,
 }
 
-pub(super) struct Strategy<'src> {
+pub(super) struct CsDiscover<'src> {
 	pub(super) module: Moniker,
 	pub(super) source_bytes: &'src [u8],
 	pub(super) deep: bool,
@@ -34,19 +201,208 @@ pub(super) struct Strategy<'src> {
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
 }
 
-impl<'a> LangStrategy for Strategy<'a> {
+struct PendingAnnotation {
+	kind: &'static [u8],
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
+pub(super) fn discover<'src>(
+	module: Moniker,
+	source: &'src str,
+	root: Node<'src>,
+	deep: bool,
+) -> DiscoveredCsFile {
+	let mut type_table = HashMap::new();
+	collect_type_table(root, source.as_bytes(), &module, &mut type_table);
+	let mut callable_table = HashMap::new();
+	let mut callable_metadata = HashMap::new();
+	collect_callable_table(
+		root,
+		source.as_bytes(),
+		&module,
+		&mut callable_table,
+		&mut callable_metadata,
+	);
+	let discover = CsDiscover {
+		module: module.clone(),
+		source_bytes: source.as_bytes(),
+		deep,
+		imports: RefCell::new(HashMap::new()),
+		local_scope: RefCell::new(Vec::new()),
+		type_table,
+		callable_table,
+	};
+	let mut builder = CsBuilder::new(module.clone());
+	discover.walk(root, &module, &mut builder);
+	builder.finish(&callable_metadata)
+}
+
+impl CsDiscover<'_> {
+	fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
+		let mut cursor = node.walk();
+		let mut pending = None;
+		for child in node.children(&mut cursor) {
+			match self.classify(child, scope, self.source_bytes, graph) {
+				CsNodeShape::Annotation { kind } => {
+					self.extend_or_flush(&mut pending, kind, child, scope, graph)
+				}
+				CsNodeShape::CsSymbol(symbol) => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.emit_symbol(child, scope, symbol, graph);
+				}
+				CsNodeShape::Skip => self.flush_pending(&mut pending, scope, graph),
+				CsNodeShape::Recurse => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.walk(child, scope, graph);
+				}
+			}
+		}
+		self.flush_pending(&mut pending, scope, graph);
+	}
+
+	fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
+		match self.classify(node, scope, self.source_bytes, graph) {
+			CsNodeShape::Annotation { kind } => self.emit_annotation_range(
+				kind,
+				node.start_byte() as u32,
+				node.end_byte() as u32,
+				scope,
+				graph,
+			),
+			CsNodeShape::CsSymbol(symbol) => self.emit_symbol(node, scope, symbol, graph),
+			CsNodeShape::Skip => {}
+			CsNodeShape::Recurse => self.walk(node, scope, graph),
+		}
+	}
+
+	fn emit_symbol(
+		&self,
+		node: Node<'_>,
+		scope: &Moniker,
+		symbol: CsSymbol<'_>,
+		graph: &mut CsBuilder,
+	) {
+		let parent = symbol
+			.moniker
+			.parent()
+			.filter(|parent| parent != scope && graph.contains(parent))
+			.unwrap_or_else(|| scope.clone());
+		let attrs = CsDefAttrs {
+			visibility: symbol.visibility,
+			signature: symbol.signature.as_deref().unwrap_or_default(),
+		};
+		if graph
+			.add_def_attrs(
+				symbol.moniker.clone(),
+				symbol.kind,
+				&parent,
+				Some(symbol.position),
+				&attrs,
+			)
+			.is_err()
+		{
+			return;
+		}
+		for reference in symbol.annotated_by {
+			let attrs = CsRefAttrs {
+				confidence: reference.confidence,
+				receiver_hint: reference.receiver_hint,
+				alias: reference.alias,
+				..CsRefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				&symbol.moniker,
+				reference.target,
+				reference.kind,
+				Some(reference.position),
+				&attrs,
+			);
+		}
+		self.before_body(node, symbol.kind, &symbol.moniker, self.source_bytes, graph);
+		if let Some(body) = symbol.body {
+			self.walk(body, &symbol.moniker, graph);
+		}
+		self.after_body(symbol.kind, &symbol.moniker);
+		self.on_symbol_emitted(node, symbol.kind, &symbol.moniker, self.source_bytes, graph);
+	}
+
+	fn extend_or_flush(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		kind: &'static [u8],
+		child: Node<'_>,
+		scope: &Moniker,
+		graph: &mut CsBuilder,
+	) {
+		let start_row = child.start_position().row;
+		let end_row = child.end_position().row;
+		let start_byte = child.start_byte() as u32;
+		let end_byte = child.end_byte() as u32;
+		if let Some(annotation) = pending.as_mut() {
+			if annotation.kind == kind && start_row <= annotation.end_row + 1 {
+				annotation.end_byte = end_byte;
+				annotation.end_row = end_row;
+				return;
+			}
+			self.emit_annotation_range(
+				annotation.kind,
+				annotation.start_byte,
+				annotation.end_byte,
+				scope,
+				graph,
+			);
+		}
+		*pending = Some(PendingAnnotation {
+			kind,
+			start_byte,
+			end_byte,
+			end_row,
+		});
+	}
+
+	fn flush_pending(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		scope: &Moniker,
+		graph: &mut CsBuilder,
+	) {
+		if let Some(annotation) = pending.take() {
+			self.emit_annotation_range(
+				annotation.kind,
+				annotation.start_byte,
+				annotation.end_byte,
+				scope,
+				graph,
+			);
+		}
+	}
+
+	fn emit_annotation_range(
+		&self,
+		kind: &'static [u8],
+		start_byte: u32,
+		end_byte: u32,
+		scope: &Moniker,
+		graph: &mut CsBuilder,
+	) {
+		let moniker = crate::lang::callable::extend_segment_u32(scope, kind, start_byte);
+		let _ = graph.add_def(moniker, kind, scope, Some((start_byte, end_byte)));
+	}
+
 	fn classify<'src>(
 		&self,
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
-	) -> NodeShape<'src> {
+		graph: &mut CsBuilder,
+	) -> CsNodeShape<'src> {
 		match node.kind() {
-			"comment" => NodeShape::Annotation {
+			"comment" => CsNodeShape::Annotation {
 				kind: kinds::COMMENT,
 			},
-			"namespace_declaration" | "file_scoped_namespace_declaration" => NodeShape::Recurse,
+			"namespace_declaration" | "file_scoped_namespace_declaration" => CsNodeShape::Recurse,
 			"class_declaration" => self.classify_type(node, scope, source, kinds::CLASS),
 			"struct_declaration" => self.classify_type(node, scope, source, kinds::STRUCT),
 			"interface_declaration" => self.classify_type(node, scope, source, kinds::INTERFACE),
@@ -59,30 +415,30 @@ impl<'a> LangStrategy for Strategy<'a> {
 			}
 			"field_declaration" => {
 				self.handle_field(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
 			"property_declaration" => self.classify_property(node, scope, source, graph),
 			"using_directive" => {
 				self.handle_using(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
 			"invocation_expression" => {
 				self.handle_invocation(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
 			"object_creation_expression" => {
 				self.handle_object_creation(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
 			"local_declaration_statement" => {
 				self.handle_local_declaration(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
 			"foreach_statement" => {
 				self.handle_foreach(node, scope, graph);
-				NodeShape::Skip
+				CsNodeShape::Skip
 			}
-			_ => NodeShape::Recurse,
+			_ => CsNodeShape::Recurse,
 		}
 	}
 
@@ -92,7 +448,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		kind: &[u8],
 		moniker: &Moniker,
 		_source: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		if kind == kinds::ENUM {
 			self.emit_enum_constants(node, moniker, graph);
@@ -124,7 +480,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		sym_kind: &[u8],
 		sym_moniker: &Moniker,
 		_source: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		if sym_kind != kinds::RECORD && !(sym_kind == kinds::STRUCT && is_record_struct(node)) {
 			return;
@@ -135,21 +491,21 @@ impl<'a> LangStrategy for Strategy<'a> {
 	}
 }
 
-impl<'src_lang> Strategy<'src_lang> {
+impl<'src_lang> CsDiscover<'src_lang> {
 	fn classify_type<'src>(
 		&self,
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
 		kind: &'static [u8],
-	) -> NodeShape<'src> {
+	) -> CsNodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
-			return NodeShape::Recurse;
+			return CsNodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
 		let moniker = extend_segment(scope, kind, name);
 
-		let mut annotated_by: Vec<RefSpec> = Vec::new();
+		let mut annotated_by: Vec<CsRefSpec> = Vec::new();
 		if let Some(bases) = find_named_child(node, "base_list") {
 			self.collect_base_list_refs(bases, &mut annotated_by);
 		}
@@ -160,7 +516,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		} else {
 			kinds::VIS_PRIVATE
 		};
-		NodeShape::Symbol(Symbol {
+		CsNodeShape::CsSymbol(CsSymbol {
 			moniker,
 			kind,
 			visibility: modifier_visibility(node, default_vis),
@@ -171,7 +527,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		})
 	}
 
-	fn emit_enum_constants(&self, enum_node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+	fn emit_enum_constants(&self, enum_node: Node<'_>, parent: &Moniker, graph: &mut CsBuilder) {
 		let Some(body) = enum_node
 			.child_by_field_name("body")
 			.or_else(|| find_named_child(enum_node, "enum_member_declaration_list"))
@@ -209,14 +565,14 @@ impl<'src_lang> Strategy<'src_lang> {
 		scope: &Moniker,
 		source: &'src [u8],
 		kind: &'static [u8],
-	) -> NodeShape<'src> {
+	) -> CsNodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
-			return NodeShape::Recurse;
+			return CsNodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
 		let moniker = extend_segment(scope, kind, name);
 
-		let mut annotated_by: Vec<RefSpec> = Vec::new();
+		let mut annotated_by: Vec<CsRefSpec> = Vec::new();
 		if let Some(bases) = find_named_child(node, "base_list") {
 			self.collect_base_list_refs(bases, &mut annotated_by);
 		}
@@ -227,7 +583,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		} else {
 			kinds::VIS_PRIVATE
 		};
-		NodeShape::Symbol(Symbol {
+		CsNodeShape::CsSymbol(CsSymbol {
 			moniker,
 			kind,
 			visibility: modifier_visibility(node, default_vis),
@@ -244,9 +600,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		scope: &Moniker,
 		source: &'src [u8],
 		kind: &'static [u8],
-	) -> NodeShape<'src> {
+	) -> CsNodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
-			return NodeShape::Recurse;
+			return CsNodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
 		let slots = parameter_slots(node, source);
@@ -254,7 +610,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
-		let mut annotated_by: Vec<RefSpec> = Vec::new();
+		let mut annotated_by: Vec<CsRefSpec> = Vec::new();
 		self.collect_attribute_refs(node, &mut annotated_by);
 
 		self.push_local_scope();
@@ -262,7 +618,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			self.record_param_locals(params);
 		}
 
-		NodeShape::Symbol(Symbol {
+		CsNodeShape::CsSymbol(CsSymbol {
 			moniker,
 			kind,
 			visibility: modifier_visibility(node, kinds::VIS_PRIVATE),
@@ -278,10 +634,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
-	) -> NodeShape<'src> {
+		graph: &mut CsBuilder,
+	) -> CsNodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
-			return NodeShape::Recurse;
+			return CsNodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
 		if let Some(t) = node.child_by_field_name("type") {
@@ -289,10 +645,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 		let moniker = extend_segment(scope, kinds::PROPERTY, name);
 
-		let mut annotated_by: Vec<RefSpec> = Vec::new();
+		let mut annotated_by: Vec<CsRefSpec> = Vec::new();
 		self.collect_attribute_refs(node, &mut annotated_by);
 
-		NodeShape::Symbol(Symbol {
+		CsNodeShape::CsSymbol(CsSymbol {
 			moniker,
 			kind: kinds::PROPERTY,
 			visibility: modifier_visibility(node, kinds::VIS_PRIVATE),
@@ -307,7 +663,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		node: Node<'_>,
 		record: &Moniker,
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let Some(plist) = find_named_child(node, "parameter_list") else {
 			return;
@@ -320,10 +676,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		let signature =
 			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 		let ctor = extend_callable_slots(record, kinds::CONSTRUCTOR, name, &slots);
-		let attrs = DefAttrs {
+		let attrs = CsDefAttrs {
 			visibility: kinds::VIS_PUBLIC,
 			signature: &signature,
-			..DefAttrs::default()
+			..CsDefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			ctor,
@@ -355,7 +711,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		params: Node<'_>,
 		callable: &Moniker,
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let mut cursor = params.walk();
 		for p in params.named_children(&mut cursor) {
@@ -385,7 +741,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		type_node: Node<'_>,
 		scope: &Moniker,
 		name: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let resolved = match type_node.kind() {
 			"generic_name" => first_identifier_child(type_node)
@@ -395,10 +751,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some((target, confidence)) = resolved else {
 			return;
 		};
-		let attrs = RefAttrs {
+		let attrs = CsRefAttrs {
 			confidence,
 			alias: name,
-			..RefAttrs::default()
+			..CsRefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
 			scope,
@@ -409,7 +765,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		);
 	}
 
-	fn emit_typed_source(&self, type_node: Node<'_>, source: &Moniker, graph: &mut CodeGraph) {
+	fn emit_typed_source(&self, type_node: Node<'_>, source: &Moniker, graph: &mut CsBuilder) {
 		let resolved = match type_node.kind() {
 			"generic_name" => first_identifier_child(type_node)
 				.and_then(|identifier| self.resolve_type_node(identifier)),
@@ -418,9 +774,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some((target, confidence)) = resolved else {
 			return;
 		};
-		let attrs = RefAttrs {
+		let attrs = CsRefAttrs {
 			confidence,
-			..RefAttrs::default()
+			..CsRefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
 			source,
@@ -431,7 +787,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		);
 	}
 
-	fn handle_field(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_field(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		let visibility = modifier_visibility(node, kinds::VIS_PRIVATE);
 		self.emit_attribute_refs_on(node, scope, graph);
 		let Some(decl) = find_named_child(node, "variable_declaration") else {
@@ -451,9 +807,9 @@ impl<'src_lang> Strategy<'src_lang> {
 			};
 			let name = node_slice(name_node, self.source_bytes);
 			let m = extend_segment(scope, kinds::FIELD, name);
-			let attrs = DefAttrs {
+			let attrs = CsDefAttrs {
 				visibility,
-				..DefAttrs::default()
+				..CsDefAttrs::default()
 			};
 			let _ = graph.add_def_attrs(
 				m.clone(),
@@ -468,7 +824,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_local_declaration(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_local_declaration(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		let Some(decl) = find_named_child(node, "variable_declaration") else {
 			return;
 		};
@@ -514,7 +870,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		declarator: Node<'_>,
 		scope: &Moniker,
 		name: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let initializer = declarator.child_by_field_name("value").or_else(|| {
 			let mut cursor = declarator.walk();
@@ -531,7 +887,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.emit_typed_binding(type_node, scope, name, graph);
 	}
 
-	fn handle_foreach(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_foreach(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
@@ -557,7 +913,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_using(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_using(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		let pos = node_position(node);
 		let alias_node = node.child_by_field_name("name");
 		let mut path_node: Option<Node<'_>> = None;
@@ -594,10 +950,10 @@ impl<'src_lang> Strategy<'src_lang> {
 				},
 			);
 		}
-		let attrs = RefAttrs {
+		let attrs = CsRefAttrs {
 			confidence,
 			alias: alias.as_bytes(),
-			..RefAttrs::default()
+			..CsRefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
 			scope,
@@ -608,7 +964,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		);
 	}
 
-	fn handle_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		let pos = node_position(node);
 		let call_arity = node
 			.child_by_field_name("arguments")
@@ -635,7 +991,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		scope: &Moniker,
 		pos: (u32, u32),
 		call_arity: Option<usize>,
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let name = node_slice(callee, self.source_bytes);
 		if name.is_empty() {
@@ -643,11 +999,11 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 		if let Some(entry) = self.import_entry_for(name) {
 			let target = extend_segment(&entry.module_prefix, kinds::FUNCTION, name);
-			let attrs = RefAttrs {
+			let attrs = CsRefAttrs {
 				confidence: entry.confidence,
 				call_name: name,
 				call_arity,
-				..RefAttrs::default()
+				..CsRefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
 			return;
@@ -661,11 +1017,11 @@ impl<'src_lang> Strategy<'src_lang> {
 			self.lookup_callable_in_scope(scope, name, kinds::METHOD)
 				.unwrap_or_else(|| extend_segment(&self.module, kinds::FUNCTION, name))
 		};
-		let attrs = RefAttrs {
+		let attrs = CsRefAttrs {
 			confidence: conf,
 			call_name: name,
 			call_arity,
-			..RefAttrs::default()
+			..CsRefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
 	}
@@ -676,7 +1032,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		scope: &Moniker,
 		pos: (u32, u32),
 		call_arity: Option<usize>,
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		let Some(name_node) = callee.child_by_field_name("name") else {
 			self.walk_children(callee, scope, graph);
@@ -691,12 +1047,12 @@ impl<'src_lang> Strategy<'src_lang> {
 		let hint = operand
 			.map(|o| receiver_hint(o, self.source_bytes))
 			.unwrap_or(b"");
-		let attrs = RefAttrs {
+		let attrs = CsRefAttrs {
 			receiver_hint: hint,
 			confidence: kinds::CONF_NAME_MATCH,
 			call_name: name,
 			call_arity,
-			..RefAttrs::default()
+			..CsRefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
 		if let Some(op) = operand {
@@ -704,7 +1060,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_object_creation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_object_creation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		if let Some(type_node) = node.child_by_field_name("type") {
 			self.emit_type_ref(type_node, scope, kinds::INSTANTIATES, graph);
 		}
@@ -713,7 +1069,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn emit_uses_type(&self, type_node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn emit_uses_type(&self, type_node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
 		self.emit_type_ref(type_node, scope, kinds::USES_TYPE, graph);
 	}
 
@@ -722,15 +1078,15 @@ impl<'src_lang> Strategy<'src_lang> {
 		type_node: Node<'_>,
 		scope: &Moniker,
 		ref_kind: &'static [u8],
-		graph: &mut CodeGraph,
+		graph: &mut CsBuilder,
 	) {
 		match type_node.kind() {
 			"predefined_type" | "implicit_type" => {}
 			"identifier" | "qualified_name" => {
 				if let Some((target, confidence)) = self.resolve_type_node(type_node) {
-					let attrs = RefAttrs {
+					let attrs = CsRefAttrs {
 						confidence,
-						..RefAttrs::default()
+						..CsRefAttrs::default()
 					};
 					let _ = graph.add_ref_attrs(
 						scope,
@@ -747,9 +1103,9 @@ impl<'src_lang> Strategy<'src_lang> {
 					match c.kind() {
 						"identifier" => {
 							if let Some((target, confidence)) = self.resolve_type_node(c) {
-								let attrs = RefAttrs {
+								let attrs = CsRefAttrs {
 									confidence,
-									..RefAttrs::default()
+									..CsRefAttrs::default()
 								};
 								let _ = graph.add_ref_attrs(
 									scope,
@@ -824,7 +1180,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		))
 	}
 
-	fn collect_base_list_refs(&self, base_list: Node<'_>, out: &mut Vec<RefSpec>) {
+	fn collect_base_list_refs(&self, base_list: Node<'_>, out: &mut Vec<CsRefSpec>) {
 		let mut cursor = base_list.walk();
 		for entry in base_list.named_children(&mut cursor) {
 			let (leaf_node, name) = match entry.kind() {
@@ -850,7 +1206,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				continue;
 			}
 			let (target, confidence) = self.resolve_type_target(name, kinds::CLASS);
-			out.push(RefSpec {
+			out.push(CsRefSpec {
 				kind: kinds::EXTENDS,
 				target,
 				confidence,
@@ -861,7 +1217,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn collect_attribute_refs(&self, node: Node<'_>, out: &mut Vec<RefSpec>) {
+	fn collect_attribute_refs(&self, node: Node<'_>, out: &mut Vec<CsRefSpec>) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
 			if child.kind() != "attribute_list" {
@@ -886,7 +1242,7 @@ impl<'src_lang> Strategy<'src_lang> {
 					continue;
 				}
 				let (target, confidence) = self.resolve_type_target(name, kinds::CLASS);
-				out.push(RefSpec {
+				out.push(CsRefSpec {
 					kind: kinds::ANNOTATES,
 					target,
 					confidence,
@@ -898,26 +1254,24 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn emit_attribute_refs_on(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let mut refs: Vec<RefSpec> = Vec::new();
+	fn emit_attribute_refs_on(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
+		let mut refs: Vec<CsRefSpec> = Vec::new();
 		self.collect_attribute_refs(node, &mut refs);
 		for r in refs {
-			let attrs = RefAttrs {
+			let attrs = CsRefAttrs {
 				confidence: r.confidence,
-				..RefAttrs::default()
+				..CsRefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, r.target, r.kind, Some(r.position), &attrs);
 		}
 	}
 
-	fn recurse_subtree(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let walker = crate::lang::canonical_walker::CanonicalWalker::new(self, self.source_bytes);
-		walker.dispatch(node, scope, graph);
+	fn recurse_subtree(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
+		self.dispatch(node, scope, graph);
 	}
 
-	fn walk_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let walker = crate::lang::canonical_walker::CanonicalWalker::new(self, self.source_bytes);
-		walker.walk(node, scope, graph);
+	fn walk_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut CsBuilder) {
+		self.walk(node, scope, graph);
 	}
 
 	fn push_local_scope(&self) {

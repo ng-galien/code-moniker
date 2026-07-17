@@ -9,7 +9,6 @@ pub mod build;
 mod canonicalize;
 mod kinds;
 mod sdk_pipeline;
-mod strategy;
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
