@@ -679,7 +679,6 @@ impl<'src_lang> CsDiscover<'src_lang> {
 		let attrs = CsDefAttrs {
 			visibility: kinds::VIS_PUBLIC,
 			signature: &signature,
-			..CsDefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			ctor,
