@@ -2,7 +2,6 @@ mod body;
 mod canonicalize;
 mod kinds;
 mod sdk_pipeline;
-mod strategy;
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
@@ -250,6 +249,39 @@ mod tests {
 			.collect::<Vec<_>>();
 		assert_eq!(refresh_targets.len(), 1, "got {refresh_targets:?}");
 		assert!(refresh_targets[0].contains("schema:first_schema"));
+	}
+
+	#[test]
+	fn duplicate_routine_keeps_the_last_callable_arity_metadata() {
+		let g = run(
+			"foo.sql",
+			"CREATE OR REPLACE FUNCTION public.wrapper(p_id uuid) RETURNS int LANGUAGE sql AS $$ SELECT 1 $$; CREATE OR REPLACE FUNCTION public.wrapper(p_id uuid DEFAULT NULL) RETURNS int LANGUAGE sql AS $$ SELECT 2 $$;",
+		);
+		let wrapper = g
+			.defs()
+			.find(|definition| definition.call_name == b"wrapper")
+			.expect("wrapper definition");
+		assert_eq!(wrapper.call_arity, Some(0));
+	}
+
+	#[test]
+	fn ddl_in_sql_body_does_not_emit_a_definition_with_an_invalid_parent() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.wrapper() RETURNS void LANGUAGE sql AS $$ CREATE TABLE public.inner_table(id int); $$;",
+		);
+		assert_eq!(
+			g.defs()
+				.filter(|definition| definition.kind == b"function")
+				.count(),
+			1
+		);
+		assert_eq!(
+			g.defs()
+				.filter(|definition| definition.kind == b"table")
+				.count(),
+			0
+		);
 	}
 
 	#[test]

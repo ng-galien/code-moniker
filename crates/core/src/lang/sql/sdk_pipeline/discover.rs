@@ -1,27 +1,26 @@
-// code-moniker: ignore-file[smell-data-clumps-param-names]
-// TODO(smell): introduce a shared SQL extraction context for node, source, scope, and graph parameters before enabling this guardrail here.
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-clone-reflex, smell-harmonious-method-size]
+// TODO(smell): split SQL discovery into definition walking, callable metadata, and reference emission units before enabling these guardrails here.
+use std::collections::{HashMap, HashSet};
+
 use tree_sitter::{Node, Parser, Tree};
 
-use crate::core::code_graph::CodeGraph;
+use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
-
-use crate::core::code_graph::RefAttrs;
-
 use crate::core::moniker::MonikerBuilder;
-use crate::lang::canonical_walker::CanonicalWalker;
-use crate::lang::strategy::{LangStrategy, NodeShape, Symbol};
+use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
 use crate::lang::callable::{
-	CallableSlot, extend_callable_slots, join_bytes_with_comma, slot_signature_bytes,
+	CallableSlot, extend_callable_slots, extend_segment_u32, join_bytes_with_comma,
+	slot_signature_bytes,
 };
 
-use super::canonicalize::{extend_segment, maybe_schema};
-use super::kinds;
+use super::super::canonicalize::{extend_segment, maybe_schema};
+use super::super::kinds;
 
 use find_named_child as find_child;
 
-pub(super) fn new_sql_parser() -> Parser {
+pub(in crate::lang::sql) fn new_sql_parser() -> Parser {
 	let mut parser = Parser::new();
 	parser
 		.set_language(&tree_sitter_postgres::LANGUAGE.into())
@@ -41,121 +40,375 @@ pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 	})
 }
 
-pub(super) type CallableMetadata = std::collections::HashMap<Moniker, (Vec<u8>, Option<usize>)>;
-pub(super) type CallableSearchPaths = std::collections::HashMap<Moniker, Option<Vec<u8>>>;
+pub(in crate::lang::sql) type CallableSearchPaths = HashMap<Moniker, Option<Vec<u8>>>;
+type CallableMetadata = HashMap<Moniker, (Vec<u8>, Option<usize>)>;
 
-pub(super) struct Strategy<'src> {
-	pub(super) module: Moniker,
-	pub(super) source_str: &'src str,
-	pub(super) emit_comments: bool,
-	pub(super) search_paths: &'src CallableSearchPaths,
+pub(super) struct DiscoveredSqlFile {
+	pub(super) root: Moniker,
+	pub(super) defs: Vec<DiscoveredDef>,
+	pub(super) refs: Vec<ResolvedRef>,
 }
 
-impl LangStrategy for Strategy<'_> {
+pub(super) struct SqlDiscover;
+
+struct SqlSymbol<'src> {
+	moniker: Moniker,
+	kind: &'static [u8],
+	signature: Vec<u8>,
+	call_name: Vec<u8>,
+	call_arity: Option<usize>,
+	body: Option<Node<'src>>,
+	position: Position,
+}
+
+enum SqlNodeShape<'src> {
+	Annotation,
+	Symbol(SqlSymbol<'src>),
+	Skip,
+	Recurse,
+}
+
+pub(in crate::lang::sql) struct SqlBuilder {
+	root: Moniker,
+	defs: Vec<DiscoveredDef>,
+	refs: Vec<ResolvedRef>,
+	seen_defs: HashSet<Moniker>,
+}
+
+fn namespace_for(kind: &[u8]) -> Namespace {
+	match kind {
+		b"schema" | b"module" => Namespace::Module,
+		b"table" | b"view" => Namespace::Type,
+		_ => Namespace::Value,
+	}
+}
+
+impl SqlBuilder {
+	fn new(root: Moniker) -> Self {
+		Self {
+			root,
+			defs: Vec::new(),
+			refs: Vec::new(),
+			seen_defs: HashSet::new(),
+		}
+	}
+
+	fn add_symbol(&mut self, symbol: &SqlSymbol<'_>, scope: &Moniker) -> bool {
+		if self.contains(&symbol.moniker) {
+			return false;
+		}
+		let parent = symbol
+			.moniker
+			.parent()
+			.filter(|parent| parent != scope && self.contains(parent))
+			.unwrap_or_else(|| scope.clone());
+		if !self.contains(&parent) || !parent.is_ancestor_of(&symbol.moniker) {
+			return false;
+		}
+		self.seen_defs.insert(symbol.moniker.clone());
+		let name = symbol
+			.moniker
+			.as_view()
+			.segments()
+			.last()
+			.map(|segment| segment.name.to_vec())
+			.unwrap_or_default();
+		self.defs.push(DiscoveredDef {
+			moniker: symbol.moniker.clone(),
+			parent,
+			namespace: namespace_for(symbol.kind),
+			name,
+			kind: symbol.kind,
+			visibility: kinds::VIS_NONE,
+			signature: symbol.signature.clone(),
+			position: Some(symbol.position),
+			call_name: symbol.call_name.clone(),
+			call_arity: symbol.call_arity,
+		});
+		true
+	}
+
+	fn apply_callable_metadata(&mut self, metadata: &CallableMetadata) {
+		for definition in &mut self.defs {
+			if let Some((call_name, call_arity)) = metadata.get(&definition.moniker) {
+				definition.call_name.clone_from(call_name);
+				definition.call_arity = *call_arity;
+			}
+		}
+	}
+
+	fn add_comment(&mut self, scope: &Moniker, start: u32, end: u32) {
+		let symbol = SqlSymbol {
+			moniker: extend_segment_u32(scope, kinds::COMMENT, start),
+			kind: kinds::COMMENT,
+			signature: Vec::new(),
+			call_name: Vec::new(),
+			call_arity: None,
+			body: None,
+			position: (start, end),
+		};
+		let _ = self.add_symbol(&symbol, scope);
+	}
+
+	fn push_ref(&mut self, reference: ResolvedRef) {
+		self.refs.push(reference);
+	}
+
+	fn contains(&self, moniker: &Moniker) -> bool {
+		moniker == &self.root || self.seen_defs.contains(moniker)
+	}
+
+	fn finish(self) -> DiscoveredSqlFile {
+		DiscoveredSqlFile {
+			root: self.root,
+			defs: self.defs,
+			refs: self.refs,
+		}
+	}
+}
+
+fn resolved_ref(
+	source: &Moniker,
+	target: Moniker,
+	kind: &'static [u8],
+	position: Option<Position>,
+	confidence: &'static [u8],
+	call_name: &[u8],
+	call_arity: Option<usize>,
+) -> ResolvedRef {
+	ResolvedRef {
+		source: source.clone(),
+		target,
+		kind,
+		position,
+		confidence,
+		hints: RefHints {
+			receiver_hint: Vec::new(),
+			alias: Vec::new(),
+			namespace: None,
+			call_name: call_name.to_vec(),
+			call_arity,
+		},
+	}
+}
+
+struct PendingComment {
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
+struct SqlWalker<'a> {
+	module: &'a Moniker,
+	source_str: &'a str,
+	emit_comments: bool,
+	search_paths: &'a CallableSearchPaths,
+}
+
+impl SqlWalker<'_> {
+	fn walk(&self, node: Node<'_>, scope: &Moniker, builder: &mut SqlBuilder) {
+		let mut cursor = node.walk();
+		let mut pending = None;
+		for child in node.children(&mut cursor) {
+			match self.classify(child, scope, builder) {
+				SqlNodeShape::Annotation => {
+					self.extend_or_flush(&mut pending, child, scope, builder)
+				}
+				SqlNodeShape::Symbol(symbol) => {
+					self.flush_pending(&mut pending, scope, builder);
+					self.emit_symbol(child, scope, symbol, builder);
+				}
+				SqlNodeShape::Skip => self.flush_pending(&mut pending, scope, builder),
+				SqlNodeShape::Recurse => {
+					self.flush_pending(&mut pending, scope, builder);
+					self.walk(child, scope, builder);
+				}
+			}
+		}
+		self.flush_pending(&mut pending, scope, builder);
+	}
+
 	fn classify<'src>(
 		&self,
 		node: Node<'src>,
 		scope: &Moniker,
-		source: &'src [u8],
-		graph: &mut CodeGraph,
-	) -> NodeShape<'src> {
+		builder: &mut SqlBuilder,
+	) -> SqlNodeShape<'src> {
+		let source = self.source_str.as_bytes();
 		match node.kind() {
-			"comment" if self.emit_comments => NodeShape::Annotation {
-				kind: kinds::COMMENT,
-			},
-			"comment" => NodeShape::Skip,
-			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
+			"comment" if self.emit_comments => SqlNodeShape::Annotation,
+			"comment" => SqlNodeShape::Skip,
+			"CreateFunctionStmt" => classify_create_function(node, source, self.module),
 			"DefineStmt" if find_descendant(node, "kw_type").is_some() => {
-				classify_user_type(node, source, &self.module)
+				classify_user_type(node, source, self.module)
 			}
-			"CreateDomainStmt" => classify_user_type(node, source, &self.module),
+			"CreateDomainStmt" => classify_user_type(node, source, self.module),
 			"CreateStmt" => {
-				classify_qualified_relation(node, source, &self.module, kinds::TABLE, None)
+				classify_qualified_relation(node, source, self.module, kinds::TABLE, None)
 			}
 			"ViewStmt" => classify_qualified_relation(
 				node,
 				source,
-				&self.module,
+				self.module,
 				kinds::VIEW,
 				find_child(node, "SelectStmt"),
 			),
 			"func_application" => {
-				emit_call(node, source, scope, &self.module, self.search_paths, graph);
-				NodeShape::Recurse
+				emit_call(node, source, scope, self.module, self.search_paths, builder);
+				SqlNodeShape::Recurse
 			}
-			_ => NodeShape::Recurse,
+			_ => SqlNodeShape::Recurse,
 		}
 	}
 
-	fn on_symbol_emitted(
+	fn emit_symbol(
 		&self,
 		node: Node<'_>,
-		sym_kind: &[u8],
-		sym_moniker: &Moniker,
-		source: &[u8],
-		graph: &mut CodeGraph,
+		scope: &Moniker,
+		symbol: SqlSymbol<'_>,
+		builder: &mut SqlBuilder,
 	) {
-		if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
-			emit_function_type_refs(node, source, sym_moniker, &self.module, graph);
-			if let Some(body_text) = dollar_body(node, self.source_str) {
-				let language = function_language(node, source);
-				if language.eq_ignore_ascii_case(b"plpgsql") {
-					super::body::walk_plpgsql_body(
-						body_text,
-						sym_moniker,
-						&self.module,
-						self.search_paths,
-						graph,
-					);
-				} else if language.eq_ignore_ascii_case(b"sql") {
-					run_inner_sql(
-						&mut new_sql_parser(),
-						body_text,
-						sym_moniker,
-						&self.module,
-						self.search_paths,
-						graph,
-					);
-				}
+		if !builder.add_symbol(&symbol, scope) {
+			return;
+		}
+		if let Some(body) = symbol.body {
+			self.walk(body, &symbol.moniker, builder);
+		}
+		on_symbol_emitted(
+			node,
+			symbol.kind,
+			&symbol.moniker,
+			self.module,
+			self.source_str,
+			self.search_paths,
+			builder,
+		);
+	}
+
+	fn extend_or_flush(
+		&self,
+		pending: &mut Option<PendingComment>,
+		child: Node<'_>,
+		scope: &Moniker,
+		builder: &mut SqlBuilder,
+	) {
+		let start_row = child.start_position().row;
+		let end_row = child.end_position().row;
+		let start_byte = child.start_byte() as u32;
+		let end_byte = child.end_byte() as u32;
+		if let Some(comment) = pending.as_mut() {
+			if start_row <= comment.end_row + 1 {
+				comment.end_byte = end_byte;
+				comment.end_row = end_row;
+				return;
 			}
-		} else if sym_kind == kinds::TABLE {
-			emit_table_column_type_refs(node, source, sym_moniker, &self.module, graph);
+			builder.add_comment(scope, comment.start_byte, comment.end_byte);
+		}
+		*pending = Some(PendingComment {
+			start_byte,
+			end_byte,
+			end_row,
+		});
+	}
+
+	fn flush_pending(
+		&self,
+		pending: &mut Option<PendingComment>,
+		scope: &Moniker,
+		builder: &mut SqlBuilder,
+	) {
+		if let Some(comment) = pending.take() {
+			builder.add_comment(scope, comment.start_byte, comment.end_byte);
 		}
 	}
 }
 
-pub(super) fn run_inner_sql(
+impl SqlDiscover {
+	pub(super) fn run(module: Moniker, source: &str, root: Node<'_>) -> DiscoveredSqlFile {
+		let (callable_metadata, search_paths) =
+			collect_callable_metadata(root, source.as_bytes(), &module);
+		let mut builder = SqlBuilder::new(module.clone());
+		SqlWalker {
+			module: &module,
+			source_str: source,
+			emit_comments: true,
+			search_paths: &search_paths,
+		}
+		.walk(root, &module, &mut builder);
+		builder.apply_callable_metadata(&callable_metadata);
+		builder.finish()
+	}
+}
+
+fn on_symbol_emitted(
+	node: Node<'_>,
+	sym_kind: &[u8],
+	sym_moniker: &Moniker,
+	module: &Moniker,
+	source_str: &str,
+	search_paths: &CallableSearchPaths,
+	builder: &mut SqlBuilder,
+) {
+	let source = source_str.as_bytes();
+	if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
+		emit_function_type_refs(node, source, sym_moniker, module, builder);
+		if let Some(body_text) = dollar_body(node, source_str) {
+			let language = function_language(node, source);
+			if language.eq_ignore_ascii_case(b"plpgsql") {
+				super::super::body::walk_plpgsql_body(
+					body_text,
+					sym_moniker,
+					module,
+					search_paths,
+					builder,
+				);
+			} else if language.eq_ignore_ascii_case(b"sql") {
+				run_inner_sql(
+					&mut new_sql_parser(),
+					body_text,
+					sym_moniker,
+					module,
+					search_paths,
+					builder,
+				);
+			}
+		}
+	} else if sym_kind == kinds::TABLE {
+		emit_table_column_type_refs(node, source, sym_moniker, module, builder);
+	}
+}
+
+pub(in crate::lang::sql) fn run_inner_sql(
 	parser: &mut Parser,
 	source: &str,
 	scope: &Moniker,
 	module: &Moniker,
 	search_paths: &CallableSearchPaths,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	let tree = parse_with(parser, source);
-	let strategy = Strategy {
-		module: module.clone(),
+	SqlWalker {
+		module,
 		source_str: source,
 		emit_comments: false,
 		search_paths,
-	};
-	let walker = CanonicalWalker::new(&strategy, source.as_bytes());
-	walker.walk(tree.root_node(), scope, graph);
+	}
+	.walk(tree.root_node(), scope, builder);
 }
 
 fn classify_create_function<'src>(
 	node: Node<'src>,
-	source: &'src [u8],
+	source: &[u8],
 	module: &Moniker,
-) -> NodeShape<'src> {
+) -> SqlNodeShape<'src> {
 	let Some(func_name) = find_child(node, "func_name") else {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(func_name, source);
 	let schema = canonical_identifier(schema);
 	let name = canonical_identifier(name);
 	if name.is_empty() {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	}
 	let params = find_child(node, "func_args_with_defaults");
 	let slots = params
@@ -166,75 +419,75 @@ fn classify_create_function<'src>(
 	let moniker = extend_callable_slots(&parent, kind, &name, &slots);
 	let signature =
 		join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
-	NodeShape::Symbol(Symbol {
+	SqlNodeShape::Symbol(SqlSymbol {
 		moniker,
 		kind,
-		visibility: kinds::VIS_NONE,
-		signature: Some(signature),
+		signature,
+		call_name: name,
+		call_arity: Some(params.map(required_input_arity).unwrap_or(0)),
 		body: None,
 		position: node_position(node),
-		annotated_by: Vec::new(),
 	})
 }
 
 fn classify_qualified_relation<'src>(
 	node: Node<'src>,
-	source: &'src [u8],
+	source: &[u8],
 	module: &Moniker,
 	kind: &'static [u8],
 	body: Option<Node<'src>>,
-) -> NodeShape<'src> {
+) -> SqlNodeShape<'src> {
 	let Some(q) = find_child(node, "qualified_name") else {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(q, source);
 	let schema = canonical_identifier(schema);
 	let name = canonical_identifier(name);
 	if name.is_empty() {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	}
 	let parent = maybe_schema(module, &schema);
 	let moniker = extend_segment(&parent, kind, &name);
-	NodeShape::Symbol(Symbol {
+	SqlNodeShape::Symbol(SqlSymbol {
 		moniker,
 		kind,
-		visibility: kinds::VIS_NONE,
-		signature: None,
+		signature: Vec::new(),
+		call_name: Vec::new(),
+		call_arity: None,
 		body,
 		position: node_position(node),
-		annotated_by: Vec::new(),
 	})
 }
 
 fn classify_user_type<'src>(
 	node: Node<'src>,
-	source: &'src [u8],
+	source: &[u8],
 	module: &Moniker,
-) -> NodeShape<'src> {
+) -> SqlNodeShape<'src> {
 	let Some(name_node) =
 		find_child(node, "any_name").or_else(|| find_child(node, "qualified_name"))
 	else {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(name_node, source);
 	let schema = canonical_identifier(schema);
 	let name = canonical_identifier(name);
 	if name.is_empty() {
-		return NodeShape::Recurse;
+		return SqlNodeShape::Recurse;
 	}
 	let parent = maybe_schema(module, &schema);
-	NodeShape::Symbol(Symbol {
+	SqlNodeShape::Symbol(SqlSymbol {
 		moniker: extend_segment(&parent, kinds::TYPE, &name),
 		kind: kinds::TYPE,
-		visibility: kinds::VIS_NONE,
-		signature: None,
+		signature: Vec::new(),
+		call_name: Vec::new(),
+		call_arity: None,
 		body: None,
 		position: node_position(node),
-		annotated_by: Vec::new(),
 	})
 }
 
-pub(super) fn collect_callable_metadata(
+fn collect_callable_metadata(
 	root: Node<'_>,
 	source: &[u8],
 	module: &Moniker,
@@ -258,11 +511,11 @@ pub(super) fn collect_callable_metadata(
 		let slots = params
 			.map(|p| collect_param_slots(p, source))
 			.unwrap_or_default();
-		let call_arity = Some(params.map(required_input_arity).unwrap_or(0));
 		let parent = maybe_schema(module, &schema);
 		let kind = routine_kind(n);
 		let m = extend_callable_slots(&parent, kind, &name, &slots);
-		metadata.insert(m.clone(), (name.clone(), call_arity));
+		let call_arity = Some(params.map(required_input_arity).unwrap_or(0));
+		metadata.insert(m.clone(), (name, call_arity));
 		search_paths
 			.entry(m)
 			.or_insert_with(|| static_search_schema(n, source));
@@ -309,7 +562,7 @@ fn emit_call(
 	scope: &Moniker,
 	module: &Moniker,
 	search_paths: &CallableSearchPaths,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	let Some(name_node) = find_child(node, "func_name") else {
 		return;
@@ -351,13 +604,15 @@ fn emit_call(
 		extend_callable_slots(&parent, callable_kind, &name, &argument_slots)
 	};
 	let s = node.start_byte() as u32;
-	let attrs = RefAttrs {
+	builder.push_ref(resolved_ref(
+		scope,
+		target,
+		kinds::REF_CALLS,
+		Some((s, s)),
 		confidence,
-		call_name: &name,
-		call_arity: Some(argument_slots.len()),
-		..RefAttrs::default()
-	};
-	let _ = graph.add_ref_attrs(scope, target, kinds::REF_CALLS, Some((s, s)), &attrs);
+		&name,
+		Some(argument_slots.len()),
+	));
 }
 
 fn inside_call_statement(mut node: Node<'_>) -> bool {
@@ -959,7 +1214,7 @@ fn emit_function_type_refs(
 	source: &[u8],
 	source_moniker: &Moniker,
 	module: &Moniker,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	if let Some(params) = find_child(node, "func_args_with_defaults") {
 		visit(params, &mut |n| {
@@ -967,14 +1222,14 @@ fn emit_function_type_refs(
 				return;
 			}
 			if let Some(ft) = find_child(n, "func_type") {
-				emit_uses_type(ft, source, source_moniker, module, graph);
+				emit_uses_type(ft, source, source_moniker, module, builder);
 			}
 		});
 	}
 	if let Some(ft) = find_descendant(node, "func_return")
 		&& let Some(t) = find_descendant(ft, "func_type")
 	{
-		emit_uses_type(t, source, source_moniker, module, graph);
+		emit_uses_type(t, source, source_moniker, module, builder);
 	}
 }
 
@@ -983,14 +1238,14 @@ fn emit_table_column_type_refs(
 	source: &[u8],
 	source_moniker: &Moniker,
 	module: &Moniker,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	visit(node, &mut |n| {
 		if n.kind() != "columnDef" {
 			return;
 		}
 		if let Some(t) = find_child(n, "Typename") {
-			emit_uses_type(t, source, source_moniker, module, graph);
+			emit_uses_type(t, source, source_moniker, module, builder);
 		}
 	});
 }
@@ -1000,7 +1255,7 @@ fn emit_uses_type(
 	source: &[u8],
 	source_moniker: &Moniker,
 	module: &Moniker,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	let raw = node_slice(type_node, source);
 	let canonical = normalize_type(raw);
@@ -1008,17 +1263,15 @@ fn emit_uses_type(
 		return;
 	}
 	let (target, confidence) = type_target(&canonical, module);
-	let attrs = RefAttrs {
-		confidence,
-		..RefAttrs::default()
-	};
-	let _ = graph.add_ref_attrs(
+	builder.push_ref(resolved_ref(
 		source_moniker,
 		target,
 		kinds::USES_TYPE,
 		Some(node_position(type_node)),
-		&attrs,
-	);
+		confidence,
+		&[],
+		None,
+	));
 }
 
 fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {

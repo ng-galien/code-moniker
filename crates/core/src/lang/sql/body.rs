@@ -1,16 +1,17 @@
 use tree_sitter::{Node, Parser};
 
-use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
-use super::strategy::{CallableSearchPaths, new_sql_parser, run_inner_sql};
+use super::sdk_pipeline::discover::{
+	CallableSearchPaths, SqlBuilder, new_sql_parser, run_inner_sql,
+};
 
 pub(super) fn walk_plpgsql_body(
 	body: &str,
 	source_def: &Moniker,
 	module: &Moniker,
 	search_paths: &CallableSearchPaths,
-	graph: &mut CodeGraph,
+	builder: &mut SqlBuilder,
 ) {
 	if body.trim().is_empty() {
 		return;
@@ -46,7 +47,7 @@ pub(super) fn walk_plpgsql_body(
 			source_def,
 			module,
 			search_paths,
-			graph,
+			builder,
 		);
 	});
 }
@@ -89,6 +90,7 @@ fn for_each_sql_expression<F: FnMut(Node)>(node: Node, f: &mut F) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::code_graph::CodeGraph;
 	use crate::core::moniker::MonikerBuilder;
 	use crate::lang::sql::Presets;
 	use crate::lang::sql::extract;
