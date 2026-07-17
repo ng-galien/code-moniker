@@ -28,8 +28,8 @@ confidence = "external"
 [[refs]]
 kind = "calls"
 from = "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)"
-to = "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)"
-confidence = "resolved"
+to = "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(text)"
+confidence = "name_match"
 
 [[refs]]
 kind = "calls"

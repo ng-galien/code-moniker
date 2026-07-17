@@ -27,12 +27,13 @@ pub fn extract(
 
 pub struct Lang;
 
-const DEF_KINDS: &[&str] = &["function", "procedure", "view", "table", "schema"];
+const DEF_KINDS: &[&str] = &["function", "procedure", "view", "table", "type", "schema"];
 
 const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("schema", Shape::Namespace, 10, "schema"),
 	KindSpec::new("table", Shape::Type, 20, "table"),
 	KindSpec::new("view", Shape::Type, 21, "view"),
+	KindSpec::new("type", Shape::Type, 22, "type"),
 	KindSpec::new("function", Shape::Callable, 40, "function"),
 	KindSpec::new("procedure", Shape::Callable, 41, "procedure"),
 ];
@@ -113,9 +114,8 @@ mod tests {
 	fn top_level_select_emits_qualified_call() {
 		let g = run("foo.sql", "SELECT public.bar(1, 2);");
 		assert!(
-			ref_targets(&g)
-				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/schema:public/function:bar"),
+			ref_targets(&g).iter().any(|t| t
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(int4,int4)"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -133,21 +133,141 @@ mod tests {
 	}
 
 	#[test]
-	fn nested_calls_both_emit_name_only_targets() {
+	fn nested_calls_preserve_unknown_argument_slots() {
 		let g = run("foo.sql", "SELECT f(g(a, b));");
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:f"),
-			"outer call f should emit name-only target, got refs: {:?}",
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:f(_)"),
+			"outer call f should preserve one unknown slot, got refs: {:?}",
 			ref_targets(&g)
 		);
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:g"),
-			"inner call g should emit name-only target, got refs: {:?}",
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:g(_,_)"),
+			"inner call g should preserve two unknown slots, got refs: {:?}",
 			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn call_argument_types_come_from_casts_literals_and_parameters() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.wrapper(p_id uuid, p_enabled bool) RETURNS int LANGUAGE sql AS $$ SELECT public.choose(p_id, 42::bigint, p_enabled, 'x'::text, NULL) $$;",
+		);
+		assert!(
+			ref_targets(&g).iter().any(|target| target
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(uuid,int8,bool,text,_)") ,
+			"typed target missing from {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn casts_inside_expressions_do_not_type_the_whole_argument() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.wrapper(p_id int) RETURNS int LANGUAGE sql AS $$ SELECT public.choose(p_id = 1::int, (p_id = 1)::text) $$;",
+		);
+		assert!(
+			ref_targets(&g).iter().any(|target| target
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(_,text)"),
+			"an inner cast must not type its enclosing expression: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn named_call_arguments_preserve_names_and_types() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.wrapper(p_id uuid) RETURNS int LANGUAGE sql AS $$ SELECT public.choose(label => 'x'::text, value => p_id) $$;",
+		);
+		assert!(
+			ref_targets(&g).iter().any(|target| target
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(label:text,value:uuid)"),
+			"named typed target missing from {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn unquoted_parameter_names_are_canonical_in_definitions_and_calls() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.choose(Value int) RETURNS int LANGUAGE sql AS $$ SELECT Value $$; SELECT public.choose(value => 1::int);",
+		);
+		assert!(def_monikers(&g).iter().any(|definition| definition
+			== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(value:int4)"));
+		assert!(ref_targets(&g).iter().any(|target| target
+			== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(value:int4)"));
+	}
+
+	#[test]
+	fn static_function_search_path_qualifies_unqualified_calls() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.wrapper(p_id uuid) RETURNS int LANGUAGE sql SET search_path = jobs, pg_temp AS $$ SELECT refresh(p_id) $$;",
+		);
+		assert!(
+			ref_targets(&g).iter().any(|target| target
+				== "code+moniker://app/lang:sql/module:foo/schema:jobs/function:refresh(uuid)"),
+			"search-path-qualified target missing from {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn dynamic_or_catalog_search_path_does_not_claim_one_schema() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.from_role(p_id uuid) RETURNS int LANGUAGE sql SET search_path = \"$user\", jobs, pg_temp AS $$ SELECT refresh(p_id) $$; CREATE FUNCTION public.from_catalog(p_id uuid) RETURNS int LANGUAGE sql SET search_path = pg_catalog, jobs, pg_temp AS $$ SELECT refresh(p_id) $$;",
+		);
+		let refresh_targets = ref_targets(&g)
+			.into_iter()
+			.filter(|target| target.contains("function:refresh"))
+			.collect::<Vec<_>>();
+		assert_eq!(refresh_targets.len(), 2, "got {refresh_targets:?}");
+		assert!(
+			refresh_targets
+				.iter()
+				.all(|target| !target.contains("schema:jobs")),
+			"dynamic/catalog search paths must stay unqualified: {refresh_targets:?}"
+		);
+	}
+
+	#[test]
+	fn duplicate_routine_keeps_the_first_search_path_with_the_first_body() {
+		let g = run(
+			"foo.sql",
+			"CREATE OR REPLACE FUNCTION public.wrapper(p_id uuid) RETURNS int LANGUAGE sql SET search_path = first_schema, pg_temp AS $$ SELECT refresh(p_id) $$; CREATE OR REPLACE FUNCTION public.wrapper(p_id uuid) RETURNS int LANGUAGE sql SET search_path = second_schema, pg_temp AS $$ SELECT refresh(p_id) $$;",
+		);
+		let refresh_targets = ref_targets(&g)
+			.into_iter()
+			.filter(|target| target.contains("function:refresh"))
+			.collect::<Vec<_>>();
+		assert_eq!(refresh_targets.len(), 1, "got {refresh_targets:?}");
+		assert!(refresh_targets[0].contains("schema:first_schema"));
+	}
+
+	#[test]
+	fn parser_recovery_keywords_do_not_become_calls() {
+		let g = run(
+			"scratch.sql",
+			"SELECT * FROM (SELECT id FROM things WHERE id =) broken; SELECT DISTINCT id FROM things;",
+		);
+		let names = g
+			.refs()
+			.filter(|reference| reference.kind == b"calls")
+			.map(|reference| String::from_utf8_lossy(&reference.call_name).into_owned())
+			.collect::<Vec<_>>();
+		assert!(
+			names
+				.iter()
+				.all(|name| !matches!(name.as_str(), "from" | "distinct" | "as" | "is" | "any")),
+			"parser recovery emitted SQL keywords as calls: {names:?}"
 		);
 	}
 
@@ -212,6 +332,24 @@ $$;
 	}
 
 	#[test]
+	fn user_defined_types_are_definitions_and_qualified_type_targets() {
+		let g = run(
+			"types.sql",
+			"CREATE TYPE app.order_state AS ENUM ('new', 'done'); CREATE DOMAIN app.order_code AS text; CREATE FUNCTION app.accept(value app.order_state) RETURNS app.order_code LANGUAGE sql AS $$ SELECT value::text $$;",
+		);
+		let definitions = def_monikers(&g);
+		assert!(definitions.iter().any(|definition| definition
+			== "code+moniker://app/lang:sql/module:types/schema:app/type:order_state"));
+		assert!(definitions.iter().any(|definition| definition
+			== "code+moniker://app/lang:sql/module:types/schema:app/type:order_code"));
+		let targets = ref_targets(&g);
+		assert!(targets.iter().any(|target| target
+			== "code+moniker://app/lang:sql/module:types/schema:app/type:order_state"));
+		assert!(targets.iter().any(|target| target
+			== "code+moniker://app/lang:sql/module:types/schema:app/type:order_code"));
+	}
+
+	#[test]
 	fn builtin_function_call_carries_external_confidence() {
 		let g = run("pkg.sql", "SELECT now();");
 		let r = g
@@ -223,6 +361,24 @@ $$;
 			b"external".to_vec(),
 			"builtin functions like now() must be marked external, got {:?}",
 			std::str::from_utf8(&r.confidence).unwrap_or("?")
+		);
+	}
+
+	#[test]
+	fn corpus_builtin_families_are_external() {
+		let g = run(
+			"pkg.sql",
+			"SELECT chr(65), json_build_object('id', 1), array_append(ARRAY[1], 2), row_number() OVER (), gen_random_uuid(), plainto_tsquery('code moniker'), quote_ident('table'), pg_tablespace_location(1), txid_current(), jsonb_array_length('[]'), array_upper(ARRAY[1], 1), ts_rank_cd(to_tsvector('code'), plainto_tsquery('code')), inet_client_addr(), split_part('a.b', '.', 1);",
+		);
+		let calls = g
+			.refs()
+			.filter(|reference| reference.kind == b"calls")
+			.collect::<Vec<_>>();
+		assert_eq!(calls.len(), 16, "got {calls:?}");
+		assert!(
+			calls
+				.iter()
+				.all(|reference| reference.confidence == b"external")
 		);
 	}
 
@@ -265,6 +421,20 @@ $$;
 			.expect("parse_type definition");
 		assert_eq!(optional.call_arity, Some(0));
 		assert_eq!(parse_type.call_arity, Some(1));
+	}
+
+	#[test]
+	fn variadic_parameters_are_explicit_in_callable_identity() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION concat_all(VARIADIC items text[]) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;",
+		);
+		assert!(
+			def_monikers(&g).iter().any(|definition| definition
+				== "code+moniker://app/lang:sql/module:foo/function:concat_all(items:text[]...)"),
+			"got defs: {:?}",
+			def_monikers(&g)
+		);
 	}
 
 	#[test]

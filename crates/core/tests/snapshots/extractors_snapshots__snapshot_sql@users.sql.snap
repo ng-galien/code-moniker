@@ -336,6 +336,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
+      "kind": "calls",
+      "position": [
+        12,
+        12
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:lower"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
+      "kind": "calls",
+      "position": [
+        18,
+        18
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:split_part"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "uses_type",
       "position": [
@@ -369,12 +395,12 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1721
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:sql/module:users/type:app.users"
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/type:users"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "resolved",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "calls",
       "position": [
@@ -382,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         7
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)"
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(text)"
     },
     {
       "alias": "",
@@ -408,7 +434,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         2410
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:sql/module:users/type:`setof app.users`"
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/type:users"
     },
     {
       "alias": "",

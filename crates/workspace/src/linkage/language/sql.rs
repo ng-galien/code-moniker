@@ -43,9 +43,23 @@ fn sql_callable_matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'
 			query.call_arity,
 			candidate.call_arity,
 			candidate_segment.name,
-		) && query_schema(query).is_none_or(|schema| {
-		candidate_schema(candidate).is_some_and(|candidate| identifier_matches(schema, candidate))
-	})
+		) && call_types_match(target.name, candidate_segment.name, candidate.call_arity)
+		&& query_schema(query).is_none_or(|schema| {
+			candidate_schema(candidate)
+				.is_some_and(|candidate| identifier_matches(schema, candidate))
+		})
+}
+
+pub(super) fn call_has_strong_evidence(query: &LinkageQuery<'_>) -> bool {
+	let Some(target) = query.target_last else {
+		return false;
+	};
+	query_schema(query).is_some()
+		&& callable_slots(target.name).is_some_and(|slots| {
+			slots
+				.into_iter()
+				.all(|slot| call_slot_type(slot).is_some_and(|r#type| r#type != b"_"))
+		})
 }
 
 fn query_schema<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a [u8]> {
@@ -70,30 +84,224 @@ fn identifier_matches(left: &[u8], right: &[u8]) -> bool {
 
 fn call_arity_matches(call: Option<usize>, required: Option<usize>, callable_name: &[u8]) -> bool {
 	match (call, required, callable_slot_count(callable_name)) {
+		(Some(call), Some(required), Some(_)) if callable_is_variadic(callable_name) => {
+			required <= call
+		}
 		(Some(call), Some(required), Some(maximum)) => required <= call && call <= maximum,
 		_ => false,
 	}
 }
 
-fn callable_slot_count(name: &[u8]) -> Option<usize> {
+fn call_types_match(
+	call_name: &[u8],
+	candidate_name: &[u8],
+	required_arity: Option<usize>,
+) -> bool {
+	let Some(call_slots) = callable_slots(call_name) else {
+		return true;
+	};
+	let Some(candidate_slots) = callable_slots(candidate_name) else {
+		return false;
+	};
+	let variadic = callable_is_variadic(candidate_name);
+	let mut matched = vec![false; candidate_slots.len()];
+	let mut named_argument_seen = false;
+	for (position, call_slot) in call_slots.into_iter().enumerate() {
+		let call_name = call_slot_name(call_slot);
+		named_argument_seen |= call_name.is_some();
+		if named_argument_seen && call_name.is_none() {
+			return false;
+		}
+		let candidate_position = if let Some(name) = call_name {
+			let Some(position) = candidate_slots
+				.iter()
+				.position(|slot| definition_slot_name(slot) == Some(name))
+			else {
+				return false;
+			};
+			position
+		} else if position < candidate_slots.len() {
+			position
+		} else if variadic {
+			candidate_slots.len().saturating_sub(1)
+		} else {
+			return false;
+		};
+		let expanded_variadic = variadic
+			&& call_name.is_none()
+			&& candidate_position == candidate_slots.len().saturating_sub(1);
+		if matched[candidate_position] && !expanded_variadic {
+			return false;
+		}
+		matched[candidate_position] = true;
+		let Some(call_type) = call_slot_type(call_slot) else {
+			continue;
+		};
+		if call_type == b"_" {
+			continue;
+		}
+		let Some(mut candidate_type) = candidate_slots
+			.get(candidate_position)
+			.copied()
+			.and_then(definition_slot_type)
+		else {
+			return false;
+		};
+		if candidate_type.ends_with(b"...") {
+			candidate_type = &candidate_type[..candidate_type.len() - 3];
+			if expanded_variadic && candidate_type.ends_with(b"[]") {
+				candidate_type = &candidate_type[..candidate_type.len() - 2];
+			}
+		}
+		if !sql_type_matches(call_type, candidate_type) {
+			return false;
+		}
+	}
+	matched
+		.iter()
+		.take(required_arity.unwrap_or(candidate_slots.len()))
+		.all(|matched| *matched)
+}
+
+fn callable_slots(name: &[u8]) -> Option<Vec<&[u8]>> {
 	let open = name.iter().position(|byte| *byte == b'(')?;
 	let body = name.get(open + 1..name.len().checked_sub(1)?)?;
 	if body.is_empty() {
-		return Some(0);
+		return Some(Vec::new());
 	}
-	let mut count = 1;
+	let mut slots = Vec::new();
+	let mut start = 0;
 	let mut depth = 0usize;
 	let mut quoted = false;
-	for byte in body {
-		match *byte {
+	for (index, byte) in body.iter().copied().enumerate() {
+		match byte {
 			b'"' => quoted = !quoted,
-			b'(' if !quoted => depth += 1,
-			b')' if !quoted => depth = depth.saturating_sub(1),
-			b',' if !quoted && depth == 0 => count += 1,
+			b'(' | b'[' if !quoted => depth += 1,
+			b')' | b']' if !quoted => depth = depth.saturating_sub(1),
+			b',' if !quoted && depth == 0 => {
+				slots.push(&body[start..index]);
+				start = index + 1;
+			}
 			_ => {}
 		}
 	}
-	Some(count)
+	slots.push(&body[start..]);
+	Some(slots)
+}
+
+fn top_level_colon(slot: &[u8]) -> Option<usize> {
+	let mut depth = 0usize;
+	let mut quoted = false;
+	for (index, byte) in slot.iter().copied().enumerate() {
+		match byte {
+			b'"' => quoted = !quoted,
+			b'(' | b'[' if !quoted => depth += 1,
+			b')' | b']' if !quoted => depth = depth.saturating_sub(1),
+			b':' if !quoted && depth == 0 => return Some(index),
+			_ => {}
+		}
+	}
+	None
+}
+
+fn call_slot_name(slot: &[u8]) -> Option<&[u8]> {
+	top_level_colon(slot).map(|colon| &slot[..colon])
+}
+
+fn call_slot_type(slot: &[u8]) -> Option<&[u8]> {
+	top_level_colon(slot)
+		.map(|colon| &slot[colon + 1..])
+		.or(Some(slot))
+}
+
+fn definition_slot_name(slot: &[u8]) -> Option<&[u8]> {
+	top_level_colon(slot).map(|colon| &slot[..colon])
+}
+
+fn definition_slot_type(slot: &[u8]) -> Option<&[u8]> {
+	top_level_colon(slot)
+		.map(|colon| &slot[colon + 1..])
+		.or(Some(slot))
+}
+
+fn sql_type_matches(call: &[u8], candidate: &[u8]) -> bool {
+	let call = canonical_type(call);
+	let candidate = canonical_type(candidate);
+	call == candidate || implicit_type_cast(&call, &candidate) || polymorphic_type(&candidate)
+}
+
+fn implicit_type_cast(call: &[u8], candidate: &[u8]) -> bool {
+	matches!(
+		(call, candidate),
+		(b"int2", b"int4" | b"int8" | b"numeric")
+			| (b"int4", b"int8" | b"numeric")
+			| (b"int8", b"numeric")
+			| (b"float4", b"float8")
+	)
+}
+
+fn canonical_type(r#type: &[u8]) -> Vec<u8> {
+	let mut normalized = r#type
+		.iter()
+		.map(u8::to_ascii_lowercase)
+		.filter(|byte| !byte.is_ascii_whitespace())
+		.collect::<Vec<_>>();
+	if normalized.starts_with(b"pg_catalog.") {
+		normalized.drain(..b"pg_catalog.".len());
+	}
+	let array = normalized.ends_with(b"[]");
+	let base_end = if array {
+		normalized.len() - 2
+	} else {
+		normalized.len()
+	};
+	let base = &normalized[..base_end];
+	let base = base
+		.iter()
+		.position(|byte| *byte == b'(')
+		.map(|open| &base[..open])
+		.unwrap_or(base);
+	let canonical = match base {
+		b"int" | b"integer" => b"int4".as_slice(),
+		b"bigint" => b"int8".as_slice(),
+		b"smallint" => b"int2".as_slice(),
+		b"boolean" => b"bool".as_slice(),
+		b"real" => b"float4".as_slice(),
+		b"doubleprecision" => b"float8".as_slice(),
+		b"decimal" => b"numeric".as_slice(),
+		b"charactervarying" => b"varchar".as_slice(),
+		_ => base,
+	};
+	let mut out = canonical.to_vec();
+	if array {
+		out.extend_from_slice(b"[]");
+	}
+	out
+}
+
+fn polymorphic_type(candidate: &[u8]) -> bool {
+	matches!(
+		candidate,
+		b"anyelement"
+			| b"anyarray"
+			| b"anynonarray"
+			| b"anyenum"
+			| b"anycompatible"
+			| b"anycompatiblearray"
+			| b"anycompatiblenonarray"
+			| b"record"
+	)
+}
+
+fn callable_slot_count(name: &[u8]) -> Option<usize> {
+	callable_slots(name).map(|slots| slots.len())
+}
+
+fn callable_is_variadic(name: &[u8]) -> bool {
+	callable_slots(name)
+		.and_then(|slots| slots.last().copied())
+		.and_then(definition_slot_type)
+		.is_some_and(|r#type| r#type.ends_with(b"..."))
 }
 
 pub(super) fn builtin_external_root(root: &str) -> bool {
@@ -118,5 +326,53 @@ mod tests {
 			callable_slot_count(b"pick(value:numeric(10,2),label:text)"),
 			Some(2)
 		);
+	}
+
+	#[test]
+	fn variadic_calls_accept_expanded_arguments() {
+		let callable = b"concat_all(items:text[]...)";
+		assert!(call_arity_matches(Some(0), Some(0), callable));
+		assert!(call_arity_matches(Some(3), Some(0), callable));
+		assert!(call_types_match(
+			b"concat_all(text,text,text)",
+			callable,
+			Some(0)
+		));
+		assert!(!call_types_match(b"concat_all(int4)", callable, Some(0)));
+	}
+
+	#[test]
+	fn typed_calls_filter_same_arity_overloads() {
+		assert!(call_types_match(
+			b"pick(int4)",
+			b"pick(value:int4)",
+			Some(1)
+		));
+		assert!(!call_types_match(
+			b"pick(int4)",
+			b"pick(value:text)",
+			Some(1)
+		));
+		assert!(call_types_match(b"pick(_)", b"pick(value:text)", Some(1)));
+		assert!(call_types_match(
+			b"pick(value:int4)",
+			b"pick(value:int4,label:text)",
+			Some(1)
+		));
+		assert!(call_types_match(
+			b"pick(int4)",
+			b"pick(value:int8)",
+			Some(1)
+		));
+		assert!(!call_types_match(
+			b"pick(other:int4)",
+			b"pick(value:int4)",
+			Some(1)
+		));
+		assert!(!call_types_match(
+			b"pick(optional:int4)",
+			b"pick(required:text,optional:int4)",
+			Some(1)
+		));
 	}
 }

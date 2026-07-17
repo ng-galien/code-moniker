@@ -112,7 +112,11 @@ fn global_resolution_evidence(query: &LinkageQuery<'_>) -> ResolutionEvidence {
 			.get(query.source_file)
 			.is_some_and(|file| file.lang == Lang::Sql)
 	{
-		ResolutionEvidence::NameMatch
+		if crate::linkage::language::sql_call_has_strong_evidence(query) {
+			ResolutionEvidence::GlobalBinding
+		} else {
+			ResolutionEvidence::NameMatch
+		}
 	} else {
 		ResolutionEvidence::GlobalBinding
 	}
@@ -169,7 +173,11 @@ fn local_resolution_evidence(
 		.get(query.source_file)
 		.map(|file| file.lang);
 	if lang == Some(Lang::Sql) && query.reference_kind == "calls" {
-		return ResolutionEvidence::NameMatch;
+		return if crate::linkage::language::sql_call_has_strong_evidence(query) {
+			ResolutionEvidence::LocalBinding
+		} else {
+			ResolutionEvidence::NameMatch
+		};
 	}
 	if lang != Some(Lang::Sql) && query.confidence != Some("name_match") {
 		return ResolutionEvidence::LocalBinding;

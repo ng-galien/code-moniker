@@ -55,6 +55,10 @@ pub(super) fn matches_candidate(
 		.is_some_and(|file| language_strategy(file.lang).matches(query, candidate))
 }
 
+pub(super) fn sql_call_has_strong_evidence(query: &LinkageQuery<'_>) -> bool {
+	sql::call_has_strong_evidence(query)
+}
+
 pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 	match lang {
 		Lang::Ts => Some(Manifest::PackageJson),

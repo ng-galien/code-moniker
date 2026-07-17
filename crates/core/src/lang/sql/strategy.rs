@@ -41,14 +41,14 @@ pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 	})
 }
 
-pub(super) type CallableTable = std::collections::HashMap<(Moniker, Vec<u8>, bool), Moniker>;
 pub(super) type CallableMetadata = std::collections::HashMap<Moniker, (Vec<u8>, Option<usize>)>;
+pub(super) type CallableSearchPaths = std::collections::HashMap<Moniker, Option<Vec<u8>>>;
 
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
 	pub(super) source_str: &'src str,
 	pub(super) emit_comments: bool,
-	pub(super) callable_table: &'src CallableTable,
+	pub(super) search_paths: &'src CallableSearchPaths,
 }
 
 impl LangStrategy for Strategy<'_> {
@@ -65,6 +65,10 @@ impl LangStrategy for Strategy<'_> {
 			},
 			"comment" => NodeShape::Skip,
 			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
+			"DefineStmt" if find_descendant(node, "kw_type").is_some() => {
+				classify_user_type(node, source, &self.module)
+			}
+			"CreateDomainStmt" => classify_user_type(node, source, &self.module),
 			"CreateStmt" => {
 				classify_qualified_relation(node, source, &self.module, kinds::TABLE, None)
 			}
@@ -76,14 +80,7 @@ impl LangStrategy for Strategy<'_> {
 				find_child(node, "SelectStmt"),
 			),
 			"func_application" => {
-				emit_call(
-					node,
-					source,
-					scope,
-					&self.module,
-					self.callable_table,
-					graph,
-				);
+				emit_call(node, source, scope, &self.module, self.search_paths, graph);
 				NodeShape::Recurse
 			}
 			_ => NodeShape::Recurse,
@@ -100,16 +97,26 @@ impl LangStrategy for Strategy<'_> {
 	) {
 		if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
 			emit_function_type_refs(node, source, sym_moniker, &self.module, graph);
-			if function_language(node, source).eq_ignore_ascii_case(b"plpgsql")
-				&& let Some(body_text) = dollar_body(node, self.source_str)
-			{
-				super::body::walk_plpgsql_body(
-					body_text,
-					sym_moniker,
-					&self.module,
-					self.callable_table,
-					graph,
-				);
+			if let Some(body_text) = dollar_body(node, self.source_str) {
+				let language = function_language(node, source);
+				if language.eq_ignore_ascii_case(b"plpgsql") {
+					super::body::walk_plpgsql_body(
+						body_text,
+						sym_moniker,
+						&self.module,
+						self.search_paths,
+						graph,
+					);
+				} else if language.eq_ignore_ascii_case(b"sql") {
+					run_inner_sql(
+						&mut new_sql_parser(),
+						body_text,
+						sym_moniker,
+						&self.module,
+						self.search_paths,
+						graph,
+					);
+				}
 			}
 		} else if sym_kind == kinds::TABLE {
 			emit_table_column_type_refs(node, source, sym_moniker, &self.module, graph);
@@ -122,7 +129,7 @@ pub(super) fn run_inner_sql(
 	source: &str,
 	scope: &Moniker,
 	module: &Moniker,
-	callable_table: &CallableTable,
+	search_paths: &CallableSearchPaths,
 	graph: &mut CodeGraph,
 ) {
 	let tree = parse_with(parser, source);
@@ -130,7 +137,7 @@ pub(super) fn run_inner_sql(
 		module: module.clone(),
 		source_str: source,
 		emit_comments: false,
-		callable_table,
+		search_paths,
 	};
 	let walker = CanonicalWalker::new(&strategy, source.as_bytes());
 	walker.walk(tree.root_node(), scope, graph);
@@ -199,13 +206,41 @@ fn classify_qualified_relation<'src>(
 	})
 }
 
-pub(super) fn collect_callable_table(
+fn classify_user_type<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+	module: &Moniker,
+) -> NodeShape<'src> {
+	let Some(name_node) =
+		find_child(node, "any_name").or_else(|| find_child(node, "qualified_name"))
+	else {
+		return NodeShape::Recurse;
+	};
+	let (schema, name) = split_qualified_name(name_node, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
+	if name.is_empty() {
+		return NodeShape::Recurse;
+	}
+	let parent = maybe_schema(module, &schema);
+	NodeShape::Symbol(Symbol {
+		moniker: extend_segment(&parent, kinds::TYPE, &name),
+		kind: kinds::TYPE,
+		visibility: kinds::VIS_NONE,
+		signature: None,
+		body: None,
+		position: node_position(node),
+		annotated_by: Vec::new(),
+	})
+}
+
+pub(super) fn collect_callable_metadata(
 	root: Node<'_>,
 	source: &[u8],
 	module: &Moniker,
-) -> (CallableTable, CallableMetadata) {
-	let mut out = CallableTable::new();
+) -> (CallableMetadata, CallableSearchPaths) {
 	let mut metadata = CallableMetadata::new();
+	let mut search_paths = CallableSearchPaths::new();
 	visit(root, &mut |n| {
 		if n.kind() != "CreateFunctionStmt" {
 			return;
@@ -228,9 +263,11 @@ pub(super) fn collect_callable_table(
 		let kind = routine_kind(n);
 		let m = extend_callable_slots(&parent, kind, &name, &slots);
 		metadata.insert(m.clone(), (name.clone(), call_arity));
-		out.insert((parent, name, kind == kinds::PROCEDURE), m);
+		search_paths
+			.entry(m)
+			.or_insert_with(|| static_search_schema(n, source));
 	});
-	(out, metadata)
+	(metadata, search_paths)
 }
 
 fn required_input_arity(params: Node<'_>) -> usize {
@@ -271,7 +308,7 @@ fn emit_call(
 	source: &[u8],
 	scope: &Moniker,
 	module: &Moniker,
-	callable_table: &CallableTable,
+	search_paths: &CallableSearchPaths,
 	graph: &mut CodeGraph,
 ) {
 	let Some(name_node) = find_child(node, "func_name") else {
@@ -280,9 +317,10 @@ fn emit_call(
 	let (schema, name) = split_qualified_name(name_node, source);
 	let schema = canonical_identifier(schema);
 	let name = canonical_identifier(name);
-	if name.is_empty() {
+	if name.is_empty() || is_non_callable_keyword(&name) {
 		return;
 	}
+	let argument_slots = call_argument_slots(node, source, scope);
 	let builtin_name = name.as_slice();
 	let procedure_call = inside_call_statement(node);
 	let callable_kind = if procedure_call {
@@ -290,7 +328,7 @@ fn emit_call(
 	} else {
 		kinds::FUNCTION
 	};
-	let mut confidence =
+	let confidence =
 		if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(builtin_name)) {
 			kinds::CONF_EXTERNAL
 		} else {
@@ -303,20 +341,20 @@ fn emit_call(
 		b.segment(kinds::PATH, builtin_name);
 		b.build()
 	} else {
-		let parent = maybe_schema(module, &schema);
-		if let Some(resolved) = callable_table.get(&(parent.clone(), name.clone(), procedure_call))
-		{
-			confidence = kinds::CONF_RESOLVED;
-			resolved.clone()
-		} else {
-			extend_segment(&parent, callable_kind, &name)
-		}
+		let inferred_schema = schema
+			.is_empty()
+			.then(|| search_paths.get(scope))
+			.flatten()
+			.and_then(Option::as_deref)
+			.unwrap_or(&schema);
+		let parent = maybe_schema(module, inferred_schema);
+		extend_callable_slots(&parent, callable_kind, &name, &argument_slots)
 	};
 	let s = node.start_byte() as u32;
 	let attrs = RefAttrs {
 		confidence,
 		call_name: &name,
-		call_arity: Some(call_arity(node)),
+		call_arity: Some(argument_slots.len()),
 		..RefAttrs::default()
 	};
 	let _ = graph.add_ref_attrs(scope, target, kinds::REF_CALLS, Some((s, s)), &attrs);
@@ -332,23 +370,316 @@ fn inside_call_statement(mut node: Node<'_>) -> bool {
 	false
 }
 
-fn call_arity(node: Node<'_>) -> usize {
-	find_child(node, "func_arg_list")
-		.map(count_call_arguments)
-		.unwrap_or(0)
+fn call_argument_slots(node: Node<'_>, source: &[u8], scope: &Moniker) -> Vec<CallableSlot> {
+	let Some(arguments) = find_child(node, "func_arg_list") else {
+		return Vec::new();
+	};
+	let mut nodes = Vec::new();
+	collect_call_arguments(arguments, &mut nodes);
+	nodes
+		.into_iter()
+		.map(|argument| {
+			let raw = trim_ascii(node_slice(argument, source));
+			let (name, expression) = named_argument_parts(raw);
+			let inferred = infer_argument_type(expression, scope);
+			CallableSlot {
+				name: name.map(canonical_identifier).unwrap_or_default(),
+				r#type: inferred.unwrap_or_else(|| {
+					if name.is_some() {
+						b"_".to_vec()
+					} else {
+						Vec::new()
+					}
+				}),
+			}
+		})
+		.collect()
 }
 
-fn count_call_arguments(node: Node<'_>) -> usize {
-	let mut count = 0;
+fn collect_call_arguments<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) {
 	let mut cursor = node.walk();
 	for child in node.named_children(&mut cursor) {
 		match child.kind() {
-			"func_arg_expr" => count += 1,
-			"func_arg_list" => count += count_call_arguments(child),
+			"func_arg_expr" => out.push(child),
+			"func_arg_list" => collect_call_arguments(child, out),
 			_ => {}
 		}
 	}
-	count
+}
+
+fn infer_argument_type(raw: &[u8], scope: &Moniker) -> Option<Vec<u8>> {
+	if let Some(cast) = explicit_cast_type(raw) {
+		return Some(cast);
+	}
+	if raw.eq_ignore_ascii_case(b"true") || raw.eq_ignore_ascii_case(b"false") {
+		return Some(b"bool".to_vec());
+	}
+	if let Some(number) = numeric_literal_type(raw) {
+		return Some(number);
+	}
+	if is_identifier(raw) {
+		return scope_parameter_type(scope, raw);
+	}
+	None
+}
+
+fn explicit_cast_type(raw: &[u8]) -> Option<Vec<u8>> {
+	let cast_at = raw.windows(2).rposition(|window| window == b"::")?;
+	let operand = trim_ascii(&raw[..cast_at]);
+	if !is_atomic_cast_operand(operand) && explicit_cast_type(operand).is_none() {
+		return None;
+	}
+	let candidate = trim_ascii(&raw[cast_at + 2..]);
+	if candidate.is_empty()
+		|| candidate.iter().any(|byte| {
+			!matches!(
+				byte,
+				b'a'..=b'z'
+					| b'A'..=b'Z'
+					| b'0'..=b'9'
+					| b'_'
+					| b'.'
+					| b'"'
+					| b' '
+					| b'\t'
+					| b'['
+					| b']'
+					| b'('
+					| b')'
+					| b','
+			)
+		}) {
+		return None;
+	}
+	Some(normalize_type(candidate))
+}
+
+fn is_atomic_cast_operand(value: &[u8]) -> bool {
+	let value = trim_ascii(value);
+	if value.is_empty() {
+		return false;
+	}
+	if is_identifier(value)
+		|| numeric_literal_type(value).is_some()
+		|| value.eq_ignore_ascii_case(b"true")
+		|| value.eq_ignore_ascii_case(b"false")
+		|| value.eq_ignore_ascii_case(b"null")
+		|| (value.starts_with(b"'") && value.ends_with(b"'"))
+	{
+		return true;
+	}
+	if delimiters_enclose(value, b'(', b')') || delimiters_enclose(value, b'[', b']') {
+		return true;
+	}
+	for (open, close) in [(b'(', b')'), (b'[', b']')] {
+		let Some(position) = value.iter().position(|byte| *byte == open) else {
+			continue;
+		};
+		if is_qualified_identifier(trim_ascii(&value[..position]))
+			&& delimiters_enclose(&value[position..], open, close)
+		{
+			return true;
+		}
+	}
+	false
+}
+
+fn delimiters_enclose(value: &[u8], open: u8, close: u8) -> bool {
+	if value.first() != Some(&open) || value.last() != Some(&close) {
+		return false;
+	}
+	let mut depth = 0_u32;
+	let mut single_quoted = false;
+	let mut double_quoted = false;
+	for (index, byte) in value.iter().copied().enumerate() {
+		match byte {
+			b'\'' if !double_quoted => single_quoted = !single_quoted,
+			b'"' if !single_quoted => double_quoted = !double_quoted,
+			_ if single_quoted || double_quoted => {}
+			_ if byte == open => depth += 1,
+			_ if byte == close => {
+				depth = depth.saturating_sub(1);
+				if depth == 0 && index + 1 != value.len() {
+					return false;
+				}
+			}
+			_ => {}
+		}
+	}
+	depth == 0 && !single_quoted && !double_quoted
+}
+
+fn is_qualified_identifier(value: &[u8]) -> bool {
+	!value.is_empty()
+		&& value
+			.iter()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'"' | b'.'))
+}
+
+fn named_argument_parts(raw: &[u8]) -> (Option<&[u8]>, &[u8]) {
+	if let Some(position) = raw
+		.windows(2)
+		.position(|window| window == b"=>" || window == b":=")
+	{
+		let name = trim_ascii(&raw[..position]);
+		let expression = trim_ascii(&raw[position + 2..]);
+		return ((!name.is_empty()).then_some(name), expression);
+	}
+	(None, raw)
+}
+
+fn numeric_literal_type(raw: &[u8]) -> Option<Vec<u8>> {
+	let unsigned = raw
+		.strip_prefix(b"-")
+		.or_else(|| raw.strip_prefix(b"+"))
+		.unwrap_or(raw);
+	if unsigned.is_empty() {
+		return None;
+	}
+	if unsigned.iter().all(u8::is_ascii_digit) {
+		let value = std::str::from_utf8(raw).ok()?.parse::<i64>().ok()?;
+		return Some(if i32::try_from(value).is_ok() {
+			b"int4".to_vec()
+		} else {
+			b"int8".to_vec()
+		});
+	}
+	let mut decimal_point = false;
+	if unsigned.iter().all(|byte| {
+		if *byte == b'.' && !decimal_point {
+			decimal_point = true;
+			true
+		} else {
+			byte.is_ascii_digit()
+		}
+	}) && decimal_point
+	{
+		return Some(b"numeric".to_vec());
+	}
+	None
+}
+
+fn scope_parameter_type(scope: &Moniker, argument: &[u8]) -> Option<Vec<u8>> {
+	let callable = scope.as_view().segments().last()?;
+	let name = callable.name;
+	let open = name.iter().position(|byte| *byte == b'(')?;
+	let close = name.iter().rposition(|byte| *byte == b')')?;
+	if close <= open {
+		return None;
+	}
+	for slot in split_top_level(&name[open + 1..close], b',') {
+		let Some(colon) = top_level_byte(slot, b':') else {
+			continue;
+		};
+		let parameter = trim_ascii(&slot[..colon]);
+		if canonical_identifier(parameter) == canonical_identifier(argument) {
+			return Some(normalize_type(trim_ascii(&slot[colon + 1..])));
+		}
+	}
+	None
+}
+
+fn split_top_level(value: &[u8], separator: u8) -> Vec<&[u8]> {
+	let mut out = Vec::new();
+	let mut start = 0;
+	let mut depth = 0_u32;
+	let mut quoted = false;
+	for (index, byte) in value.iter().copied().enumerate() {
+		match byte {
+			b'"' => quoted = !quoted,
+			b'(' | b'[' if !quoted => depth += 1,
+			b')' | b']' if !quoted => depth = depth.saturating_sub(1),
+			_ if byte == separator && !quoted && depth == 0 => {
+				out.push(&value[start..index]);
+				start = index + 1;
+			}
+			_ => {}
+		}
+	}
+	out.push(&value[start..]);
+	out
+}
+
+fn top_level_byte(value: &[u8], needle: u8) -> Option<usize> {
+	let mut depth = 0_u32;
+	let mut quoted = false;
+	for (index, byte) in value.iter().copied().enumerate() {
+		match byte {
+			b'"' => quoted = !quoted,
+			b'(' | b'[' if !quoted => depth += 1,
+			b')' | b']' if !quoted => depth = depth.saturating_sub(1),
+			_ if byte == needle && !quoted && depth == 0 => return Some(index),
+			_ => {}
+		}
+	}
+	None
+}
+
+fn trim_ascii(mut value: &[u8]) -> &[u8] {
+	while value.first().is_some_and(u8::is_ascii_whitespace) {
+		value = &value[1..];
+	}
+	while value.last().is_some_and(u8::is_ascii_whitespace) {
+		value = &value[..value.len() - 1];
+	}
+	value
+}
+
+fn is_identifier(value: &[u8]) -> bool {
+	!value.is_empty()
+		&& value
+			.iter()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'"'))
+}
+
+fn is_non_callable_keyword(name: &[u8]) -> bool {
+	matches!(name, b"any" | b"as" | b"distinct" | b"from" | b"is")
+}
+
+fn static_search_schema(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	let header = node_slice(node, source);
+	let header = header
+		.windows(2)
+		.position(|window| window == b"$$")
+		.map(|body| &header[..body])
+		.unwrap_or(header);
+	let text = std::str::from_utf8(header).ok()?;
+	let lower = text.to_ascii_lowercase();
+	let marker = "set search_path";
+	let start = lower.find(marker)? + marker.len();
+	let mut clause = text.get(start..)?.trim_start();
+	if let Some(rest) = clause.strip_prefix('=') {
+		clause = rest.trim_start();
+	} else if clause
+		.get(..2)
+		.is_some_and(|prefix| prefix.eq_ignore_ascii_case("to"))
+	{
+		clause = clause.get(2..)?.trim_start();
+	} else {
+		return None;
+	}
+	let end = clause.find(['\n', '\r', ';']).unwrap_or(clause.len());
+	let clause = clause[..end]
+		.split_once(" AS ")
+		.map(|(path, _)| path)
+		.unwrap_or(&clause[..end]);
+	let schemas = clause
+		.split(',')
+		.map(str::trim)
+		.filter(|schema| !schema.is_empty())
+		.map(|schema| canonical_identifier(schema.as_bytes()))
+		.collect::<Vec<_>>();
+	if schemas
+		.iter()
+		.any(|schema| matches!(schema.as_slice(), b"pg_catalog" | b"$user"))
+	{
+		return None;
+	}
+	let static_schemas = schemas
+		.into_iter()
+		.filter(|schema| schema.as_slice() != b"pg_temp")
+		.collect::<Vec<_>>();
+	(static_schemas.len() == 1).then(|| static_schemas[0].clone())
 }
 
 fn canonical_identifier(value: &[u8]) -> Vec<u8> {
@@ -367,15 +698,112 @@ fn canonical_identifier(value: &[u8]) -> Vec<u8> {
 }
 
 fn is_builtin_function(name: &[u8]) -> bool {
+	is_builtin_catalog_function(name)
+		|| matches!(
+			name,
+			b"coalesce"
+				| b"nullif" | b"greatest"
+				| b"least" | b"length"
+				| b"char_length"
+				| b"character_length"
+				| b"octet_length"
+				| b"lower" | b"upper"
+				| b"initcap" | b"substring"
+				| b"substr" | b"trim"
+				| b"ltrim" | b"rtrim"
+				| b"btrim" | b"replace"
+				| b"translate"
+				| b"position"
+				| b"strpos" | b"concat"
+				| b"concat_ws"
+				| b"split_part"
+				| b"string_agg"
+				| b"array_agg"
+				| b"array_length"
+				| b"array_lower"
+				| b"array_upper"
+				| b"array_to_string"
+				| b"string_to_array"
+				| b"array_append"
+				| b"array_prepend"
+				| b"array_cat"
+				| b"cardinality"
+				| b"unnest" | b"generate_series"
+				| b"jsonb_build_object"
+				| b"json_build_object"
+				| b"jsonb_build_array"
+				| b"json_build_array"
+				| b"jsonb_object_keys"
+				| b"json_object_keys"
+				| b"jsonb_extract_path"
+				| b"jsonb_extract_path_text"
+				| b"json_extract_path"
+				| b"json_extract_path_text"
+				| b"jsonb_to_recordset"
+				| b"jsonb_populate_record"
+				| b"jsonb_each"
+				| b"jsonb_each_text"
+				| b"jsonb_typeof"
+				| b"jsonb_pretty"
+				| b"json_array_length"
+				| b"jsonb_array_length"
+				| b"to_json" | b"to_jsonb"
+				| b"row_to_json"
+				| b"to_char" | b"date_part"
+				| b"age" | b"regexp_match"
+				| b"enum_range"
+				| b"num_nonnulls"
+				| b"abs" | b"floor"
+				| b"ceil" | b"ceiling"
+				| b"round" | b"trunc"
+				| b"mod" | b"power"
+				| b"sqrt" | b"random"
+				| b"count" | b"sum"
+				| b"avg" | b"bool_and"
+				| b"json_agg"
+				| b"jsonb_agg"
+				| b"min" | b"max"
+				| b"row_number"
+				| b"rank" | b"dense_rank"
+				| b"percent_rank"
+				| b"cume_dist"
+				| b"ntile" | b"lag"
+				| b"lead" | b"first_value"
+				| b"last_value"
+				| b"nth_value"
+				| b"gen_random_uuid"
+				| b"nextval" | b"currval"
+				| b"setval" | b"pg_typeof"
+				| b"pg_size_pretty"
+				| b"pg_tablespace_location"
+				| b"txid_current"
+				| b"quote_ident"
+				| b"quote_literal"
+				| b"quote_nullable"
+				| b"to_tsquery"
+				| b"plainto_tsquery"
+				| b"phraseto_tsquery"
+				| b"websearch_to_tsquery"
+				| b"to_tsvector"
+				| b"ts_rank" | b"ts_rank_cd"
+				| b"inet_client_addr"
+				| b"inet_client_port"
+				| b"inet_server_addr"
+				| b"inet_server_port"
+		)
+}
+
+fn is_builtin_catalog_function(name: &[u8]) -> bool {
 	matches!(
 		name,
 		b"format"
-			| b"format_type"
+			| b"chr" | b"format_type"
 			| b"to_regtype"
 			| b"to_regtypemod"
 			| b"to_regclass"
 			| b"to_regproc"
 			| b"current_setting"
+			| b"set_config"
 			| b"current_database"
 			| b"current_schema"
 			| b"current_user"
@@ -385,55 +813,6 @@ fn is_builtin_function(name: &[u8]) -> bool {
 			| b"transaction_timestamp"
 			| b"statement_timestamp"
 			| b"timeofday"
-			| b"coalesce"
-			| b"nullif"
-			| b"greatest"
-			| b"least"
-			| b"length"
-			| b"char_length"
-			| b"character_length"
-			| b"octet_length"
-			| b"lower"
-			| b"upper"
-			| b"initcap"
-			| b"substring"
-			| b"substr"
-			| b"trim" | b"ltrim"
-			| b"rtrim"
-			| b"btrim"
-			| b"replace"
-			| b"translate"
-			| b"position"
-			| b"strpos"
-			| b"concat"
-			| b"concat_ws"
-			| b"string_agg"
-			| b"array_agg"
-			| b"array_length"
-			| b"array_to_string"
-			| b"string_to_array"
-			| b"unnest"
-			| b"generate_series"
-			| b"jsonb_build_object"
-			| b"jsonb_build_array"
-			| b"jsonb_object_keys"
-			| b"to_json"
-			| b"to_jsonb"
-			| b"row_to_json"
-			| b"abs" | b"floor"
-			| b"ceil" | b"ceiling"
-			| b"round"
-			| b"trunc"
-			| b"mod" | b"power"
-			| b"sqrt" | b"random"
-			| b"count"
-			| b"sum" | b"avg"
-			| b"min" | b"max"
-			| b"nextval"
-			| b"currval"
-			| b"setval"
-			| b"pg_typeof"
-			| b"pg_size_pretty"
 	)
 }
 
@@ -487,11 +866,14 @@ fn collect_param_slots(params: Node, src: &[u8]) -> Vec<CallableSlot> {
 		if find_descendant(n, "kw_out").is_some() {
 			return;
 		}
-		let r#type = find_child(n, "func_type")
+		let mut r#type = find_child(n, "func_type")
 			.map(|ft| normalize_type(node_slice(ft, src)))
 			.unwrap_or_default();
+		if find_descendant(n, "kw_variadic").is_some() {
+			r#type.extend_from_slice(b"...");
+		}
 		let name = find_child(n, "param_name")
-			.map(|pn| node_slice(pn, src).to_vec())
+			.map(|pn| canonical_identifier(node_slice(pn, src)))
 			.unwrap_or_default();
 		out.push(CallableSlot { name, r#type });
 	});
@@ -521,10 +903,22 @@ fn normalize_type(raw: &[u8]) -> Vec<u8> {
 }
 
 fn function_language<'src>(node: Node<'src>, src: &'src [u8]) -> &'src [u8] {
-	let Some(opts) = find_descendant(node, "createfunc_opt_list") else {
-		return &[];
-	};
-	find_language_in(opts, src).unwrap_or(&[])
+	if let Some(opts) = find_descendant(node, "createfunc_opt_list")
+		&& let Some(language) = find_language_in(opts, src)
+	{
+		return language;
+	}
+	let mut after_language = false;
+	for token in node_slice(node, src)
+		.split(|byte| !(byte.is_ascii_alphanumeric() || *byte == b'_'))
+		.filter(|token| !token.is_empty())
+	{
+		if after_language {
+			return token;
+		}
+		after_language = token.eq_ignore_ascii_case(b"language");
+	}
+	&[]
 }
 
 fn find_language_in<'src>(node: Node<'src>, src: &'src [u8]) -> Option<&'src [u8]> {
@@ -628,14 +1022,20 @@ fn emit_uses_type(
 }
 
 fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
-	if is_builtin_type(canonical_type_base(canonical)) {
+	let base = canonical_type_base(canonical);
+	if is_builtin_type(base) {
 		let mut b = MonikerBuilder::new();
 		b.project(module.as_view().project());
 		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
 		b.segment(kinds::PATH, canonical);
 		return (b.build(), kinds::CONF_EXTERNAL);
 	}
-	let target = extend_segment(module, kinds::TYPE, canonical);
+	let (schema, name) = base
+		.iter()
+		.rposition(|byte| *byte == b'.')
+		.map(|dot| (&base[..dot], &base[dot + 1..]))
+		.unwrap_or((&[][..], base));
+	let target = extend_segment(&maybe_schema(module, schema), kinds::TYPE, name);
 	(target, kinds::CONF_NAME_MATCH)
 }
 
@@ -667,6 +1067,10 @@ fn is_builtin_type(name: &[u8]) -> bool {
 			| b"bool" | b"boolean"
 			| b"date" | b"time"
 			| b"timestamp"
+			| b"timestamp with time zone"
+			| b"timestamp without time zone"
+			| b"time with time zone"
+			| b"time without time zone"
 			| b"timestamptz"
 			| b"interval"
 			| b"uuid" | b"json"

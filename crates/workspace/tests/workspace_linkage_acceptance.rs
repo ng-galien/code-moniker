@@ -69,45 +69,99 @@ fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
 fn sql_sdk_links_schema_qualified_overloads_and_classifies_open_calls() {
 	let snapshot = load_workspace("projects/sql/resolution");
 
-	assert_call_is_candidate_with_targets(
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"uses_type",
+		"function:accept_state(value:public.order_state)",
+		"schema:public/type:order_state",
+		"schema:public/type:order_state",
+	);
+
+	assert_call_resolves_only_to(
 		&snapshot,
 		"module:usage",
 		"calls",
 		"finish",
 		0,
-		&["module:definitions/schema:public/function:finish()"],
+		"module:definitions/schema:public/function:finish()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"pick",
+		2,
+		"module:definitions/schema:public/function:pick(left_value:int4,right_value:int4)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"refresh",
+		0,
+		"module:definitions/schema:public/procedure:refresh()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"lowercase",
+		0,
+		"module:definitions/schema:public/function:lowercase()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:usage",
+		"calls",
+		"MixedCase",
+		0,
+		"module:definitions/schema:public/function:MixedCase()",
 	);
 	assert_call_is_candidate_with_targets(
 		&snapshot,
 		"module:usage",
 		"calls",
 		"pick",
-		2,
-		&["module:definitions/schema:public/function:pick(left_value:int4,right_value:int4)"],
+		1,
+		&[
+			"module:definitions/schema:public/function:pick(value:int4)",
+			"module:definitions/schema:private/function:pick(value:int4)",
+		],
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"function:call_choose_search_path(value:int4)",
+		"calls",
+		"choose",
+		1,
+		"schema:public/function:choose(value:int4)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"function:call_choose_int(value:int4)",
+		"calls",
+		"choose",
+		1,
+		"schema:public/function:choose(value:int4)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"function:call_choose_text(value:text)",
+		"calls",
+		"choose",
+		1,
+		"schema:public/function:choose(value:text)",
 	);
 	assert_call_is_candidate_with_targets(
 		&snapshot,
-		"module:usage",
+		"function:call_choose_unknown()",
 		"calls",
-		"refresh",
-		0,
-		&["module:definitions/schema:public/procedure:refresh()"],
-	);
-	assert_call_is_candidate_with_targets(
-		&snapshot,
-		"module:usage",
-		"calls",
-		"lowercase",
-		0,
-		&["module:definitions/schema:public/function:lowercase()"],
-	);
-	assert_call_is_candidate_with_targets(
-		&snapshot,
-		"module:usage",
-		"calls",
-		"MixedCase",
-		0,
-		&["module:definitions/schema:public/function:MixedCase()"],
+		"choose",
+		1,
+		&[
+			"schema:public/function:choose(value:int4)",
+			"schema:public/function:choose(value:text)",
+		],
 	);
 	assert_dynamic_reason(
 		&snapshot,

@@ -16,7 +16,7 @@ use crate::lang::sdk::{
 use super::Presets;
 use super::canonicalize::compute_module_moniker;
 use super::kinds;
-use super::strategy::{Strategy, collect_callable_table, parse};
+use super::strategy::{Strategy, collect_callable_metadata, parse};
 
 pub(super) fn extract(
 	uri: &str,
@@ -29,13 +29,13 @@ pub(super) fn extract(
 	let module = compute_module_moniker(anchor, uri);
 	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
 	let mut legacy = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let (callable_table, callable_metadata) =
-		collect_callable_table(tree.root_node(), source.as_bytes(), &module);
+	let (callable_metadata, search_paths) =
+		collect_callable_metadata(tree.root_node(), source.as_bytes(), &module);
 	let strategy = Strategy {
 		module: module.clone(),
 		source_str: source,
 		emit_comments: true,
-		callable_table: &callable_table,
+		search_paths: &search_paths,
 	};
 	CanonicalWalker::new(&strategy, source.as_bytes()).walk(tree.root_node(), &module, &mut legacy);
 
@@ -145,6 +145,7 @@ fn static_kind(kind: &[u8]) -> &'static [u8] {
 		b"schema" => b"schema",
 		b"table" => b"table",
 		b"view" => b"view",
+		b"type" => b"type",
 		b"function" => b"function",
 		b"procedure" => b"procedure",
 		b"comment" => b"comment",

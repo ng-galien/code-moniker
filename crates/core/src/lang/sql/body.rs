@@ -3,13 +3,13 @@ use tree_sitter::{Node, Parser};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
-use super::strategy::{CallableTable, new_sql_parser, run_inner_sql};
+use super::strategy::{CallableSearchPaths, new_sql_parser, run_inner_sql};
 
 pub(super) fn walk_plpgsql_body(
 	body: &str,
 	source_def: &Moniker,
 	module: &Moniker,
-	callable_table: &CallableTable,
+	search_paths: &CallableSearchPaths,
 	graph: &mut CodeGraph,
 ) {
 	if body.trim().is_empty() {
@@ -31,8 +31,11 @@ pub(super) fn walk_plpgsql_body(
 		if trimmed.is_empty() {
 			return;
 		}
-		let prepared = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2
-		{
+		let prepared = if starts_with_keyword(trimmed, "call") {
+			trimmed.to_string()
+		} else if inside_call_statement(expr) {
+			format!("CALL {trimmed}")
+		} else if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
 			trimmed[1..trimmed.len() - 1].to_string()
 		} else {
 			format!("SELECT {trimmed}")
@@ -42,10 +45,35 @@ pub(super) fn walk_plpgsql_body(
 			&prepared,
 			source_def,
 			module,
-			callable_table,
+			search_paths,
 			graph,
 		);
 	});
+}
+
+fn inside_call_statement(mut node: Node<'_>) -> bool {
+	while let Some(parent) = node.parent() {
+		if parent
+			.kind()
+			.as_bytes()
+			.windows(b"call".len())
+			.any(|window| window.eq_ignore_ascii_case(b"call"))
+		{
+			return true;
+		}
+		node = parent;
+	}
+	false
+}
+
+fn starts_with_keyword(value: &str, keyword: &str) -> bool {
+	value
+		.get(..keyword.len())
+		.is_some_and(|prefix| prefix.eq_ignore_ascii_case(keyword))
+		&& value
+			.as_bytes()
+			.get(keyword.len())
+			.is_some_and(u8::is_ascii_whitespace)
 }
 
 fn for_each_sql_expression<F: FnMut(Node)>(node: Node, f: &mut F) {
@@ -90,9 +118,8 @@ mod tests {
 			 $$;",
 		);
 		assert!(
-			ref_targets(&g).iter().any(
-				|t| t == "code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn"
-			),
+			ref_targets(&g).iter().any(|t| t
+				== "code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn(int4)"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -113,7 +140,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:other_fn"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:other_fn()"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -134,7 +161,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:deep_fn"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:deep_fn()"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -155,7 +182,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:step_fn"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:step_fn(int4)"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -168,5 +195,19 @@ mod tests {
 			"CREATE FUNCTION bad() RETURNS void LANGUAGE plpgsql AS $$ this is not valid plpgsql $$;",
 		);
 		assert!(g.defs().any(|d| d.kind == b"function"));
+	}
+
+	#[test]
+	fn call_statement_in_body_targets_a_procedure() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION outer_fn(x int) RETURNS void LANGUAGE plpgsql AS $$ BEGIN CALL jobs.refresh(x); END; $$;",
+		);
+		assert!(
+			ref_targets(&g).iter().any(|target| target
+				== "code+moniker://app/lang:sql/module:foo/schema:jobs/procedure:refresh(int4)"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
 	}
 }

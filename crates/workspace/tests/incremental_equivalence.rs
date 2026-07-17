@@ -363,6 +363,21 @@ fn sql_default_arity_changes_match_full_rebuild() {
 }
 
 #[test]
+fn sql_typed_call_changes_match_full_rebuild() {
+	let temp = seed_sql_workspace(&[
+		(
+			"definitions.sql",
+			"CREATE FUNCTION public.choose(value int) RETURNS void LANGUAGE sql AS $$ SELECT value $$;\nCREATE FUNCTION public.choose(value text) RETURNS void LANGUAGE sql AS $$ SELECT value $$;\n",
+		),
+		("usage.sql", "SELECT public.choose(1::int);\n"),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit("usage.sql", "SELECT public.choose('one'::text);\n");
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
 fn csharp_attribute_short_name_changes_match_full_rebuild() {
 	let temp = seed_csharp_workspace(&[
 		("Program.cs", "[Marker] public class Program {}\n"),
