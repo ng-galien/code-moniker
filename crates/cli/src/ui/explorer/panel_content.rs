@@ -594,7 +594,7 @@ fn overview_linkage_section(vm: &mut PanelVm, app: &App) {
 	panel_kv(
 		vm,
 		"blocked",
-		linkage.manifest_blocked_refs.to_string(),
+		linkage.blocked_refs.to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
@@ -605,8 +605,8 @@ fn overview_linkage_section(vm: &mut PanelVm, app: &App) {
 	);
 	panel_kv(
 		vm,
-		"ambiguous",
-		linkage.ambiguous_refs.to_string(),
+		"candidates",
+		linkage.candidate_refs.to_string(),
 		FitMode::Tail,
 	);
 }

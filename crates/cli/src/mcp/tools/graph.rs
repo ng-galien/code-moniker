@@ -25,8 +25,9 @@ impl GraphTool {
 		"The focus (symbol URI or workspace-relative file path) defines a unit ",
 		"boundary; resolved references partition into internal edges, callers ",
 		"(outside-in) and callees (inside-out), aggregated per neighbor with ",
-		"relation kinds and call counts. Unresolved references are counted, ",
-		"never dropped. Filter with direction, relation and min_count before rendering."
+		"relation kinds and call counts. Non-unique references remain outside ",
+		"the graph and are classified, never dropped. Filter with direction, ",
+		"relation and min_count before rendering."
 	);
 
 	const DEFAULT_MAX_ITEMS: usize = 40;
@@ -192,8 +193,12 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
 	);
 	let _ = writeln!(
 		out,
-		"unlinked refs: external {} · manifest-blocked {} · unresolved {}",
-		result.unlinked.external, result.unlinked.manifest_blocked, result.unlinked.unresolved
+		"unlinked refs: external {} · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
+		result.unlinked.external,
+		result.unlinked.candidate,
+		result.unlinked.dynamic,
+		result.unlinked.manifest_blocked,
+		result.unlinked.unresolved
 	);
 	if !result.unlinked.unresolved_reasons.is_empty() {
 		let reasons = result
@@ -208,6 +213,40 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
 	render_neighbors(&mut out, "callers", &result.callers, max_items);
 	render_neighbors(&mut out, "callees", &result.callees, max_items);
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use code_moniker_query::UnlinkedRefsDto;
+
+	use super::*;
+
+	#[test]
+	fn graph_render_classifies_non_unique_references_outside_the_graph() {
+		let result = SymbolGraphResult {
+			focus: SymbolGraphFocus::File {
+				path: "src/sample.py".to_string(),
+			},
+			members: Vec::new(),
+			internal_edges: Vec::new(),
+			callers: Vec::new(),
+			callees: Vec::new(),
+			unlinked: UnlinkedRefsDto {
+				external: 1,
+				candidate: 2,
+				dynamic: 3,
+				manifest_blocked: 4,
+				unresolved: 5,
+				unresolved_reasons: Default::default(),
+			},
+		};
+
+		let rendered = render_graph(&result, 10);
+
+		assert!(rendered.contains(
+			"unlinked refs: external 1 · candidate 2 · dynamic 3 · manifest-blocked 4 · unresolved 5"
+		));
+	}
 }
 
 fn render_neighbors(

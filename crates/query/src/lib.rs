@@ -354,11 +354,11 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		category: "diagnostic",
 		read_only: true,
 		mcp_tool: "code_moniker_query",
-		fields: &["workspace", "prefix"],
+		fields: &["workspace", "prefix", "cluster"],
 		required_fields: &[],
 		positionals: 1,
 		projection: false,
-		paginated: false,
+		paginated: true,
 		example: "resolution.audit prefix:\"lang:java\" limit:20",
 	},
 	QueryCapabilitySpec {
@@ -702,6 +702,7 @@ pub struct ResolutionAuditQuery {
 	pub workspace: Option<String>,
 	pub prefix: String,
 	pub limit: usize,
+	pub cluster: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -969,14 +970,15 @@ pub enum QueryResult {
 	Notes(NotesResult),
 }
 
-// Refs without an in-workspace target, decomposed so external-by-design
-// never masquerades as a resolution gap: `external` links to declared
-// packages, `manifest_blocked` hit the manifest policy, `unresolved` are the
-// real misses, ventilated by reason.
+// Refs without a unique in-workspace target, decomposed so explained decisions
+// never masquerade as resolution gaps. Candidate and dynamic references remain
+// outside the graph while preserving their honest classification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UnlinkedRefsDto {
 	pub external: usize,
+	pub candidate: usize,
+	pub dynamic: usize,
 	pub manifest_blocked: usize,
 	pub unresolved: usize,
 	pub unresolved_reasons: BTreeMap<String, usize>,
@@ -1040,10 +1042,9 @@ pub struct IdentitySegmentDto {
 	pub symbol: Option<Box<SymbolDto>>,
 }
 
-// The embedded resolution audit: unresolved references (and name-match
-// resolutions, the false-link candidates) clustered under mechanical pattern
-// keys, with samples and per-zone rollups — the daemon's own diagnosis
-// surface, so agents stop rebuilding external harnesses.
+// The embedded resolution audit partitions every reference by decision class
+// and clusters candidates, dynamic references, and unresolved references under
+// mechanical pattern keys. Stable cluster ids support paginated drill-downs.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ResolutionAuditResult {
@@ -1058,15 +1059,22 @@ pub struct ResolutionAuditResult {
 pub struct AuditTotalsDto {
 	pub references: usize,
 	pub resolved: usize,
+	pub unique: usize,
+	pub candidate: usize,
 	pub external: usize,
+	pub dynamic: usize,
 	pub blocked: usize,
 	pub unresolved: usize,
+	pub explained: usize,
+	pub weak_or_unexplained: usize,
 	pub name_match_resolved: usize,
+	pub name_match_candidate: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AuditClusterDto {
+	pub id: String,
 	pub pattern: String,
 	pub count: usize,
 	pub samples: Vec<AuditSampleDto>,
@@ -1075,10 +1083,16 @@ pub struct AuditClusterDto {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AuditSampleDto {
+	pub file: String,
+	pub line_range: Option<(u32, u32)>,
+	pub snippet: String,
 	pub source: String,
 	pub call_name: String,
 	pub receiver: String,
 	pub target: String,
+	pub evidence: String,
+	pub constraints: Vec<String>,
+	pub candidates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1898,6 +1912,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 				.or_else(|| fields.positional.first().cloned())
 				.unwrap_or_default(),
 			limit: fields.usize("limit")?.unwrap_or(20),
+			cluster: fields.one("cluster"),
 		}),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op.to_string())),
@@ -2469,18 +2484,58 @@ fn format_resolution_audit(out: &mut String, result: &ResolutionAuditResult) {
 	}
 	let _ = writeln!(
 		out,
-		"refs: {} resolved: {} external: {} blocked: {} unresolved: {} name_match_resolved: {}",
-		t.references, t.resolved, t.external, t.blocked, t.unresolved, t.name_match_resolved
+		"refs: {} unique: {} candidate: {} external: {} dynamic: {} blocked: {} unresolved: {} explained: {} weak_or_unexplained: {} name_match_candidate: {}",
+		t.references,
+		t.unique,
+		t.candidate,
+		t.external,
+		t.dynamic,
+		t.blocked,
+		t.unresolved,
+		t.explained,
+		t.weak_or_unexplained,
+		t.name_match_candidate
 	);
 	let _ = writeln!(out, "clusters:");
 	for cluster in &result.clusters {
-		let _ = writeln!(out, "- [{:>6}] {}", cluster.count, cluster.pattern);
-		if let Some(sample) = cluster.samples.first() {
+		let _ = writeln!(
+			out,
+			"- [{:>6}] {} {}",
+			cluster.count, cluster.id, cluster.pattern
+		);
+		let sample_limit = if result.clusters.len() == 1 {
+			cluster.samples.len()
+		} else {
+			1
+		};
+		for sample in cluster.samples.iter().take(sample_limit) {
+			let location = match sample.line_range {
+				Some((start, end)) if start == end => format!("{}:{start}", sample.file),
+				Some((start, end)) => format!("{}:{start}-{end}", sample.file),
+				None => sample.file.clone(),
+			};
 			let _ = writeln!(
 				out,
-				"           ex: {} {} -> {}",
-				sample.call_name, sample.receiver, sample.target
+				"           ex: {} {} {} -> {} evidence:{}",
+				location, sample.call_name, sample.receiver, sample.target, sample.evidence
 			);
+			if !sample.candidates.is_empty() {
+				let _ = writeln!(
+					out,
+					"           candidates: {}",
+					sample.candidates.join(", ")
+				);
+			}
+			if !sample.constraints.is_empty() {
+				let _ = writeln!(
+					out,
+					"           constraints: {}",
+					sample.constraints.join(", ")
+				);
+			}
+			if !sample.snippet.is_empty() {
+				let _ = writeln!(out, "           code: {}", sample.snippet);
+			}
 		}
 	}
 	let _ = writeln!(out, "zones:");
@@ -2545,8 +2600,12 @@ fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
 fn format_unlinked(out: &mut String, unlinked: &UnlinkedRefsDto) {
 	let _ = writeln!(
 		out,
-		"unlinked refs: external {} · manifest-blocked {} · unresolved {}",
-		unlinked.external, unlinked.manifest_blocked, unlinked.unresolved
+		"unlinked refs: external {} · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
+		unlinked.external,
+		unlinked.candidate,
+		unlinked.dynamic,
+		unlinked.manifest_blocked,
+		unlinked.unresolved
 	);
 	if !unlinked.unresolved_reasons.is_empty() {
 		let reasons = unlinked
@@ -3003,12 +3062,93 @@ mod tests {
 
 	#[test]
 	fn parses_resolution_audit_positional_prefix() {
-		let request = parse_query("resolution.audit java limit:7").expect("audit query");
+		let request = parse_query("resolution.audit java limit:7 cluster:resolution-abc")
+			.expect("audit query");
 		let Query::ResolutionAudit(query) = request.query else {
 			panic!("expected resolution audit query");
 		};
 		assert_eq!(query.prefix, "java");
 		assert_eq!(query.limit, 7);
+		assert_eq!(query.cluster.as_deref(), Some("resolution-abc"));
+	}
+
+	#[test]
+	fn resolution_audit_default_limit_matches_its_documented_contract() {
+		let request = parse_query("resolution.audit python").expect("audit query");
+		let Query::ResolutionAudit(query) = request.query else {
+			panic!("expected resolution audit query");
+		};
+		assert_eq!(query.limit, 20);
+	}
+
+	#[test]
+	fn formats_resolution_audit_explanation_metrics() {
+		let response = QueryResponse {
+			generation: None,
+			result: QueryResult::ResolutionAudit(Box::new(ResolutionAuditResult {
+				prefix: "lang:python".to_string(),
+				totals: AuditTotalsDto {
+					references: 10,
+					resolved: 4,
+					unique: 4,
+					candidate: 2,
+					external: 1,
+					dynamic: 1,
+					blocked: 1,
+					unresolved: 1,
+					explained: 9,
+					weak_or_unexplained: 3,
+					name_match_resolved: 0,
+					name_match_candidate: 2,
+				},
+				clusters: vec![AuditClusterDto {
+					id: "resolution-abc".to_string(),
+					pattern: "candidate name_match/method_call".to_string(),
+					count: 2,
+					samples: vec![
+						AuditSampleDto {
+							file: "src/a.py".to_string(),
+							line_range: Some((10, 10)),
+							snippet: "value.first()".to_string(),
+							source: "module:a".to_string(),
+							call_name: "first".to_string(),
+							receiver: "value".to_string(),
+							target: "method:first".to_string(),
+							evidence: "name_match".to_string(),
+							constraints: vec!["scope:global".to_string()],
+							candidates: vec!["class:A/method:first".to_string()],
+						},
+						AuditSampleDto {
+							file: "src/b.py".to_string(),
+							line_range: Some((20, 21)),
+							snippet: "other.second()".to_string(),
+							source: "module:b".to_string(),
+							call_name: "second".to_string(),
+							receiver: "other".to_string(),
+							target: "method:second".to_string(),
+							evidence: "name_match".to_string(),
+							constraints: Vec::new(),
+							candidates: Vec::new(),
+						},
+					],
+				}],
+				zones: Vec::new(),
+			})),
+			next_cursor: None,
+		};
+
+		let formatted = format_query_response(&response);
+
+		assert!(formatted.contains("unique: 4 candidate: 2"));
+		assert!(formatted.contains("explained: 9 weak_or_unexplained: 3"));
+		assert!(formatted.contains("name_match_candidate: 2"));
+		assert!(formatted.contains("resolution-abc"));
+		assert!(formatted.contains("first value"));
+		assert!(formatted.contains("second other"));
+		assert!(formatted.contains("src/a.py:10"));
+		assert!(formatted.contains("src/b.py:20-21"));
+		assert!(formatted.contains("constraints: scope:global"));
+		assert!(formatted.contains("code: value.first()"));
 	}
 
 	#[test]

@@ -10,11 +10,12 @@ mod view;
 pub use records::RecordTable;
 
 pub use model::{
-	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,
-	ChangeResource, ChangeStatus, CodeIndex, CodeIndexTimings, ExternalReference,
+	CandidateReason, CandidateReference, CandidateScope, ChangeId, ChangeOverlay,
+	ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields, ChangeResource, ChangeStatus,
+	CodeIndex, CodeIndexTimings, DynamicReason, DynamicReference, ExternalReference,
 	ExternalReferenceOrigin, LinkageEdge, LinkageReadIndex, LinkageReadIndexHandle,
-	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
+	LinkageSnapshot, ReferenceId, ReferenceRecord, ResolutionEvidence, ResourceGeneration,
+	SourceCatalog, SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
 	UnresolvedReason, UnresolvedReference, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
 	WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };

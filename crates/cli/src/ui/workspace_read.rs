@@ -29,9 +29,9 @@ pub(in crate::ui) use code_moniker_workspace::LocalWorkspaceRegistry;
 pub(in crate::ui) struct LinkageStats {
 	pub(in crate::ui) resolved_refs: usize,
 	pub(in crate::ui) external_refs: usize,
-	pub(in crate::ui) manifest_blocked_refs: usize,
+	pub(in crate::ui) blocked_refs: usize,
 	pub(in crate::ui) unresolved_refs: usize,
-	pub(in crate::ui) ambiguous_refs: usize,
+	pub(in crate::ui) candidate_refs: usize,
 }
 
 impl LinkageStats {
@@ -41,7 +41,7 @@ impl LinkageStats {
 	}
 
 	pub(in crate::ui) fn eligible_refs(&self) -> usize {
-		self.resolved_refs + self.manifest_blocked_refs + self.unresolved_refs
+		self.resolved_refs + self.candidate_refs + self.blocked_refs + self.unresolved_refs
 	}
 }
 
@@ -276,9 +276,9 @@ pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceRegistry) -> LinkageSta
 		.map(|snapshot| LinkageStats {
 			resolved_refs: snapshot.linkage.resolved_refs,
 			external_refs: snapshot.linkage.external_refs,
-			manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
+			blocked_refs: snapshot.linkage.blocked_refs,
 			unresolved_refs: snapshot.linkage.unresolved_refs,
-			ambiguous_refs: snapshot.linkage.ambiguous_refs,
+			candidate_refs: snapshot.linkage.candidate_refs,
 		})
 		.unwrap_or_default()
 }

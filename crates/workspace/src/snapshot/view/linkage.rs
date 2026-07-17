@@ -15,13 +15,12 @@ impl<'a> LinkageView<'a> {
 	pub fn unresolved_report(&self) -> UnresolvedLinkageReport {
 		let mut sources = BTreeMap::<SourceId, usize>::new();
 		let mut reasons = BTreeMap::<UnresolvedReason, usize>::new();
-		for unresolved in self
-			.snapshot
-			.linkage
-			.unresolved
-			.iter()
-			.chain(&self.snapshot.linkage.manifest_blocked)
-		{
+		let blocked = if self.snapshot.linkage.blocked.is_empty() {
+			&self.snapshot.linkage.manifest_blocked
+		} else {
+			&self.snapshot.linkage.blocked
+		};
+		for unresolved in self.snapshot.linkage.unresolved.iter().chain(blocked) {
 			if let Some(source) = self.reference_source(&unresolved.reference) {
 				*sources.entry(source).or_default() += 1;
 			}

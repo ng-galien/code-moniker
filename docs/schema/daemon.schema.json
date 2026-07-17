@@ -56,6 +56,7 @@
       "type": "object",
       "required": [
         "count",
+        "id",
         "pattern",
         "samples"
       ],
@@ -64,6 +65,9 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "id": {
+          "type": "string"
         },
         "pattern": {
           "type": "string"
@@ -80,7 +84,12 @@
       "type": "object",
       "required": [
         "call_name",
+        "candidates",
+        "constraints",
+        "evidence",
+        "file",
         "receiver",
+        "snippet",
         "source",
         "target"
       ],
@@ -88,7 +97,48 @@
         "call_name": {
           "type": "string"
         },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
         "receiver": {
+          "type": "string"
+        },
+        "snippet": {
           "type": "string"
         },
         "source": {
@@ -103,11 +153,17 @@
       "type": "object",
       "required": [
         "blocked",
+        "candidate",
+        "dynamic",
+        "explained",
         "external",
+        "name_match_candidate",
         "name_match_resolved",
         "references",
         "resolved",
-        "unresolved"
+        "unique",
+        "unresolved",
+        "weak_or_unexplained"
       ],
       "properties": {
         "blocked": {
@@ -115,7 +171,27 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "candidate": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dynamic": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "explained": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "name_match_candidate": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -135,7 +211,17 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "unique": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "unresolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "weak_or_unexplained": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -1995,6 +2081,12 @@
             "prefix"
           ],
           "properties": {
+            "cluster": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "limit": {
               "type": "integer",
               "format": "uint",
@@ -3480,12 +3572,24 @@
     "UnlinkedRefsDto": {
       "type": "object",
       "required": [
+        "candidate",
+        "dynamic",
         "external",
         "manifest_blocked",
         "unresolved",
         "unresolved_reasons"
       ],
       "properties": {
+        "candidate": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dynamic": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "external": {
           "type": "integer",
           "format": "uint",

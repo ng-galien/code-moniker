@@ -361,11 +361,175 @@ impl CodeIndex {
 pub struct LinkageEdge {
 	pub reference: ReferenceId,
 	pub target: SymbolId,
+	pub evidence: ResolutionEvidence,
 }
 
 impl LinkageEdge {
 	pub fn new(reference: ReferenceId, target: SymbolId) -> Self {
-		Self { reference, target }
+		Self::with_evidence(reference, target, ResolutionEvidence::ExactBinding)
+	}
+
+	pub fn with_evidence(
+		reference: ReferenceId,
+		target: SymbolId,
+		evidence: ResolutionEvidence,
+	) -> Self {
+		Self {
+			reference,
+			target,
+			evidence,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResolutionEvidence {
+	ExactBinding,
+	LocalBinding,
+	GlobalBinding,
+	TypeConstraint,
+	Mro,
+	Injected,
+	NameMatch,
+}
+
+impl ResolutionEvidence {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::ExactBinding => "exact_binding",
+			Self::LocalBinding => "local_binding",
+			Self::GlobalBinding => "global_binding",
+			Self::TypeConstraint => "type_constraint",
+			Self::Mro => "mro",
+			Self::Injected => "injected",
+			Self::NameMatch => "name_match",
+		}
+	}
+
+	pub fn rank(self) -> u8 {
+		match self {
+			Self::ExactBinding => 100,
+			Self::LocalBinding | Self::TypeConstraint => 90,
+			Self::Mro => 85,
+			Self::GlobalBinding | Self::Injected => 80,
+			Self::NameMatch => 10,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CandidateReason {
+	WeakNameMatch,
+	MultipleTargets,
+	AmbiguousLookup,
+}
+
+impl CandidateReason {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::WeakNameMatch => "weak_name_match",
+			Self::MultipleTargets => "multiple_targets",
+			Self::AmbiguousLookup => "ambiguous_lookup",
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CandidateScope {
+	Local,
+	Global,
+	Builtin,
+	Injected,
+	Unknown,
+}
+
+impl CandidateScope {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Local => "local",
+			Self::Global => "global",
+			Self::Builtin => "builtin",
+			Self::Injected => "injected",
+			Self::Unknown => "unknown",
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CandidateReference {
+	pub reference: ReferenceId,
+	pub targets: Vec<SymbolId>,
+	pub reason: CandidateReason,
+	pub scope: CandidateScope,
+	pub evidence: ResolutionEvidence,
+}
+
+impl CandidateReference {
+	pub fn new(
+		reference: ReferenceId,
+		targets: Vec<SymbolId>,
+		reason: CandidateReason,
+		scope: CandidateScope,
+		evidence: ResolutionEvidence,
+	) -> Self {
+		Self {
+			reference,
+			targets,
+			reason,
+			scope,
+			evidence,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DynamicReason {
+	DynamicAttribute,
+	DescriptorOrFrameworkInjected,
+	DuckTypedCandidateSet,
+	MixinContract,
+	ExternalDependencyUnindexed,
+	RuntimeImport,
+	RuntimeMutation,
+	InsufficientLocalFacts,
+}
+
+impl DynamicReason {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::DynamicAttribute => "dynamic_attribute",
+			Self::DescriptorOrFrameworkInjected => "descriptor_or_framework_injected",
+			Self::DuckTypedCandidateSet => "duck_typed_candidate_set",
+			Self::MixinContract => "mixin_contract",
+			Self::ExternalDependencyUnindexed => "external_dependency_unindexed",
+			Self::RuntimeImport => "runtime_import",
+			Self::RuntimeMutation => "runtime_mutation",
+			Self::InsufficientLocalFacts => "insufficient_local_facts",
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DynamicReference {
+	pub reference: ReferenceId,
+	pub target_identity: Arc<str>,
+	pub reason: DynamicReason,
+	pub candidates: Vec<SymbolId>,
+}
+
+impl DynamicReference {
+	pub fn new(
+		reference: ReferenceId,
+		target_identity: impl Into<Arc<str>>,
+		reason: DynamicReason,
+		candidates: Vec<SymbolId>,
+	) -> Self {
+		Self {
+			reference,
+			target_identity: target_identity.into(),
+			reason,
+			candidates,
+		}
 	}
 }
 
@@ -463,12 +627,22 @@ pub struct LinkageSnapshot {
 	pub generation: ResourceGeneration,
 	pub index_generation: ResourceGeneration,
 	pub resolved_refs: usize,
+	pub candidate_refs: usize,
 	pub external_refs: usize,
+	pub dynamic_refs: usize,
+	pub blocked_refs: usize,
+	/// Compatibility counter for manifest-policy blocks.
 	pub manifest_blocked_refs: usize,
 	pub unresolved_refs: usize,
+	/// Compatibility counter for existing consumers. Candidate references are
+	/// now stored separately and never projected as graph edges.
 	pub ambiguous_refs: usize,
 	pub resolved: Vec<LinkageEdge>,
+	pub candidates: Vec<CandidateReference>,
 	pub external: Vec<ExternalReference>,
+	pub dynamic: Vec<DynamicReference>,
+	pub blocked: Vec<UnresolvedReference>,
+	/// Compatibility view containing only `ManifestBlocked` entries.
 	pub manifest_blocked: Vec<UnresolvedReference>,
 	pub unresolved: Vec<UnresolvedReference>,
 	pub read_index: LinkageReadIndexHandle,
@@ -485,7 +659,9 @@ impl LinkageReadIndex {
 		let mut incoming = rustc_hash::FxHashMap::<SymbolId, Vec<ReferenceId>>::default();
 		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
 		for edge in edges {
-			let LinkageEdge { reference, target } = edge.clone();
+			let LinkageEdge {
+				reference, target, ..
+			} = edge.clone();
 			targets.entry(reference).or_insert(target);
 			incoming.entry(target).or_default().push(reference);
 		}
@@ -533,12 +709,18 @@ impl LinkageSnapshot {
 			generation,
 			index_generation,
 			resolved_refs,
+			candidate_refs: 0,
 			external_refs: 0,
+			dynamic_refs: 0,
+			blocked_refs: 0,
 			manifest_blocked_refs: 0,
 			unresolved_refs,
 			ambiguous_refs: 0,
 			resolved: Vec::new(),
+			candidates: Vec::new(),
 			external: Vec::new(),
+			dynamic: Vec::new(),
+			blocked: Vec::new(),
 			manifest_blocked: Vec::new(),
 			unresolved: Vec::new(),
 			read_index: LinkageReadIndexHandle::default(),
@@ -558,12 +740,18 @@ impl LinkageSnapshot {
 			generation,
 			index_generation,
 			resolved_refs: resolved.len(),
+			candidate_refs: 0,
 			external_refs: 0,
+			dynamic_refs: 0,
+			blocked_refs: 0,
 			manifest_blocked_refs: 0,
 			unresolved_refs: unresolved.len(),
 			ambiguous_refs: 0,
 			resolved,
+			candidates: Vec::new(),
 			external: Vec::new(),
+			dynamic: Vec::new(),
+			blocked: Vec::new(),
 			manifest_blocked: Vec::new(),
 			unresolved,
 			read_index,

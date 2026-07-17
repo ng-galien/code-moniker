@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope};
+use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionDecision, ResolutionScope};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::SymbolSet;
 use crate::linkage::language;
 use crate::linkage::source_groups::LinkPermission;
-use crate::snapshot::ReferenceRecord;
+use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
 
@@ -379,12 +379,13 @@ impl GlobalTargetPolicy {
 		reference: &ReferenceRecord,
 	) -> Option<ReferenceLinkageDecision> {
 		if !self.allowed.is_empty() {
-			return Some(ReferenceLinkageDecision::resolved(
+			return Some(ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 				ResolutionScope::Global,
-				reference_idx,
+				ResolutionEvidence::GlobalBinding,
 				reference.id,
+				reference_idx,
 				self.allowed,
-			));
+			)));
 		}
 		if self.blocked && !self.unknown {
 			return Some(ReferenceLinkageDecision::manifest_blocked(

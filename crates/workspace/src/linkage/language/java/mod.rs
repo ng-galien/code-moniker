@@ -190,7 +190,7 @@ fn declared_groups_permit(
 	context: &super::SemanticContext<'_>,
 	replacement: &ReferenceLinkageDecision,
 ) -> bool {
-	let ReferenceLinkageDecision::Resolved { targets, .. } = replacement else {
+	let Some(targets) = replacement.linkage_targets() else {
 		return true;
 	};
 	let Some(location) = context.locations.get(replacement.reference_idx()) else {

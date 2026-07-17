@@ -2,14 +2,17 @@ use std::collections::BTreeMap;
 use std::hash::Hash;
 
 use crate::linkage::binding::LinkageMemoryMetrics;
-use crate::linkage::binding::{ReferenceLinkageDecision, UnknownReason};
+use crate::linkage::binding::{
+	BlockReason, ReferenceLinkageDecision, ResolutionDecision, UnknownReason,
+};
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::{CandidateCatalog, query_keys};
 use crate::linkage::catalog::{
 	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
 };
 use crate::snapshot::{
-	LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId,
+	CandidateScope, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration,
+	SourceId, SymbolId,
 };
 use crate::source::{CodeIndexMaterial, LocalIdentityResolver};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
@@ -197,7 +200,7 @@ fn missing_resolved_references(
 				.indexes
 				.reference_indexes
 				.contains_key(decision.reference())
-				|| decision.resolved_targets().is_some_and(|targets| {
+				|| decision.linkage_targets().is_some_and(|targets| {
 					targets.iter().any(|target| {
 						resolved_target_missing_or_retargeted(material, candidates, target)
 					})
@@ -445,7 +448,7 @@ fn store_memory_metrics(
 		index.record_memory(&mut metrics);
 	}
 	for decision in &store.decisions {
-		if let Some(targets) = decision.resolved_targets() {
+		if let Some(targets) = decision.linkage_targets() {
 			metrics.add_symbol_set(targets.len(), targets.serialized_size());
 		}
 	}
@@ -474,36 +477,44 @@ fn decisions_from_snapshot(
 		&reference_indexes,
 		candidates.symbols(),
 	));
+	decisions.extend(candidate_decisions_from_snapshot(
+		snapshot,
+		&reference_indexes,
+		candidates.symbols(),
+	));
+	decisions.extend(dynamic_decisions_from_snapshot(
+		snapshot,
+		&reference_indexes,
+		candidates.symbols(),
+	));
 	decisions.extend(external_decisions_from_snapshot(
 		snapshot,
 		&reference_indexes,
 		material,
 	));
-	decisions.extend(
-		snapshot
-			.manifest_blocked
-			.iter()
-			.filter_map(|blocked| reference_indexes.get(&blocked.reference).copied())
-			.map(|reference_idx| {
-				ReferenceLinkageDecision::manifest_blocked(
-					reference_idx.index(),
-					references[reference_idx.index()].id,
-				)
-			}),
-	);
-	decisions.extend(
-		snapshot
-			.unresolved
-			.iter()
-			.filter_map(|unresolved| reference_indexes.get(&unresolved.reference).copied())
-			.map(|reference_idx| {
-				ReferenceLinkageDecision::unknown(
-					UnknownReason::NoCandidate,
-					reference_idx.index(),
-					references[reference_idx.index()].id,
-				)
-			}),
-	);
+	let blocked = if snapshot.blocked.is_empty() {
+		&snapshot.manifest_blocked
+	} else {
+		&snapshot.blocked
+	};
+	decisions.extend(blocked.iter().filter_map(|blocked| {
+		let reference_idx = reference_indexes.get(&blocked.reference)?.index();
+		let reason = BlockReason::from_unresolved_reason(blocked.reason)?;
+		Some(ReferenceLinkageDecision::blocked(
+			reason,
+			reference_idx,
+			blocked.reference,
+		))
+	}));
+	decisions.extend(snapshot.unresolved.iter().filter_map(|unresolved| {
+		let reference_idx = reference_indexes.get(&unresolved.reference)?.index();
+		let reason = UnknownReason::from_unresolved_reason(unresolved.reason)?;
+		Some(ReferenceLinkageDecision::unknown(
+			reason,
+			reference_idx,
+			references[reference_idx].id,
+		))
+	}));
 	decisions
 }
 
@@ -512,29 +523,122 @@ fn resolved_decisions_from_snapshot(
 	reference_indexes: &FxHashMap<ReferenceId, ReferenceOrdinal>,
 	symbols: &SymbolOrdinalCatalog,
 ) -> Vec<ReferenceLinkageDecision> {
-	let mut targets_by_reference = BTreeMap::<ReferenceId, SymbolSet>::new();
+	let mut targets_by_reference = BTreeMap::new();
 	for edge in &snapshot.resolved {
-		let Some(target) = symbols.ordinal(&edge.target) else {
-			continue;
-		};
-		targets_by_reference
+		let entry = targets_by_reference
 			.entry(edge.reference)
-			.or_default()
-			.insert(target);
+			.or_insert_with(|| (SymbolSet::new(), edge.evidence, false));
+		match symbols.ordinal(&edge.target) {
+			Some(target) => {
+				entry.0.insert(target);
+			}
+			None => entry.2 = true,
+		}
 	}
 	targets_by_reference
 		.into_iter()
-		.filter_map(|(reference, targets)| {
+		.filter_map(|(reference, (targets, evidence, missing_target))| {
 			reference_indexes.get(&reference).map(|reference_idx| {
-				ReferenceLinkageDecision::resolved(
-					crate::linkage::binding::ResolutionScope::Global,
-					reference_idx.index(),
-					reference,
-					targets,
-				)
+				let reference_idx = reference_idx.index();
+				if missing_target {
+					ReferenceLinkageDecision::unknown(
+						UnknownReason::NoCandidate,
+						reference_idx,
+						reference,
+					)
+				} else {
+					ReferenceLinkageDecision::resolved(ResolutionDecision::new(
+						crate::linkage::binding::ResolutionScope::Global,
+						evidence,
+						reference,
+						reference_idx,
+						targets,
+					))
+				}
 			})
 		})
 		.collect()
+}
+
+fn candidate_decisions_from_snapshot(
+	snapshot: &LinkageSnapshot,
+	reference_indexes: &FxHashMap<ReferenceId, ReferenceOrdinal>,
+	symbols: &SymbolOrdinalCatalog,
+) -> Vec<ReferenceLinkageDecision> {
+	snapshot
+		.candidates
+		.iter()
+		.filter_map(|candidate| {
+			let reference_idx = reference_indexes.get(&candidate.reference)?.index();
+			let targets = candidate
+				.targets
+				.iter()
+				.filter_map(|target| symbols.ordinal(target))
+				.collect::<SymbolSet>();
+			if targets.is_empty() || targets.len() != candidate.targets.len() {
+				Some(ReferenceLinkageDecision::unknown(
+					UnknownReason::NoCandidate,
+					reference_idx,
+					candidate.reference,
+				))
+			} else {
+				Some(ReferenceLinkageDecision::candidate(
+					candidate.reason,
+					ResolutionDecision::new(
+						resolution_scope(candidate.scope),
+						candidate.evidence,
+						candidate.reference,
+						reference_idx,
+						targets,
+					),
+				))
+			}
+		})
+		.collect()
+}
+
+fn dynamic_decisions_from_snapshot(
+	snapshot: &LinkageSnapshot,
+	reference_indexes: &FxHashMap<ReferenceId, ReferenceOrdinal>,
+	symbols: &SymbolOrdinalCatalog,
+) -> Vec<ReferenceLinkageDecision> {
+	snapshot
+		.dynamic
+		.iter()
+		.filter_map(|dynamic| {
+			let reference_idx = reference_indexes.get(&dynamic.reference)?.index();
+			let candidates = advisory_dynamic_candidates(&dynamic.candidates, symbols);
+			Some(ReferenceLinkageDecision::dynamic(
+				dynamic.reason,
+				reference_idx,
+				dynamic.reference,
+				candidates,
+			))
+		})
+		.collect()
+}
+
+/// Restores dynamic candidate hints without treating them as an exhaustive target set.
+/// The dynamic classification remains valid when stale hints disappear and stays outside
+/// the unique graph.
+fn advisory_dynamic_candidates(
+	candidates: &[SymbolId],
+	symbols: &SymbolOrdinalCatalog,
+) -> SymbolSet {
+	candidates
+		.iter()
+		.filter_map(|target| symbols.ordinal(target))
+		.collect()
+}
+
+fn resolution_scope(scope: CandidateScope) -> crate::linkage::binding::ResolutionScope {
+	match scope {
+		CandidateScope::Local => crate::linkage::binding::ResolutionScope::Local,
+		CandidateScope::Global => crate::linkage::binding::ResolutionScope::Global,
+		CandidateScope::Builtin => crate::linkage::binding::ResolutionScope::Builtin,
+		CandidateScope::Injected => crate::linkage::binding::ResolutionScope::Injected,
+		CandidateScope::Unknown => crate::linkage::binding::ResolutionScope::Unknown,
+	}
 }
 
 fn external_decisions_from_snapshot(
@@ -704,7 +808,7 @@ fn add_resolved_target_decision(
 	decision: &ReferenceLinkageDecision,
 	context: ResolvedTargetSourceContext<'_>,
 ) {
-	let Some(targets) = decision.resolved_targets() else {
+	let Some(targets) = decision.linkage_targets() else {
 		return;
 	};
 	for target in targets.iter() {
@@ -831,4 +935,90 @@ fn reference_source_root(
 ) -> Option<usize> {
 	let (file_idx, _) = material.identity.reference_location(&reference.id)?;
 	material.files.get(file_idx).map(|file| file.source_root)
+}
+
+#[cfg(test)]
+mod tests {
+	use std::sync::Arc;
+
+	use super::*;
+	use crate::linkage::binding::ResolutionScope;
+	use crate::snapshot::{
+		CandidateReason, CandidateReference, DynamicReason, DynamicReference, ResolutionEvidence,
+		ResourceGeneration,
+	};
+
+	#[test]
+	fn candidate_reconstruction_invalidates_a_partially_missing_target_set() {
+		let reference = ReferenceId::at(0, 0);
+		let present = SymbolId::at(0, 0);
+		let missing = SymbolId::at(1, 0);
+		let mut snapshot =
+			LinkageSnapshot::new(ResourceGeneration::new(1), ResourceGeneration::new(1), 0, 0);
+		snapshot.candidates.push(CandidateReference::new(
+			reference,
+			vec![present, missing],
+			CandidateReason::MultipleTargets,
+			CandidateScope::Global,
+			ResolutionEvidence::GlobalBinding,
+		));
+		let mut reference_indexes = FxHashMap::default();
+		reference_indexes.insert(reference, ReferenceOrdinal::from_index(0));
+		let mut symbols = SymbolOrdinalCatalog::default();
+		symbols.push(
+			present,
+			Arc::from("code+moniker://./lang:rs/struct:Present"),
+		);
+
+		let decisions = candidate_decisions_from_snapshot(&snapshot, &reference_indexes, &symbols);
+
+		assert!(matches!(
+			decisions.as_slice(),
+			[ReferenceLinkageDecision::Unknown {
+				reason: UnknownReason::NoCandidate,
+				..
+			}]
+		));
+	}
+
+	#[test]
+	fn unknown_candidate_scope_round_trips_without_becoming_global() {
+		assert_eq!(
+			resolution_scope(CandidateScope::Unknown),
+			ResolutionScope::Unknown
+		);
+	}
+
+	#[test]
+	fn dynamic_reconstruction_keeps_the_classification_when_advisory_targets_disappear() {
+		let reference = ReferenceId::at(0, 0);
+		let present = SymbolId::at(0, 0);
+		let missing = SymbolId::at(1, 0);
+		let mut snapshot =
+			LinkageSnapshot::new(ResourceGeneration::new(1), ResourceGeneration::new(1), 0, 0);
+		snapshot.dynamic.push(DynamicReference::new(
+			reference,
+			"method:runtime_value",
+			DynamicReason::DynamicAttribute,
+			vec![present, missing],
+		));
+		let mut reference_indexes = FxHashMap::default();
+		reference_indexes.insert(reference, ReferenceOrdinal::from_index(0));
+		let mut symbols = SymbolOrdinalCatalog::default();
+		symbols.push(
+			present,
+			Arc::from("code+moniker://./lang:python/class:Present"),
+		);
+
+		let decisions = dynamic_decisions_from_snapshot(&snapshot, &reference_indexes, &symbols);
+
+		assert!(matches!(
+			decisions.as_slice(),
+			[ReferenceLinkageDecision::Dynamic {
+				reason: DynamicReason::DynamicAttribute,
+				candidates,
+				..
+			}] if candidates.len() == 1
+		));
+	}
 }

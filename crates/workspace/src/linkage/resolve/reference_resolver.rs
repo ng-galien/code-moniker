@@ -1,5 +1,5 @@
 use crate::linkage::binding::{
-	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
+	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
@@ -7,7 +7,7 @@ use crate::linkage::resolve::{
 	CrateForwards, GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
-use crate::snapshot::ReferenceRecord;
+use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 use code_moniker_core::lang::Lang;
 
@@ -112,12 +112,13 @@ fn resolve_scopes(
 ) -> ReferenceLinkageDecision {
 	let local_targets = resolver.local.resolve(query, policies.candidates);
 	if !local_targets.is_empty() {
-		return ReferenceLinkageDecision::resolved(
+		return ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 			ResolutionScope::Local,
-			site.reference_idx,
+			ResolutionEvidence::LocalBinding,
 			site.reference.id,
+			site.reference_idx,
 			local_targets,
-		);
+		));
 	}
 	if let Some(decision) = resolver.resolve_global(query, site, policies) {
 		return decision;

@@ -1,13 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::snapshot::{ReferenceRecord, WorkspaceSnapshot};
 
-// Embedded resolution audit: every unresolved reference (and every resolved
-// name-match, the false-link candidates) is classified under a mechanical
-// pattern key — the exact dimensions that drove the R4 diagnoses by hand.
-// Labels are facts about the reference, never guesses about the cause.
+// Embedded resolution audit: every reference is partitioned by decision class;
+// candidate, dynamic, and unresolved decisions are classified under mechanical
+// pattern keys. Labels are facts about the reference, never guesses at a cause.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ResolutionAudit {
 	pub totals: AuditTotals,
@@ -18,15 +17,23 @@ pub struct ResolutionAudit {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuditTotals {
 	pub references: usize,
+	/// Compatibility alias for `unique`.
 	pub resolved: usize,
+	pub unique: usize,
+	pub candidate: usize,
 	pub external: usize,
+	pub dynamic: usize,
 	pub blocked: usize,
 	pub unresolved: usize,
+	pub explained: usize,
+	pub weak_or_unexplained: usize,
 	pub name_match_resolved: usize,
+	pub name_match_candidate: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuditCluster {
+	pub id: String,
 	pub pattern: AuditPattern,
 	pub count: usize,
 	pub samples: Vec<AuditSample>,
@@ -36,6 +43,7 @@ pub struct AuditCluster {
 pub struct AuditPattern {
 	pub status: String,
 	pub reason: String,
+	pub evidence: String,
 	pub confidence: String,
 	pub kind: String,
 	pub receiver: String,
@@ -46,10 +54,16 @@ pub struct AuditPattern {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuditSample {
+	pub file: String,
+	pub line_range: Option<(u32, u32)>,
+	pub snippet: String,
 	pub source: String,
 	pub call_name: String,
 	pub receiver: String,
 	pub target: String,
+	pub evidence: String,
+	pub constraints: Vec<String>,
+	pub candidates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -59,11 +73,13 @@ pub struct AuditZone {
 	pub dominant_pattern: String,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct AuditOptions {
 	pub cluster_limit: usize,
 	pub sample_limit: usize,
+	pub sample_offset: usize,
 	pub zone_limit: usize,
+	pub cluster: Option<String>,
 }
 
 impl Default for AuditOptions {
@@ -71,9 +87,128 @@ impl Default for AuditOptions {
 		Self {
 			cluster_limit: 20,
 			sample_limit: 3,
+			sample_offset: 0,
 			zone_limit: 10,
+			cluster: None,
 		}
 	}
+}
+
+struct AuditLookups<'a> {
+	symbol_identities: HashMap<crate::snapshot::SymbolId, &'a str>,
+	source_paths: HashMap<crate::snapshot::SourceId, &'a str>,
+	source_texts: HashMap<crate::snapshot::SourceId, &'a str>,
+	unresolved: HashMap<crate::snapshot::ReferenceId, &'static str>,
+	blocked: HashMap<crate::snapshot::ReferenceId, &'static str>,
+	external: HashSet<crate::snapshot::ReferenceId>,
+	resolved: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ResolutionEvidence>,
+	candidates: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::CandidateReference>,
+	dynamic: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::DynamicReference>,
+}
+
+impl<'a> AuditLookups<'a> {
+	fn new(snapshot: &'a WorkspaceSnapshot) -> Self {
+		Self {
+			symbol_identities: symbol_identities(&snapshot.index.symbols),
+			source_paths: source_paths(&snapshot.index.sources),
+			source_texts: source_texts(&snapshot.index.sources),
+			unresolved: unresolved_reasons(&snapshot.linkage.unresolved),
+			blocked: blocked_reasons(snapshot),
+			external: external_references(&snapshot.linkage.external),
+			resolved: resolved_evidence(&snapshot.linkage.resolved),
+			candidates: candidate_references(&snapshot.linkage.candidates),
+			dynamic: dynamic_references(&snapshot.linkage.dynamic),
+		}
+	}
+}
+
+fn symbol_identities(
+	symbols: &crate::snapshot::RecordTable<crate::snapshot::SymbolRecord>,
+) -> HashMap<crate::snapshot::SymbolId, &str> {
+	symbols
+		.iter()
+		.map(|symbol| (symbol.id, symbol.identity.as_ref()))
+		.collect()
+}
+
+fn source_paths(
+	sources: &[crate::snapshot::SourceFileRecord],
+) -> HashMap<crate::snapshot::SourceId, &str> {
+	sources
+		.iter()
+		.map(|source| (source.id, source.rel_path.as_str()))
+		.collect()
+}
+
+fn source_texts(
+	sources: &[crate::snapshot::SourceFileRecord],
+) -> HashMap<crate::snapshot::SourceId, &str> {
+	sources
+		.iter()
+		.map(|source| (source.id, source.text.as_str()))
+		.collect()
+}
+
+fn unresolved_reasons(
+	references: &[crate::snapshot::UnresolvedReference],
+) -> HashMap<crate::snapshot::ReferenceId, &'static str> {
+	references
+		.iter()
+		.map(|item| (item.reference, item.reason.as_str()))
+		.collect()
+}
+
+fn blocked_reasons(
+	snapshot: &WorkspaceSnapshot,
+) -> HashMap<crate::snapshot::ReferenceId, &'static str> {
+	snapshot
+		.linkage
+		.blocked
+		.iter()
+		.chain(snapshot.linkage.manifest_blocked.iter())
+		.map(|item| (item.reference, item.reason.as_str()))
+		.collect()
+}
+
+fn external_references(
+	references: &[crate::snapshot::ExternalReference],
+) -> HashSet<crate::snapshot::ReferenceId> {
+	references.iter().map(|item| item.reference).collect()
+}
+
+fn resolved_evidence(
+	edges: &[crate::snapshot::LinkageEdge],
+) -> HashMap<crate::snapshot::ReferenceId, crate::snapshot::ResolutionEvidence> {
+	edges
+		.iter()
+		.map(|edge| (edge.reference, edge.evidence))
+		.collect()
+}
+
+fn candidate_references(
+	references: &[crate::snapshot::CandidateReference],
+) -> HashMap<crate::snapshot::ReferenceId, &crate::snapshot::CandidateReference> {
+	references
+		.iter()
+		.map(|candidate| (candidate.reference, candidate))
+		.collect()
+}
+
+fn dynamic_references(
+	references: &[crate::snapshot::DynamicReference],
+) -> HashMap<crate::snapshot::ReferenceId, &crate::snapshot::DynamicReference> {
+	references
+		.iter()
+		.map(|dynamic| (dynamic.reference, dynamic))
+		.collect()
+}
+
+struct AuditClassification {
+	status: &'static str,
+	reason: &'static str,
+	evidence: &'static str,
+	scope: &'static str,
+	candidate_targets: Vec<String>,
 }
 
 pub fn resolution_audit(
@@ -81,43 +216,14 @@ pub fn resolution_audit(
 	prefix: &str,
 	options: AuditOptions,
 ) -> ResolutionAudit {
-	let sources: HashMap<_, _> = snapshot
-		.index
-		.symbols
-		.iter()
-		.map(|symbol| (symbol.id, symbol.identity.as_ref()))
-		.collect();
-	let unresolved: HashMap<_, _> = snapshot
-		.linkage
-		.unresolved
-		.iter()
-		.map(|item| (item.reference, item.reason.as_str()))
-		.collect();
-	let blocked: HashMap<_, _> = snapshot
-		.linkage
-		.manifest_blocked
-		.iter()
-		.map(|item| (item.reference, ()))
-		.collect();
-	let external: HashMap<_, _> = snapshot
-		.linkage
-		.external
-		.iter()
-		.map(|item| (item.reference, ()))
-		.collect();
-	let resolved: HashMap<_, _> = snapshot
-		.linkage
-		.resolved
-		.iter()
-		.map(|edge| (edge.reference, ()))
-		.collect();
-
+	let lookups = AuditLookups::new(snapshot);
 	let mut totals = AuditTotals::default();
 	let mut clusters: HashMap<AuditPattern, (usize, Vec<AuditSample>)> = HashMap::new();
 	let mut zones: HashMap<String, (usize, HashMap<String, usize>)> = HashMap::new();
 
 	for reference in snapshot.index.references.iter() {
-		let source = sources
+		let source = lookups
+			.symbol_identities
 			.get(&reference.source_symbol)
 			.copied()
 			.unwrap_or_default();
@@ -125,43 +231,67 @@ pub fn resolution_audit(
 			continue;
 		}
 		totals.references += 1;
-		let (status, reason) = if resolved.contains_key(&reference.id) {
-			totals.resolved += 1;
-			if reference.confidence.as_deref() != Some("name_match") {
-				continue;
-			}
-			totals.name_match_resolved += 1;
-			("resolved_name_match", "")
-		} else if external.contains_key(&reference.id) {
-			totals.external += 1;
-			continue;
-		} else if blocked.contains_key(&reference.id) {
-			totals.blocked += 1;
-			continue;
-		} else if let Some(reason) = unresolved.get(&reference.id) {
-			totals.unresolved += 1;
-			("unresolved", *reason)
-		} else {
+		let Some(classification) = classify_reference(&lookups, reference, &mut totals) else {
 			continue;
 		};
 
-		let pattern = pattern_for(status, reason, reference, source);
-		let entry = clusters.entry(pattern.clone()).or_default();
-		entry.0 += 1;
-		if entry.1.len() < options.sample_limit {
-			entry.1.push(sample_for(reference, source));
+		let pattern = pattern_for(
+			classification.status,
+			classification.reason,
+			classification.evidence,
+			reference,
+			source,
+		);
+		let unresolved_cluster = classification.status == "unresolved";
+		let cluster_id = pattern_id(&pattern);
+		if options
+			.cluster
+			.as_deref()
+			.is_some_and(|expected| expected != cluster_id.as_str())
+		{
+			continue;
 		}
-		if status == "unresolved" {
+		let entry = clusters.entry(pattern.clone()).or_default();
+		let sample_index = entry.0;
+		entry.0 += 1;
+		if sample_index >= options.sample_offset && entry.1.len() < options.sample_limit {
+			entry.1.push(sample_for(
+				reference,
+				source,
+				lookups
+					.source_paths
+					.get(&reference.source)
+					.copied()
+					.unwrap_or_default(),
+				lookups
+					.source_texts
+					.get(&reference.source)
+					.copied()
+					.unwrap_or_default(),
+				classification,
+			));
+		}
+		if unresolved_cluster {
 			let zone = zone_of(source);
 			let slot = zones.entry(zone).or_default();
 			slot.0 += 1;
 			*slot.1.entry(pattern_label(&pattern)).or_default() += 1;
 		}
 	}
+	totals.resolved = totals.unique;
+	totals.explained =
+		totals.unique + totals.candidate + totals.external + totals.dynamic + totals.blocked;
+	totals.weak_or_unexplained = totals.candidate + totals.unresolved;
+	debug_assert_eq!(
+		totals.references,
+		totals.explained + totals.unresolved,
+		"resolution audit categories must partition every reference"
+	);
 
 	let mut clusters: Vec<AuditCluster> = clusters
 		.into_iter()
 		.map(|(pattern, (count, samples))| AuditCluster {
+			id: pattern_id(&pattern),
 			pattern,
 			count,
 			samples,
@@ -192,10 +322,96 @@ pub fn resolution_audit(
 	}
 }
 
+fn classify_reference(
+	lookups: &AuditLookups<'_>,
+	reference: &ReferenceRecord,
+	totals: &mut AuditTotals,
+) -> Option<AuditClassification> {
+	if let Some(evidence) = lookups.resolved.get(&reference.id) {
+		if *evidence != crate::snapshot::ResolutionEvidence::NameMatch {
+			totals.unique += 1;
+			return None;
+		}
+		totals.candidate += 1;
+		totals.name_match_candidate += 1;
+		return Some(AuditClassification {
+			status: "candidate",
+			reason: "weak_name_match",
+			evidence: evidence.as_str(),
+			scope: "unknown",
+			candidate_targets: Vec::new(),
+		});
+	}
+	if let Some(candidate) = lookups.candidates.get(&reference.id) {
+		totals.candidate += 1;
+		if candidate.reason == crate::snapshot::CandidateReason::WeakNameMatch {
+			totals.name_match_candidate += 1;
+		}
+		return Some(AuditClassification {
+			status: "candidate",
+			reason: candidate.reason.as_str(),
+			evidence: candidate.evidence.as_str(),
+			scope: candidate.scope.as_str(),
+			candidate_targets: candidate_identities(&candidate.targets, &lookups.symbol_identities),
+		});
+	}
+	if lookups.external.contains(&reference.id) {
+		totals.external += 1;
+		return None;
+	}
+	if let Some(dynamic) = lookups.dynamic.get(&reference.id) {
+		totals.dynamic += 1;
+		return Some(AuditClassification {
+			status: "dynamic",
+			reason: dynamic.reason.as_str(),
+			evidence: "runtime",
+			scope: "runtime",
+			candidate_targets: candidate_identities(
+				&dynamic.candidates,
+				&lookups.symbol_identities,
+			),
+		});
+	}
+	if let Some(reason) = lookups.blocked.get(&reference.id) {
+		totals.blocked += 1;
+		return Some(AuditClassification {
+			status: "blocked",
+			reason,
+			evidence: "policy",
+			scope: "policy",
+			candidate_targets: Vec::new(),
+		});
+	}
+	totals.unresolved += 1;
+	Some(AuditClassification {
+		status: "unresolved",
+		reason: lookups
+			.unresolved
+			.get(&reference.id)
+			.copied()
+			.unwrap_or("missing_decision"),
+		evidence: "",
+		scope: "",
+		candidate_targets: Vec::new(),
+	})
+}
+
+pub fn pattern_id(pattern: &AuditPattern) -> String {
+	let mut hash = 0xcbf29ce484222325u64;
+	for byte in pattern_label(pattern).bytes() {
+		hash ^= u64::from(byte);
+		hash = hash.wrapping_mul(0x100000001b3);
+	}
+	format!("resolution-{hash:016x}")
+}
+
 pub fn pattern_label(pattern: &AuditPattern) -> String {
 	let mut label = format!("{} {}/{}", pattern.status, pattern.confidence, pattern.kind);
 	if !pattern.reason.is_empty() {
 		label.push_str(&format!(" reason:{}", pattern.reason));
+	}
+	if !pattern.evidence.is_empty() {
+		label.push_str(&format!(" evidence:{}", pattern.evidence));
 	}
 	if !pattern.receiver.is_empty() {
 		label.push_str(&format!(" recv:{}", pattern.receiver));
@@ -215,6 +431,7 @@ pub fn pattern_label(pattern: &AuditPattern) -> String {
 fn pattern_for(
 	status: &str,
 	reason: &str,
+	evidence: &str,
 	reference: &ReferenceRecord,
 	source: &str,
 ) -> AuditPattern {
@@ -222,6 +439,7 @@ fn pattern_for(
 	AuditPattern {
 		status: status.to_string(),
 		reason: reason.to_string(),
+		evidence: evidence.to_string(),
 		confidence: reference.confidence.clone().unwrap_or_default(),
 		kind: reference.kind.clone(),
 		receiver: receiver_class(reference).to_string(),
@@ -231,13 +449,81 @@ fn pattern_for(
 	}
 }
 
-fn sample_for(reference: &ReferenceRecord, source: &str) -> AuditSample {
+fn sample_for(
+	reference: &ReferenceRecord,
+	source: &str,
+	file: &str,
+	source_text: &str,
+	classification: AuditClassification,
+) -> AuditSample {
 	AuditSample {
+		file: file.to_string(),
+		line_range: reference.line_range,
+		snippet: source_excerpt(source_text, reference.line_range),
 		source: identity_tail(source, 4),
 		call_name: reference.call_name.clone().unwrap_or_default(),
 		receiver: reference.receiver.clone().unwrap_or_default(),
 		target: identity_tail(reference.target_identity.as_ref(), 5),
+		evidence: classification.evidence.to_string(),
+		constraints: sample_constraints(
+			reference,
+			classification.reason,
+			classification.evidence,
+			classification.scope,
+		),
+		candidates: classification.candidate_targets,
 	}
+}
+
+fn source_excerpt(source: &str, line_range: Option<(u32, u32)>) -> String {
+	let Some((start, end)) = line_range else {
+		return String::new();
+	};
+	let line_count = end.saturating_sub(start).saturating_add(1).min(3) as usize;
+	let excerpt = source
+		.lines()
+		.skip(start.saturating_sub(1) as usize)
+		.take(line_count)
+		.map(str::trim)
+		.filter(|line| !line.is_empty())
+		.collect::<Vec<_>>()
+		.join(" ");
+	excerpt.chars().take(240).collect()
+}
+
+fn sample_constraints(
+	reference: &ReferenceRecord,
+	reason: &str,
+	evidence: &str,
+	scope: &str,
+) -> Vec<String> {
+	let mut constraints = vec![format!("kind:{}", reference.kind)];
+	for (label, value) in [
+		("reason", Some(reason)),
+		("evidence", Some(evidence)),
+		("scope", Some(scope)),
+		("confidence", reference.confidence.as_deref()),
+	] {
+		if let Some(value) = value.filter(|value| !value.is_empty()) {
+			constraints.push(format!("{label}:{value}"));
+		}
+	}
+	if let Some(arity) = reference.call_arity {
+		constraints.push(format!("arity:{arity}"));
+	}
+	constraints
+}
+
+fn candidate_identities(
+	candidates: &[crate::snapshot::SymbolId],
+	symbols: &HashMap<crate::snapshot::SymbolId, &str>,
+) -> Vec<String> {
+	candidates
+		.iter()
+		.filter_map(|candidate| symbols.get(candidate).copied())
+		.take(8)
+		.map(|identity| identity_tail(identity, 5))
+		.collect()
 }
 
 fn receiver_class(reference: &ReferenceRecord) -> &'static str {
@@ -324,4 +610,182 @@ fn identity_tail(identity: &str, segments: usize) -> String {
 		.collect();
 	let start = parts.len().saturating_sub(segments);
 	parts[start..].join("/")
+}
+
+#[cfg(test)]
+mod tests {
+	use std::sync::Arc;
+
+	use super::*;
+	use crate::snapshot::{
+		CandidateReason, CandidateReference, CandidateScope, ChangeOverlay, CodeIndex,
+		DynamicReason, DynamicReference, ExternalReference, ExternalReferenceOrigin, LinkageEdge,
+		LinkageReadIndexHandle, LinkageSnapshot, ReferenceId, ResourceGeneration, SourceCatalog,
+		SourceFileRecord, SourceId, SymbolId, SymbolRecord, UnresolvedReason, UnresolvedReference,
+		WorkspaceSnapshot, WorkspaceTimings,
+	};
+
+	#[test]
+	fn totals_partition_unique_candidate_external_dynamic_blocked_and_unresolved() {
+		let generation = ResourceGeneration::new(1);
+		let source = SourceId::at(0);
+		let source_symbol = SymbolId::at(0, 0);
+		let candidate_target = SymbolId::at(0, 1);
+		let mut source_record = SymbolRecord::new(source_symbol, source, "run", "function");
+		source_record.identity =
+			Arc::from("code+moniker://./lang:python/module:sample/function:run");
+		let mut target_record = SymbolRecord::new(candidate_target, source, "Target", "class");
+		target_record.identity =
+			Arc::from("code+moniker://./lang:python/module:sample/class:Target");
+		let references = (0..6)
+			.map(|idx| {
+				ReferenceRecord::new(
+					ReferenceId::at(0, idx),
+					source,
+					source_symbol,
+					"code+moniker://./lang:python/module:sample/method:work",
+					"method_call",
+					Some((10 + idx as u32, 10 + idx as u32)),
+				)
+				.with_metadata(
+					Some("resolved".to_string()),
+					Some("value".to_string()),
+					None,
+				)
+			})
+			.collect::<Vec<_>>();
+		let linkage = fixture_linkage(generation, candidate_target);
+		let mut index = CodeIndex::with_references(
+			generation,
+			generation,
+			vec![source_record, target_record],
+			references,
+		);
+		index.sources.push(SourceFileRecord {
+			id: source,
+			uri: "file://sample.py".to_string(),
+			source_root: 0,
+			path: "sample.py".to_string(),
+			rel_path: "src/sample.py".to_string(),
+			anchor: "sample.py".to_string(),
+			language: "python".to_string(),
+			text: (0..20).map(|_| "value.work()\n").collect(),
+		});
+		let snapshot = WorkspaceSnapshot {
+			generation,
+			catalog: SourceCatalog::new(generation, Vec::new()),
+			index,
+			linkage,
+			changes: ChangeOverlay::new(generation, generation, generation, Vec::new()),
+			timings: WorkspaceTimings::default(),
+		};
+
+		let audit = resolution_audit(&snapshot, "lang:python", AuditOptions::default());
+
+		assert_eq!(audit.totals.references, 6);
+		assert_eq!(audit.totals.unique, 1);
+		assert_eq!(audit.totals.candidate, 1);
+		assert_eq!(audit.totals.external, 1);
+		assert_eq!(audit.totals.dynamic, 1);
+		assert_eq!(audit.totals.blocked, 1);
+		assert_eq!(audit.totals.unresolved, 1);
+		assert_eq!(audit.totals.explained, 5);
+		assert_eq!(audit.totals.weak_or_unexplained, 2);
+		assert_audit_clusters(&audit);
+		let candidate_cluster = audit
+			.clusters
+			.iter()
+			.find(|cluster| cluster.pattern.status == "candidate")
+			.expect("candidate cluster");
+		let drill_down = resolution_audit(
+			&snapshot,
+			"lang:python",
+			AuditOptions {
+				cluster: Some(candidate_cluster.id.clone()),
+				sample_offset: 0,
+				sample_limit: 1,
+				..AuditOptions::default()
+			},
+		);
+		assert_eq!(drill_down.clusters.len(), 1);
+		assert_eq!(drill_down.clusters[0].id, candidate_cluster.id);
+		assert_eq!(drill_down.clusters[0].samples.len(), 1);
+	}
+
+	fn fixture_linkage(
+		generation: ResourceGeneration,
+		candidate_target: SymbolId,
+	) -> LinkageSnapshot {
+		let resolved = vec![LinkageEdge::new(ReferenceId::at(0, 0), candidate_target)];
+		let manifest_blocked = UnresolvedReference::new(
+			ReferenceId::at(0, 4),
+			"code+moniker://./lang:python/module:sample/method:work",
+			UnresolvedReason::ManifestBlocked,
+		);
+		LinkageSnapshot {
+			generation,
+			index_generation: generation,
+			resolved_refs: 1,
+			candidate_refs: 1,
+			external_refs: 1,
+			dynamic_refs: 1,
+			blocked_refs: 1,
+			manifest_blocked_refs: 1,
+			unresolved_refs: 1,
+			ambiguous_refs: 1,
+			read_index: LinkageReadIndexHandle::from_edges(&resolved),
+			resolved,
+			candidates: vec![CandidateReference::new(
+				ReferenceId::at(0, 1),
+				vec![candidate_target],
+				CandidateReason::WeakNameMatch,
+				CandidateScope::Global,
+				crate::snapshot::ResolutionEvidence::NameMatch,
+			)],
+			external: vec![ExternalReference::new(
+				ReferenceId::at(0, 2),
+				"code+moniker://./external_pkg:sample/path:work",
+				ExternalReferenceOrigin::Dependency,
+			)],
+			dynamic: vec![DynamicReference::new(
+				ReferenceId::at(0, 3),
+				"code+moniker://./lang:python/module:sample/method:work",
+				DynamicReason::DynamicAttribute,
+				Vec::new(),
+			)],
+			blocked: vec![manifest_blocked.clone()],
+			manifest_blocked: vec![manifest_blocked],
+			unresolved: vec![UnresolvedReference::new(
+				ReferenceId::at(0, 5),
+				"code+moniker://./lang:python/module:sample/method:work",
+				UnresolvedReason::NoCandidate,
+			)],
+		}
+	}
+
+	fn assert_audit_clusters(audit: &ResolutionAudit) {
+		assert!(audit.clusters.iter().any(|cluster| {
+			cluster.pattern.status == "candidate"
+				&& cluster.pattern.reason == "weak_name_match"
+				&& cluster.pattern.evidence == "name_match"
+				&& cluster.samples.iter().any(|sample| {
+					sample.file == "src/sample.py"
+						&& sample.line_range == Some((11, 11))
+						&& sample.snippet == "value.work()"
+						&& sample.constraints.contains(&"scope:global".to_string())
+						&& sample
+							.candidates
+							.iter()
+							.any(|candidate| candidate.ends_with("class:Target"))
+				})
+		}));
+		assert!(audit.clusters.iter().any(|cluster| {
+			cluster.pattern.status == "dynamic" && cluster.pattern.reason == "dynamic_attribute"
+		}));
+		assert!(audit.clusters.iter().any(|cluster| {
+			cluster.pattern.status == "blocked"
+				&& cluster.pattern.reason == "manifest_blocked"
+				&& cluster.pattern.evidence == "policy"
+		}));
+	}
 }

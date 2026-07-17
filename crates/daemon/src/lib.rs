@@ -637,9 +637,13 @@ fn dispatch_loaded_query(
 		Query::IdentityGraph(query) => {
 			identity_graph_response(snapshot, &daemon.roots, query, current_generation)
 		}
-		Query::ResolutionAudit(query) => {
-			resolution_audit_response(snapshot, &daemon.roots, query, current_generation)
-		}
+		Query::ResolutionAudit(query) => resolution_audit_response(
+			snapshot,
+			&daemon.roots,
+			query,
+			request.page,
+			current_generation,
+		),
 		Query::Notes(query) => {
 			notes_response(daemon, snapshot, query, request.page, current_generation)
 		}
@@ -1005,41 +1009,77 @@ fn resolution_audit_response(
 	snapshot: &WorkspaceSnapshot,
 	roots: &[PathBuf],
 	query: code_moniker_query::ResolutionAuditQuery,
+	page: Page,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
 	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	validate_page_cursor(&page, current_generation)?;
 	let prefix = identity_path(query.prefix.trim_matches('/'))
 		.trim_matches('/')
 		.to_string();
+	let sample_offset = page
+		.cursor
+		.as_ref()
+		.map(|cursor| cursor.offset)
+		.unwrap_or(0);
+	let drill_down = query.cluster.is_some();
 	let options = code_moniker_workspace::audit::AuditOptions {
 		cluster_limit: query.limit.clamp(1, 200),
+		sample_limit: if drill_down {
+			query.limit.clamp(1, 200)
+		} else {
+			code_moniker_workspace::audit::AuditOptions::default().sample_limit
+		},
+		sample_offset,
+		cluster: query.cluster,
 		..code_moniker_workspace::audit::AuditOptions::default()
 	};
 	let audit = code_moniker_workspace::audit::resolution_audit(snapshot, &prefix, options);
+	let next_cursor = drill_down
+		.then(|| audit.clusters.first())
+		.flatten()
+		.filter(|cluster| sample_offset + cluster.samples.len() < cluster.count)
+		.map(|cluster| QueryCursor {
+			offset: sample_offset + cluster.samples.len(),
+			generation: current_generation,
+		});
 	let result = ResolutionAuditResult {
 		prefix,
 		totals: AuditTotalsDto {
 			references: audit.totals.references,
 			resolved: audit.totals.resolved,
+			unique: audit.totals.unique,
+			candidate: audit.totals.candidate,
 			external: audit.totals.external,
+			dynamic: audit.totals.dynamic,
 			blocked: audit.totals.blocked,
 			unresolved: audit.totals.unresolved,
+			explained: audit.totals.explained,
+			weak_or_unexplained: audit.totals.weak_or_unexplained,
 			name_match_resolved: audit.totals.name_match_resolved,
+			name_match_candidate: audit.totals.name_match_candidate,
 		},
 		clusters: audit
 			.clusters
 			.iter()
 			.map(|cluster| AuditClusterDto {
+				id: cluster.id.clone(),
 				pattern: code_moniker_workspace::audit::pattern_label(&cluster.pattern),
 				count: cluster.count,
 				samples: cluster
 					.samples
 					.iter()
 					.map(|sample| AuditSampleDto {
+						file: sample.file.clone(),
+						line_range: sample.line_range,
+						snippet: audit_sample_snippet(snapshot, sample),
 						source: sample.source.clone(),
 						call_name: sample.call_name.clone(),
 						receiver: sample.receiver.clone(),
 						target: sample.target.clone(),
+						evidence: sample.evidence.clone(),
+						constraints: sample.constraints.clone(),
+						candidates: sample.candidates.clone(),
 					})
 					.collect(),
 			})
@@ -1057,14 +1097,53 @@ fn resolution_audit_response(
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::ResolutionAudit(Box::new(result)),
-		next_cursor: None,
+		next_cursor,
 	})
+}
+
+fn audit_sample_snippet(
+	snapshot: &WorkspaceSnapshot,
+	sample: &code_moniker_workspace::audit::AuditSample,
+) -> String {
+	if !sample.snippet.is_empty() {
+		return sample.snippet.clone();
+	}
+	let Some(line_range) = sample.line_range else {
+		return String::new();
+	};
+	let Some(source) = snapshot
+		.index
+		.sources
+		.iter()
+		.find(|source| source.rel_path == sample.file)
+	else {
+		return String::new();
+	};
+	let Ok(text) = std::fs::read_to_string(&source.path) else {
+		return String::new();
+	};
+	bounded_source_excerpt(&text, line_range)
+}
+
+fn bounded_source_excerpt(source: &str, (start, end): (u32, u32)) -> String {
+	let line_count = end.saturating_sub(start).saturating_add(1).min(3) as usize;
+	let excerpt = source
+		.lines()
+		.skip(start.saturating_sub(1) as usize)
+		.take(line_count)
+		.map(str::trim)
+		.filter(|line| !line.is_empty())
+		.collect::<Vec<_>>()
+		.join(" ");
+	excerpt.chars().take(240).collect()
 }
 
 // Classifies references without an in-workspace target so external-by-design
 // links never masquerade as resolution gaps in graph outputs.
 struct UnlinkedClassifier {
 	external: HashSet<ReferenceId>,
+	candidate: HashSet<ReferenceId>,
+	dynamic: HashSet<ReferenceId>,
 	manifest_blocked: HashSet<ReferenceId>,
 	unresolved: HashMap<ReferenceId, code_moniker_workspace::snapshot::UnresolvedReason>,
 }
@@ -1078,10 +1157,23 @@ impl UnlinkedClassifier {
 				.iter()
 				.map(|reference| reference.reference)
 				.collect(),
+			candidate: snapshot
+				.linkage
+				.candidates
+				.iter()
+				.map(|reference| reference.reference)
+				.collect(),
+			dynamic: snapshot
+				.linkage
+				.dynamic
+				.iter()
+				.map(|reference| reference.reference)
+				.collect(),
 			manifest_blocked: snapshot
 				.linkage
-				.manifest_blocked
+				.blocked
 				.iter()
+				.chain(snapshot.linkage.manifest_blocked.iter())
 				.map(|reference| reference.reference)
 				.collect(),
 			unresolved: snapshot
@@ -1096,6 +1188,10 @@ impl UnlinkedClassifier {
 	fn tally(&self, reference: &ReferenceId, unlinked: &mut UnlinkedRefsDto) {
 		if self.external.contains(reference) {
 			unlinked.external += 1;
+		} else if self.candidate.contains(reference) {
+			unlinked.candidate += 1;
+		} else if self.dynamic.contains(reference) {
+			unlinked.dynamic += 1;
 		} else if self.manifest_blocked.contains(reference) {
 			unlinked.manifest_blocked += 1;
 		} else {
@@ -3262,14 +3358,7 @@ fn page_rows<T>(
 	page: Page,
 	generation: Option<WorkspaceGeneration>,
 ) -> Result<Paged<T>, QueryError> {
-	if let Some(cursor) = page.cursor.as_ref() {
-		if cursor.generation != generation {
-			return Err(QueryError::new(
-				"cursor_generation_mismatch",
-				"query cursor belongs to a different workspace generation",
-			));
-		}
-	}
+	validate_page_cursor(&page, generation)?;
 	let total = rows.len();
 	let start = page
 		.cursor
@@ -3284,6 +3373,21 @@ fn page_rows<T>(
 		total,
 		next_cursor,
 	})
+}
+
+fn validate_page_cursor(
+	page: &Page,
+	generation: Option<WorkspaceGeneration>,
+) -> Result<(), QueryError> {
+	if let Some(cursor) = page.cursor.as_ref() {
+		if cursor.generation != generation {
+			return Err(QueryError::new(
+				"cursor_generation_mismatch",
+				"query cursor belongs to a different workspace generation",
+			));
+		}
+	}
+	Ok(())
 }
 
 mod helpers {
@@ -4423,9 +4527,10 @@ mod tests {
 		let QueryResult::IdentityGraph(result) = query.result else {
 			panic!("expected identity graph, got {:?}", query.result);
 		};
-		// The fixture resolves every project-internal reference: what has no
-		// in-workspace target is external by design, never a resolution gap.
+		// The fixture explains every project-internal reference. Non-unique
+		// candidates stay outside the graph but never masquerade as unresolved.
 		assert!(result.unlinked.external > 0, "{:?}", result.unlinked);
+		assert!(result.unlinked.candidate > 0, "{:?}", result.unlinked);
 		assert_eq!(result.unlinked.unresolved, 0, "{:?}", result.unlinked);
 		assert!(
 			result.unlinked.unresolved_reasons.is_empty(),
@@ -4537,6 +4642,15 @@ mod tests {
 		let roots = canonical_workspace_roots([&first, &second]).expect("roots");
 		let error = selected_roots(&roots, Some("same")).expect_err("ambiguous selector");
 		assert_eq!(error.code, "workspace_selector_ambiguous");
+	}
+
+	#[test]
+	fn audit_excerpt_is_line_scoped_and_bounded() {
+		let source = "one\n  receiver.call(\n    argument,\n  )\nfive\n";
+		let excerpt = bounded_source_excerpt(source, (2, 4));
+
+		assert_eq!(excerpt, "receiver.call( argument, )");
+		assert!(excerpt.len() <= 240);
 	}
 
 	#[test]

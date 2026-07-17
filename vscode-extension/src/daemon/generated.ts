@@ -130,6 +130,7 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      cluster?: string | null;
       limit: number;
       op: "resolution_audit";
       prefix: string;
@@ -755,6 +756,8 @@ export interface SymbolGraphEdge {
   target: string;
 }
 export interface UnlinkedRefsDto {
+  candidate: number;
+  dynamic: number;
   external: number;
   manifest_blocked: number;
   unresolved: number;
@@ -813,22 +816,39 @@ export interface ResolutionAuditResult {
 }
 export interface AuditClusterDto {
   count: number;
+  id: string;
   pattern: string;
   samples: AuditSampleDto[];
 }
 export interface AuditSampleDto {
   call_name: string;
+  candidates: string[];
+  constraints: string[];
+  evidence: string;
+  file: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  line_range?: [number, number] | null;
   receiver: string;
+  snippet: string;
   source: string;
   target: string;
 }
 export interface AuditTotalsDto {
   blocked: number;
+  candidate: number;
+  dynamic: number;
+  explained: number;
   external: number;
+  name_match_candidate: number;
   name_match_resolved: number;
   references: number;
   resolved: number;
+  unique: number;
   unresolved: number;
+  weak_or_unexplained: number;
 }
 export interface AuditZoneDto {
   dominant_pattern: string;

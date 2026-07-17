@@ -3,11 +3,11 @@ use code_moniker_core::lang::{Lang, kinds};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::linkage::binding::{
-	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
+	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
-use crate::snapshot::{RecordTable, ReferenceRecord};
+use crate::snapshot::{RecordTable, ReferenceRecord, ResolutionEvidence};
 use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 struct MethodCallSite<'a> {
@@ -18,12 +18,13 @@ struct MethodCallSite<'a> {
 
 impl MethodCallSite<'_> {
 	fn resolved(&self, symbols: SymbolSet) -> ReferenceLinkageDecision {
-		ReferenceLinkageDecision::resolved(
+		ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 			ResolutionScope::Injected,
-			self.reference_idx,
+			ResolutionEvidence::Injected,
 			self.reference.id,
+			self.reference_idx,
 			symbols,
-		)
+		))
 	}
 }
 

@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
 	println!("external_refs\t{}", linkage.external_refs);
 	println!("manifest_blocked_refs\t{}", linkage.manifest_blocked_refs);
 	println!("unresolved_refs\t{}", linkage.unresolved_refs);
-	println!("ambiguous_refs\t{}", linkage.ambiguous_refs);
+	println!("candidate_refs\t{}", linkage.candidate_refs);
 	println!("eligible_refs\t{}", eligible_refs(&linkage));
 	println!(
 		"linkage_score_percent\t{:.2}",
@@ -486,7 +486,7 @@ fn print_incremental_metrics(
 		refreshed_linkage.manifest_blocked_refs
 	);
 	println!("unresolved_refs\t{}", refreshed_linkage.unresolved_refs);
-	println!("ambiguous_refs\t{}", refreshed_linkage.ambiguous_refs);
+	println!("candidate_refs\t{}", refreshed_linkage.candidate_refs);
 	println!(
 		"linkage_score_percent\t{:.2}",
 		linkage_score_percent(refreshed_linkage)
@@ -517,7 +517,7 @@ fn millis(duration: Duration) -> f64 {
 }
 
 fn eligible_refs(linkage: &code_moniker_workspace::snapshot::LinkageSnapshot) -> usize {
-	linkage.resolved_refs + linkage.manifest_blocked_refs + linkage.unresolved_refs
+	linkage.resolved_refs + linkage.candidate_refs + linkage.blocked_refs + linkage.unresolved_refs
 }
 
 fn linkage_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageSnapshot) -> f64 {
@@ -533,8 +533,7 @@ fn single_target_score_percent(linkage: &code_moniker_workspace::snapshot::Linka
 	if eligible == 0 {
 		return 0.0;
 	}
-	let single_target = linkage.resolved_refs.saturating_sub(linkage.ambiguous_refs);
-	(single_target as f64 * 100.0) / eligible as f64
+	(linkage.resolved_refs as f64 * 100.0) / eligible as f64
 }
 
 fn print_unresolved_groups(

@@ -6,14 +6,16 @@ use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::binding::{ExternalOrigin, ReferenceLinkageDecision, ResolutionScope};
+use crate::linkage::binding::{
+	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
+};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
-use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct SemanticLinkage<'a> {
@@ -528,7 +530,7 @@ fn declared_groups_permit_decision(
 	linkage: &SemanticLinkage<'_>,
 	decision: &ReferenceLinkageDecision,
 ) -> bool {
-	let ReferenceLinkageDecision::Resolved { targets, .. } = decision else {
+	let Some(targets) = decision.linkage_targets() else {
 		return true;
 	};
 	let Some(location) = linkage.locations.get(decision.reference_idx()) else {
@@ -588,7 +590,13 @@ impl<'a> MethodCallReference<'a> {
 		scope: ResolutionScope,
 		targets: SymbolSet,
 	) -> ReferenceLinkageDecision {
-		ReferenceLinkageDecision::resolved(scope, self.reference_idx, self.reference.id, targets)
+		ReferenceLinkageDecision::resolved(ResolutionDecision::new(
+			scope,
+			ResolutionEvidence::TypeConstraint,
+			self.reference.id,
+			self.reference_idx,
+			targets,
+		))
 	}
 }
 
@@ -728,6 +736,7 @@ fn enhance_reexport_aliases(
 enum ReexportAliasTarget {
 	Resolved {
 		scope: ResolutionScope,
+		evidence: ResolutionEvidence,
 		targets: SymbolSet,
 	},
 	External {
@@ -742,10 +751,11 @@ impl ReexportAliasTarget {
 		fallback_external_target: Option<Moniker>,
 	) -> Option<Self> {
 		match decision {
-			ReferenceLinkageDecision::Resolved { scope, targets, .. } if targets.len() == 1 => {
+			ReferenceLinkageDecision::Unique { resolution } if resolution.targets.len() == 1 => {
 				Some(Self::Resolved {
-					scope: *scope,
-					targets: targets.clone(),
+					scope: resolution.scope,
+					evidence: resolution.evidence,
+					targets: resolution.targets.clone(),
 				})
 			}
 			ReferenceLinkageDecision::External { origin, target, .. } => Some(Self::External {
@@ -763,12 +773,17 @@ impl ReexportAliasTarget {
 		requested_target: Option<&Moniker>,
 	) -> ReferenceLinkageDecision {
 		match self {
-			Self::Resolved { scope, targets } => ReferenceLinkageDecision::resolved(
+			Self::Resolved {
+				scope,
+				evidence,
+				targets,
+			} => ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 				*scope,
-				reference_idx,
+				*evidence,
 				reference.id,
+				reference_idx,
 				targets.clone(),
-			),
+			)),
 			Self::External { origin, target } => ReferenceLinkageDecision::external_target(
 				*origin,
 				reference_idx,
@@ -901,16 +916,16 @@ fn build_receiver_call_index(
 ) -> ReceiverCallIndex {
 	let mut pending_by_file = FxHashMap::<usize, Vec<(usize, usize)>>::default();
 	for idx in pending {
-		let ReferenceLinkageDecision::Unknown { reference_idx, .. } = &decisions[*idx] else {
+		let Some(reference_idx) = decisions[*idx].semantic_pending_reference_idx() else {
 			continue;
 		};
-		let Some(location) = linkage.locations.get(*reference_idx) else {
+		let Some(location) = linkage.locations.get(reference_idx) else {
 			continue;
 		};
 		pending_by_file
 			.entry(location.source_file)
 			.or_insert_with(Vec::new)
-			.push((*reference_idx, location.reference));
+			.push((reference_idx, location.reference));
 	}
 
 	let mut index = ReceiverCallIndex::default();
@@ -1136,9 +1151,11 @@ fn decision_target(
 	references: &RecordTable<ReferenceRecord>,
 ) -> Option<Moniker> {
 	match decision {
-		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => candidates
-			.candidate(targets.single()?)
-			.map(|candidate| candidate.moniker.clone()),
+		ReferenceLinkageDecision::Unique { resolution } if resolution.targets.len() == 1 => {
+			candidates
+				.candidate(resolution.targets.single()?)
+				.map(|candidate| candidate.moniker.clone())
+		}
 		ReferenceLinkageDecision::External {
 			reference_idx,
 			target,
@@ -1177,8 +1194,8 @@ fn reference_status(
 	references: &RecordTable<ReferenceRecord>,
 ) -> Option<ReferenceStatus> {
 	match decision {
-		ReferenceLinkageDecision::Resolved { targets, .. } => {
-			targets.single().map(ReferenceStatus::Resolved)
+		ReferenceLinkageDecision::Unique { resolution } => {
+			resolution.targets.single().map(ReferenceStatus::Resolved)
 		}
 		ReferenceLinkageDecision::External {
 			reference_idx,
