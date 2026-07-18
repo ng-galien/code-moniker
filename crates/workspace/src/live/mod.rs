@@ -140,6 +140,38 @@ mod tests {
 	}
 
 	#[test]
+	fn c_build_context_changes_require_a_full_rescan() {
+		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
+			path: PathBuf::from("/repo"),
+			git_root: None,
+			ignored_paths: Vec::new(),
+			notes_path: None,
+		}]);
+
+		for path in [
+			"/repo/Makefile",
+			"/repo/compile_commands.json",
+			"/repo/src/main.c",
+			"/repo/include/api.h",
+			"/repo/generated/model.cpp",
+			"/repo/generated/wrapper.hpp",
+		] {
+			assert_eq!(
+				classifier.classify_paths_with_git_signals(&[PathBuf::from(path)], true),
+				Some(WorkspaceLiveEvent::RescanRequired),
+				"{path} must rebuild C build provenance"
+			);
+		}
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(&[PathBuf::from("/repo/src/lib.rs")], true,),
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![PathBuf::from(
+				"/repo/src/lib.rs"
+			)]))
+		);
+	}
+
+	#[test]
 	fn classifies_source_create_remove_as_incremental_source_changes() {
 		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
 			path: PathBuf::from("/repo"),

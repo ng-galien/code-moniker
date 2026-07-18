@@ -100,14 +100,19 @@ impl<'a> LinkageQuery<'a> {
 		})
 	}
 
-	pub(in crate::linkage) fn with_target(&self, target: &'a Moniker) -> Self {
+	pub(in crate::linkage) fn with_target<'b>(&'b self, target: &'b Moniker) -> LinkageQuery<'b> {
 		let segment_summary = segment_summary(target);
-		Self {
+		LinkageQuery {
 			target,
 			target_first: segment_summary.first,
 			target_last: segment_summary.last,
 			target_segment_count: segment_summary.count,
-			..*self
+			material: self.material,
+			reference_kind: self.reference_kind,
+			call_name: self.call_name,
+			call_arity: self.call_arity,
+			confidence: self.confidence,
+			source_file: self.source_file,
 		}
 	}
 

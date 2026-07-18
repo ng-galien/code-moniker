@@ -121,6 +121,11 @@ expr = "$go_id"
 id   = "name-go"
 expr = "$go_id"
 
+# ─── C ───────────────────────────────────────────────────────────────────
+[[c.func.where]]
+id   = "name-identifier"
+expr = "name =~ ^[A-Za-z_][A-Za-z0-9_]*$"
+
 # ─── C# ───────────────────────────────────────────────────────────────────
 [[cs.class.where]]
 id   = "name-pascalcase"

@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
 
+use crate::cbuild::CBuildContext;
 use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
@@ -74,6 +75,9 @@ pub fn discover(paths: &[PathBuf], project: Option<String>) -> anyhow::Result<So
 			}]
 		};
 		for walked in walked {
+			if !scope_accepts_file(scope, &walked) {
+				continue;
+			}
 			files.push(source_file_from_walked(scope, walked, multi));
 		}
 	}
@@ -124,6 +128,9 @@ pub fn discover_files(
 			let Some(walked) = walk::explicit_lang_file(&path) else {
 				continue;
 			};
+			if !scope_accepts_file(scope, &walked) {
+				continue;
+			}
 			seen.insert(abs_path);
 			source_files.push(source_file_from_walked(scope, walked, false));
 			break;
@@ -158,6 +165,7 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 		let label = labels[source_idx].clone();
 		let source_project = project.clone();
 		let mut ts = tsconfig::load(&root);
+		let c = CBuildContext::load(&root);
 		if multi {
 			prefix_ts_aliases(&mut ts, &label);
 		}
@@ -169,6 +177,7 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 				path: root,
 				label,
 				ctx: extract::Context {
+					c,
 					ts,
 					project: source_project,
 				},
@@ -196,6 +205,9 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		.max_by_key(|(_, _, depth)| *depth)
 		.map(|(idx, root, _)| (idx, root))?;
 	let root_path = canonical_root_path(&root.path)?;
+	if lang == code_moniker_core::lang::Lang::C && !root.ctx.c.should_index_as_c(&abs) {
+		return None;
+	}
 	let rel = abs.strip_prefix(&root_path).ok()?.to_path_buf();
 	let rel_path = if sources.multi {
 		PathBuf::from(&root.label).join(&rel)
@@ -217,6 +229,11 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		lang,
 		retired: false,
 	})
+}
+
+fn scope_accepts_file(scope: &SourceScope, walked: &WalkedFile) -> bool {
+	walked.lang != code_moniker_core::lang::Lang::C
+		|| scope.root.ctx.c.should_index_as_c(&walked.path)
 }
 
 fn canonical_root_path(root: &Path) -> Option<PathBuf> {
@@ -436,6 +453,36 @@ mod tests {
 		assert_eq!(set.display_path(), tmp.path().display().to_string());
 		assert_eq!(set.files[0].rel_path, PathBuf::from("src/A.java"));
 		assert_eq!(set.files[0].anchor, PathBuf::from("src/A.java"));
+	}
+
+	#[test]
+	fn excludes_headers_reached_only_from_cpp_translation_units() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"generated/model.pb.cc",
+			"#include \"model.pb.h\"\n",
+		);
+		write(
+			tmp.path(),
+			"generated/model.pb.h",
+			"namespace generated {}\n",
+		);
+		write(tmp.path(), "src/main.c", "int main(void) { return 0; }\n");
+		write(tmp.path(), "include/api.h", "int api(void);\n");
+
+		let set = discover(&[tmp.path().to_path_buf()], None).unwrap();
+
+		assert!(
+			set.files
+				.iter()
+				.any(|file| file.rel_path == Path::new("include/api.h"))
+		);
+		assert!(
+			!set.files
+				.iter()
+				.any(|file| file.rel_path == Path::new("generated/model.pb.h"))
+		);
 	}
 
 	#[test]

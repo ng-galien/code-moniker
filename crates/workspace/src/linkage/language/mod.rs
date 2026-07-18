@@ -58,6 +58,13 @@ pub(super) fn matches_candidate(
 		.is_some_and(|file| language_strategy(file.lang).matches(query, candidate))
 }
 
+pub(super) fn c_include_matches_candidate(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	c::matches_include_candidate(query, candidate)
+}
+
 pub(super) fn sql_call_has_strong_evidence(query: &LinkageQuery<'_>) -> bool {
 	sql::call_has_strong_evidence(query)
 }

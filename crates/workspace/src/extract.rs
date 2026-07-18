@@ -4,10 +4,12 @@ use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::{Lang, ts};
 
+use crate::cbuild::CBuildContext;
 use crate::tsconfig::TsResolution;
 
 #[derive(Debug, Clone, Default)]
 pub struct Context {
+	pub c: CBuildContext,
 	pub ts: TsResolution,
 	pub project: Option<String>,
 }
@@ -57,13 +59,10 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			deep,
 			&code_moniker_core::lang::go::Presets::default(),
 		),
-		Lang::C => code_moniker_core::lang::c::extract(
-			uri,
-			source,
-			&anchor,
-			deep,
-			&code_moniker_core::lang::c::Presets::default(),
-		),
+		Lang::C => {
+			let presets = ctx.c.extraction_presets();
+			code_moniker_core::lang::c::extract(uri, source, &anchor, deep, &presets)
+		}
 		Lang::Cs => code_moniker_core::lang::cs::extract(
 			uri,
 			source,

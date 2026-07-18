@@ -120,6 +120,9 @@ impl WorkspacePathClassifier {
 		if self.is_notes_path(&path) {
 			return PathLiveSignal::Notes;
 		}
+		if self.is_c_build_context_path(&path) {
+			return PathLiveSignal::BuildContext;
+		}
 		if self.is_manifest_path(&path) {
 			return PathLiveSignal::Manifest;
 		}
@@ -131,6 +134,10 @@ impl WorkspacePathClassifier {
 
 	fn is_manifest_path(&self, path: &Path) -> bool {
 		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
+	}
+
+	fn is_c_build_context_path(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_c_build_context_file(path)
 	}
 
 	fn is_ignored_root(&self, path: &Path) -> bool {
@@ -260,6 +267,7 @@ enum PathLiveSignal {
 	Ignore,
 	GitBaseChanged,
 	Notes,
+	BuildContext,
 	Manifest,
 	Source,
 }
@@ -284,6 +292,7 @@ fn collect_path_live_signal(
 		PathLiveSignal::Notes => {
 			*event = coalesce_optional(event.take(), WorkspaceLiveEvent::Notes);
 		}
+		PathLiveSignal::BuildContext => return PathCollection::RescanRequired,
 		PathLiveSignal::Manifest => {
 			push_unique(source_paths, normalize_path(path));
 		}
@@ -390,6 +399,26 @@ fn push_watch_root(
 
 fn is_source_file(path: &Path) -> bool {
 	crate::environment::language_for_path(path).is_ok()
+}
+
+fn is_c_build_context_file(path: &Path) -> bool {
+	let filename = path.file_name().and_then(|name| name.to_str());
+	if filename.is_some_and(|name| {
+		matches!(
+			name,
+			"Makefile" | "makefile" | "GNUmakefile" | "compile_commands.json"
+		)
+	}) {
+		return true;
+	}
+	path.extension()
+		.and_then(|extension| extension.to_str())
+		.is_some_and(|extension| {
+			matches!(
+				extension.to_ascii_lowercase().as_str(),
+				"c" | "h" | "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "h++"
+			)
+		})
 }
 
 fn is_manifest_file(path: &Path) -> bool {

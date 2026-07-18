@@ -26,6 +26,7 @@ pub(super) fn collect_refs(state: &mut CDiscover<'_>, root: Node<'_>, scope: &Mo
 				specifier_type_refs_for(state, child, scope);
 			}
 			kind if is_preproc_container(kind) => collect_refs(state, child, scope),
+			"ERROR" => collect_refs(state, child, scope),
 			_ => {}
 		}
 	}

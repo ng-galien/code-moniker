@@ -10,7 +10,6 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
 use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
-use crate::environment;
 use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexTimings, RecordTable, ReferenceId, ReferenceRecord, SourceCatalog,
@@ -356,17 +355,22 @@ fn extract_source_file(
 		)
 	})?;
 	let ctx = &source_material.sources.roots[file.source].ctx;
-	let (graph, extracted_source) =
-		environment::load_or_extract_source(path, &file.anchor, file.lang, cache_dir, ctx)
-			.map_err(|err| {
-				WorkspaceFailure::new(
-					WorkspaceResource::CodeIndex,
-					format!("cannot extract {}: {err}", path.display()),
-				)
-			})?;
+	let (graph, extracted_source) = crate::cache::load_or_extract_workspace_result(
+		path,
+		&file.anchor,
+		file.lang,
+		cache_dir,
+		ctx,
+	)
+	.map_err(|err| {
+		WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			format!("cannot extract {}: {err}", path.display()),
+		)
+	})?;
 	let source = match extracted_source {
 		Some(source) => source,
-		None => std::fs::read_to_string(path).map_err(|err| {
+		None => crate::cache::read_source_lossy(path).map_err(|err| {
 			WorkspaceFailure::new(
 				WorkspaceResource::CodeIndex,
 				format!("cannot read {}: {err}", path.display()),

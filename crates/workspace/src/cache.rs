@@ -164,20 +164,49 @@ pub fn load_or_extract_result(
 	cache_dir: Option<&Path>,
 	ctx: &extract::Context,
 ) -> io::Result<(CodeGraph, Option<String>)> {
+	load_or_extract_result_with(path, anchor, lang, cache_dir, ctx, read_source)
+}
+
+pub(crate) fn load_or_extract_workspace_result(
+	path: &Path,
+	anchor: &Path,
+	lang: Lang,
+	cache_dir: Option<&Path>,
+	ctx: &extract::Context,
+) -> io::Result<(CodeGraph, Option<String>)> {
+	load_or_extract_result_with(path, anchor, lang, cache_dir, ctx, read_source_lossy)
+}
+
+fn load_or_extract_result_with(
+	path: &Path,
+	anchor: &Path,
+	lang: Lang,
+	cache_dir: Option<&Path>,
+	ctx: &extract::Context,
+	read: fn(&Path) -> io::Result<String>,
+) -> io::Result<(CodeGraph, Option<String>)> {
 	if let Some(dir) = cache_dir
 		&& let Ok(key) = CacheKey::from_path_with_context(path, anchor, ctx)
 	{
 		if let Some(g) = load(dir, &key) {
 			return Ok((g, None));
 		}
-		let source = fs::read_to_string(path)?;
+		let source = read(path)?;
 		let graph = extract::extract_with(lang, &source, anchor, ctx);
 		store(dir, &key, &graph);
 		return Ok((graph, Some(source)));
 	}
-	let source = fs::read_to_string(path)?;
+	let source = read(path)?;
 	let graph = extract::extract_with(lang, &source, anchor, ctx);
 	Ok((graph, Some(source)))
+}
+
+pub(crate) fn read_source(path: &Path) -> io::Result<String> {
+	fs::read_to_string(path)
+}
+
+pub(crate) fn read_source_lossy(path: &Path) -> io::Result<String> {
+	fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn validate_header<'a>(bytes: &'a [u8], key: &CacheKey) -> Option<&'a [u8]> {
@@ -274,6 +303,33 @@ mod tests {
 		store(tmp.path(), &key, &g);
 		let back = load(tmp.path(), &key).expect("should hit");
 		assert_eq!(back.def_count(), g.def_count());
+	}
+
+	#[test]
+	fn workspace_load_or_extract_accepts_non_utf8_source_bytes() {
+		let tmp = tempfile::tempdir().unwrap();
+		let src = tmp.path().join("legacy.c");
+		std::fs::write(&src, b"int value; /* legacy: \x96 */\n").unwrap();
+		let anchor = tmp.path().join("anchor");
+
+		let (graph, source) = load_or_extract_workspace_result(
+			&src,
+			&anchor,
+			Lang::C,
+			None,
+			&extract::Context::default(),
+		)
+		.expect("legacy source should be indexed lossily");
+
+		assert!(source.expect("source text").contains('\u{fffd}'));
+		assert!(graph.defs().any(|definition| {
+			definition
+				.moniker
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.name == b"value")
+		}));
 	}
 
 	#[test]

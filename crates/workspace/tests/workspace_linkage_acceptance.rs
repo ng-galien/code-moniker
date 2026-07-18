@@ -110,6 +110,36 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 	);
 	assert_linked_once_from_symbol(
 		&snapshot,
+		"reads",
+		"module:fragment/func:included_value()",
+		"type:MathRecord/field:value",
+		"struct:MathRecord/field:value",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:fragment/func:included_value()",
+		"type:MathBufferPtr/field:len",
+		"struct:MathBuffer/field:len",
+	);
+	assert_c_preprocessor_linkage(&snapshot);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:fragment/func:included_value()",
+		"calls",
+		"DOUBLE",
+		1,
+		"module:math.h/macro:DOUBLE(value)",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:fragment/func:included_value()",
+		"module:fragment/var:MATH_VERSION",
+		"module:math.h/const:MATH_VERSION",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
 		"imports_module",
 		"module:main",
 		"module:math.h",
@@ -122,6 +152,23 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 		"dir:project/module:config.h",
 		"dir:project/module:config.h",
 	);
+	assert_external_reference(
+		&snapshot,
+		"imports_module",
+		"external_pkg:vendor/path:missing",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:main/func:run()",
+		"external_pkg:libc/func:assert",
+	);
+	assert_linked_to(
+		&snapshot,
+		"uses_type",
+		"type:API_IMPORT",
+		"module:math.h/const:API_IMPORT",
+	);
 	assert_named_call_unresolved(&snapshot, "module:main/func:run()", "hidden", 1);
 	assert_call_resolves_only_to(
 		&snapshot,
@@ -130,6 +177,116 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 		"handler",
 		0,
 		"module:main/func:run()/local:handler",
+	);
+}
+
+fn assert_c_preprocessor_linkage(snapshot: &WorkspaceSnapshot) {
+	assert_linked_once_from_symbol(
+		snapshot,
+		"reads",
+		"module:fragment/func:included_value()",
+		"module:fragment/var:MATH_MODE_FAST",
+		"enum:MathMode/enum_constant:MATH_MODE_FAST",
+	);
+	for (target, label) in [
+		("module:fragment/var:FAST", "token-pasted"),
+		("module:fragment/var:value", "structural"),
+	] {
+		let reference = find_reference(snapshot, "reads", target)
+			.unwrap_or_else(|| panic!("missing {label} macro argument reference"));
+		assert!(snapshot.linkage.dynamic.iter().any(|dynamic| {
+			dynamic.reference == reference.id
+				&& dynamic.reason == DynamicReason::PreprocessorExpansion
+		}));
+	}
+	let type_macro = find_reference(snapshot, "uses_type", "type:TYPE_MACRO")
+		.expect("macro invocation used as a generated C type");
+	assert!(snapshot.linkage.dynamic.iter().any(|dynamic| {
+		dynamic.reference == type_macro.id && dynamic.reason == DynamicReason::PreprocessorExpansion
+	}));
+	assert_named_call_unresolved(
+		snapshot,
+		"module:fragment/func:included_value()",
+		"DOUBLE",
+		2,
+	);
+	assert_dynamic_reason(
+		snapshot,
+		"module:fragment/func:included_value()",
+		"calls",
+		Some("VARIADIC"),
+		DynamicReason::PreprocessorExpansion,
+	);
+	for (name, context) in [
+		("ordinary_typo", "outside macro arguments"),
+		("mixed_typo", "inside a non-structural macro argument"),
+	] {
+		let target = format!("module:fragment/var:{name}");
+		let reference = find_reference(snapshot, "reads", &target)
+			.unwrap_or_else(|| panic!("missing unresolved read {context}"));
+		assert!(
+			snapshot
+				.linkage
+				.unresolved
+				.iter()
+				.any(|unresolved| unresolved.reference == reference.id),
+			"reads {context} must remain honestly unresolved"
+		);
+		assert!(
+			snapshot
+				.linkage
+				.dynamic
+				.iter()
+				.all(|dynamic| dynamic.reference != reference.id),
+			"reads {context} must not become preprocessor dynamics"
+		);
+	}
+}
+
+#[test]
+fn c_pgxs_build_provenance_classifies_unindexed_postgresql_references() {
+	let snapshot = load_workspace("projects/c/pgxs");
+
+	assert_external_reference(
+		&snapshot,
+		"imports_module",
+		"external_pkg:postgresql/path:postgres",
+	);
+	let local_generated = find_reference(&snapshot, "imports_module", "module:local_generated.h")
+		.expect("missing local generated include reference");
+	assert!(
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.any(|unresolved| unresolved.reference == local_generated.id),
+		"unknown quoted includes must remain unresolved even in PGXS projects"
+	);
+	assert!(
+		!reference_is_external(&snapshot, local_generated),
+		"PGXS must not claim arbitrary local quoted includes"
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:extension/func:run()",
+		"calls",
+		Some("RequestAddinShmemSpace"),
+		DynamicReason::ExternalDependencyUnindexed,
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:extension/func:run()",
+		"uses_type",
+		None,
+		DynamicReason::ExternalDependencyUnindexed,
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:extension/func:run()",
+		"calls",
+		"local_helper",
+		0,
+		"module:extension/func:local_helper()",
 	);
 }
 

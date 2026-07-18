@@ -368,6 +368,7 @@ fn sql_default_arity_changes_match_full_rebuild() {
 	);
 
 	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+	assert_eq!(session.snapshot.unresolved_refs, 0);
 }
 
 #[test]
@@ -435,6 +436,27 @@ fn c_call_arity_changes_match_full_rebuild() {
 	session.edit("main.c", "int run(void) { return add(1, 2); }\n");
 
 	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn c_include_visibility_changes_match_full_rebuild() {
+	let temp = seed_c_workspace(&[
+		("types.h", "typedef struct Item { int value; } Item;\n"),
+		(
+			"fragment.c",
+			"int read_item(Item *item) { return item->value; }\n",
+		),
+		("main.c", "#include \"fragment.c\"\n"),
+	]);
+	let mut session = IncrementalSession::open(temp.path());
+	assert!(
+		session.snapshot.unresolved_refs > 0,
+		"the fragment must not see a type from a header that is not included"
+	);
+	session.edit("main.c", "#include \"types.h\"\n#include \"fragment.c\"\n");
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+	assert_eq!(session.snapshot.unresolved_refs, 0);
 }
 
 #[test]

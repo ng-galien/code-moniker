@@ -28,11 +28,45 @@ impl LanguageLinkageStrategy for CLanguageLinkageStrategy {
 			return true;
 		}
 		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| c_extern_target_matches_def(query, candidate)
+			|| c_program_linkage_target_matches_def(query, candidate)
 	}
 }
 
+pub(super) fn matches_include_candidate(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	libc_target_matches_workspace_function(query, candidate)
+		|| macro_matches_call(query, candidate)
+		|| constant_matches_read(query, candidate)
+		|| object_macro_matches_type_modifier(query, candidate)
+		|| GenericLanguageLinkageStrategy.matches(query, candidate)
+		|| normalized_c_target_matches_def(query, candidate)
+}
+
+fn object_macro_matches_type_modifier(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	let Some(target) = query.target_last else {
+		return false;
+	};
+	let Some(candidate_segment) = candidate.last_segment else {
+		return false;
+	};
+	matches!(
+		query.reference_kind,
+		"uses_type" | "typed_as" | "returns_type"
+	) && target.kind == kinds::TYPE
+		&& candidate_segment.kind == kinds::CONST
+		&& target.name == candidate_segment.name
+}
+
 fn imported_macro_matches_call(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	macro_matches_call(query, candidate) && source_imports_candidate_file(query, candidate)
+}
+
+fn macro_matches_call(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	let target_is_function = query
 		.target_last
 		.is_some_and(|segment| segment.kind == kinds::FUNC);
@@ -43,13 +77,16 @@ fn imported_macro_matches_call(query: &LinkageQuery<'_>, candidate: &LinkageCand
 		&& candidate_is_macro
 		&& query.call_name.map(str::as_bytes) == candidate.call_name
 		&& query.call_arity == candidate.call_arity
-		&& source_imports_candidate_file(query, candidate)
 }
 
 fn imported_constant_matches_read(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
+	constant_matches_read(query, candidate) && source_imports_candidate_file(query, candidate)
+}
+
+fn constant_matches_read(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	let Some(target) = query.target_last else {
 		return false;
 	};
@@ -58,9 +95,8 @@ fn imported_constant_matches_read(
 	};
 	query.reference_kind == "reads"
 		&& target.kind == kinds::VAR
-		&& candidate_segment.kind == kinds::CONST
+		&& matches!(candidate_segment.kind, kinds::CONST | b"enum_constant")
 		&& target.name == candidate_segment.name
-		&& source_imports_candidate_file(query, candidate)
 }
 
 fn source_imports_candidate_file(
@@ -82,7 +118,23 @@ fn source_imports_candidate_file(
 // fallbacks on the current file: compare with directory and module segments
 // erased. An include target ends on a module segment, so terminal modules
 // survive the erasure and match header roots wherever they live.
-fn c_extern_target_matches_def(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+fn c_program_linkage_target_matches_def(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	if !candidate
+		.last_segment
+		.is_some_and(|segment| matches!(segment.kind, kinds::FUNC | kinds::VAR))
+	{
+		return false;
+	}
+	normalized_c_target_matches_def(query, candidate)
+}
+
+fn normalized_c_target_matches_def(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
 	let target_segments = query.target_segments().collect::<Vec<_>>();
 	let keep_terminal_module = target_segments
 		.last()
@@ -161,7 +213,11 @@ fn c_segment_matches(
 	candidate_segment: Segment<'_>,
 	terminal: bool,
 ) -> bool {
-	if target.kind != candidate_segment.kind {
+	if target.kind != candidate_segment.kind
+		&& !(!terminal
+			&& target.kind == b"type"
+			&& matches!(candidate_segment.kind, b"struct" | b"enum"))
+	{
 		return false;
 	}
 	if terminal && is_c_callable_kind(target.kind) {

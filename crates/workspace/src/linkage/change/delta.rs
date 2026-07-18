@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use code_moniker_core::lang::build_manifest::Manifest;
 
+use crate::source::CodeIndexMaterial;
+
 use crate::code::CodeIndexGraphDiff;
 use crate::snapshot::{ReferenceId, SourceId, SymbolId};
 
@@ -125,6 +127,50 @@ impl LinkageRefreshImpact {
 	pub(in crate::linkage) fn definitions(&self) -> &SymbolDelta {
 		&self.symbols
 	}
+}
+
+pub(in crate::linkage) fn changes_c_include_topology(
+	impact: &LinkageRefreshImpact,
+	material: &CodeIndexMaterial,
+) -> bool {
+	let changed_c_path = impact
+		.scope
+		.changed_paths
+		.iter()
+		.any(|path| is_c_family_path(path));
+	let ReferenceDelta::Changed {
+		changed,
+		removed_binding,
+		..
+	} = &impact.references
+	else {
+		return false;
+	};
+	if *removed_binding && changed_c_path {
+		return true;
+	}
+	changed.iter().any(|reference| {
+		let Some((source_file, local_reference)) = material.identity.reference_location(reference)
+		else {
+			return false;
+		};
+		material.files.get(source_file).is_some_and(|file| {
+			file.lang == code_moniker_core::lang::Lang::C
+				&& file.graph.ref_at(local_reference).kind
+					== code_moniker_core::lang::kinds::IMPORTS_MODULE
+		})
+	})
+}
+
+fn is_c_family_path(path: &std::path::Path) -> bool {
+	path.extension()
+		.and_then(|extension| extension.to_str())
+		.is_some_and(|extension| {
+			matches!(
+				extension.to_ascii_lowercase().as_str(),
+				"c" | "h" | "cc" | "cpp" | "cxx" | "c++"
+			)
+		})
 }
 
 impl LinkageGraphDelta {

@@ -90,6 +90,7 @@ const LIBC_FUNCTIONS: &[&str] = &[
 	"accept",
 	"access",
 	"asprintf",
+	"assert",
 	"atexit",
 	"atof",
 	"atoi",
@@ -340,6 +341,7 @@ mod tests {
 	#[test]
 	fn libc_functions_are_language_contract() {
 		for name in [
+			b"assert".as_slice(),
 			b"malloc".as_slice(),
 			b"free",
 			b"printf",

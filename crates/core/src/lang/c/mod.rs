@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -10,7 +13,14 @@ mod kinds;
 mod sdk_pipeline;
 
 #[derive(Clone, Debug, Default)]
-pub struct Presets {}
+pub struct Presets {
+	/// Project-relative compiler include roots, in search order.
+	pub include_paths: Vec<String>,
+	/// Project-relative paths known to exist in the indexed source root.
+	pub workspace_files: Arc<BTreeSet<String>>,
+	/// Package owning unresolved quoted headers declared by the build system.
+	pub external_include_package: Option<String>,
+}
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -275,9 +285,44 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_field_before_trailing_attribute_macro() {
+		let source = "typedef struct Table { int *value field_attr(ignore); int count field_attr(ignore); } Table;\n";
+		let graph = extract_default("table.h", source, &make_anchor(), false);
+
+		assert!(graph.defs().any(|definition| {
+			definition.kind == b"field"
+				&& definition
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|segment| segment.name == b"value")
+		}));
+		assert!(graph.defs().any(|definition| {
+			definition.kind == b"field"
+				&& definition
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|segment| segment.name == b"count")
+		}));
+	}
+
+	#[test]
 	fn extract_system_include_is_external_and_local_include_internal() {
 		let src = "#include <stdio.h>\n#include <project/api.h>\n#include \"vendor/util.h\"\n";
-		let g = extract_default("main.c", src, &make_anchor(), false);
+		let presets = Presets {
+			include_paths: vec![String::new()],
+			workspace_files: Arc::new(BTreeSet::from([
+				"main.c".to_string(),
+				"project/api.h".to_string(),
+				"vendor/util.h".to_string(),
+			])),
+			..Presets::default()
+		};
+		let g = extract("main.c", src, &make_anchor(), false, &presets);
+		assert_conformance::<super::Lang>(&g, &make_anchor());
 		let external = g
 			.refs()
 			.find(|r| r.kind == b"imports_module" && r.confidence == b"external".to_vec())
@@ -316,6 +361,111 @@ mod tests {
 				.as_view()
 				.segments()
 				.any(|segment| { segment.kind == b"dir" && segment.name == b"vendor" })
+		);
+	}
+
+	#[test]
+	fn extract_missing_angle_include_is_external_dependency() {
+		let graph = extract_default(
+			"main.c",
+			"#include <protobuf-c/protobuf-c.h>\n",
+			&make_anchor(),
+			false,
+		);
+		let include = graph
+			.refs()
+			.find(|reference| reference.kind == b"imports_module")
+			.expect("include reference");
+
+		assert_eq!(include.confidence, b"external");
+		assert!(
+			include.target.as_view().segments().any(|segment| {
+				segment.kind == b"external_pkg" && segment.name == b"protobuf-c"
+			})
+		);
+	}
+
+	#[test]
+	fn pgxs_only_claims_known_postgresql_quoted_headers() {
+		let presets = Presets {
+			external_include_package: Some("postgresql".to_string()),
+			..Presets::default()
+		};
+		let graph = extract(
+			"extension.c",
+			"#include \"postgres.h\"\n#include \"local_generated.h\"\n",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		let includes = graph.refs().collect::<Vec<_>>();
+
+		assert!(includes.iter().any(|reference| {
+			reference.receiver_hint == b"c_build_dependency"
+				&& reference
+					.target
+					.as_view()
+					.segments()
+					.any(|segment| segment.name == b"postgres")
+		}));
+		assert!(includes.iter().any(|reference| {
+			reference.receiver_hint.is_empty()
+				&& reference
+					.target
+					.as_view()
+					.segments()
+					.any(|segment| segment.name == b"local_generated.h")
+		}));
+	}
+
+	#[test]
+	fn extract_quoted_include_cannot_escape_workspace_root() {
+		let graph = extract_default(
+			"src/main.c",
+			"#include \"../../secret.h\"\n",
+			&make_anchor(),
+			false,
+		);
+		let include = graph
+			.refs()
+			.find(|reference| reference.kind == b"imports_module")
+			.expect("include reference");
+
+		assert_eq!(include.confidence, b"external");
+		assert!(
+			include.target.as_view().segments().any(|segment| {
+				segment.kind == b"external_pkg" && segment.name == b"filesystem"
+			})
+		);
+	}
+
+	#[test]
+	fn extract_quoted_include_uses_configured_search_root_when_not_source_relative() {
+		let src = "#include \"protobuf/model.h\"\n";
+		let presets = Presets {
+			include_paths: vec![String::new()],
+			workspace_files: Arc::new(BTreeSet::from([
+				"examples/main.c".to_string(),
+				"protobuf/model.h".to_string(),
+			])),
+			..Presets::default()
+		};
+		let graph = extract("examples/main.c", src, &make_anchor(), false, &presets);
+		let include = graph
+			.refs()
+			.find(|reference| reference.kind == b"imports_module")
+			.expect("include reference");
+		let segments = include.target.as_view().segments().collect::<Vec<_>>();
+
+		assert!(
+			segments
+				.iter()
+				.any(|segment| segment.kind == b"dir" && segment.name == b"protobuf")
+		);
+		assert!(
+			!segments
+				.iter()
+				.any(|segment| segment.kind == b"dir" && segment.name == b"examples")
 		);
 	}
 
@@ -507,6 +657,91 @@ int use(first *value) {
 			.collect();
 		assert!(names.contains(&b"only_linux()".to_vec()));
 		assert!(names.contains(&b"fallback()".to_vec()));
+	}
+
+	#[test]
+	fn extract_defs_inside_parser_recovery_nodes() {
+		let src = "#ifndef RECOVERY_H\n#define RECOVERY_H\nBROKEN(\n#define RECOVERED_VALUE 1\n)\n#endif\n";
+		let graph = extract_default("recovery.h", src, &make_anchor(), false);
+
+		assert!(graph.defs().any(|definition| {
+			definition.kind == b"const"
+				&& definition
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|segment| segment.name == b"RECOVERED_VALUE")
+		}));
+		assert!(!graph.defs().any(|definition| {
+			definition
+				.moniker
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.name == b"RECOVERY_H")
+		}));
+	}
+
+	#[test]
+	fn extract_defs_inside_conditional_cpp_linkage_block() {
+		let src = "#if defined(__cplusplus)\nextern \"C\" {\n#endif\n#define PUBLIC_API 1\ntypedef struct api_state api_state;\n#if defined(__cplusplus)\n}\n#endif\n";
+		let graph = extract_default("api.h", src, &make_anchor(), false);
+		let names = graph
+			.defs()
+			.filter_map(|definition| {
+				definition
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.map(|segment| segment.name.to_vec())
+			})
+			.collect::<Vec<_>>();
+
+		assert!(names.contains(&b"PUBLIC_API".to_vec()));
+		assert!(names.contains(&b"api_state".to_vec()));
+	}
+
+	#[test]
+	fn extract_generated_union_across_line_directives() {
+		let src = r#"
+#if ! defined YYSTYPE
+typedef union YYSTYPE
+#line 233 "gram.y"
+{
+	int ival;
+	void *node;
+}
+#line 1425 "gram.c"
+YYSTYPE;
+#endif
+int read_value(YYSTYPE *value) { return value->ival; }
+"#;
+		let g = extract_default("gram.c", src, &make_anchor(), true);
+		let union = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"c")
+			.segment(b"module", b"gram")
+			.segment(b"struct", b"YYSTYPE")
+			.build();
+		let field = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"c")
+			.segment(b"module", b"gram")
+			.segment(b"struct", b"YYSTYPE")
+			.segment(b"field", b"ival")
+			.build();
+		assert!(
+			g.contains(&union),
+			"generated union expected; defs: {:?}",
+			g.def_monikers()
+		);
+		assert!(
+			g.contains(&field),
+			"generated union field expected; defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]

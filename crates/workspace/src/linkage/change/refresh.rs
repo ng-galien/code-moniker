@@ -12,7 +12,9 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
-use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta};
+use crate::linkage::change::{
+	LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta, changes_c_include_topology,
+};
 use crate::linkage::resolve::CrateForwards;
 use crate::linkage::resolve::LinkagePolicies;
 use crate::linkage::resolve::ManifestPolicy;
@@ -20,6 +22,7 @@ use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::SemanticLinkage;
 use crate::linkage::resolve::WorkspacePackageIndex;
+use crate::linkage::resolve::run_full_linkage_with_timings;
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
@@ -46,6 +49,25 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 		));
 	}
 	let material = linkage.linkage_material(code_index)?;
+	if changes_c_include_topology(&refresh_impact, &material) {
+		let full = run_full_linkage_with_timings(linkage, code_index)?;
+		return Ok(TimedLinkageRefresh {
+			snapshot: full.snapshot,
+			timings: LinkageRefreshTimings {
+				candidate_index: full.timings.candidate_index,
+				plan_invalidation: full.timings.manifest_policy,
+				resolve_references: full.timings.resolve_references,
+				semantic_enhance: full.timings.semantic_enhance,
+				rebuild_indexes: full.timings.store_index,
+				project_snapshot: full.timings.project_snapshot,
+				total: full.timings.total,
+				stale_refs: code_index.references.len(),
+				changed_refs: code_index.references.len(),
+				..LinkageRefreshTimings::default()
+			},
+			memory: full.memory,
+		});
+	}
 	if let Some(refresh) = refresh_symbol_only_without_linkage_work(
 		FastRefreshInput {
 			store: &mut linkage.store,

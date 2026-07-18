@@ -495,6 +495,7 @@ pub enum DynamicReason {
 	ExternalDependencyUnindexed,
 	RuntimeImport,
 	RuntimeMutation,
+	PreprocessorExpansion,
 	InsufficientLocalFacts,
 }
 
@@ -508,6 +509,7 @@ impl DynamicReason {
 			Self::ExternalDependencyUnindexed => "external_dependency_unindexed",
 			Self::RuntimeImport => "runtime_import",
 			Self::RuntimeMutation => "runtime_mutation",
+			Self::PreprocessorExpansion => "preprocessor_expansion",
 			Self::InsufficientLocalFacts => "insufficient_local_facts",
 		}
 	}

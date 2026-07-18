@@ -12,20 +12,27 @@ use crate::lang::tree_util::{node_position, node_slice};
 use super::super::kinds;
 use super::discover::CDiscover;
 use super::syntax::{
-	DeclaratorInfo, declarator_info, named_children, parameter_slots, visibility_for,
+	DeclaratorInfo, declarator_info, first_identifier, named_children, parameter_slots,
+	recovered_identifier, visibility_for,
 };
 use super::type_resolution::type_expr_for;
 
 pub(super) fn is_preproc_container(kind: &str) -> bool {
 	matches!(
 		kind,
-		"preproc_ifdef" | "preproc_if" | "preproc_elif" | "preproc_else" | "linkage_specification"
+		"preproc_ifdef"
+			| "preproc_if"
+			| "preproc_elif"
+			| "preproc_else"
+			| "linkage_specification"
+			| "declaration_list"
 	)
 }
 
 // First pass: register every file-local type name (named struct/union/enum
 // specifiers and typedefs) before members, receivers and refs look them up.
 pub(super) fn predeclare_types(state: &mut CDiscover<'_>, root: Node<'_>, scope: &Moniker) {
+	predeclare_recovered_generated_aggregate(state, root, scope);
 	for child in named_children(root) {
 		match child.kind() {
 			"type_definition" => predeclare_typedef(state, child, scope),
@@ -33,9 +40,32 @@ pub(super) fn predeclare_types(state: &mut CDiscover<'_>, root: Node<'_>, scope:
 				predeclare_specifier_of(state, child, scope);
 			}
 			kind if is_preproc_container(kind) => predeclare_types(state, child, scope),
+			"ERROR" => predeclare_types(state, child, scope),
 			_ => {}
 		}
 	}
+}
+
+fn predeclare_recovered_generated_aggregate(
+	state: &mut CDiscover<'_>,
+	root: Node<'_>,
+	scope: &Moniker,
+) {
+	let Some((specifier, _body, alias)) = recovered_generated_aggregate(root, state.source) else {
+		return;
+	};
+	let Some(name_node) = specifier.child_by_field_name("name") else {
+		return;
+	};
+	let name = node_slice(name_node, state.source);
+	push_type_def(state, scope, kinds::STRUCT, name, node_position(specifier));
+	push_type_def(
+		state,
+		scope,
+		kinds::TYPE,
+		node_slice(alias, state.source),
+		node_position(alias),
+	);
 }
 
 fn predeclare_typedef(state: &mut CDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -106,6 +136,7 @@ fn push_type_def(
 }
 
 pub(super) fn collect_defs(state: &mut CDiscover<'_>, root: Node<'_>, scope: &Moniker) {
+	collect_recovered_generated_aggregate(state, root, scope);
 	let mut cursor = root.walk();
 	let mut pending_comment = None;
 	for child in root.children(&mut cursor) {
@@ -127,10 +158,102 @@ pub(super) fn collect_defs(state: &mut CDiscover<'_>, root: Node<'_>, scope: &Mo
 			"preproc_def" => object_macro_def(state, child, scope),
 			"preproc_function_def" => function_macro_def(state, child, scope),
 			kind if is_preproc_container(kind) => collect_defs(state, child, scope),
+			"ERROR" => collect_defs(state, child, scope),
 			_ => {}
 		}
 	}
 	flush_comment(state, &mut pending_comment, scope);
+}
+
+fn collect_recovered_generated_aggregate(
+	state: &mut CDiscover<'_>,
+	root: Node<'_>,
+	scope: &Moniker,
+) {
+	let Some((specifier, body, _alias)) = recovered_generated_aggregate(root, state.source) else {
+		return;
+	};
+	let Some(name_node) = specifier.child_by_field_name("name") else {
+		return;
+	};
+	let owner = extend_segment(scope, kinds::STRUCT, node_slice(name_node, state.source));
+	for declaration in named_children(body) {
+		if declaration.kind() != "declaration" {
+			continue;
+		}
+		let type_node = declaration.child_by_field_name("type");
+		for declarator in declaration_declarators(declaration) {
+			let Some(info) = declarator_info(declarator, state.source) else {
+				continue;
+			};
+			field_def(state, &owner, type_node, &info);
+		}
+	}
+}
+
+// Bison output commonly inserts `#line` directives between the aggregate
+// name, body and trailing typedef alias. Tree-sitter then exposes those three
+// pieces as siblings under the surrounding preprocessor conditional instead
+// of one `type_definition`. Recover only that narrow generated-code shape.
+fn recovered_generated_aggregate<'tree>(
+	root: Node<'tree>,
+	source: &[u8],
+) -> Option<(Node<'tree>, Node<'tree>, Node<'tree>)> {
+	if !matches!(root.kind(), "preproc_if" | "preproc_ifdef") {
+		return None;
+	}
+	let children = named_children(root).collect::<Vec<_>>();
+	for (specifier_index, error) in children.iter().enumerate() {
+		if error.kind() != "ERROR" {
+			continue;
+		}
+		let Some(specifier) = named_children(*error).find(|child| {
+			matches!(child.kind(), "struct_specifier" | "union_specifier")
+				&& child.child_by_field_name("name").is_some()
+				&& child.child_by_field_name("body").is_none()
+		}) else {
+			continue;
+		};
+		let body_index = children
+			.iter()
+			.enumerate()
+			.skip(specifier_index + 1)
+			.find_map(|(index, child)| (child.kind() == "compound_statement").then_some(index))?;
+		if !children[specifier_index + 1..body_index]
+			.iter()
+			.any(|child| is_line_directive(*child, source))
+		{
+			continue;
+		}
+		let Some((alias_index, alias)) =
+			children
+				.iter()
+				.enumerate()
+				.skip(body_index + 1)
+				.find_map(|(index, child)| {
+					(child.kind() == "expression_statement")
+						.then(|| first_identifier(*child).map(|alias| (index, alias)))
+						.flatten()
+				})
+		else {
+			continue;
+		};
+		if !children[body_index + 1..alias_index]
+			.iter()
+			.any(|child| is_line_directive(*child, source))
+		{
+			continue;
+		}
+		let name = specifier.child_by_field_name("name")?;
+		if node_slice(name, source) == node_slice(alias, source) {
+			return Some((specifier, children[body_index], alias));
+		}
+	}
+	None
+}
+
+fn is_line_directive(node: Node<'_>, source: &[u8]) -> bool {
+	node.kind() == "preproc_call" && node_slice(node, source).starts_with(b"#line")
 }
 
 fn function_def(state: &mut CDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -344,6 +467,17 @@ fn struct_field_defs(state: &mut CDiscover<'_>, body: Node<'_>, owner: &Moniker)
 			continue;
 		}
 		let type_node = field.child_by_field_name("type");
+		if let Some(name_node) = recovered_identifier(field) {
+			let info = DeclaratorInfo {
+				name_node,
+				name: node_slice(name_node, state.source),
+				pointer_depth: 0,
+				is_function: false,
+				parameters: None,
+			};
+			field_def(state, owner, type_node, &info);
+			continue;
+		}
 		let mut cursor = field.walk();
 		for declarator in field.children_by_field_name("declarator", &mut cursor) {
 			let Some(info) = declarator_info(declarator, state.source) else {
@@ -434,10 +568,16 @@ fn object_macro_def(state: &mut CDiscover<'_>, node: Node<'_>, scope: &Moniker) 
 }
 
 fn is_header_guard_define(node: Node<'_>, name: &[u8], source: &[u8]) -> bool {
-	let Some(parent) = node
-		.parent()
-		.filter(|parent| parent.kind() == "preproc_ifdef")
-	else {
+	let mut ancestor = node.parent();
+	let mut guard = None;
+	while let Some(current) = ancestor {
+		if current.kind() == "preproc_ifdef" {
+			guard = Some(current);
+			break;
+		}
+		ancestor = current.parent();
+	}
+	let Some(parent) = guard else {
 		return false;
 	};
 	let Some(guard_name) = parent.child_by_field_name("name") else {

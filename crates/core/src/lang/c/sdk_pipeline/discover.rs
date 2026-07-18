@@ -5,6 +5,7 @@ use tree_sitter::Node;
 use crate::core::moniker::Moniker;
 use crate::lang::sdk::{DiscoveredDef, ResolvedRef, TypeExpr};
 
+use super::super::Presets;
 use super::defs::{collect_defs, predeclare_types};
 use super::refs::collect_refs;
 
@@ -31,6 +32,7 @@ pub(super) struct CDiscover<'src> {
 	pub(super) return_types: ReturnTypeTable,
 	pub(super) field_types: FieldTypeTable,
 	pub(super) var_types: VarTypeTable,
+	pub(super) presets: Presets,
 }
 
 impl<'src> CDiscover<'src> {
@@ -39,6 +41,7 @@ impl<'src> CDiscover<'src> {
 		source: &'src [u8],
 		deep: bool,
 		root_node: Node<'_>,
+		presets: &Presets,
 	) -> DiscoveredCFile {
 		let mut discover = Self {
 			root: root.clone(),
@@ -52,6 +55,7 @@ impl<'src> CDiscover<'src> {
 			return_types: ReturnTypeTable::new(),
 			field_types: FieldTypeTable::new(),
 			var_types: VarTypeTable::new(),
+			presets: presets.clone(),
 		};
 		predeclare_types(&mut discover, root_node, &root);
 		collect_defs(&mut discover, root_node, &root);

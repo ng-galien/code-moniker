@@ -32,12 +32,20 @@ pub(super) fn declarator_info<'tree>(
 		match node.kind() {
 			"pointer_declarator" => {
 				pointer_depth += 1;
+				if let Some(recovered) = recovered_identifier(node) {
+					node = recovered;
+					continue;
+				}
 				node = node.child_by_field_name("declarator")?;
 			}
 			"array_declarator" => {
 				node = node.child_by_field_name("declarator")?;
 			}
 			"function_declarator" => {
+				if let Some(recovered) = recovered_identifier(node) {
+					node = recovered;
+					continue;
+				}
 				if parameters.is_none() {
 					is_function = !through_parens;
 					parameters = node.child_by_field_name("parameters");
@@ -68,6 +76,21 @@ pub(super) fn declarator_info<'tree>(
 			_ => return None,
 		}
 	}
+}
+
+pub(super) fn recovered_identifier(node: Node<'_>) -> Option<Node<'_>> {
+	let error = named_children(node).find(|child| child.kind() == "ERROR")?;
+	first_identifier(error)
+}
+
+pub(super) fn first_identifier(node: Node<'_>) -> Option<Node<'_>> {
+	if matches!(
+		node.kind(),
+		"identifier" | "field_identifier" | "type_identifier"
+	) {
+		return Some(node);
+	}
+	named_children(node).find_map(first_identifier)
 }
 
 // Parameter slots render as name:type with pointer stars appended to the base

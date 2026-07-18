@@ -20,12 +20,17 @@ pub fn extract(
 	source: &str,
 	anchor: &Moniker,
 	deep: bool,
-	_presets: &Presets,
+	presets: &Presets,
 ) -> CodeGraph {
 	let tree = parse(source);
 	let module = compute_module_moniker(anchor, uri);
-	let discovered_parts =
-		CDiscover::run(module.clone(), source.as_bytes(), deep, tree.root_node());
+	let discovered_parts = CDiscover::run(
+		module.clone(),
+		source.as_bytes(),
+		deep,
+		tree.root_node(),
+		presets,
+	);
 	let discovered = DiscoveredFile::new(
 		module,
 		kinds::MODULE,
