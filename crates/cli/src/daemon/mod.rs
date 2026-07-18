@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use code_moniker_daemon as daemon;
 use code_moniker_daemon_client as daemon_client;
 use code_moniker_query::{
-	DaemonRegistryEntry, DaemonRegistryState, DaemonWorkspaceConfig, Query, QueryRequest,
-	QueryResult, pid_is_alive, remove_registry_entry_if_own,
+	DaemonRegistryEntry, DaemonRegistryState, DaemonWorkspaceConfig, PROTOCOL_VERSION, Query,
+	QueryRequest, QueryResult, pid_is_alive, remove_registry_entry_if_own,
 };
 
 use crate::Exit;
@@ -102,6 +102,13 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 		"queries: {}",
 		handshake.capabilities.queries.join(", ")
 	)?;
+	if handshake.protocol_version != PROTOCOL_VERSION {
+		writeln!(
+			stdout,
+			"compatibility: incompatible (client protocol {PROTOCOL_VERSION})"
+		)?;
+		return Ok(());
+	}
 	let response = client.query(QueryRequest::new(Query::WorkspaceStatus))?;
 	if let QueryResult::WorkspaceStatus(status) = response.result {
 		writeln!(

@@ -98,5 +98,10 @@ tmux capture-pane -t cm-tui-debug -p
 
 - Registry: `$TMPDIR/code-moniker-daemons/*.json` (endpoint, pid, workspace roots).
 - Probe over WebSocket JSON-RPC with the extension's exact wire shape — see the daemon-probing recipe in `agents/maps/vscode-extension.md`.
-- Check handshake capabilities, not the version string: a long-running daemon can predate a query verb while reporting the same version.
+- Treat handshake signals separately: `protocol_version` guards the wire shape,
+  capabilities guard verb availability, and the package version string is only
+  informational. Protocol versions must match exactly: recycle a mismatched
+  daemon once, then report reinstall guidance if the fresh daemon still differs.
+  A long-running daemon can predate a verb while reporting the same package
+  version.
 - Every open project registers its own daemon; a stale one in another workspace reproduces "works here, fails there".

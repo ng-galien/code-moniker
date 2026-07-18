@@ -29,11 +29,14 @@ Discover what a daemon supports with `code-moniker daemon status <root>`
 
 ## Field syntax
 
-- Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`.
+- Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`. A quoted
+  value is atomic: commas and whitespace inside it are literal and never list
+  separators. This lets a canonical URI be passed back unchanged.
 - Numbers bare: `limit:10`.
 - Multi-value fields OR-combine: `shape:callable,type`, `shape:[callable,type]`
   (bracket list sugar on `lang`/`kind`/`shape`/`severity`), or repeat the field.
-  No spaces inside an unquoted list; an unclosed `[` is a parse error.
+  Lists must be unquoted; no spaces are allowed inside an unquoted list, and an
+  unclosed `[` is a parse error.
 - `symbol.search` filters AND-combine: `name:"change" shape:callable path:"src/**"`.
 - Fields are validated per verb: an unknown field (e.g. `text:`) is a parse
   error with a suggestion (`did you mean \`name\`?`) or the valid-field list.

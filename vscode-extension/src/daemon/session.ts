@@ -58,8 +58,8 @@ export class DaemonSession implements vscode.Disposable {
 	capabilities?: CapabilitySet;
 	readonly workspaceRoots: string[];
 
-	// The daemon version string alone cannot tell an outdated long-running
-	// process from a current one; the handshake capability set can.
+	// The protocol version guards the wire shape. Query capabilities still guard
+	// individual verbs because the package version string is only informational.
 	supportsQuery(name: string): boolean {
 		return this.capabilities?.queries.includes(name) ?? false;
 	}
@@ -166,16 +166,15 @@ export class DaemonSession implements vscode.Disposable {
 			let link: DaemonLink;
 			try {
 				link = await connectEntry(entry);
-			} catch (error) {
-				if (isProtocolError(error)) {
-					throw error;
-				}
+			} catch {
 				forgetDaemonsForRoots(this.roots);
 				await launchWorkspaceDaemon(this.roots[0]);
 				entry = await waitForEntry(this.roots);
 				if (!entry) {
 					throw daemonRegistrationError("restarting after a stale registry entry");
 				}
+				// Recycle once only. A second mismatch means the installed CLI and
+				// extension do not ship the same protocol and require reinstallation.
 				link = await connectEntry(entry);
 			}
 			const rpc = link.rpc;
@@ -277,8 +276,14 @@ async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonLink> {
 	const rpc = await DaemonRpc.connect(entry.endpoint);
 	const handshake = await rpc.handshake("vscode-extension");
 	if (handshake.protocol_version !== PROTOCOL_VERSION) {
+		try {
+			await rpc.shutdown();
+		} catch {
+		}
 		rpc.close();
-		throw new Error(`unsupported daemon protocol ${handshake.protocol_version}`);
+		throw new Error(
+			`daemon protocol ${handshake.protocol_version} does not match extension protocol ${PROTOCOL_VERSION}; reinstall the Code Moniker CLI and extension so their protocol versions match`,
+		);
 	}
 	return { rpc, capabilities: handshake.capabilities };
 }
@@ -308,10 +313,6 @@ function shouldRetryLoadingQuery(error: unknown, attempt: number): boolean {
 
 function shouldRefreshStaleSnapshot(error: unknown, attempt: number): boolean {
 	return attempt === 0 && isStaleError(error);
-}
-
-function isProtocolError(error: unknown): boolean {
-	return error instanceof Error && error.message.startsWith("unsupported daemon protocol ");
 }
 
 function daemonRegistrationError(action: string): Error {

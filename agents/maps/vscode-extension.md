@@ -165,10 +165,13 @@ call("moniker_query", [{
 
 Two hard-won rules:
 
-- **Check capabilities, not versions.** A long-running daemon can predate a
-  query verb while reporting the same version string. The handshake
-  capability set is the honest signal; the extension gates the explorer on
-  it (`session.supportsQuery("identity.graph")`).
+- **Separate protocol compatibility from capabilities.** `protocol_version`
+  guards the wire shape and must match exactly. The extension recycles a
+  mismatched daemon once; a second mismatch is an installation error and must
+  not start a restart loop. Capabilities guard verb availability: a long-running
+  daemon can predate a query verb while reporting the same package version
+  string, so the extension still gates the explorer with
+  `session.supportsQuery("identity.graph")`.
 - **Suspect other workspaces' daemons.** Every open project (fixtures,
   sibling repos) registers its own daemon. A stale one elsewhere reproduces
   "it works here, fails there" perfectly.

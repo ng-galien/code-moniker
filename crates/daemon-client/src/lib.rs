@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use code_moniker_query::{
 	CommandRequest, CommandResponse, DaemonRpcClient, DaemonWorkspaceConfig, HandshakeResponse,
-	QueryRequest, QueryResponse,
+	PROTOCOL_VERSION, QueryRequest, QueryResponse,
 };
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
@@ -41,6 +41,7 @@ struct DaemonEndpoint {
 pub struct DaemonConnection {
 	runtime: Arc<Runtime>,
 	ws: Arc<WsClient>,
+	handshake: HandshakeResponse,
 }
 
 impl DaemonClient {
@@ -65,11 +66,10 @@ impl DaemonClient {
 
 	pub fn connect_or_start_config(config: DaemonWorkspaceConfig) -> anyhow::Result<Self> {
 		let config = canonical_workspace_config(config)?;
-		if registry_entry_for(&config)?.is_some() {
-			return wait_for_daemon(config);
+		if let Some(client) = connect_registered_daemon(&config)? {
+			return Ok(client);
 		}
-		start_daemon_process(&config)?;
-		wait_for_daemon(config)
+		start_compatible_daemon(config)
 	}
 
 	pub fn connect_or_start_supporting(
@@ -80,19 +80,7 @@ impl DaemonClient {
 		if client.supports_query(capability)? {
 			return Ok(client);
 		}
-		let _ = client.shutdown();
-		drop(client);
-		let config = canonical_workspace_config(config)?;
-		wait_for_deregistration(&config);
-		let _ = cleanup_stale_config(&config);
-		start_daemon_process(&config)?;
-		let client = wait_for_daemon(config)?;
-		if !client.supports_query(capability)? {
-			anyhow::bail!(
-				"the code-moniker daemon binary predates `{capability}`; update code-moniker and retry"
-			);
-		}
-		Ok(client)
+		restart_for_capability(client, config, capability)
 	}
 
 	pub fn root(&self) -> &Path {
@@ -121,9 +109,8 @@ impl Deref for DaemonClient {
 }
 
 impl DaemonConnection {
-	pub fn handshake(&self, client: &str) -> anyhow::Result<HandshakeResponse> {
-		self.block(self.ws.handshake(client.to_string()))
-			.map_err(|err| anyhow::anyhow!("{err}"))
+	pub fn handshake(&self, _client: &str) -> anyhow::Result<HandshakeResponse> {
+		Ok(self.handshake.clone())
 	}
 
 	pub fn supports_query(&self, capability: &str) -> anyhow::Result<bool> {
@@ -136,6 +123,7 @@ impl DaemonConnection {
 	}
 
 	pub fn query(&self, request: QueryRequest) -> anyhow::Result<QueryResponse> {
+		validate_protocol(&self.handshake)?;
 		self.block(self.ws.query(request))
 			.map_err(|err| anyhow::anyhow!("{err}"))
 	}
@@ -145,6 +133,7 @@ impl DaemonConnection {
 	}
 
 	pub fn command_response(&self, request: CommandRequest) -> anyhow::Result<CommandResponse> {
+		validate_protocol(&self.handshake)?;
 		self.block(self.ws.command(request))
 			.map_err(|err| anyhow::anyhow!("{err}"))
 	}
@@ -166,10 +155,14 @@ fn connect_entry(
 	let runtime = Arc::new(build_runtime()?);
 	let url = format!("ws://{}", entry.endpoint);
 	let ws = runtime.block_on(async { WsClientBuilder::default().build(&url).await })?;
+	let handshake = runtime
+		.block_on(ws.handshake("daemon-client".to_string()))
+		.map_err(|err| anyhow::anyhow!("{err}"))?;
 	let client = DaemonClient {
 		connection: DaemonConnection {
 			runtime,
 			ws: Arc::new(ws),
+			handshake,
 		},
 		endpoint: DaemonEndpoint {
 			roots: config_roots(&config),
@@ -177,7 +170,67 @@ fn connect_entry(
 			address: entry.endpoint,
 		},
 	};
-	client.handshake("daemon-client")?;
+	Ok(client)
+}
+
+fn validate_client_protocol(client: &DaemonClient) -> anyhow::Result<()> {
+	let handshake = client.handshake("daemon-client")?;
+	validate_protocol(&handshake)
+}
+
+fn validate_protocol(handshake: &HandshakeResponse) -> anyhow::Result<()> {
+	if handshake.protocol_version == PROTOCOL_VERSION {
+		return Ok(());
+	}
+	anyhow::bail!(
+		"daemon protocol {} does not match client protocol {} (daemon version {}); reinstall code-moniker so the client and daemon versions match",
+		handshake.protocol_version,
+		PROTOCOL_VERSION,
+		handshake.daemon_version
+	)
+}
+
+fn connect_registered_daemon(
+	config: &DaemonWorkspaceConfig,
+) -> anyhow::Result<Option<DaemonClient>> {
+	if registry_entry_for(config)?.is_none() {
+		return Ok(None);
+	}
+	let client = wait_for_daemon(config.clone())?;
+	let handshake = client.handshake("daemon-client")?;
+	if handshake.protocol_version == PROTOCOL_VERSION {
+		return Ok(Some(client));
+	}
+	let _ = client.shutdown();
+	drop(client);
+	wait_for_deregistration(config);
+	let _ = cleanup_stale_config(config);
+	Ok(None)
+}
+
+fn start_compatible_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {
+	start_daemon_process(&config)?;
+	let client = wait_for_daemon(config)?;
+	validate_client_protocol(&client)?;
+	Ok(client)
+}
+
+fn restart_for_capability(
+	client: DaemonClient,
+	config: DaemonWorkspaceConfig,
+	capability: &str,
+) -> anyhow::Result<DaemonClient> {
+	let _ = client.shutdown();
+	drop(client);
+	let config = canonical_workspace_config(config)?;
+	wait_for_deregistration(&config);
+	let _ = cleanup_stale_config(&config);
+	let client = start_compatible_daemon(config)?;
+	if !client.supports_query(capability)? {
+		anyhow::bail!(
+			"the code-moniker daemon binary predates `{capability}`; update code-moniker and retry"
+		);
+	}
 	Ok(client)
 }
 
@@ -285,4 +338,37 @@ fn start_daemon_process(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
 			workspace_label(&config_roots(config))
 		)
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use code_moniker_query::CapabilitySet;
+
+	use super::*;
+
+	fn handshake(protocol_version: u32) -> HandshakeResponse {
+		HandshakeResponse {
+			protocol_version,
+			daemon_version: "test".to_string(),
+			workspace_root: "/workspace".to_string(),
+			workspace_roots: vec!["/workspace".to_string()],
+			capabilities: CapabilitySet::default(),
+		}
+	}
+
+	#[test]
+	fn accepts_current_protocol() {
+		validate_protocol(&handshake(PROTOCOL_VERSION)).expect("current protocol");
+	}
+
+	#[test]
+	fn rejects_any_protocol_mismatch_with_reinstall_guidance() {
+		for mismatched in [PROTOCOL_VERSION - 1, PROTOCOL_VERSION + 1] {
+			let error = validate_protocol(&handshake(mismatched)).expect_err("mismatched protocol");
+			let message = error.to_string();
+			assert!(message.contains(&format!("daemon protocol {mismatched}")));
+			assert!(message.contains(&format!("client protocol {PROTOCOL_VERSION}")));
+			assert!(message.contains("reinstall code-moniker"));
+		}
+	}
 }

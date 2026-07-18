@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1753,7 +1753,10 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 	let mut lines = input.lines().map(str::trim).filter(|line| !line.is_empty());
 	let first = lines.next().ok_or(QueryParseError::Empty)?;
 	let mut tokens = tokenize(first)?;
-	let op = tokens.first().cloned().ok_or(QueryParseError::Empty)?;
+	let op = tokens
+		.first()
+		.map(|token| token.text.clone())
+		.ok_or(QueryParseError::Empty)?;
 	tokens.remove(0);
 	let mut fields = FieldBag::default();
 	let mut positional = Vec::new();
@@ -1787,18 +1790,18 @@ fn collect_line(
 		return Ok(());
 	}
 	let section = tokens.remove(0);
-	if section.contains(':') {
+	if section.text.contains(':') {
 		let mut all = vec![section];
 		all.extend(tokens);
 		return collect_tokens(&all, fields, positional);
 	}
-	match section.as_str() {
+	match section.text.as_str() {
 		"filter" | "page" => collect_tokens(&tokens, fields, positional)?,
 		"project" => {
 			fields.projection.extend(
 				tokens
 					.into_iter()
-					.map(|token| token.trim_end_matches(',').to_string())
+					.map(|token| token.text.trim_end_matches(',').to_string())
 					.filter(|token| !token.is_empty()),
 			);
 		}
@@ -1806,15 +1809,21 @@ fn collect_line(
 			let value = tokens
 				.first()
 				.ok_or(QueryParseError::MissingRequired("consistency value"))?;
-			fields.consistency = value.parse()?;
+			fields.consistency = value.text.parse()?;
 		}
 		"direction" => {
 			let value = tokens
 				.first()
 				.ok_or(QueryParseError::MissingRequired("direction value"))?;
-			fields.values.push(("direction".to_string(), value.clone()));
+			fields.values.push((
+				"direction".to_string(),
+				FieldValue {
+					text: value.text.clone(),
+					quoted: value.quoted,
+				},
+			));
 		}
-		_ => return Err(QueryParseError::InvalidToken(section)),
+		_ => return Err(QueryParseError::InvalidToken(section.text)),
 	}
 	Ok(())
 }
@@ -1938,10 +1947,13 @@ fn validate_fields(
 				hint: field_hint(key, spec.fields),
 			});
 		}
-		if BRACKET_LIST_FIELDS.contains(&key) && value.starts_with('[') != value.ends_with(']') {
+		if !value.quoted
+			&& BRACKET_LIST_FIELDS.contains(&key)
+			&& value.text.starts_with('[') != value.text.ends_with(']')
+		{
 			return Err(QueryParseError::InvalidValue {
 				key: key.to_string(),
-				value: value.clone(),
+				value: value.text.clone(),
 			});
 		}
 	}
@@ -2781,10 +2793,22 @@ fn format_rules_check(out: &mut String, result: &RulesCheckResult) {
 
 #[derive(Default)]
 struct FieldBag {
-	values: Vec<(String, String)>,
+	values: Vec<(String, FieldValue)>,
 	positional: Vec<String>,
 	projection: Vec<String>,
 	consistency: Consistency,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FieldValue {
+	text: String,
+	quoted: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct QueryToken {
+	text: String,
+	quoted: bool,
 }
 
 impl FieldBag {
@@ -2824,28 +2848,43 @@ impl FieldBag {
 	}
 
 	fn one(&self, key: &str) -> Option<String> {
-		self.many(key).into_iter().next()
+		self.values
+			.iter()
+			.find(|(candidate, _)| candidate == key)
+			.map(|(_, value)| value.text.clone())
 	}
 
 	fn many(&self, key: &str) -> Vec<String> {
 		self.values
 			.iter()
 			.filter(|(candidate, _)| candidate == key)
-			.flat_map(|(_, value)| split_csv(strip_bracket_list(key, value)))
+			.flat_map(|(_, value)| {
+				if value.quoted || !MULTI_VALUE_FIELDS.contains(&key) {
+					vec![value.text.clone()]
+				} else {
+					split_csv(strip_bracket_list(key, &value.text))
+				}
+			})
 			.collect()
 	}
 }
 
 fn collect_tokens(
-	tokens: &[String],
+	tokens: &[QueryToken],
 	fields: &mut FieldBag,
 	positional: &mut Vec<String>,
 ) -> Result<(), QueryParseError> {
 	for token in tokens {
-		if let Some((key, value)) = token.split_once(':') {
-			fields.values.push((key.to_string(), value.to_string()));
+		if let Some((key, value)) = token.text.split_once(':') {
+			fields.values.push((
+				key.to_string(),
+				FieldValue {
+					text: value.to_string(),
+					quoted: token.quoted,
+				},
+			));
 		} else {
-			positional.push(token.trim_end_matches(',').to_string());
+			positional.push(token.text.trim_end_matches(',').to_string());
 		}
 	}
 	Ok(())
@@ -2876,15 +2915,17 @@ fn parse_cursor(value: &str) -> Result<QueryCursor, QueryParseError> {
 	))
 }
 
-fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
+fn tokenize(input: &str) -> Result<Vec<QueryToken>, QueryParseError> {
 	let mut tokens = Vec::new();
 	let mut current = String::new();
 	let mut chars = input.chars().peekable();
 	let mut quoted = false;
+	let mut token_quoted = false;
 	while let Some(ch) = chars.next() {
 		match ch {
 			'"' => {
 				quoted = !quoted;
+				token_quoted = true;
 			}
 			'\\' if quoted => {
 				if let Some(next) = chars.next() {
@@ -2893,7 +2934,10 @@ fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
 			}
 			ch if ch.is_whitespace() && !quoted => {
 				if !current.is_empty() {
-					tokens.push(std::mem::take(&mut current));
+					tokens.push(QueryToken {
+						text: std::mem::take(&mut current),
+						quoted: std::mem::take(&mut token_quoted),
+					});
 				}
 			}
 			ch => current.push(ch),
@@ -2903,7 +2947,10 @@ fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
 		return Err(QueryParseError::InvalidToken(input.to_string()));
 	}
 	if !current.is_empty() {
-		tokens.push(current);
+		tokens.push(QueryToken {
+			text: current,
+			quoted: token_quoted,
+		});
 	}
 	Ok(tokens)
 }
@@ -3058,6 +3105,51 @@ mod tests {
 		assert_eq!(query.relation, vec!["calls", "uses_type"]);
 		assert_eq!(query.min_count, 2);
 		assert!(!query.include_internal);
+	}
+
+	#[test]
+	fn preserves_commas_in_quoted_symbol_uri() {
+		let uri = "code+moniker://./lang:ts/dir:src/module:Session/class:Session/method:launchRequest(response:DebugProtocol.LaunchResponse,args:LaunchRequestArguments)";
+		let request = parse_query(&format!(
+			"symbol.usages uri:\"{uri}\" direction:outgoing limit:5"
+		))
+		.expect("quoted symbol URI");
+		let Query::SymbolUsages(query) = request.query else {
+			panic!("expected symbol usages query");
+		};
+		assert_eq!(query.uri, uri);
+	}
+
+	#[test]
+	fn quoted_multi_value_field_does_not_split_commas() {
+		let request =
+			parse_query("symbol.search path:\"src/generated,a.ts\" shape:\"callable,type\"")
+				.expect("quoted multi-value fields");
+		let Query::SymbolSearch(query) = request.query else {
+			panic!("expected symbol search query");
+		};
+		assert_eq!(query.path, vec!["src/generated,a.ts"]);
+		assert_eq!(query.shape, vec!["callable,type"]);
+	}
+
+	#[test]
+	fn unquoted_multi_value_fields_still_split_commas() {
+		let request = parse_query("symbol.search path:src,tests shape:callable,type")
+			.expect("unquoted multi-value fields");
+		let Query::SymbolSearch(query) = request.query else {
+			panic!("expected symbol search query");
+		};
+		assert_eq!(query.path, vec!["src", "tests"]);
+		assert_eq!(query.shape, vec!["callable", "type"]);
+	}
+
+	#[test]
+	fn scalar_field_preserves_unquoted_regex_commas() {
+		let request = parse_query("symbol.search name:^launch(Request){1,3}$").expect("name regex");
+		let Query::SymbolSearch(query) = request.query else {
+			panic!("expected symbol search query");
+		};
+		assert_eq!(query.name.as_deref(), Some("^launch(Request){1,3}$"));
 	}
 
 	#[test]

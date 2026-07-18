@@ -45,6 +45,13 @@ registry claim rather than creating competing processes. `query` field syntax is
   - `subscribeEvents` / `events` / `unsubscribeEvents` — subscription stream of
     `WorkspaceEventDto` (stale / refreshed / notes / git-base).
 
+`protocol_version` guards the serialized request/response shape. CLI and VS
+Code connect-or-start clients require an exact match and recycle a mismatched
+registered daemon once. If the replacement still reports another protocol,
+the client stops with reinstall guidance instead of entering a restart loop.
+The capability set remains the compatibility signal for individual query
+verbs; the daemon package version string is informational.
+
 ### Query verbs (DSL)
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
