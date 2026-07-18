@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use crate::lang::tree_util::node_slice;
+use crate::lang::tree_util::{find_named_child, node_slice};
 
 pub(super) fn named_children(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
 	let mut cursor = node.walk();
@@ -40,18 +40,30 @@ pub(super) fn type_path(node: Node<'_>, source: &[u8]) -> Option<Vec<Vec<u8>>> {
 	match node.kind() {
 		"type_identifier" => Some(vec![node_slice(node, source).to_vec()]),
 		"scoped_type_identifier" => Some(path_pieces(node, source)),
-		"generic_type" => node
-			.child_by_field_name("type")
-			.or_else(|| {
-				named_children(node).find(|child| {
-					matches!(child.kind(), "type_identifier" | "scoped_type_identifier")
-				})
-			})
-			.and_then(|ty| type_path(ty, source)),
+		"generic_type" => generic_base(node).and_then(|ty| type_path(ty, source)),
 		"array_type" => node
 			.child_by_field_name("element")
 			.and_then(|element| type_path(element, source)),
 		_ => None,
+	}
+}
+
+// `generic_type` exposes no grammar fields; its base and arguments are found
+// by scanning named children.
+pub(super) fn generic_base(node: Node<'_>) -> Option<Node<'_>> {
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.find(|child| matches!(child.kind(), "type_identifier" | "scoped_type_identifier"))
+}
+
+pub(super) fn generic_type_arguments(node: Node<'_>) -> Option<Node<'_>> {
+	find_named_child(node, "type_arguments")
+}
+
+pub(super) fn type_anchor(node: Node<'_>) -> Node<'_> {
+	match node.kind() {
+		"generic_type" => generic_base(node).unwrap_or(node),
+		_ => node,
 	}
 }
 

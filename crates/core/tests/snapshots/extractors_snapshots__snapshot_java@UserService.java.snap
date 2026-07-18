@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 131
 expression: body
 input_file: crates/core/tests/fixtures/extractors/java/UserService.java
 ---
@@ -1017,10 +1016,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         747,
-        759
+        751
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "kind": "uses_type",
+      "position": [
+        752,
+        758
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
     },
     {
       "alias": "",
@@ -1173,10 +1185,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         1602,
-        1616
+        1610
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:findById(String)",
+      "kind": "uses_type",
+      "position": [
+        1611,
+        1615
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1199,10 +1224,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         1640,
-        1654
+        1648
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:findByEmail(String)",
+      "kind": "uses_type",
+      "position": [
+        1649,
+        1653
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1251,10 +1289,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         1710,
-        1722
+        1716
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        1717,
+        1721
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1277,10 +1328,36 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         1968,
-        1999
+        1985
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "kind": "uses_type",
+      "position": [
+        1986,
+        1992
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "kind": "uses_type",
+      "position": [
+        1994,
+        1998
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1303,7 +1380,7 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         2011,
-        2030
+        2028
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
@@ -1329,10 +1406,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         2056,
-        2070
+        2064
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(String)",
+      "kind": "uses_type",
+      "position": [
+        2065,
+        2069
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1407,10 +1497,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         2164,
-        2178
+        2172
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(String)",
+      "kind": "uses_type",
+      "position": [
+        2173,
+        2177
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1693,10 +1796,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         2728,
-        2740
+        2734
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        2735,
+        2739
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",
@@ -1901,10 +2017,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         3247,
-        3259
+        3251
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(String,String,List<String>)",
+      "kind": "uses_type",
+      "position": [
+        3252,
+        3258
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
     },
     {
       "alias": "",
@@ -2070,10 +2199,23 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       "kind": "uses_type",
       "position": [
         3476,
-        3486
+        3480
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(String)",
+      "kind": "uses_type",
+      "position": [
+        3481,
+        3485
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
     },
     {
       "alias": "",

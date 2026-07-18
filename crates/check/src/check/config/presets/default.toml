@@ -20,6 +20,10 @@ snake     = "name =~ ^[a-z_][a-z0-9_]*$"
 screaming = "name =~ ^[A-Z][A-Z0-9_]*$"
 go_id     = "name =~ ^([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*)$"
 ts_callback = "name =~ ^__cb_[0-9]+_[0-9]+$"
+# Two qualifiers with a package-shaped second segment are unambiguously a
+# package path. One-qualifier forms stay silent because `foo.Bar` and
+# `Outer.Inner` cannot be distinguished from source text alone.
+java_package_qualified = "text =~ ^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\."
 
 # ─── TypeScript / JavaScript ──────────────────────────────────────────────
 [[ts.class.where]]
@@ -96,7 +100,7 @@ expr = "$screaming"
 [[java.refs.where]]
 id       = "no-unnecessary-qualified-type-name"
 severity = "warn"
-expr     = "kind != 'uses_type' OR text = target.name OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+expr     = "kind != 'uses_type' OR NOT $java_package_qualified OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
 message  = "Qualified Java type reference can use simple name `{target.name}` here; keep fully qualified names for real ambiguity."
 
 # ─── Python ───────────────────────────────────────────────────────────────

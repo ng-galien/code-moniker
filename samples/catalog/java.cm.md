@@ -67,8 +67,8 @@ message = "Domain code must not depend directly on infrastructure."
 
 [[java.refs.where]]
 id = "no-unnecessary-qualified-type-name"
-rationale = "A fully qualified Java type name is useful when the simple name is ambiguous. Otherwise, imports keep code shorter and easier to scan."
-expr = "kind != 'uses_type' OR text = target.name OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+rationale = "A fully qualified Java type name is useful when the simple name is ambiguous. Otherwise, imports keep code shorter and easier to scan. Qualifying a nested type by its outer type (`Map.Entry`) is idiomatic, only package-qualified names count."
+expr = "kind != 'uses_type' OR text !~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\.' OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
 message = "Qualified Java type reference can use simple name `{target.name}` here."
 
 [[java.class.where]]

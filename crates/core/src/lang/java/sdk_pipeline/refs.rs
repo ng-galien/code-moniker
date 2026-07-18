@@ -10,7 +10,10 @@ use super::builtins;
 use super::defs::formal_parameter_slots;
 use super::discover::JavaDiscover;
 use super::imports::{java_external_target_shape, java_lang_target};
-use super::syntax::{last_identifier, named_children, type_name, type_parameters, type_path};
+use super::syntax::{
+	generic_type_arguments, last_identifier, named_children, type_anchor, type_name,
+	type_parameters, type_path,
+};
 use super::type_resolution::{
 	is_type_param_in_scope, lookup_known_type_name, resolve_type_path, resolve_type_target,
 	same_package_type_target, type_env_for_scope, type_expr,
@@ -762,13 +765,13 @@ fn emit_type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker
 					source: source.clone(),
 					target,
 					kind: kinds::USES_TYPE,
-					position: Some(node_position(node)),
+					position: Some(node_position(type_anchor(node))),
 					confidence,
 					hints: RefHints::default(),
 				});
 			}
 			if node.kind() == "generic_type"
-				&& let Some(args) = node.child_by_field_name("type_arguments")
+				&& let Some(args) = generic_type_arguments(node)
 			{
 				for child in named_children(args) {
 					emit_type_refs(state, child, source);
@@ -853,10 +856,17 @@ fn heritage_refs(
 				source: source.clone(),
 				target,
 				kind,
-				position: Some(node_position(child)),
+				position: Some(node_position(type_anchor(child))),
 				confidence,
 				hints: RefHints::default(),
 			});
+			if child.kind() == "generic_type"
+				&& let Some(args) = generic_type_arguments(child)
+			{
+				for argument in named_children(args) {
+					emit_type_refs(state, argument, source);
+				}
+			}
 		} else {
 			heritage_refs(state, child, source, kind);
 		}

@@ -39,4 +39,6 @@ public final class OrderWorkflow implements Runnable {
 		List<Order> findExpired(Instant now);
 		void cancel(String id);
 	}
+
+	public interface ExpiredOrders extends Iterable<Order> {}
 }

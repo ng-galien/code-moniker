@@ -10,7 +10,7 @@ use super::discover::JavaDiscover;
 use super::imports::{
 	external_or_imported, external_package_target, java_lang_target, same_package_symbol_target,
 };
-use super::syntax::{named_children, type_path};
+use super::syntax::{generic_base, generic_type_arguments, named_children, type_path};
 
 pub(super) fn type_env_for_scope(state: &JavaDiscover<'_>, scope: &Moniker) -> TypeEnv {
 	let mut env = TypeEnv::default();
@@ -140,14 +140,9 @@ fn generic_type_expr(
 	node: Node<'_>,
 	scope: &Moniker,
 ) -> Option<TypeExpr> {
-	let base_node = node.child_by_field_name("type").or_else(|| {
-		named_children(node)
-			.find(|child| matches!(child.kind(), "type_identifier" | "scoped_type_identifier"))
-	})?;
+	let base_node = generic_base(node)?;
 	let base = type_expr(state, base_node, scope)?;
-	let args = node
-		.child_by_field_name("type_arguments")
-		.or_else(|| named_children(node).find(|child| child.kind() == "type_arguments"))
+	let args = generic_type_arguments(node)
 		.into_iter()
 		.flat_map(named_children)
 		.filter_map(|arg| type_expr(state, arg, scope))

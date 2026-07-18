@@ -231,7 +231,7 @@ fn multiproject_multiple_paths_behave_like_virtual_parent() {
 	assert_visible(&screen, "spring-edge");
 	assert_visible(&screen, "files      29");
 	assert_visible(&screen, "defs       243");
-	assert_visible(&screen, "refs       577");
+	assert_visible(&screen, "refs       585");
 	assert_visible(&screen, "candidates");
 }
 
