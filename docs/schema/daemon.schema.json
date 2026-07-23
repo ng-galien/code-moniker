@@ -964,6 +964,12 @@
         "endpoint": {
           "type": "string"
         },
+        "heartbeat_unix_ms": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "live_refresh": {
           "type": [
             "string",

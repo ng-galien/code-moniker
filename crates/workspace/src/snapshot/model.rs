@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::records::RecordTable;
@@ -16,10 +17,39 @@ impl ResourceGeneration {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct WorkspaceRequest {
 	pub label: String,
 	pub catalog: CatalogRequest,
+	cancellation: WorkspaceCancellation,
+}
+
+impl PartialEq for WorkspaceRequest {
+	fn eq(&self, other: &Self) -> bool {
+		self.label == other.label && self.catalog == other.catalog
+	}
+}
+
+impl Eq for WorkspaceRequest {}
+
+#[derive(Clone, Debug, Default)]
+pub struct WorkspaceCancellation(Arc<AtomicBool>);
+
+impl WorkspaceCancellation {
+	pub fn cancel(&self) {
+		self.0.store(true, Ordering::Release);
+	}
+
+	pub fn is_cancelled(&self) -> bool {
+		self.0.load(Ordering::Acquire)
+	}
+
+	pub fn check(&self, resource: WorkspaceResource) -> WorkspaceResult<()> {
+		if self.is_cancelled() {
+			return Err(WorkspaceFailure::new(resource, "workspace build cancelled"));
+		}
+		Ok(())
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,7 +63,17 @@ impl WorkspaceRequest {
 		Self {
 			label: label.into(),
 			catalog: CatalogRequest::Refresh,
+			cancellation: WorkspaceCancellation::default(),
 		}
+	}
+
+	pub fn with_cancellation(mut self, cancellation: WorkspaceCancellation) -> Self {
+		self.cancellation = cancellation;
+		self
+	}
+
+	pub fn cancellation(&self) -> &WorkspaceCancellation {
+		&self.cancellation
 	}
 
 	pub fn reuse_current_catalog(mut self) -> Self {
@@ -541,6 +581,7 @@ impl DynamicReference {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExternalReferenceOrigin {
+	Sdk,
 	Dependency,
 	Injected,
 	UnknownExternal,
@@ -549,6 +590,7 @@ pub enum ExternalReferenceOrigin {
 impl ExternalReferenceOrigin {
 	pub fn label(self) -> &'static str {
 		match self {
+			Self::Sdk => "sdk",
 			Self::Dependency => "dependency",
 			Self::Injected => "injected",
 			Self::UnknownExternal => "unknown_external",

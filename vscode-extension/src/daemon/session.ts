@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { launchWorkspaceDaemon } from "../cli/facade";
+import { DetachedProcess } from "../cli/runner";
 import { DaemonRpcError, RpcSubscription } from "./client";
 import {
 	CapabilitySet,
@@ -12,7 +13,13 @@ import {
 	WorkspaceStatus,
 } from "./model";
 import { DaemonRpc, QueryOptions } from "./rpc";
-import { findDaemonForRoots, forgetDaemonsForRoots } from "./registry";
+import {
+	daemonProcessAlive,
+	daemonClaimFresh,
+	findDaemonForRoots,
+	forgetDaemonEntry,
+	rootSetsMatch,
+} from "./registry";
 
 // The single live connection to the workspace daemon. Every feature (symbols,
 // rules) talks to the daemon through this session, never to the raw client —
@@ -36,6 +43,7 @@ const READY_POLL_INTERVAL_MS = 200;
 const QUERY_RETRY_ATTEMPTS = 60;
 const QUERY_RETRY_INTERVAL_MS = 200;
 const HYBRID_REFRESH_DEBOUNCE_MS = 300;
+const RECONNECT_DELAY_MS = 500;
 
 function consistencyMode(): ConsistencyMode {
 	const value = vscode.workspace
@@ -49,6 +57,12 @@ export class DaemonSession implements vscode.Disposable {
 	private subscription?: RpcSubscription;
 	private connecting?: Promise<boolean>;
 	private hybridRefresh?: NodeJS.Timeout;
+	private reconnectTimer?: NodeJS.Timeout;
+	private reconnectEnabled = false;
+	private disposed = false;
+	private shuttingDown = false;
+	private ownedDaemon?: DetachedProcess;
+	private ownedClaimToken?: string;
 
 	status: DaemonStatus = "disconnected";
 	ready = false;
@@ -74,6 +88,10 @@ export class DaemonSession implements vscode.Disposable {
 	}
 
 	connectOrStart(): Promise<boolean> {
+		if (this.disposed || this.shuttingDown) {
+			return Promise.resolve(false);
+		}
+		this.reconnectEnabled = true;
 		if (this.connecting) {
 			return this.connecting;
 		}
@@ -133,17 +151,85 @@ export class DaemonSession implements vscode.Disposable {
 	}
 
 	async stop(): Promise<void> {
-		if (this.rpc) {
+		this.shuttingDown = true;
+		this.reconnectEnabled = false;
+		this.clearReconnectTimer();
+		await this.connecting;
+		let rpc = this.rpc;
+		let temporaryRpc: DaemonRpc | undefined;
+		if (!rpc) {
+			const entry = findDaemonForRoots(this.roots);
+			if (entry) {
+				try {
+					temporaryRpc = await DaemonRpc.connect(entry.endpoint);
+					rpc = temporaryRpc;
+				} catch {
+				}
+			}
+		}
+		let shutdownSucceeded = false;
+		if (rpc) {
 			try {
-				await this.rpc.shutdown();
+				await rpc.shutdown();
+				shutdownSucceeded = true;
 			} catch {
 			}
 		}
+		if (!shutdownSucceeded) {
+			this.ownedDaemon?.terminate();
+		}
+		temporaryRpc?.close();
+		this.clearOwnership();
+		this.teardown();
+		this.setStatus("disconnected");
+		this.shuttingDown = false;
+	}
+
+	async shutdownOwned(): Promise<void> {
+		this.disposed = true;
+		this.shuttingDown = true;
+		this.reconnectEnabled = false;
+		this.clearReconnectTimer();
+		await this.connecting;
+		let rpc: DaemonRpc | undefined;
+		let temporaryRpc: DaemonRpc | undefined;
+		const entry = findDaemonForRoots(this.roots);
+		const ownsCurrentClaim =
+			this.ownedDaemon !== undefined &&
+			this.ownedClaimToken !== undefined &&
+			entry?.pid === this.ownedDaemon.pid &&
+			entry.token === this.ownedClaimToken;
+		if (ownsCurrentClaim) {
+			rpc = this.rpc;
+			if (!rpc) {
+				try {
+					temporaryRpc = await DaemonRpc.connect(entry!.endpoint);
+					rpc = temporaryRpc;
+				} catch {
+				}
+			}
+		}
+		let shutdownSucceeded = false;
+		if (this.ownedDaemon !== undefined && rpc) {
+			try {
+				await rpc.shutdown();
+				shutdownSucceeded = true;
+			} catch {
+			}
+		}
+		if (!shutdownSucceeded && this.ownedDaemon?.isRunning()) {
+			this.ownedDaemon?.terminate();
+		}
+		temporaryRpc?.close();
+		this.clearOwnership();
 		this.teardown();
 		this.setStatus("disconnected");
 	}
 
 	dispose(): void {
+		this.disposed = true;
+		this.reconnectEnabled = false;
+		this.clearReconnectTimer();
 		this.teardown();
 		this.statusEmitter.dispose();
 		this.eventEmitter.dispose();
@@ -156,36 +242,67 @@ export class DaemonSession implements vscode.Disposable {
 		this.setStatus("connecting");
 		try {
 			let entry = findDaemonForRoots(this.roots);
+			let launched: DetachedProcess | undefined;
 			if (!entry) {
-				await launchWorkspaceDaemon(this.roots[0]);
+				launched = await launchWorkspaceDaemon(this.roots);
+				this.ownedDaemon = launched;
 				entry = await waitForEntry(this.roots);
 			}
 			if (!entry) {
 				throw daemonRegistrationError("starting");
 			}
+			this.noteOwnership(entry, launched);
+			this.ensureActive();
 			let link: DaemonLink;
 			try {
-				link = await connectEntry(entry);
-			} catch {
-				forgetDaemonsForRoots(this.roots);
-				await launchWorkspaceDaemon(this.roots[0]);
+				link = await connectEntry(entry, this.roots);
+			} catch (error) {
+				this.ensureActive();
+				if (error instanceof DaemonRecycleRequestedError) {
+					await waitForDaemonExit(entry);
+				} else {
+					const current = findDaemonForRoots(this.roots);
+					const sameFreshClaim =
+						current?.pid === entry.pid &&
+						current.token === entry.token &&
+							daemonProcessAlive(current.pid) &&
+							daemonClaimFresh(current);
+					if (sameFreshClaim) {
+						throw new Error(
+							`registered daemon pid ${entry.pid} for ${entry.workspace_root} is alive but unavailable; stop that process before retrying: ${(error as Error).message}`,
+						);
+					}
+				}
+				forgetDaemonEntry(entry);
+				launched = await launchWorkspaceDaemon(this.roots);
+				this.ownedDaemon = launched;
 				entry = await waitForEntry(this.roots);
 				if (!entry) {
 					throw daemonRegistrationError("restarting after a stale registry entry");
 				}
+				this.noteOwnership(entry, launched);
+				this.ensureActive();
 				// Recycle once only. A second mismatch means the installed CLI and
 				// extension do not ship the same protocol and require reinstallation.
-				link = await connectEntry(entry);
+				link = await connectEntry(entry, this.roots);
 			}
+			this.ensureActive();
 			const rpc = link.rpc;
 			rpc.onDidClose(() => this.onConnectionClosed());
 			this.rpc = rpc;
 			this.capabilities = link.capabilities;
 			this.endpoint = entry.endpoint;
 			this.subscription = await rpc.subscribeEvents((event) => this.handleEvent(event));
+			this.ensureActive();
 			await this.waitUntilReady();
+			this.ensureActive();
 			return true;
 		} catch (error) {
+			if (this.disposed || this.shuttingDown) {
+				this.teardown();
+				this.setStatus("disconnected");
+				return false;
+			}
 			this.lastError = (error as Error).message;
 			this.teardown();
 			this.setStatus("error");
@@ -193,10 +310,38 @@ export class DaemonSession implements vscode.Disposable {
 		}
 	}
 
+	private ensureActive(): void {
+		if (this.disposed || this.shuttingDown) {
+			throw new Error("daemon session is shutting down");
+		}
+	}
+
+	private noteOwnership(entry: DaemonRegistryEntry, launched: DetachedProcess | undefined): void {
+		if (launched !== undefined) {
+			if (launched.pid === entry.pid) {
+				this.ownedDaemon = launched;
+				this.ownedClaimToken = entry.token;
+			} else {
+				this.clearOwnership();
+			}
+			return;
+		}
+		if (this.ownedDaemon?.pid !== entry.pid || this.ownedClaimToken !== entry.token) {
+			this.clearOwnership();
+		}
+	}
+
+	private clearOwnership(): void {
+		this.ownedDaemon = undefined;
+		this.ownedClaimToken = undefined;
+	}
+
 	private async waitUntilReady(): Promise<void> {
 		this.setStatus("loading");
 		for (let attempt = 0; attempt < READY_POLL_ATTEMPTS; attempt++) {
+			this.ensureActive();
 			const status = await this.workspaceStatus();
+			this.ensureActive();
 			if (status?.phase === "ready") {
 				this.setStatus("ready");
 				return;
@@ -238,6 +383,19 @@ export class DaemonSession implements vscode.Disposable {
 	private onConnectionClosed(): void {
 		this.teardown();
 		this.setStatus("disconnected");
+		if (!this.disposed && this.reconnectEnabled && !this.reconnectTimer) {
+			this.reconnectTimer = setTimeout(() => {
+				this.reconnectTimer = undefined;
+				void this.connectOrStart();
+			}, RECONNECT_DELAY_MS);
+		}
+	}
+
+	private clearReconnectTimer(): void {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = undefined;
+		}
 	}
 
 	private teardown(): void {
@@ -272,7 +430,14 @@ interface DaemonLink {
 	capabilities: CapabilitySet;
 }
 
-async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonLink> {
+class DaemonRecycleRequestedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "DaemonRecycleRequestedError";
+	}
+}
+
+async function connectEntry(entry: DaemonRegistryEntry, expectedRoots: string[]): Promise<DaemonLink> {
 	const rpc = await DaemonRpc.connect(entry.endpoint);
 	const handshake = await rpc.handshake("vscode-extension");
 	if (handshake.protocol_version !== PROTOCOL_VERSION) {
@@ -281,11 +446,29 @@ async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonLink> {
 		} catch {
 		}
 		rpc.close();
-		throw new Error(
+		throw new DaemonRecycleRequestedError(
 			`daemon protocol ${handshake.protocol_version} does not match extension protocol ${PROTOCOL_VERSION}; reinstall the Code Moniker CLI and extension so their protocol versions match`,
 		);
 	}
+	if (!rootSetsMatch(handshake.workspace_roots, expectedRoots)) {
+		rpc.close();
+		throw new Error(
+			`daemon workspace mismatch: expected [${expectedRoots.join(", ")}], daemon serves [${handshake.workspace_roots.join(", ")}]`,
+		);
+	}
 	return { rpc, capabilities: handshake.capabilities };
+}
+
+async function waitForDaemonExit(entry: DaemonRegistryEntry): Promise<void> {
+	for (let attempt = 0; attempt < ENTRY_POLL_ATTEMPTS; attempt++) {
+		if (!daemonProcessAlive(entry.pid)) {
+			return;
+		}
+		await delay(ENTRY_POLL_INTERVAL_MS);
+	}
+	throw new Error(
+		`daemon pid ${entry.pid} did not exit after a requested protocol recycle; its registry claim was preserved`,
+	);
 }
 
 async function waitForEntry(roots: string[]): Promise<DaemonRegistryEntry | undefined> {

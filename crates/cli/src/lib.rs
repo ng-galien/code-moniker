@@ -48,11 +48,11 @@ pub use args::McpArgs;
 pub use args::UiArgs;
 pub use args::{
 	Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice, Command, DaemonArgs,
-	DaemonCommand, DaemonRootArgs, DefaultRules, ExtractArgs, HarnessArgs, HarnessCommand,
-	HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat,
-	MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand, RulesFileArgs,
-	RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
-	StatsFormat,
+	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, HarnessArgs,
+	HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs,
+	ManifestFormat, MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand,
+	RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs,
+	StatsArgs, StatsFormat,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate, RefMatch};

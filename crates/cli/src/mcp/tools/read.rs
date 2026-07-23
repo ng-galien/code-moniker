@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use code_moniker_query::{
 	Query, QueryResult, SymbolDetailResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto,
@@ -31,7 +32,7 @@ impl ReadTool {
 		"The same verb starts at the workspace root, expands an explorer tree, or reads code from an exact symbol URI.\n",
 		"\n",
 		"Read from code-moniker.\n",
-		"  workspace                — workspace summary, language vocabulary, concentration indicators, and explorer page\n",
+		"  workspace                — workspace summary, language vocabulary, concentration indicators, and explorer page; expected_roots is required\n",
 		"  workspace/views          — project-defined contextual views for agents\n",
 		"  code+moniker://workspace — same root with an explicit URI\n",
 		"  code+moniker://...       — symbol URI returned by code_moniker_symbols; reads the source slice around that symbol\n",
@@ -91,6 +92,13 @@ impl ReadTool {
 					"type": "boolean",
 					"description": "For workspace/views reads, include source snippets for resolved evidence."
 				},
+				"expected_roots": {
+					"oneOf": [
+						{ "type": "string" },
+						{ "type": "array", "items": { "type": "string" }, "minItems": 1 }
+					],
+					"description": "Canonical workspace root(s) expected by the client. Workspace reads fail with workspace_mismatch unless the server is bound to exactly this set."
+				},
 				"compact": {
 					"type": "boolean",
 					"default": true,
@@ -130,6 +138,7 @@ struct ReadRequest {
 	scope: ScopeFilter,
 	paging: Paging,
 	compact: bool,
+	expected_roots: Option<Vec<PathBuf>>,
 }
 
 impl ReadRequest {
@@ -149,8 +158,31 @@ impl ReadRequest {
 			scope: ScopeFilter::from_arguments(arguments)?,
 			paging: Paging::from_arguments_for_output(arguments, compact)?,
 			compact,
+			expected_roots: read_path_list_argument(arguments, "expected_roots")?,
 		})
 	}
+}
+
+fn read_path_list_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<Vec<PathBuf>>> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(None);
+	};
+	let values = match value {
+		Value::String(path) => vec![PathBuf::from(path)],
+		Value::Array(paths) => paths
+			.iter()
+			.map(|path| {
+				path.as_str()
+					.map(PathBuf::from)
+					.ok_or_else(|| anyhow::anyhow!("{key} entries must be strings"))
+			})
+			.collect::<anyhow::Result<Vec<_>>>()?,
+		_ => anyhow::bail!("{key} must be a string or array of strings"),
+	};
+	if values.is_empty() {
+		anyhow::bail!("{key} must contain at least one workspace root");
+	}
+	Ok(Some(values))
 }
 
 fn read_string_argument<'a>(arguments: &'a Value, key: &str) -> Option<&'a str> {
@@ -174,6 +206,12 @@ fn read_bool_argument(arguments: &Value, key: &str, default: bool) -> bool {
 
 fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<String> {
 	if is_workspace_uri(&request.uri, context.scheme(), DEFAULT_READ_URI) {
+		let expected_roots = request.expected_roots.as_deref().ok_or_else(|| {
+			anyhow::anyhow!(
+				"workspace_identity_required: workspace reads require expected_roots so the server can fail closed on incorrect MCP routing"
+			)
+		})?;
+		context.verify_expected_roots(expected_roots)?;
 		return read_workspace(
 			context,
 			&request.uri,
@@ -231,6 +269,7 @@ fn read_workspace(
 		next_cursor: response.next_cursor.as_ref(),
 		result: &result,
 		compact,
+		workspace_roots: context.workspace_roots(),
 	}))
 }
 
@@ -684,6 +723,7 @@ struct DaemonExplorerRender<'a> {
 	next_cursor: Option<&'a code_moniker_query::QueryCursor>,
 	result: &'a TreeChildrenResult,
 	compact: bool,
+	workspace_roots: &'a [PathBuf],
 }
 
 fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
@@ -700,6 +740,12 @@ fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
 		));
 	} else {
 		output.push_str("completeness: full\n");
+	}
+	output.push_str("workspace:\n");
+	output.push_str("  roots:\n");
+	for root in render.workspace_roots {
+		let root = Value::String(root.display().to_string()).to_string();
+		output.push_str(&format!("    - {root}\n"));
 	}
 	output.push_str(&format!("files: {}\n", render.result.scoped_files));
 	output.push_str(&format!("files_total: {}\n", render.result.total_files));
@@ -738,6 +784,7 @@ fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
 			render.scheme
 		));
 		render.scope.append_call_args(&mut output);
+		append_expected_roots_arg(&mut output, render.workspace_roots);
 		append_call_number_arg(&mut output, "depth", render.depth);
 		append_call_number_arg(&mut output, "limit", render.paging.limit);
 		append_call_cursor_arg(&mut output, "cursor", next);
@@ -755,6 +802,7 @@ fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
 			limit: render.paging.limit,
 			cursor: None,
 			compact: render.compact,
+			expected_roots: Some(render.workspace_roots),
 		},
 	);
 	append_symbols_call(
@@ -927,6 +975,7 @@ fn render_explorer_lmnav_mode(
 				limit: paging.limit,
 				cursor: Some(next),
 				compact,
+				expected_roots: None,
 			},
 		);
 	}
@@ -939,6 +988,7 @@ fn render_explorer_lmnav_mode(
 			limit: paging.limit,
 			cursor: None,
 			compact,
+			expected_roots: None,
 		},
 	);
 	append_symbols_call(
@@ -951,21 +1001,25 @@ fn render_explorer_lmnav_mode(
 	output
 }
 
-struct ReadNextCall {
+struct ReadNextCall<'a> {
 	depth: usize,
 	limit: usize,
 	cursor: Option<usize>,
 	compact: bool,
+	expected_roots: Option<&'a [PathBuf]>,
 }
 
 fn append_read_next_call(
 	output: &mut String,
 	scheme: &str,
 	scope: &ScopeFilter,
-	call: ReadNextCall,
+	call: ReadNextCall<'_>,
 ) {
 	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
 	scope.append_call_args(output);
+	if let Some(expected_roots) = call.expected_roots {
+		append_expected_roots_arg(output, expected_roots);
+	}
 	append_call_number_arg(output, "depth", call.depth);
 	append_call_number_arg(output, "limit", call.limit);
 	if let Some(cursor) = call.cursor {
@@ -975,6 +1029,14 @@ fn append_read_next_call(
 		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
+}
+
+fn append_expected_roots_arg(output: &mut String, roots: &[PathBuf]) {
+	let roots = roots
+		.iter()
+		.map(|root| Value::String(root.display().to_string()))
+		.collect::<Vec<_>>();
+	output.push_str(&format!(" expected_roots={}", Value::Array(roots)));
 }
 
 fn append_symbols_call(

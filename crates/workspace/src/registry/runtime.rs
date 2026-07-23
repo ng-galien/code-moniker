@@ -692,6 +692,29 @@ mod tests {
 		assert!(!registry.queries().staleness().is_stale());
 	}
 
+	#[test]
+	fn cancelled_refresh_stops_before_publishing_a_snapshot() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(temp.path().join("lib.rs"), "pub fn never_indexed() {}\n").expect("write source");
+		let mut registry = crate::LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+			vec![temp.path().to_path_buf()],
+			None,
+		));
+		let cancellation = crate::snapshot::WorkspaceCancellation::default();
+		cancellation.cancel();
+
+		let transition = registry
+			.commands()
+			.refresh(WorkspaceRequest::new("cancelled-refresh").with_cancellation(cancellation));
+
+		assert!(matches!(
+			transition,
+			WorkspaceTransition::Failed { failure, .. }
+				if failure.message == "workspace build cancelled"
+		));
+		assert!(registry.queries().snapshot().is_none());
+	}
+
 	fn indexed_registry(
 		body: &str,
 	) -> (

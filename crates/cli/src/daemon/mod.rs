@@ -9,7 +9,7 @@ use code_moniker_query::{
 };
 
 use crate::Exit;
-use crate::args::{DaemonArgs, DaemonCommand, DaemonRootArgs};
+use crate::args::{DaemonArgs, DaemonCommand, DaemonRootArgs, DaemonStartArgs};
 
 pub(crate) fn run_daemon<W1: Write, W2: Write>(
 	args: &DaemonArgs,
@@ -17,7 +17,7 @@ pub(crate) fn run_daemon<W1: Write, W2: Write>(
 	stderr: &mut W2,
 ) -> Exit {
 	let result = match &args.command {
-		DaemonCommand::Start(args) => daemon_config(args).and_then(daemon::serve_foreground_config),
+		DaemonCommand::Start(args) => daemon_start(args),
 		DaemonCommand::Status(args) => daemon_status(args, stdout),
 		DaemonCommand::Stop(args) => daemon_stop(args, stdout),
 		DaemonCommand::List => daemon_list(stdout),
@@ -29,6 +29,11 @@ pub(crate) fn run_daemon<W1: Write, W2: Write>(
 			Exit::UsageError
 		}
 	}
+}
+
+fn daemon_start(args: &DaemonStartArgs) -> anyhow::Result<()> {
+	let config = daemon_config(&args.root)?;
+	daemon::serve_foreground_config_supervised(config, args.supervisor_pid, args.supervisor_fd)
 }
 
 fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Result<()> {

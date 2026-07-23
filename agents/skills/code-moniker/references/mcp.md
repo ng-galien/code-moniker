@@ -1,7 +1,9 @@
 # MCP — the agent-shaped surface
 
-When `code_moniker_*` tools are wired (server: `code-moniker mcp <root>
---port <p>`, HTTP endpoint `/mcp`), use them as the complete agent surface:
+When `code_moniker_*` tools are wired, prefer a project-owned stdio server with
+an absolute root: `code-moniker mcp <absolute-root> --transport stdio`. HTTP remains available with
+`code-moniker mcp <root> --transport http --port <p>` and endpoint `/mcp`.
+Use either transport as the complete agent surface:
 do not shell out to the daemon or replay the same exploration through direct
 queries. Responses
 are compact text with `uri`, `completeness`, and a result body. A `next`
@@ -50,8 +52,12 @@ needed; if a data field is an alias, resolve it from that response first.
 
 ## Working discipline
 
-1. **Start scoped**: `code_moniker_read uri:"workspace"` returns language
-   mix, concentration hints, and a first explorer level — plus `next` calls
+1. **Verify identity, then start scoped**: `code_moniker_read uri:"workspace"
+   expected_roots:["<current absolute workspace root>"]` requires
+   `expected_roots` and fails with `workspace_mismatch` unless the server is
+   bound to exactly that root set.
+   A successful read returns the canonical roots, language mix, concentration
+   hints, and a first explorer level — plus `next` calls
    sized to the workspace. Deepen with `depth`/`path`/`lang` rather than
    asking for everything.
 2. **URIs only from tool output.** `code_moniker_symbols` result rows include
@@ -102,8 +108,17 @@ more expensive.
 
 ## Failure modes
 
+- Filesystem-root refusal: the MCP host resolved a relative project path to
+  `/` (or another platform root). Fix the MCP configuration to pass the
+  canonical absolute project path; never bypass this guard.
 - `restart required` / connection-closed errors: the MCP server lost its
   daemon (killed or restarted underneath it). Restart the MCP server process,
   then retry.
+- `workspace_mismatch`: the client reached a server for another project. Stop;
+  fix the project MCP configuration instead of querying, refreshing, or using
+  the CLI against that server.
+- `workspace_identity_required`: retry the initial workspace read with the
+  current absolute workspace roots; the server deliberately refuses an
+  unverified workspace summary.
 - Tool errors carry `problem` / `where` / `fix_hint` — read them; they are
   usually literal.

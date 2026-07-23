@@ -57,7 +57,7 @@ criterion  = { version = "0.7", default-features = false, features = ["cargo_ben
 tempfile   = "3"
 insta      = { version = "1", features = ["glob", "json"] }
 axum       = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
-rmcp       = { version = "1.7", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp       = { version = "1.7", default-features = false, features = ["server", "transport-io", "transport-streamable-http-server"] }
 tokio      = { version = "1", features = ["rt-multi-thread", "rt", "net", "sync", "time", "macros"] }
 tokio-util = "0.7"
 jsonrpsee  = { version = "0.26", features = ["server", "client", "macros"] }

@@ -864,6 +864,7 @@ export interface NotesResult {
 export interface DaemonRegistryEntry {
   cache_dir?: string | null;
   endpoint: string;
+  heartbeat_unix_ms?: number;
   live_refresh?: string | null;
   pid: number;
   project?: string | null;

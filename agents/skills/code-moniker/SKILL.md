@@ -25,8 +25,10 @@ developer and dogfood interfaces, documented in `references/query-dsl.md`.
 
 ## Quick start on an unknown repo
 
-1. Call `code_moniker_read uri:"workspace" budget:"small"` for a bounded
-   overview. Stop if it answers the question.
+1. Call `code_moniker_read uri:"workspace" expected_roots:["<current absolute
+   workspace root>"] budget:"small"` for a bounded overview and a fail-closed
+   workspace identity check. Stop immediately on `workspace_mismatch`. Stop if
+   the overview answers the question.
 2. Narrow with `code_moniker_symbols` (`path`, `lang`, `shape`, `name`, small
    `limit`). Never invent a URI.
 3. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
@@ -59,5 +61,8 @@ Then go by need:
   hatch for canonical typed detail, not a normal exploration mode.
 - **Anchor extraction on the root**: `code-moniker extract . --path <file>`,
   never `extract <file>` — this applies only to extractor development.
+- **Verify the workspace before facts.** The first workspace read must pass the
+  current absolute root through `expected_roots`. A mismatch is a routing
+  defect: do not continue with another server, the CLI, or guessed filters.
 - Unresolved references are counted, never hidden. Treat the count as data
   (resolution coverage), not as an error.

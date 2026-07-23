@@ -37,7 +37,7 @@ pub enum Command {
 	#[command(about = "Open a read-only terminal architecture explorer.")]
 	Ui(UiArgs),
 	#[cfg(feature = "mcp")]
-	#[command(about = "Start a local stateless MCP HTTP endpoint.")]
+	#[command(about = "Start a local MCP server over HTTP or stdio.")]
 	Mcp(McpArgs),
 	#[command(about = "Manage a code-moniker workspace daemon.")]
 	Daemon(DaemonArgs),
@@ -64,13 +64,34 @@ pub struct DaemonArgs {
 #[derive(Debug, Subcommand)]
 pub enum DaemonCommand {
 	#[command(about = "Start a foreground daemon for a workspace root.")]
-	Start(DaemonRootArgs),
+	Start(DaemonStartArgs),
 	#[command(about = "Print daemon status for a workspace root.")]
 	Status(DaemonRootArgs),
 	#[command(about = "Ask a workspace daemon to shut down.")]
 	Stop(DaemonRootArgs),
 	#[command(about = "List daemon registry entries.")]
 	List,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct DaemonStartArgs {
+	#[command(flatten)]
+	pub root: DaemonRootArgs,
+
+	#[arg(
+		long,
+		value_name = "PID",
+		help = "stop the daemon when this supervising process exits"
+	)]
+	pub supervisor_pid: Option<u32>,
+
+	#[arg(
+		long,
+		value_name = "FD",
+		hide = true,
+		help = "stop the daemon when this inherited supervision channel closes"
+	)]
+	pub supervisor_fd: Option<i32>,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -599,6 +620,14 @@ pub struct UiArgs {
 }
 
 #[cfg(feature = "mcp")]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub(crate) enum McpTransport {
+	#[default]
+	Http,
+	Stdio,
+}
+
+#[cfg(feature = "mcp")]
 #[derive(Debug, ClapArgs)]
 pub struct McpArgs {
 	#[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
@@ -628,10 +657,18 @@ pub struct McpArgs {
 
 	#[arg(
 		long,
+		value_enum,
+		default_value_t = McpTransport::Http,
+		help = "MCP transport: http binds a loopback endpoint; stdio is owned by the invoking client"
+	)]
+	pub(crate) transport: McpTransport,
+
+	#[arg(
+		long,
 		alias = "mcp-port",
 		value_name = "PORT",
 		default_value_t = 3210,
-		help = "TCP port for the MCP endpoint"
+		help = "TCP port for the HTTP MCP endpoint; ignored with --transport stdio"
 	)]
 	pub port: u16,
 
@@ -1283,6 +1320,20 @@ mod tests {
 		match cli.command {
 			Command::Check(c) => assert!(c.report),
 			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[cfg(feature = "mcp")]
+	#[test]
+	fn mcp_subcommand_supports_workspace_owned_stdio() {
+		let cli = parse(&["mcp", ".", "--transport", "stdio", "--live-refresh", "auto"]).unwrap();
+		match cli.command {
+			Command::Mcp(args) => {
+				assert_eq!(args.transport, McpTransport::Stdio);
+				assert_eq!(args.paths, vec![PathBuf::from(".")]);
+				assert_eq!(args.live_refresh, LiveRefresh::Auto);
+			}
+			other => panic!("expected Mcp, got {other:?}"),
 		}
 	}
 }

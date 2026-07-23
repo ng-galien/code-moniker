@@ -2,6 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
+use code_moniker_daemon::{WorkspaceCancellation, WorkspaceDaemon};
 use rmcp::model::{
 	CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
 	PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
@@ -10,10 +11,10 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::{
 	StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
-use rmcp::{ErrorData as McpError, ServerHandler};
+use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
 use serde_json::Value;
 
-use super::context::McpContext;
+use super::context::{InProcessPreloadParts, McpContext, PreloadStatus};
 use super::tools::{ToolRegistry, ToolResult};
 
 pub(crate) fn router(context: McpContext) -> axum::Router<()> {
@@ -28,6 +29,67 @@ pub(crate) fn router(context: McpContext) -> axum::Router<()> {
 				.with_allowed_hosts(["localhost".to_string(), "127.0.0.1".to_string()]),
 		);
 	axum::Router::new().nest_service("/mcp", service)
+}
+
+pub(crate) async fn serve_stdio(context: McpContext) -> anyhow::Result<()> {
+	let _preload = context.in_process_preload_parts().map(start_preload);
+	let service = CodeMonikerMcp::new(context)
+		.serve(rmcp::transport::stdio())
+		.await?;
+	service.waiting().await?;
+	Ok(())
+}
+
+struct InProcessPreload {
+	cancellation: WorkspaceCancellation,
+	worker: tokio::task::JoinHandle<anyhow::Result<()>>,
+}
+
+impl Drop for InProcessPreload {
+	fn drop(&mut self) {
+		self.cancellation.cancel();
+		self.worker.abort();
+	}
+}
+
+fn start_preload(parts: InProcessPreloadParts) -> InProcessPreload {
+	let cancellation = WorkspaceCancellation::default();
+	let worker_cancellation = cancellation.clone();
+	let worker = tokio::task::spawn_blocking(move || run_preload(parts, worker_cancellation));
+	InProcessPreload {
+		cancellation,
+		worker,
+	}
+}
+
+fn run_preload(
+	parts: InProcessPreloadParts,
+	cancellation: WorkspaceCancellation,
+) -> anyhow::Result<()> {
+	let result = (|| {
+		let mut daemon = WorkspaceDaemon::new_with_config(parts.config)?;
+		daemon
+			.refresh_cancellable(cancellation.clone())
+			.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+		anyhow::ensure!(!cancellation.is_cancelled(), "workspace preload cancelled");
+		*parts
+			.daemon_slot
+			.lock()
+			.map_err(|_| anyhow::anyhow!("daemon lock poisoned during preload publish"))? = daemon;
+		*parts
+			.preload_status
+			.lock()
+			.map_err(|_| anyhow::anyhow!("preload status lock poisoned"))? = PreloadStatus::Ready;
+		Ok(())
+	})();
+	if let Err(error) = &result {
+		*parts
+			.preload_status
+			.lock()
+			.map_err(|_| anyhow::anyhow!("preload status lock poisoned"))? =
+			PreloadStatus::Failed(format!("{error:#}"));
+	}
+	result
 }
 
 #[derive(Clone)]
@@ -48,42 +110,50 @@ impl CodeMonikerMcp {
 impl ServerHandler for CodeMonikerMcp {
 	fn get_info(&self) -> ServerInfo {
 		tracing::info!(event = "initialize_info", "mcp server info requested");
+		let workspace = self.context.workspace_label();
 		ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
 			.with_server_info(Implementation::new(
 				"code-moniker",
 				env!("CARGO_PKG_VERSION"),
 			))
-			.with_instructions(concat!(
-				"code-moniker serves a symbolic index of the workspace: every definition ",
-				"has a stable moniker URI (scheme code+moniker://) and relations between ",
-				"symbols (calls, uses_type, extends…) are counted facts. ",
-				"This MCP is the complete agent surface: do not shell out to the daemon or ",
-				"repeat an MCP exploration with direct queries. Start with ",
-				"code_moniker_read uri:\"workspace\" for an overview, or ",
-				"code_moniker_symbols to find a symbol and obtain its exact URI. ",
-				"Never guess a URI. By default budget=small and compact=true: every tool ",
-				"has a hard response ceiling, and repeated canonical monikers ",
-				"in descriptive data may be declared once under aliases and referenced ",
-				"as @N. Each alias is local to that single response: it is not stored by ",
-				"the server, is invalid as a tool argument, and must never be reused in a ",
-				"later response. Generated tool calls always keep canonical URIs and can ",
-				"be copied verbatim. When composing a call from aliased data, resolve @N ",
-				"through that response's aliases section first. Set compact=false for ",
-				"canonical verbose data and additional guided follow-up calls. ",
-				"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
-				"canonical URI to code_moniker_usages when needed. ",
-				"Prefer scoped filters and stop once the question is answered; paging, ",
-				"budget=full, code, and broader scopes are opt-in. Use code_moniker_query ",
-				"only for a read-only daemon capability not covered by an intent tool; ",
-				"query.describe exposes the live grammar, and queries batches up to four ",
-				"operations at one generation with one response-local alias table. ",
-				"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
-				"coupling between scopes, or code_moniker_context once before a ",
-				"structural edit to combine graph, notes, applicable rules, local ",
-				"changes and canonical suggested checks. Use code_moniker_rules for architecture checks, ",
-				"code_moniker_diff for structural change review. ",
-				"Responses contain uri, completeness, and a body; next is optional and ",
-				"appears only when a useful follow-up exists."
+			.with_instructions(format!(
+				concat!(
+					"code-moniker serves a symbolic index of the workspace: every definition ",
+					"has a stable moniker URI (scheme code+moniker://) and relations between ",
+					"symbols (calls, uses_type, extends…) are counted facts. ",
+					"This MCP is the complete agent surface: do not shell out to the daemon or ",
+					"repeat an MCP exploration with direct queries. Start with ",
+					"code_moniker_read uri:\"workspace\" and expected_roots set to the current ",
+					"absolute workspace roots for a fail-closed overview, or ",
+					"code_moniker_symbols to find a symbol and obtain its exact URI. ",
+					"Never guess a URI. By default budget=small and compact=true: every tool ",
+					"has a hard response ceiling, and repeated canonical monikers ",
+					"in descriptive data may be declared once under aliases and referenced ",
+					"as @N. Each alias is local to that single response: it is not stored by ",
+					"the server, is invalid as a tool argument, and must never be reused in a ",
+					"later response. Generated tool calls always keep canonical URIs and can ",
+					"be copied verbatim. When composing a call from aliased data, resolve @N ",
+					"through that response's aliases section first. Set compact=false for ",
+					"canonical verbose data and additional guided follow-up calls. ",
+					"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
+					"canonical URI to code_moniker_usages when needed. ",
+					"Prefer scoped filters and stop once the question is answered; paging, ",
+					"budget=full, code, and broader scopes are opt-in. Use code_moniker_query ",
+					"only for a read-only daemon capability not covered by an intent tool; ",
+					"query.describe exposes the live grammar, and queries batches up to four ",
+					"operations at one generation with one response-local alias table. ",
+					"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
+					"coupling between scopes, or code_moniker_context once before a ",
+					"structural edit to combine graph, notes, applicable rules, local ",
+					"changes and canonical suggested checks. Use code_moniker_rules for architecture checks, ",
+					"code_moniker_diff for structural change review. ",
+					"Responses contain uri, completeness, and a body; next is optional and ",
+					"appears only when a useful follow-up exists. ",
+					"This server is bound to workspace roots: {workspace}. Start every session ",
+					"with code_moniker_read uri:\"workspace\" and expected_roots set to the ",
+					"current Codex workspace roots. Stop on workspace_mismatch."
+				),
+				workspace = workspace
 			))
 	}
 
@@ -181,7 +251,14 @@ fn call_result(
 }
 
 fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
+	let fix_hint = if message.starts_with("workspace_mismatch:") {
+		"stop and connect to the project-owned code-moniker MCP server for the expected roots"
+	} else if message.starts_with("workspace_identity_required:") {
+		"retry the workspace read with expected_roots set to the current absolute workspace roots"
+	} else {
+		"retry with a supported URI and bounded arguments"
+	};
 	format!(
-		"uri: {uri}\ncompleteness: partial (error)\n\nproblem: {message}\nwhere: {tool}\nfix_hint: retry with a supported URI and bounded arguments\n"
+		"uri: {uri}\ncompleteness: partial (error)\n\nproblem: {message}\nwhere: {tool}\nfix_hint: {fix_hint}\n"
 	)
 }

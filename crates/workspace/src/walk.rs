@@ -9,8 +9,13 @@ pub struct WalkedFile {
 }
 
 pub fn walk_lang_files(root: &Path) -> Vec<WalkedFile> {
+	walk_lang_files_cancellable(root, || false)
+}
+
+pub fn walk_lang_files_cancellable(root: &Path, cancelled: impl Fn() -> bool) -> Vec<WalkedFile> {
 	ignore::WalkBuilder::new(root)
 		.build()
+		.take_while(|_| !cancelled())
 		.filter_map(|entry| entry.ok())
 		.filter(|e| e.file_type().is_some_and(|t| t.is_file()))
 		.filter_map(|e| {

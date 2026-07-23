@@ -4,6 +4,8 @@ import * as path from "node:path";
 
 import { DaemonRegistryEntry } from "./model";
 
+const HEARTBEAT_TIMEOUT_MS = 15_000;
+
 // The daemon records each running instance as a JSON file under a shared registry
 // directory (crates/query/src/discovery.rs). We read it directly rather than
 // shelling out, and match the opened workspace by canonical (realpath) root.
@@ -23,20 +25,40 @@ export function findDaemonForRoots(roots: string[]): DaemonRegistryEntry | undef
 	return readRegistry().find(({ entry }) => matches(entry, wanted))?.entry;
 }
 
-export function forgetDaemonsForRoots(roots: string[]): void {
-	const wanted = canonicalSet(roots);
+export function forgetDaemonEntry(expected: DaemonRegistryEntry): void {
 	for (const { file, entry } of readRegistry()) {
-		if (matches(entry, wanted)) {
+		if (entry.pid === expected.pid && entry.token === expected.token) {
 			try {
-				fs.unlinkSync(file);
+				const current = JSON.parse(fs.readFileSync(file, "utf8")) as DaemonRegistryEntry;
+				if (current.pid === expected.pid && current.token === expected.token) {
+					fs.unlinkSync(file);
+				}
 			} catch {
 			}
 		}
 	}
 }
 
+export function daemonProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+export function daemonClaimFresh(entry: DaemonRegistryEntry): boolean {
+	const heartbeat = entry.heartbeat_unix_ms ?? 0;
+	return heartbeat > 0 && Date.now() - heartbeat <= HEARTBEAT_TIMEOUT_MS;
+}
+
 export function entryMatchesRoots(entry: DaemonRegistryEntry, roots: string[]): boolean {
 	return matches(entry, canonicalSet(roots));
+}
+
+export function rootSetsMatch(actual: string[], expected: string[]): boolean {
+	return matchesRoots(actual, canonicalSet(expected));
 }
 
 interface RegistryFile {
@@ -72,7 +94,16 @@ function canonicalSet(roots: string[]): Set<string> {
 }
 
 function matches(entry: DaemonRegistryEntry, wanted: Set<string>): boolean {
-	return entry.workspace_roots.some((root) => wanted.has(canonical(root)));
+	return (
+		entry.project == null &&
+		entry.cache_dir == null &&
+		matchesRoots(entry.workspace_roots, wanted)
+	);
+}
+
+function matchesRoots(actual: string[], wanted: Set<string>): boolean {
+	const actualSet = canonicalSet(actual);
+	return actualSet.size === wanted.size && [...actualSet].every((root) => wanted.has(root));
 }
 
 function canonical(p: string): string {

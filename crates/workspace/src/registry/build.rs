@@ -22,18 +22,25 @@ pub(crate) fn build_complete_snapshot(
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
+	let cancellation = request.cancellation().clone();
+	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let total_timer = Instant::now();
 	let catalog_timer = Instant::now();
-	let catalog = source_catalog.load_catalog(&request)?;
+	let catalog = source_catalog.load_catalog_cancellable(&request, &cancellation)?;
+	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let catalog_elapsed = catalog_timer.elapsed();
 	let index_timer = Instant::now();
-	let index = code_index.build_index(&catalog)?;
+	let index = code_index.build_index_cancellable(&catalog, &cancellation)?;
 	let index_elapsed = index_timer.elapsed();
 	let linkage_timer = Instant::now();
+	cancellation.check(WorkspaceResource::LinkageSnapshot)?;
 	let linkage = linkage.resolve_linkage(&index)?;
+	cancellation.check(WorkspaceResource::LinkageSnapshot)?;
 	let linkage_elapsed = linkage_timer.elapsed();
 	let changes_timer = Instant::now();
+	cancellation.check(WorkspaceResource::ChangeOverlay)?;
 	let changes = change_overlay.build_change_overlay(&catalog, &index)?;
+	cancellation.check(WorkspaceResource::ChangeOverlay)?;
 	let changes_elapsed = changes_timer.elapsed();
 	let timings = timings(
 		catalog_elapsed,
@@ -60,10 +67,13 @@ pub(crate) fn build_index_only_snapshot(
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
+	let cancellation = request.cancellation().clone();
+	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let total_timer = Instant::now();
 	let (catalog, catalog_elapsed) = load_catalog_for_index(current, source_catalog, &request)?;
+	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let index_timer = Instant::now();
-	let index = code_index.build_index(&catalog)?;
+	let index = code_index.build_index_cancellable(&catalog, &cancellation)?;
 	let index_elapsed = index_timer.elapsed();
 	let linkage = empty_linkage(&catalog, &index);
 	let changes = empty_changes(&catalog, &index);

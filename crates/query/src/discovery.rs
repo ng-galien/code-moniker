@@ -2,7 +2,10 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +23,26 @@ pub struct DaemonRegistryEntry {
 	pub token: String,
 	pub pid: u32,
 	#[serde(default)]
+	pub heartbeat_unix_ms: u64,
+	#[serde(default)]
 	pub state: DaemonRegistryState,
+}
+
+pub const DAEMON_REGISTRY_HEARTBEAT_TIMEOUT_MS: u64 = 15_000;
+
+pub fn registry_heartbeat_unix_ms() -> u64 {
+	SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.unwrap_or_default()
+		.as_millis()
+		.try_into()
+		.unwrap_or(u64::MAX)
+}
+
+pub fn daemon_registry_heartbeat_expired(entry: &DaemonRegistryEntry) -> bool {
+	entry.heartbeat_unix_ms == 0
+		|| registry_heartbeat_unix_ms().saturating_sub(entry.heartbeat_unix_ms)
+			> DAEMON_REGISTRY_HEARTBEAT_TIMEOUT_MS
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -70,8 +92,9 @@ where
 	I: IntoIterator<Item = P>,
 	P: AsRef<Path>,
 {
+	let roots = canonical_workspace_roots(roots)?;
 	Ok(DaemonWorkspaceConfig {
-		roots: canonical_workspace_roots(roots)?
+		roots: roots
 			.into_iter()
 			.map(|root| root.display().to_string())
 			.collect(),
@@ -82,6 +105,17 @@ where
 			.map(|path| path.display().to_string()),
 		live_refresh,
 	})
+}
+
+pub fn validate_daemon_start_config(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
+	let roots = config_roots(config);
+	if let Some(root) = roots.iter().find(|root| root.parent().is_none()) {
+		anyhow::bail!(
+			"refusing to start a code-moniker daemon at filesystem root `{}`; pass an explicit project directory (MCP configurations should use an absolute project path)",
+			root.display()
+		);
+	}
+	Ok(())
 }
 
 pub fn canonical_workspace_config(
@@ -163,16 +197,18 @@ pub fn update_registry_entry_if_own(
 	entry: &DaemonRegistryEntry,
 ) -> anyhow::Result<bool> {
 	let path = registry_path_for_config(config)?;
-	let current = fs::read_to_string(&path)
-		.ok()
-		.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
-	let owned = current
-		.map(|current| current.token == entry.token && current.pid == entry.pid)
-		.unwrap_or(false);
-	if owned {
-		atomic_write_registry_entry(&path, entry)?;
-	}
-	Ok(owned)
+	with_registry_lock(&path, || {
+		let current = fs::read_to_string(&path)
+			.ok()
+			.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
+		let owned = current
+			.map(|current| current.token == entry.token && current.pid == entry.pid)
+			.unwrap_or(false);
+		if owned {
+			atomic_write_registry_entry(&path, entry)?;
+		}
+		Ok(owned)
+	})
 }
 
 fn atomic_write_registry_entry(path: &Path, entry: &DaemonRegistryEntry) -> anyhow::Result<()> {
@@ -194,15 +230,46 @@ fn atomic_write_registry_entry(path: &Path, entry: &DaemonRegistryEntry) -> anyh
 // with its own entry while we were stopping. Only unlink what is still ours,
 // or the new daemon stays alive but invisible to the registry.
 pub fn remove_registry_entry_if_own(path: &Path, own: &DaemonRegistryEntry) {
-	let current = fs::read_to_string(path)
-		.ok()
-		.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
-	let owned = current
-		.map(|entry| entry.token == own.token && entry.pid == own.pid)
-		.unwrap_or(false);
-	if owned {
-		let _ = fs::remove_file(path);
+	let _ = with_registry_lock(path, || {
+		let current = fs::read_to_string(path)
+			.ok()
+			.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
+		let owned = current
+			.map(|entry| entry.token == own.token && entry.pid == own.pid)
+			.unwrap_or(false);
+		if owned {
+			let _ = fs::remove_file(path);
+		}
+		Ok(())
+	});
+}
+
+#[cfg(unix)]
+fn with_registry_lock<T>(
+	path: &Path,
+	action: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+	let lock_path = path.with_extension("lock");
+	let lock = OpenOptions::new()
+		.read(true)
+		.write(true)
+		.create(true)
+		.truncate(false)
+		.open(lock_path)?;
+	// SAFETY: flock operates on this process-owned open descriptor. The lock is
+	// released automatically when `lock` is dropped on every return path.
+	if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == -1 {
+		return Err(std::io::Error::last_os_error().into());
 	}
+	action()
+}
+
+#[cfg(not(unix))]
+fn with_registry_lock<T>(
+	_path: &Path,
+	action: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+	action()
 }
 
 pub fn list_registry_files() -> anyhow::Result<Vec<(PathBuf, DaemonRegistryEntry)>> {
@@ -337,6 +404,7 @@ mod tests {
 			endpoint: "127.0.0.1:1".to_string(),
 			token: token.to_string(),
 			pid,
+			heartbeat_unix_ms: registry_heartbeat_unix_ms(),
 			state: DaemonRegistryState::Ready,
 		}
 	}
@@ -366,6 +434,19 @@ mod tests {
 		);
 	}
 
+	#[cfg(unix)]
+	#[test]
+	fn daemon_workspace_rejects_the_filesystem_root() {
+		let config =
+			daemon_workspace_config([Path::new("/")], None, None, Some("auto".to_string()))
+				.expect("filesystem root identity remains available for status and cleanup");
+		let error = validate_daemon_start_config(&config)
+			.expect_err("filesystem root must fail before daemon startup");
+		let message = error.to_string();
+		assert!(message.contains("refusing to start"), "{message}");
+		assert!(message.contains("absolute project path"), "{message}");
+	}
+
 	#[test]
 	fn shutdown_removal_spares_a_successor_entry() {
 		let dir = tempfile::tempdir().expect("tempdir");
@@ -389,6 +470,18 @@ mod tests {
 		value.as_object_mut().expect("object").remove("state");
 		let decoded: DaemonRegistryEntry = serde_json::from_value(value).expect("legacy entry");
 		assert_eq!(decoded.state, DaemonRegistryState::Ready);
+	}
+
+	#[test]
+	fn missing_or_old_heartbeat_expires_but_a_fresh_claim_does_not() {
+		let mut registry = entry("heartbeat", 111);
+		registry.heartbeat_unix_ms = 0;
+		assert!(daemon_registry_heartbeat_expired(&registry));
+		registry.heartbeat_unix_ms =
+			registry_heartbeat_unix_ms() - DAEMON_REGISTRY_HEARTBEAT_TIMEOUT_MS - 1;
+		assert!(daemon_registry_heartbeat_expired(&registry));
+		registry.heartbeat_unix_ms = registry_heartbeat_unix_ms();
+		assert!(!daemon_registry_heartbeat_expired(&registry));
 	}
 
 	#[test]

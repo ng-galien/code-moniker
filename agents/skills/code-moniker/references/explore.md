@@ -6,10 +6,13 @@ response-local aliases and canonical follow-up calls.
 
 ## First contact
 
-Call `code_moniker_read uri:"workspace" budget:"small"`. It returns the
-language mix, definition/reference counts, concentration hints and a bounded
-first explorer level. Stop there if it answers the question; otherwise follow
-only the narrow `next` call relevant to the requested scope.
+Call `code_moniker_read uri:"workspace" expected_roots:["<current absolute
+workspace root>"] budget:"small"`. `expected_roots` is mandatory for this
+workspace read; omitting it fails with `workspace_identity_required`, and an
+incorrect identity fails with `workspace_mismatch`. A successful call returns
+the language mix, definition/reference counts, concentration hints and a
+bounded first explorer level. Stop there if it answers the question; otherwise
+follow only the narrow `next` call relevant to the requested scope.
 
 ## Drill structure
 

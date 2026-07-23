@@ -13,8 +13,8 @@ use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexTimings, RecordTable, ReferenceId, ReferenceRecord, SourceCatalog,
-	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceFailure, WorkspaceResource,
-	WorkspaceResult,
+	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceCancellation, WorkspaceFailure,
+	WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -24,6 +24,16 @@ use crate::source::LocalIdentityResolver;
 
 pub trait CodeIndexPort {
 	fn build_index(&mut self, catalog: &SourceCatalog) -> WorkspaceResult<CodeIndex>;
+	fn build_index_cancellable(
+		&mut self,
+		catalog: &SourceCatalog,
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndex> {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		let index = self.build_index(catalog)?;
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		Ok(index)
+	}
 	fn refresh_paths(
 		&mut self,
 		current: &CodeIndex,
@@ -95,7 +105,20 @@ impl LocalCodeIndex {
 
 impl CodeIndexPort for LocalCodeIndex {
 	fn build_index(&mut self, catalog: &SourceCatalog) -> WorkspaceResult<CodeIndex> {
-		build_local_code_index(&self.cache, &self.options, catalog)
+		build_local_code_index(
+			&self.cache,
+			&self.options,
+			catalog,
+			&WorkspaceCancellation::default(),
+		)
+	}
+
+	fn build_index_cancellable(
+		&mut self,
+		catalog: &SourceCatalog,
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndex> {
+		build_local_code_index(&self.cache, &self.options, catalog, cancellation)
 	}
 
 	fn refresh_paths(
@@ -120,15 +143,19 @@ fn build_local_code_index(
 	cache: &LocalResourceCache,
 	options: &LocalCodeIndexOptions,
 	catalog: &SourceCatalog,
+	cancellation: &WorkspaceCancellation,
 ) -> WorkspaceResult<CodeIndex> {
+	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let total_timer = Instant::now();
 	let source_material = source_material(cache, catalog)?;
 	let generation = cache.next_generation();
 	let extract_timer = Instant::now();
-	let files = extract_source_files(&source_material, options.cache_dir.as_deref())?;
+	let files = extract_source_files(&source_material, options.cache_dir.as_deref(), cancellation)?;
 	let extract_sources = extract_timer.elapsed();
+	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let semantic_timer = Instant::now();
-	let (symbols, references, material) = build_semantic_index(source_material, files);
+	let (symbols, references, material) =
+		build_semantic_index(source_material, files, cancellation)?;
 	let semantic_index = semantic_timer.elapsed();
 	let mut sources = source_records(&material.files);
 	let identity_scheme = material.identity.scheme().to_string();
@@ -227,7 +254,7 @@ fn refresh_local_code_index(
 		});
 	}
 	let semantic_timer = Instant::now();
-	let material = material_from_files(source_catalog, files);
+	let material = material_from_files(source_catalog, files, &WorkspaceCancellation::default())?;
 	let sources = source_records(&material.files);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
 	let mut symbols = current.symbols.clone();
@@ -330,6 +357,7 @@ fn source_material(
 fn extract_source_files(
 	source_material: &SourceCatalogMaterial,
 	cache_dir: Option<&std::path::Path>,
+	cancellation: &WorkspaceCancellation,
 ) -> WorkspaceResult<Vec<Arc<IndexedSourceFile>>> {
 	source_material
 		.sources
@@ -337,6 +365,7 @@ fn extract_source_files(
 		.par_iter()
 		.enumerate()
 		.map(|(file_idx, file)| {
+			cancellation.check(WorkspaceResource::CodeIndex)?;
 			extract_source_file(source_material, file_idx, &file.path, cache_dir).map(Arc::new)
 		})
 		.collect()
@@ -408,34 +437,38 @@ fn extract_source_file(
 fn build_semantic_index(
 	source_material: SourceCatalogMaterial,
 	files: Vec<Arc<IndexedSourceFile>>,
-) -> (
+	cancellation: &WorkspaceCancellation,
+) -> WorkspaceResult<(
 	RecordTable<SymbolRecord>,
 	RecordTable<ReferenceRecord>,
 	CodeIndexMaterial,
-) {
+)> {
 	let mut symbol_shards = Vec::with_capacity(files.len());
 	let mut reference_shards = Vec::with_capacity(files.len());
 	for (file_idx, file) in files.iter().enumerate() {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
 		let (symbols, references) = records_for_file(file_idx, file);
 		symbol_shards.push(Arc::from(symbols));
 		reference_shards.push(Arc::from(references));
 	}
-	let material = material_from_files(source_material, files);
-	(
+	let material = material_from_files(source_material, files, cancellation)?;
+	Ok((
 		RecordTable::from_shards(symbol_shards),
 		RecordTable::from_shards(reference_shards),
 		material,
-	)
+	))
 }
 
 fn material_from_files(
 	source_material: SourceCatalogMaterial,
 	mut files: Vec<Arc<IndexedSourceFile>>,
-) -> CodeIndexMaterial {
+	cancellation: &WorkspaceCancellation,
+) -> WorkspaceResult<CodeIndexMaterial> {
 	let symbol_count = files.iter().map(|file| file.graph.def_count()).sum();
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
 	symbols_by_moniker.reserve(symbol_count);
 	for (file_idx, file) in files.iter().enumerate() {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
 		for (def_idx, def) in file.graph.defs().enumerate() {
 			symbols_by_moniker.insert(
 				def.moniker.clone(),
@@ -446,12 +479,12 @@ fn material_from_files(
 	symbols_by_moniker.shrink_to_fit();
 	files.shrink_to_fit();
 	let identity = source_material.identity.clone();
-	CodeIndexMaterial {
+	Ok(CodeIndexMaterial {
 		source_catalog: source_material,
 		files,
 		identity,
 		symbols_by_moniker,
-	}
+	})
 }
 
 fn graph_diff(

@@ -993,6 +993,76 @@ fn registry_dispatches_read_tool() {
 }
 
 #[test]
+fn workspace_read_reports_roots_and_rejects_a_mismatched_expectation() {
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let other = tempfile::tempdir().expect("other workspace");
+	let workspace_root = workspace.path().canonicalize().expect("workspace root");
+	let other_root = other.path().canonicalize().expect("other root");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![workspace_root.clone()]);
+	let missing_identity = registry
+		.call(&context, "code_moniker_read", &json!({"uri": "workspace"}))
+		.expect_err("workspace read without expected roots must fail");
+	assert!(
+		missing_identity
+			.to_string()
+			.contains("workspace_identity_required"),
+		"{missing_identity}"
+	);
+
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "workspace",
+				"expected_roots": [workspace_root.display().to_string()]
+			}),
+		)
+		.expect("matching workspace read");
+	assert!(
+		result.text.contains("workspace:\n  roots:"),
+		"{}",
+		result.text
+	);
+	assert!(
+		result.text.contains(&workspace_root.display().to_string()),
+		"{}",
+		result.text
+	);
+	assert!(
+		result.text.contains(&format!(
+			"expected_roots=[{}]",
+			serde_json::to_string(&workspace_root.display().to_string()).expect("root JSON")
+		)),
+		"generated workspace follow-ups must preserve identity: {}",
+		result.text
+	);
+
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "workspace",
+				"expected_roots": other_root.display().to_string()
+			}),
+		)
+		.expect_err("mismatched workspace must fail");
+	let message = error.to_string();
+	assert!(message.contains("workspace_mismatch"), "{message}");
+	assert!(
+		message.contains(&other_root.display().to_string()),
+		"{message}"
+	);
+	assert!(
+		message.contains(&workspace_root.display().to_string()),
+		"{message}"
+	);
+}
+
+#[test]
 fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir java");
@@ -1911,7 +1981,11 @@ fn http_tool_call_reads_workspace_explorer() {
 		"method": "tools/call",
 		"params": {
 			"name": "code_moniker_read",
-			"arguments": { "uri": "workspace", "depth": 4 }
+			"arguments": {
+				"uri": "workspace",
+				"expected_roots": [temp.path().display().to_string()],
+				"depth": 4
+			}
 		}
 	})
 	.to_string();
@@ -1928,6 +2002,49 @@ fn http_tool_call_reads_workspace_explorer() {
 	assert!(response.contains("HTTP/1.1 200 OK"));
 	assert!(response.contains("uri: code+moniker://workspace"));
 	assert!(response.contains("App.java [java]"));
+}
+
+#[test]
+fn http_workspace_identity_failures_fail_closed_with_routing_guidance() {
+	let workspace = tempfile::tempdir().expect("workspace");
+	let other = tempfile::tempdir().expect("other workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let server = start_http_test_server(SessionOptions {
+		paths: vec![workspace.path().to_path_buf()],
+		project: None,
+		cache_dir: None,
+	});
+	let missing = post_rpc(
+		server.addr,
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 7,
+			"method": "tools/call",
+			"params": {
+				"name": "code_moniker_read",
+				"arguments": { "uri": "workspace" }
+			}
+		}),
+	);
+	assert!(missing.contains("workspace_identity_required"), "{missing}");
+	assert!(missing.contains("expected_roots"), "{missing}");
+	let response = post_rpc(
+		server.addr,
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 8,
+			"method": "tools/call",
+			"params": {
+				"name": "code_moniker_read",
+				"arguments": {
+					"uri": "workspace",
+					"expected_roots": [other.path().display().to_string()]
+				}
+			}
+		}),
+	);
+	assert!(response.contains("workspace_mismatch"), "{response}");
+	assert!(response.contains("project-owned"), "{response}");
 }
 
 #[test]

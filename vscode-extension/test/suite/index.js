@@ -74,10 +74,11 @@ function seedStaleDaemonRegistry() {
 	process.env.CODE_MONIKER_STALE_DAEMON_ENDPOINT = STALE_DAEMON_ENDPOINT;
 }
 
-// Stops the workspace daemon started during the run and asserts it deregisters.
+// Exercises the same owner-only shutdown used by extension deactivation and
+// asserts that the daemon launched by this extension host deregisters.
 async function teardownDaemon() {
 	const api = await getApi();
-	await api.session.stop();
+	await api.session.shutdownOwned();
 	assert.strictEqual(api.session.status, "disconnected", "daemon session should disconnect");
 	await waitFor(
 		() => !api.daemons.getChildren().some((node) => node.current),

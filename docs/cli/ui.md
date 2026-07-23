@@ -40,10 +40,37 @@ refs classified as external are reported but do not lower the score.
 
 ## MCP Endpoint
 
-MCP runs as a standalone command, without the terminal UI dependency graph:
+MCP runs as a standalone command, without the terminal UI dependency graph.
+For local agent clients, prefer stdio so the client owns one process and its
+in-process index per workspace. It creates no daemon registry entry and cannot
+leave a detached daemon when the client exits:
 
 ```sh
-cargo run -p code-moniker --features mcp --no-default-features -- mcp . --port 3210
+code-moniker mcp . --transport stdio --live-refresh auto
+```
+
+Codex can launch that process from a trusted repository's
+`.codex/config.toml`:
+
+```toml
+[mcp_servers.code-moniker]
+command = "code-moniker"
+args = ["mcp", "/absolute/path/to/project", "--transport", "stdio", "--live-refresh", "auto"]
+required = true
+startup_timeout_sec = 45
+tool_timeout_sec = 120
+```
+
+Use the canonical absolute project path in `args`. Do not rely on `cwd` plus
+`.` or `..`: MCP hosts do not all resolve relative working directories from
+the same base. As a last-resort safety boundary, index-creating commands refuse
+the filesystem root instead of indexing the whole machine; daemon status/stop
+remain available for cleanup.
+
+HTTP remains available for persistent or remote-client dogfood:
+
+```sh
+cargo run -p code-moniker --features mcp --no-default-features -- mcp . --transport http --port 3210
 ```
 
 Read, search, symbol, usage, and rules tools default to `compact = true`.
@@ -57,8 +84,14 @@ additional guided follow-up calls. A `next` section is emitted only when useful.
 Compact symbol rows omit duplicated per-row usages calls; invoke
 `code_moniker_usages` with the row URI when needed.
 
-The endpoint is `http://127.0.0.1:<port>/mcp`. It exposes compact LMNAV
-text responses rather than JSON dumps:
+The HTTP endpoint is `http://127.0.0.1:<port>/mcp`. Both transports expose
+the same compact LMNAV text responses rather than JSON dumps. Start an agent
+session with `code_moniker_read(uri="workspace",
+expected_roots=["<absolute workspace root>"])`; the response declares the
+canonical roots and fails with `workspace_mismatch` if the MCP process belongs
+to another project. Omitting `expected_roots` from this initial workspace read
+fails with `workspace_identity_required`; generated workspace pagination calls
+preserve the verified roots.
 
 - `code_moniker_read`: workspace discovery. At `workspace` it returns file
   totals, language distribution, concentration by path prefix, language kind

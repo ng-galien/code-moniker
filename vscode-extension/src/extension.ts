@@ -32,12 +32,15 @@ export interface CodeMonikerApi {
 	explorer: ExplorerFeature;
 }
 
+let activeDaemonSession: DaemonSession | undefined;
+
 export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 	const ruleFiles = registerRuleManager(context);
 	registerCatalog(context);
 	registerScenario(context);
 
 	const daemon = registerDaemon(context);
+	activeDaemonSession = daemon.session;
 	const symbols = registerSymbols(context, daemon.session);
 	const views = registerViews(context, daemon.session);
 	const rules = registerRulesDaemon(context, daemon.session, symbols);
@@ -67,5 +70,8 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 	};
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
+	const session = activeDaemonSession;
+	activeDaemonSession = undefined;
+	await session?.shutdownOwned();
 }

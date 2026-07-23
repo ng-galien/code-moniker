@@ -8,6 +8,7 @@ use crate::cbuild::CBuildContext;
 use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
+use crate::snapshot::WorkspaceCancellation;
 use crate::tsconfig::{self, TsResolution};
 use crate::walk::{self, WalkedFile};
 
@@ -61,12 +62,22 @@ impl SourceSet {
 }
 
 pub fn discover(paths: &[PathBuf], project: Option<String>) -> anyhow::Result<SourceSet> {
+	discover_cancellable(paths, project, &WorkspaceCancellation::default())
+}
+
+pub fn discover_cancellable(
+	paths: &[PathBuf],
+	project: Option<String>,
+	cancellation: &WorkspaceCancellation,
+) -> anyhow::Result<SourceSet> {
+	ensure_not_cancelled(cancellation)?;
 	let scopes = discover_scopes(paths, project)?;
 	let multi = scopes.len() > 1;
 	let mut files = Vec::new();
 	for scope in &scopes {
+		ensure_not_cancelled(cancellation)?;
 		let walked = if scope.root_is_dir {
-			walk::walk_lang_files(&scope.root.input)
+			walk::walk_lang_files_cancellable(&scope.root.input, || cancellation.is_cancelled())
 		} else {
 			let lang = path_to_lang(&scope.root.input)?;
 			vec![WalkedFile {
@@ -75,6 +86,7 @@ pub fn discover(paths: &[PathBuf], project: Option<String>) -> anyhow::Result<So
 			}]
 		};
 		for walked in walked {
+			ensure_not_cancelled(cancellation)?;
 			if !scope_accepts_file(scope, &walked) {
 				continue;
 			}
@@ -87,6 +99,13 @@ pub fn discover(paths: &[PathBuf], project: Option<String>) -> anyhow::Result<So
 		files,
 		multi,
 	})
+}
+
+fn ensure_not_cancelled(cancellation: &WorkspaceCancellation) -> anyhow::Result<()> {
+	if cancellation.is_cancelled() {
+		anyhow::bail!("workspace build cancelled");
+	}
+	Ok(())
 }
 
 pub fn discover_files(

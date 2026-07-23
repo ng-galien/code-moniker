@@ -3,7 +3,8 @@
 #![cfg(unix)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::fs;
+use std::os::fd::{FromRawFd, RawFd};
+use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, TryLockError, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -60,12 +61,15 @@ use helpers::*;
 
 pub mod views;
 
+pub use code_moniker_workspace::snapshot::WorkspaceCancellation;
+
 pub use code_moniker_query::{
 	DaemonRegistryEntry, DaemonRegistryState, canonical_workspace_config, canonical_workspace_root,
 	canonical_workspace_roots, claim_registry_entry, config_from_roots, config_roots,
-	daemon_workspace_config, list_registry_entries, registry_dir, registry_path_for_config,
-	registry_path_for_root, registry_path_for_roots, remove_registry_entry_if_own,
-	update_registry_entry_if_own, workspace_label, write_registry_entry,
+	daemon_workspace_config, list_registry_entries, pid_is_alive, registry_dir,
+	registry_path_for_config, registry_path_for_root, registry_path_for_roots,
+	remove_registry_entry_if_own, update_registry_entry_if_own, validate_daemon_start_config,
+	workspace_label, write_registry_entry,
 };
 
 pub fn serve_foreground<I, P>(roots: I) -> anyhow::Result<()>
@@ -77,15 +81,32 @@ where
 }
 
 pub fn serve_foreground_config(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
+	serve_foreground_config_supervised(config, None, None)
+}
+
+pub fn serve_foreground_config_supervised(
+	config: DaemonWorkspaceConfig,
+	supervisor_pid: Option<u32>,
+	supervisor_fd: Option<RawFd>,
+) -> anyhow::Result<()> {
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.thread_name("code-moniker-daemon")
 		.build()?;
-	runtime.block_on(serve_async(config))
+	let result = runtime.block_on(serve_async(config, supervisor_pid, supervisor_fd));
+	runtime.shutdown_timeout(std::time::Duration::from_millis(100));
+	result
 }
 
-async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
+async fn serve_async(
+	config: DaemonWorkspaceConfig,
+	supervisor_pid: Option<u32>,
+	supervisor_fd: Option<RawFd>,
+) -> anyhow::Result<()> {
+	validate_supervisor_pid(supervisor_pid)?;
 	let config = canonical_workspace_config(config)?;
+	validate_daemon_start_config(&config)?;
+	let mut supervisor = SupervisorWatch::new(supervisor_pid, supervisor_fd)?;
 	let registry_path = registry_path_for_config(&config)?;
 	let registry_project = config.project.clone();
 	let registry_cache_dir = config.cache_dir.clone();
@@ -122,6 +143,7 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 		endpoint: addr.to_string(),
 		token: generate_token()?,
 		pid: std::process::id(),
+		heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
 		state: DaemonRegistryState::Indexing,
 	};
 	reject_conflicting_daemons(&config)?;
@@ -146,19 +168,31 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 		entry.live_refresh.as_deref().unwrap_or("on-demand")
 	);
 
-	let preload_daemon = daemon.clone();
-	let status = tokio::task::spawn_blocking(move || -> anyhow::Result<WorkspaceStatus> {
-		let mut daemon = preload_daemon.lock().unwrap_or_else(|err| err.into_inner());
-		if daemon.registry.queries().snapshot().is_none() {
-			refresh_full(&mut daemon).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-			restart_live_watcher(&mut daemon)
-				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+	let (preload_cancellation, mut preload) = spawn_initial_preload(daemon.clone());
+	let status = tokio::select! {
+		result = &mut preload => result??,
+		_ = shutdown.notified() => {
+			preload_cancellation.cancel();
+			preload.abort();
+			stop_server(handle.clone(), &registry_path, &entry).await;
+			return Ok(());
 		}
-		Ok(workspace_status_result(&daemon.roots, &daemon.registry))
-	})
-	.await??;
+		_ = supervisor.wait() => {
+			preload_cancellation.cancel();
+			preload.abort();
+			stop_server(handle.clone(), &registry_path, &entry).await;
+			return Ok(());
+		}
+		_ = maintain_registry_claim(&config, &entry) => {
+			preload_cancellation.cancel();
+			preload.abort();
+			stop_server(handle.clone(), &registry_path, &entry).await;
+			return Ok(());
+		}
+	};
 	let ready_entry = DaemonRegistryEntry {
 		state: DaemonRegistryState::Ready,
+		heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
 		..entry.clone()
 	};
 	if !update_registry_entry_if_own(&config, &ready_entry)? {
@@ -173,11 +207,144 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	tokio::select! {
 		_ = shutdown.notified() => {}
 		_ = handle.clone().stopped() => {}
+		_ = supervisor.wait() => {}
+		_ = maintain_registry_claim(&config, &ready_entry) => {}
 	}
+	stop_server(handle, &registry_path, &entry).await;
+	Ok(())
+}
+
+fn spawn_initial_preload(
+	daemon: Arc<Mutex<WorkspaceDaemon>>,
+) -> (
+	WorkspaceCancellation,
+	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
+) {
+	let cancellation = WorkspaceCancellation::default();
+	let worker_cancellation = cancellation.clone();
+	let worker = tokio::task::spawn_blocking(move || {
+		let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
+		if daemon.registry.queries().snapshot().is_none() {
+			refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
+				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+			anyhow::ensure!(
+				!worker_cancellation.is_cancelled(),
+				"workspace preload cancelled"
+			);
+			restart_live_watcher(&mut daemon)
+				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+		}
+		Ok(workspace_status_result(&daemon.roots, &daemon.registry))
+	});
+	(cancellation, worker)
+}
+
+fn validate_supervisor_pid(supervisor_pid: Option<u32>) -> anyhow::Result<()> {
+	let Some(supervisor_pid) = supervisor_pid else {
+		return Ok(());
+	};
+	anyhow::ensure!(
+		supervisor_pid != 0,
+		"supervisor PID must be greater than zero"
+	);
+	anyhow::ensure!(
+		pid_is_alive(supervisor_pid),
+		"supervisor process {supervisor_pid} is not running"
+	);
+	Ok(())
+}
+
+async fn stop_server(
+	handle: jsonrpsee::server::ServerHandle,
+	registry_path: &Path,
+	entry: &DaemonRegistryEntry,
+) {
 	let _ = handle.stop();
 	handle.stopped().await;
-	remove_registry_entry_if_own(&registry_path, &entry);
-	Ok(())
+	remove_registry_entry_if_own(registry_path, entry);
+}
+
+struct SupervisorWatch {
+	pid: Option<u32>,
+	channel: Option<tokio::net::UnixStream>,
+}
+
+impl SupervisorWatch {
+	fn new(pid: Option<u32>, fd: Option<RawFd>) -> anyhow::Result<Self> {
+		let channel = fd
+			.map(|fd| {
+				anyhow::ensure!(fd > 2, "supervisor FD must be greater than 2");
+				// SAFETY: --supervisor-fd transfers ownership of one inherited
+				// descriptor to this daemon process exactly once.
+				let stream = unsafe { StdUnixStream::from_raw_fd(fd) };
+				stream.set_nonblocking(true)?;
+				tokio::net::UnixStream::from_std(stream).map_err(anyhow::Error::from)
+			})
+			.transpose()?;
+		Ok(Self { pid, channel })
+	}
+
+	async fn wait(&mut self) {
+		match (&self.channel, self.pid) {
+			(Some(channel), Some(pid)) => tokio::select! {
+				_ = wait_for_supervisor_channel(channel) => {}
+				_ = wait_for_supervisor_pid(pid) => {}
+			},
+			(Some(channel), None) => wait_for_supervisor_channel(channel).await,
+			(None, Some(pid)) => wait_for_supervisor_pid(pid).await,
+			(None, None) => std::future::pending::<()>().await,
+		}
+	}
+}
+
+async fn wait_for_supervisor_channel(channel: &tokio::net::UnixStream) {
+	loop {
+		if channel.readable().await.is_err() {
+			return;
+		}
+		let mut byte = [0_u8; 1];
+		match channel.try_read(&mut byte) {
+			Ok(0) => return,
+			Ok(_) => {}
+			Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+			Err(_) => return,
+		}
+	}
+}
+
+async fn wait_for_supervisor_pid(supervisor_pid: u32) {
+	let mut checks = tokio::time::interval(std::time::Duration::from_secs(1));
+	loop {
+		checks.tick().await;
+		if !pid_is_alive(supervisor_pid) {
+			return;
+		}
+	}
+}
+
+async fn maintain_registry_claim(config: &DaemonWorkspaceConfig, entry: &DaemonRegistryEntry) {
+	let mut ownership_checks = tokio::time::interval(std::time::Duration::from_millis(250));
+	let mut heartbeats = tokio::time::interval(std::time::Duration::from_secs(2));
+	loop {
+		tokio::select! {
+			_ = ownership_checks.tick() => {
+				let owns_claim = code_moniker_query::read_registry_entry(config)
+					.ok()
+					.flatten()
+					.is_some_and(|current| current.pid == entry.pid && current.token == entry.token);
+				if !owns_claim {
+					return;
+				}
+			}
+			_ = heartbeats.tick() => {
+				let mut heartbeat = entry.clone();
+				heartbeat.heartbeat_unix_ms = code_moniker_query::registry_heartbeat_unix_ms();
+				if !update_registry_entry_if_own(config, &heartbeat).unwrap_or(false) {
+					return;
+				}
+			}
+		}
+	}
 }
 
 const EVENT_BUFFER: usize = 256;
@@ -389,6 +556,7 @@ impl WorkspaceDaemon {
 		config: DaemonWorkspaceConfig,
 		events: Option<tokio::sync::broadcast::Sender<WorkspaceEventDto>>,
 	) -> anyhow::Result<Self> {
+		validate_daemon_start_config(&config)?;
 		let init = WorkspaceDaemonInit::new(config)?;
 		let mut daemon = Self {
 			roots: init.roots,
@@ -403,6 +571,26 @@ impl WorkspaceDaemon {
 
 	pub fn handle_protocol(&mut self, request: ProtocolRequest) -> ProtocolResponse {
 		handle_protocol(self, request)
+	}
+
+	pub fn refresh_cancellable(
+		&mut self,
+		cancellation: WorkspaceCancellation,
+	) -> Result<CommandResponse, QueryError> {
+		refresh_full_cancellable(self, cancellation.clone())?;
+		if cancellation.is_cancelled() {
+			return Err(QueryError::new(
+				"workspace_cancelled",
+				"workspace refresh was cancelled",
+			));
+		}
+		restart_live_watcher(self)?;
+		let status = workspace_status_result(&self.roots, &self.registry);
+		Ok(CommandResponse {
+			generation: generation(&self.registry),
+			message: "workspace refreshed".to_string(),
+			status: Some(status),
+		})
 	}
 
 	fn restart_live_watcher(&mut self) -> anyhow::Result<()> {
@@ -496,16 +684,7 @@ fn handle_command(
 ) -> Result<CommandResponse, QueryError> {
 	drain_live_events(daemon)?;
 	match request.command {
-		Command::WorkspaceRefresh => {
-			refresh_full(daemon)?;
-			restart_live_watcher(daemon)?;
-			let status = workspace_status_result(&daemon.roots, &daemon.registry);
-			Ok(CommandResponse {
-				generation: generation(&daemon.registry),
-				message: "workspace refreshed".to_string(),
-				status: Some(status),
-			})
-		}
+		Command::WorkspaceRefresh => daemon.refresh_cancellable(WorkspaceCancellation::default()),
 	}
 }
 
@@ -1545,7 +1724,9 @@ fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyhow::Result<
 		if !shares_root {
 			continue;
 		}
-		if code_moniker_query::pid_is_alive(entry.pid) {
+		if code_moniker_query::pid_is_alive(entry.pid)
+			&& !code_moniker_query::daemon_registry_heartbeat_expired(&entry)
+		{
 			anyhow::bail!(
 				"a daemon already serves {} (pid {}, endpoint {}); stop it before starting another",
 				entry.workspace_root,
@@ -1553,7 +1734,7 @@ fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyhow::Result<
 				entry.endpoint
 			);
 		}
-		let _ = fs::remove_file(&path);
+		remove_registry_entry_if_own(&path, &entry);
 	}
 	Ok(())
 }
@@ -1603,12 +1784,15 @@ fn apply_live_plan(
 	Ok(())
 }
 
-fn refresh_full(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
+fn refresh_full_cancellable(
+	daemon: &mut WorkspaceDaemon,
+	cancellation: WorkspaceCancellation,
+) -> Result<(), QueryError> {
 	workspace_transition_result(
 		daemon
 			.registry
 			.commands()
-			.refresh(WorkspaceRequest::new("daemon-refresh")),
+			.refresh(WorkspaceRequest::new("daemon-refresh").with_cancellation(cancellation)),
 	)
 }
 

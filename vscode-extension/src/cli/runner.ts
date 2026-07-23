@@ -12,6 +12,12 @@ export type CliOutcome =
 	| { kind: "missing"; tried: string }
 	| { kind: "spawnError"; message: string };
 
+export interface DetachedProcess {
+	pid: number;
+	isRunning(): boolean;
+	terminate(): void;
+}
+
 function configuredBinary(): string | undefined {
 	const setting = vscode.workspace.getConfiguration("codeMoniker");
 	const inspected = setting.inspect<string>("binaryPath");
@@ -43,8 +49,8 @@ export function binaryCandidates(): string[] {
 	);
 }
 
-export function launchDetached(args: string[]): void {
-	tryLaunchDetached(binaryCandidates(), 0, args);
+export function launchDetached(args: string[]): Promise<DetachedProcess> {
+	return tryLaunchDetached(binaryCandidates(), 0, args);
 }
 
 export function missingBinaryMessage(tried: string): string {
@@ -107,18 +113,46 @@ function spawnOnce(binary: string, args: string[], input?: string): Promise<CliO
 	});
 }
 
-function tryLaunchDetached(candidates: string[], index: number, args: string[]): void {
+function tryLaunchDetached(
+	candidates: string[],
+	index: number,
+	args: string[],
+): Promise<DetachedProcess> {
 	if (index >= candidates.length) {
-		return;
+		return Promise.reject(new Error(`Could not launch code-moniker (tried: ${candidates.join(", ")})`));
 	}
-	const child = spawn(candidates[index], args, {
-		detached: true,
-		stdio: "ignore",
+	return new Promise((resolve, reject) => {
+		const child = spawn(candidates[index], args, {
+			detached: true,
+			stdio: ["ignore", "ignore", "ignore", "pipe"],
+		});
+		child.once("spawn", () => {
+			const pid = child.pid;
+			const supervisorPipe = child.stdio[3] as
+				| (NodeJS.ReadableStream & { unref?: () => void })
+				| null;
+			supervisorPipe?.unref?.();
+			child.unref();
+			if (pid === undefined) {
+				reject(new Error(`code-moniker launched without a process id: ${candidates[index]}`));
+				return;
+			}
+			resolve({
+				pid,
+				isRunning: () => child.exitCode === null && child.signalCode === null,
+				terminate: () => {
+					if (child.exitCode === null && child.signalCode === null) {
+						child.kill("SIGTERM");
+					}
+				},
+			});
+		});
+		child.once("error", (err: NodeJS.ErrnoException) => {
+			if (err.code === "ENOENT") {
+				void tryLaunchDetached(candidates, index + 1, args).then(resolve, reject);
+				return;
+			}
+			reject(err);
+		});
 	});
-	child.once("error", (err: NodeJS.ErrnoException) => {
-		if (err.code === "ENOENT") {
-			tryLaunchDetached(candidates, index + 1, args);
-		}
-	});
-	child.unref();
 }

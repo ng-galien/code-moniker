@@ -46,7 +46,26 @@ After rebuilding or restarting `cm-mcp`, validate the surface:
   sharing one alias table, and `code_moniker_context` with facts, coverage and
   canonical suggested checks.
 - Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
+- Workspace-routing probe: the first read passes the current absolute root via
+  `expected_roots`; a different root must fail with `workspace_mismatch`.
 - Rules probes: `action:"list"`, bounded `action:"run"`.
+
+Codex project integrations should use `code-moniker mcp
+<absolute-project-root> --transport stdio` from project-scoped
+`.codex/config.toml`. Do not combine a relative `cwd` with `.` or `..`; host
+resolution can escape the project. Index-creating commands reject a filesystem
+root while daemon status/stop remain available for cleanup. Stdio is
+intentionally in-process and must create no daemon process or registry entry.
+Its transport initializes before background preload; a data call may return
+`workspace_loading` until the new snapshot is published atomically. EOF must
+cancel preload and terminate promptly, including when a source read is blocked.
+Keep the HTTP `cm-mcp` session only for HTTP surface dogfood and explicit
+endpoint probes.
+
+Automatic daemon launchers retain one end of an inherited Unix socket and pass
+the other as the hidden `--supervisor-fd` argument. EOF is the primary crash
+signal; `--supervisor-pid` is only the fallback. Never detach a daemon from both
+mechanisms in an IDE or connect-or-start path.
 
 ## TUI Verification
 

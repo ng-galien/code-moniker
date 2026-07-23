@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::environment;
 use crate::snapshot::{
-	SourceCatalog, SourceUnit, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
-	WorkspaceResult,
+	SourceCatalog, SourceUnit, WorkspaceCancellation, WorkspaceFailure, WorkspaceRequest,
+	WorkspaceResource, WorkspaceResult,
 };
 
 use super::content::{LocalResourceCache, SourceCatalogMaterial};
@@ -11,6 +11,16 @@ use super::identity::LocalIdentityResolver;
 
 pub trait SourceCatalogPort {
 	fn load_catalog(&mut self, request: &WorkspaceRequest) -> WorkspaceResult<SourceCatalog>;
+	fn load_catalog_cancellable(
+		&mut self,
+		request: &WorkspaceRequest,
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<SourceCatalog> {
+		cancellation.check(WorkspaceResource::SourceCatalog)?;
+		let catalog = self.load_catalog(request)?;
+		cancellation.check(WorkspaceResource::SourceCatalog)?;
+		Ok(catalog)
+	}
 
 	fn extend_catalog(
 		&mut self,
@@ -61,39 +71,15 @@ impl LocalSourceCatalog {
 
 impl SourceCatalogPort for LocalSourceCatalog {
 	fn load_catalog(&mut self, _request: &WorkspaceRequest) -> WorkspaceResult<SourceCatalog> {
-		let sources = if let Some(files) = &self.options.files {
-			let [root] = self.options.paths.as_slice() else {
-				return Err(WorkspaceFailure::new(
-					WorkspaceResource::SourceCatalog,
-					"explicit source files require exactly one source root",
-				));
-			};
-			environment::discover_source_files(root, files, self.options.project.clone())
-		} else {
-			environment::discover_sources(&self.options.paths, self.options.project.clone())
-		}
-		.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
-		let generation = self.cache.next_generation();
-		let units = sources
-			.files
-			.iter()
-			.enumerate()
-			.map(|(file_idx, file)| {
-				SourceUnit::with_language(
-					self.options.identity.source_id(file_idx, &file.rel_path),
-					file.rel_path.display().to_string(),
-					file.lang.tag(),
-				)
-			})
-			.collect::<Vec<_>>();
-		self.cache.insert_sources(
-			generation,
-			SourceCatalogMaterial {
-				sources,
-				identity: self.options.identity.clone(),
-			},
-		);
-		Ok(SourceCatalog::new(generation, units))
+		load_local_catalog(self, &WorkspaceCancellation::default())
+	}
+
+	fn load_catalog_cancellable(
+		&mut self,
+		_request: &WorkspaceRequest,
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<SourceCatalog> {
+		load_local_catalog(self, cancellation)
 	}
 
 	fn extend_catalog(
@@ -103,6 +89,50 @@ impl SourceCatalogPort for LocalSourceCatalog {
 	) -> WorkspaceResult<Option<SourceCatalog>> {
 		extend_local_catalog(&self.cache, current, paths)
 	}
+}
+
+fn load_local_catalog(
+	catalog: &mut LocalSourceCatalog,
+	cancellation: &WorkspaceCancellation,
+) -> WorkspaceResult<SourceCatalog> {
+	let sources = if let Some(files) = &catalog.options.files {
+		let [root] = catalog.options.paths.as_slice() else {
+			return Err(WorkspaceFailure::new(
+				WorkspaceResource::SourceCatalog,
+				"explicit source files require exactly one source root",
+			));
+		};
+		environment::discover_source_files(root, files, catalog.options.project.clone())
+	} else {
+		crate::sources::discover_cancellable(
+			&catalog.options.paths,
+			catalog.options.project.clone(),
+			cancellation,
+		)
+	}
+	.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
+	cancellation.check(WorkspaceResource::SourceCatalog)?;
+	let generation = catalog.cache.next_generation();
+	let units = sources
+		.files
+		.iter()
+		.enumerate()
+		.map(|(file_idx, file)| {
+			SourceUnit::with_language(
+				catalog.options.identity.source_id(file_idx, &file.rel_path),
+				file.rel_path.display().to_string(),
+				file.lang.tag(),
+			)
+		})
+		.collect::<Vec<_>>();
+	catalog.cache.insert_sources(
+		generation,
+		SourceCatalogMaterial {
+			sources,
+			identity: catalog.options.identity.clone(),
+		},
+	);
+	Ok(SourceCatalog::new(generation, units))
 }
 
 fn extend_local_catalog(
