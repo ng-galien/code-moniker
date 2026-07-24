@@ -16,7 +16,7 @@ then drop into the reference pages only when you need exact grammar details.
 | Use the VS Code workbench extension | [VS Code extension](vscode-extension.md) |
 | Review local code smell warnings | [Code smell review](cli/code-smell-review.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
-| Connect `check` to hooks, pre-commit, or CI | [Agent harness](cli/agent-harness.md) |
+| Install the agent skill, MCP, hooks, or connect `check` to CI | [Agent integration and harness](cli/agent-harness.md) |
 | Run or query a resident workspace service | [Daemon](daemon.md) |
 
 ## Design

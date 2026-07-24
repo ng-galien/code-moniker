@@ -190,17 +190,56 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
-Code Moniker 0.4 supports macOS and Linux. Its workspace daemon is currently
+Code Moniker 0.5 supports macOS and Linux. Its workspace daemon is currently
 Unix-only, so Windows packages are not published yet.
 
-Install the full CLI with the optional interactive surfaces (terminal UI +
-MCP server):
+Install the CLI. Every binary includes the embedded agent skill:
 
 ```sh
-cargo install code-moniker --features tui,mcp
+cargo install code-moniker
 ```
 
-Or install the latest `main`:
+Install the agent integration for a client. With the core binary, this
+materializes the versioned skill in the user's client directory:
+
+```sh
+code-moniker agent install --client codex
+code-moniker agent doctor --client codex
+```
+
+Install the binary with MCP support when the integration should also register
+a project-owned stdio MCP. The same `agent install` command detects that
+capability and installs both components:
+
+```sh
+cargo install code-moniker --features mcp
+code-moniker agent install --client codex
+```
+
+Hooks remain an explicit project policy and select no check profile by
+default:
+
+```sh
+code-moniker agent install --client codex --components hooks
+```
+
+The integration has an explicit lifecycle:
+
+```sh
+code-moniker agent status --client codex
+code-moniker agent doctor --client codex
+code-moniker agent update --client codex
+code-moniker agent uninstall --client codex
+```
+
+`code-moniker harness codex|claude|gemini` remains available as the
+compatibility command for installing hooks only. New installations can use
+`agent install --components hooks`, which records the component for later
+diagnosis, update, and safe removal. See
+[Agent integration, harness, hooks, and CI](docs/cli/agent-harness.md) for the
+component matrix and exact ownership behavior.
+
+Or install the latest `main` with the terminal UI:
 
 ```sh
 cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features tui,mcp
@@ -216,10 +255,10 @@ cargo install --path crates/cli --features tui,mcp
 
 - `pretty` (default) — colored output.
 - `tui` — the `ui` terminal explorer (implies `pretty`).
-- `mcp` — the `mcp` server.
+- `mcp` — the `mcp` server and agent MCP installation.
 
-Drop `--features tui,mcp` for a lighter core build — `extract`, `check`,
-`rules`, … with colored output but no terminal UI or MCP server:
+The default core binary remains light — `extract`, `check`, `rules`, the
+embedded skill installer and hooks, but no terminal UI or MCP server:
 
 ```sh
 cargo install code-moniker

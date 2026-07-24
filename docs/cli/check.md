@@ -14,17 +14,25 @@ code-moniker rules eval --rules <PATH> --lang <TAG> [--profile <NAME>] [--defaul
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness gemini [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
+code-moniker agent install --client <codex|claude|gemini> [ROOT] --components hooks [--profile <NAME>] [--check-scope <PATH>] [--max-violations <N>]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
 per-file edit hooks. Use [`extract`](extract.md) when you only want to
 inspect the graph.
 
-Use `code-moniker harness codex`, `code-moniker harness claude`, or
-`code-moniker harness gemini` to generate project-local hooks that run
-`code-moniker check` after local write tools. By default, harnesses check
-`.` with the root `.code-moniker.toml`; use `--profile` and `--scope` for
-a narrower edit-time rule set.
+Use `code-moniker agent install --client <client> --components hooks` to
+generate project-local hooks that run `code-moniker check` after local write
+tools and record them in the managed agent integration. No rules profile is
+selected unless `--profile` is passed explicitly. By default, hooks check `.`
+with the root `.code-moniker.toml`; use `--profile` and `--check-scope` for a
+narrower edit-time rule set.
+
+The compatibility commands `code-moniker harness codex`,
+`code-moniker harness claude`, and `code-moniker harness gemini` remain
+available. They install hooks directly and use the legacy `--scope` option.
+See [Agent integration, harness, hooks, and CI](agent-harness.md) for the
+complete installation lifecycle.
 
 ## Mental model
 

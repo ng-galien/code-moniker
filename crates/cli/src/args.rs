@@ -45,6 +45,8 @@ pub enum Command {
 	Query(QueryArgs),
 	#[command(about = "Install live agent harness configuration.")]
 	Harness(HarnessArgs),
+	#[command(about = "Install and diagnose Code Moniker agent integrations.")]
+	Agent(AgentArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
 	Langs(LangsArgs),
 	#[command(about = "Show the shape vocabulary.")]
@@ -183,6 +185,114 @@ pub(crate) enum QueryConsistency {
 pub struct HarnessArgs {
 	#[command(subcommand)]
 	pub command: HarnessCommand,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct AgentArgs {
+	#[command(subcommand)]
+	pub command: AgentCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCommand {
+	#[command(about = "Install or update agent integration components.")]
+	Install(AgentInstallArgs),
+	#[command(about = "Refresh managed agent integration components from this binary.")]
+	Update(AgentInstallArgs),
+	#[command(about = "Show installed agent integration components.")]
+	Status(AgentInspectArgs),
+	#[command(about = "Diagnose an agent integration.")]
+	Doctor(AgentInspectArgs),
+	#[command(about = "Remove managed agent integration components.")]
+	Uninstall(AgentUninstallArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct AgentInstallArgs {
+	#[arg(long, value_enum)]
+	pub client: AgentClient,
+
+	#[arg(
+		long,
+		value_enum,
+		value_delimiter = ',',
+		help = "components to install: skill, mcp, hooks; defaults to skill plus mcp when this binary supports it"
+	)]
+	pub components: Vec<AgentComponent>,
+
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".code-moniker.toml",
+		help = "project rules file used by hooks, resolved from ROOT unless absolute"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "optional rules profile used by hooks; no profile is selected by default"
+	)]
+	pub profile: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".",
+		help = "project scope checked by hooks, resolved from ROOT"
+	)]
+	pub check_scope: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "N",
+		default_value_t = 10,
+		help = "maximum violations printed by generated hooks"
+	)]
+	pub max_violations: usize,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct AgentInspectArgs {
+	#[arg(long, value_enum)]
+	pub client: AgentClient,
+
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct AgentUninstallArgs {
+	#[arg(long, value_enum)]
+	pub client: AgentClient,
+
+	#[arg(
+		long,
+		value_enum,
+		value_delimiter = ',',
+		help = "managed components to remove; defaults to every managed component"
+	)]
+	pub components: Vec<AgentComponent>,
+
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+}
+
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum)]
+pub enum AgentClient {
+	Codex,
+	Claude,
+	Gemini,
+}
+
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum)]
+pub enum AgentComponent {
+	Skill,
+	Mcp,
+	Hooks,
 }
 
 #[derive(Debug, ClapArgs)]

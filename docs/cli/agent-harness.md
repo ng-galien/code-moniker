@@ -1,4 +1,4 @@
-# Agent harness, hooks, and CI
+# Agent integration, harness, hooks, and CI
 
 `code-moniker check` is a normal command-line gate:
 
@@ -47,24 +47,124 @@ This keeps agent feedback fast while preserving the same behavior as the
 corresponding project check for the files that were touched. Use pre-commit
 or CI for full-tree guarantees.
 
-## Install
+## Install the agent integration
 
 ```sh
-cargo install code-moniker
+cargo install code-moniker --features mcp
+code-moniker agent install --client codex
 ```
 
-From a local checkout:
+The binary embeds the version-matched `code-moniker` skill. `agent install`
+materializes it in the selected client's user skill directory and registers a
+project-owned stdio MCP using the canonical absolute project root:
 
 ```sh
-cargo install --path crates/cli
+code-moniker agent install --client codex
+code-moniker agent install --client claude
+code-moniker agent install --client gemini
+```
+
+The default components follow the binary capabilities: `skill,mcp` when the
+binary contains MCP, otherwise `skill` only. Components can always be selected
+explicitly with `--components`. Inspect or diagnose the managed integration
+with:
+
+```sh
+code-moniker agent status --client codex
+code-moniker agent doctor --client codex
+code-moniker agent update --client codex
+code-moniker agent uninstall --client codex
+```
+
+| Command | Behavior |
+| ------- | -------- |
+| `install` | Installs the explicit components, or the defaults supported by this binary. |
+| `status` | Lists the tracked components and whether each is installed, linked, external, stale, or missing. |
+| `doctor` | Checks component contents and binary-version coherence; exits non-zero when repair is needed. |
+| `update` | Refreshes selected components from the current binary. With no `--components`, it uses the same capability-based defaults as `install`; hooks remain opt-in. Updating hooks reuses their recorded rules file, profile, scope, and violation limit. |
+| `uninstall` | Removes selected managed components, or all tracked components when none are selected. |
+
+The component scopes are deliberately different:
+
+| Component | Scope | Installed by default |
+| --------- | ----- | -------------------- |
+| `skill` | User directory for the selected client | Yes |
+| `mcp` | Project configuration, only when the binary has MCP support | With an MCP-enabled binary |
+| `hooks` | Project-local write-time policy | No |
+
+The concrete targets are:
+
+| Client | User skill | Project MCP configuration | Project hooks |
+| ------ | ---------- | ------------------------- | ------------- |
+| Codex | `~/.codex/skills/code-moniker` | `.codex/config.toml` | `.codex/hooks/` and `.codex/hooks.json` |
+| Claude | `~/.claude/skills/code-moniker` | `.mcp.json` | `.claude/hooks/` and `.claude/settings.json` |
+| Gemini | `~/.gemini/skills/code-moniker` | `.gemini/settings.json` | `.gemini/hooks/` and `.gemini/settings.json` |
+
+The installer records component ownership per canonical project root and
+client under `~/.code-moniker/agent/`. This state lets lifecycle commands
+distinguish content created by Code Moniker from matching configuration that
+already existed. The user-scoped skill is shared by projects using the same
+client. Any tracked project can update that shared skill; ownership follows
+the updater and transfers again to another tracked project before the shared
+skill can be removed.
+
+`uninstall` removes only components recorded as managed and refuses to remove
+an owned asset or configuration entry that has drifted since installation.
+External components can always be forgotten without modifying their content.
+Hook coherence covers both the generated script and its exact client
+registration, while component versions are tracked independently so a partial
+update remains visible to `doctor`. Pass
+`--components skill`, `mcp`, or `hooks` to remove only one component.
+An already matching skill or MCP entry discovered during installation is
+recorded as external and retained by `uninstall`.
+
+The skill adapts to the installed capabilities. It uses MCP tools when they are
+available, the local binary when MCP is absent, and treats hooks as write-time
+policy rather than a navigation surface.
+
+Hooks are deliberately opt-in because they apply project rules:
+
+```sh
+code-moniker agent install --client codex --components hooks
+```
+
+This default hook runs `code-moniker check` without `--profile`. Select a
+rules profile only through an explicit option:
+
+```sh
+code-moniker agent install \
+  --client codex \
+  --components hooks \
+  --profile agent
+```
+
+From a local checkout, install a development binary first:
+
+```sh
+cargo install --path crates/cli --features tui,mcp
 ```
 
 Verify:
 
 ```sh
 code-moniker langs
-code-moniker check .
+code-moniker agent doctor --client codex
 ```
+
+## Compatibility `harness` command
+
+`code-moniker harness codex|claude|gemini` has not been removed. It remains
+available for compatibility and installs hooks directly. The managed
+equivalent for new installations is:
+
+```sh
+code-moniker agent install --client codex --components hooks
+```
+
+Both forms select no profile by default. The `agent` form is preferred when
+the hook should participate in `status`, `doctor`, `update`, and `uninstall`.
+Changing the profile changes the managed hook identity: uninstall the hooks
+component before reinstalling it with a different `--profile`.
 
 ## Use cases
 

@@ -2,6 +2,7 @@
 //! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
 //! and `docs/cli/check.md` (workspace linter).
 
+pub(crate) mod agent;
 pub(crate) mod args;
 pub(crate) mod check;
 pub(crate) mod check_scenario;
@@ -9,6 +10,7 @@ pub(crate) mod color;
 pub(crate) mod daemon;
 pub(crate) mod diff;
 pub(crate) mod extract;
+pub(crate) mod fs_write;
 pub(crate) mod harness;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
@@ -47,12 +49,13 @@ pub use args::McpArgs;
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
 pub use args::{
-	Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice, Command, DaemonArgs,
-	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, HarnessArgs,
-	HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs,
-	ManifestFormat, MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand,
-	RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs,
-	StatsArgs, StatsFormat,
+	AgentArgs, AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
+	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice,
+	Command, DaemonArgs, DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs,
+	HarnessArgs, HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat,
+	ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs,
+	RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat,
+	ShapesArgs, StatsArgs, StatsFormat,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate, RefMatch};
@@ -86,6 +89,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
 		Command::Query(args) => query::run(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
+		Command::Agent(args) => agent::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
 		Command::Ui(args) => ui_command::run(args, stdout, stderr),
 		#[cfg(feature = "mcp")]

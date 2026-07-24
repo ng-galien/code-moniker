@@ -10,6 +10,10 @@ use crate::args::{
 	CodexHarnessArgs, HarnessArgs, HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs,
 };
 
+mod agent_hooks;
+
+pub(crate) use agent_hooks::{agent_hook_fingerprint, install_for_agent, uninstall_for_agent};
+
 const CODEX_MATCHER: &str = "apply_patch|Write|Edit|MultiEdit";
 const CLAUDE_MATCHER: &str = "Edit|Write|MultiEdit";
 const GEMINI_MATCHER: &str = "write_file|replace|edit";
@@ -23,9 +27,9 @@ enum HarnessBackend {
 
 pub fn run<W1: Write, W2: Write>(args: &HarnessArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {
-		HarnessCommand::Codex(args) => install(args, HarnessBackend::Codex, stdout),
-		HarnessCommand::Claude(args) => install(args, HarnessBackend::Claude, stdout),
-		HarnessCommand::Gemini(args) => install(args, HarnessBackend::Gemini, stdout),
+		HarnessCommand::Codex(args) => install(args, HarnessBackend::Codex, true, stdout),
+		HarnessCommand::Claude(args) => install(args, HarnessBackend::Claude, true, stdout),
+		HarnessCommand::Gemini(args) => install(args, HarnessBackend::Gemini, true, stdout),
 		HarnessCommand::ToolFiles(args) => write_tool_files(args, stdout),
 	};
 	match result {
@@ -40,6 +44,7 @@ pub fn run<W1: Write, W2: Write>(args: &HarnessArgs, stdout: &mut W1, stderr: &m
 fn install<W: Write>(
 	args: &CodexHarnessArgs,
 	backend: HarnessBackend,
+	write_performance_report: bool,
 	stdout: &mut W,
 ) -> anyhow::Result<()> {
 	let root = args
@@ -66,6 +71,7 @@ fn install<W: Write>(
 
 	let hook_file = hook_file_name(args.profile.as_deref());
 	let hook_path = hooks_dir.join(&hook_file);
+	let binary = binary_shell_command();
 	fs::write(
 		&hook_path,
 		hook_script(
@@ -74,6 +80,7 @@ fn install<W: Write>(
 			&scope,
 			args.max_violations,
 			backend,
+			&binary,
 		),
 	)
 	.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
@@ -96,16 +103,18 @@ fn install<W: Write>(
 	)?;
 	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
 		.with_context(|| format!("cannot write `{}`", config_path.display()))?;
-	fs::write(
-		project_dir.join("code-moniker-performance.md"),
-		performance_report(args.profile.as_deref(), &scope, backend),
-	)
-	.with_context(|| {
-		format!(
-			"cannot write {} hook performance template",
-			backend_name(backend)
+	if write_performance_report {
+		fs::write(
+			project_dir.join("code-moniker-performance.md"),
+			performance_report(args.profile.as_deref(), &scope, backend),
 		)
-	})?;
+		.with_context(|| {
+			format!(
+				"cannot write {} hook performance template",
+				backend_name(backend)
+			)
+		})?;
+	}
 
 	match args.profile.as_deref() {
 		Some(profile) => writeln!(
@@ -227,7 +236,7 @@ fn normalize_relative(path: &Path) -> PathBuf {
 	path.components().collect()
 }
 
-fn hook_file_name(profile: Option<&str>) -> String {
+pub(crate) fn hook_file_name(profile: Option<&str>) -> String {
 	let slug_src = profile.unwrap_or("check");
 	let slug: String = slug_src
 		.chars()
@@ -255,14 +264,15 @@ fn hook_script(
 	scope: &Path,
 	max_violations: usize,
 	backend: HarnessBackend,
+	binary: &str,
 ) -> String {
 	let root_expr = format!(
 		r#"root="${{{}:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}}""#,
 		backend_env_var(backend)
 	);
-	let files_setup = hook_files_setup(scope, backend);
+	let files_setup = hook_files_setup(scope, backend, binary);
 	let no_files = hook_no_files(backend);
-	let command = hook_check_command(profile, rules, max_violations, backend);
+	let command = hook_check_command(profile, rules, max_violations, backend, binary);
 	match backend {
 		HarnessBackend::Codex => format!(
 			r#"#!/usr/bin/env sh
@@ -337,13 +347,13 @@ exit 2
 	}
 }
 
-fn hook_files_setup(scope: &Path, backend: HarnessBackend) -> String {
+fn hook_files_setup(scope: &Path, backend: HarnessBackend, binary: &str) -> String {
 	let set_scope = format!("set -- {}", sh_quote(&scope.display().to_string()));
 	format!(
 		r#"input_file=$(mktemp "${{TMPDIR:-/tmp}}/code-moniker-hook.XXXXXX")
 trap 'rm -f "$input_file"' EXIT HUP INT TERM
 cat > "$input_file"
-files=$("$HOME/.cargo/bin/code-moniker" harness tool-files {} "$input_file" 2>/dev/null) || {{
+files=$({binary} harness tool-files {} "$input_file" 2>/dev/null) || {{
 	printf '%s\n' 'code-moniker hook could not inspect tool input' >&2
 	exit 2
 }}
@@ -381,17 +391,33 @@ fn hook_check_command(
 	rules: &Path,
 	max_violations: usize,
 	backend: HarnessBackend,
+	binary: &str,
 ) -> String {
 	let profile_arg = profile
 		.map(|profile| format!(" --profile {}", sh_quote(profile)))
 		.unwrap_or_default();
 	format!(
-		r#""$HOME/.cargo/bin/code-moniker" check --rules {}{}{} --max-violations {} "$@""#,
+		r#"{binary} check --rules {}{}{} --max-violations {} "$@""#,
 		sh_quote(&rules.display().to_string()),
 		profile_arg,
 		backend_check_format_arg(backend),
 		max_violations,
 	)
+}
+
+fn binary_shell_command() -> String {
+	if let Some(path) = std::env::var_os("CODE_MONIKER_BIN")
+		.filter(|path| !path.is_empty())
+		.map(PathBuf::from)
+	{
+		return sh_quote(&path.display().to_string());
+	}
+	if let Ok(path) = std::env::current_exe()
+		&& path.file_name().and_then(|name| name.to_str()) == Some("code-moniker")
+	{
+		return sh_quote(&path.display().to_string());
+	}
+	"\"$HOME/.cargo/bin/code-moniker\"".to_string()
 }
 
 fn write_tool_files<W: Write>(args: &HarnessToolFilesArgs, stdout: &mut W) -> anyhow::Result<()> {
@@ -745,6 +771,196 @@ enable = [".*"]
 		assert!(!script.contains("--profile"));
 		assert!(script.contains("'.'"));
 		assert!(!script.contains("npm"));
+	}
+
+	#[test]
+	fn agent_hook_install_skips_performance_template_and_uninstalls_cleanly() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let args = crate::CodexHarnessArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let mut stdout = Vec::new();
+		let installed =
+			super::install_for_agent(&args, crate::AgentClient::Codex, None, &mut stdout).unwrap();
+		assert!(installed.owned);
+		let hook = dir
+			.path()
+			.canonicalize()
+			.unwrap()
+			.join(".codex/hooks/code-moniker-check.sh");
+		assert!(hook.exists());
+		assert_eq!(installed.path, hook);
+		assert_eq!(
+			installed.fingerprint,
+			super::agent_hook_fingerprint(crate::AgentClient::Codex, &hook).unwrap()
+		);
+		assert!(
+			!dir.path()
+				.join(".codex/code-moniker-performance.md")
+				.exists()
+		);
+
+		super::uninstall_for_agent(dir.path(), crate::AgentClient::Codex, &hook).unwrap();
+		assert!(!hook.exists());
+		let settings: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(dir.path().join(".codex/hooks.json")).unwrap())
+				.unwrap();
+		assert!(settings.get("hooks").is_none());
+	}
+
+	#[test]
+	fn agent_hook_detects_registration_drift_and_refuses_unmanaged_script_replacement() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let args = crate::CodexHarnessArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let mut stdout = Vec::new();
+		let installed =
+			super::install_for_agent(&args, crate::AgentClient::Claude, None, &mut stdout).unwrap();
+		let adopted =
+			super::install_for_agent(&args, crate::AgentClient::Claude, None, &mut stdout).unwrap();
+		assert!(!adopted.owned);
+		let different_profile = crate::CodexHarnessArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: Some("architecture".to_string()),
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let error = super::install_for_agent(
+			&different_profile,
+			crate::AgentClient::Claude,
+			Some(&installed.path),
+			&mut stdout,
+		)
+		.unwrap_err();
+		assert!(error.to_string().contains("uninstall the hooks component"));
+
+		let settings_path = dir.path().join(".claude/settings.json");
+		let mut settings: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(&settings_path).unwrap()).unwrap();
+		settings["hooks"]["PostToolUse"][0]["matcher"] = serde_json::json!("Write");
+		std::fs::write(
+			&settings_path,
+			serde_json::to_vec_pretty(&settings).unwrap(),
+		)
+		.unwrap();
+		assert!(
+			super::agent_hook_fingerprint(crate::AgentClient::Claude, &installed.path).is_err()
+		);
+
+		let invalid_root = dir.path().join("invalid-config");
+		std::fs::create_dir_all(invalid_root.join(".codex")).unwrap();
+		std::fs::write(
+			invalid_root.join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		std::fs::write(invalid_root.join(".codex/hooks.json"), r#"{"hooks":[]}"#).unwrap();
+		let invalid_args = crate::CodexHarnessArgs {
+			root: invalid_root.clone(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		assert!(
+			super::install_for_agent(&invalid_args, crate::AgentClient::Codex, None, &mut stdout)
+				.is_err()
+		);
+		assert!(
+			!invalid_root
+				.join(".codex/hooks/code-moniker-check.sh")
+				.exists()
+		);
+
+		let unmanaged_root = dir.path().join("unmanaged");
+		std::fs::create_dir_all(unmanaged_root.join(".codex/hooks")).unwrap();
+		std::fs::write(
+			unmanaged_root.join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let unmanaged_hook = unmanaged_root.join(".codex/hooks/code-moniker-check.sh");
+		std::fs::write(&unmanaged_hook, "user hook").unwrap();
+		let unmanaged_args = crate::CodexHarnessArgs {
+			root: unmanaged_root,
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let error = super::install_for_agent(
+			&unmanaged_args,
+			crate::AgentClient::Codex,
+			None,
+			&mut stdout,
+		)
+		.unwrap_err();
+		assert!(error.to_string().contains("refusing to replace unmanaged"));
+		assert_eq!(
+			std::fs::read_to_string(unmanaged_hook).unwrap(),
+			"user hook"
+		);
+	}
+
+	#[test]
+	fn agent_hook_uninstall_removes_only_its_exact_registration() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let args = crate::CodexHarnessArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let mut stdout = Vec::new();
+		let installed =
+			super::install_for_agent(&args, crate::AgentClient::Gemini, None, &mut stdout).unwrap();
+		let settings_path = dir.path().join(".gemini/settings.json");
+		let mut settings: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(&settings_path).unwrap()).unwrap();
+		settings["hooks"]["AfterTool"]
+			.as_array_mut()
+			.unwrap()
+			.push(serde_json::json!({
+				"matcher": "write_file",
+				"hooks": [{
+					"type": "command",
+					"name": "code-moniker-other",
+					"command": "sh -c 'exec \"$root/.gemini/hooks/code-moniker-other.sh\"'"
+				}]
+			}));
+		std::fs::write(
+			&settings_path,
+			serde_json::to_vec_pretty(&settings).unwrap(),
+		)
+		.unwrap();
+
+		super::uninstall_for_agent(dir.path(), crate::AgentClient::Gemini, &installed.path)
+			.unwrap();
+
+		let settings: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(settings_path).unwrap()).unwrap();
+		let entries = settings["hooks"]["AfterTool"].as_array().unwrap();
+		assert_eq!(entries.len(), 1);
+		assert!(
+			entries[0]["hooks"][0]["command"]
+				.as_str()
+				.unwrap()
+				.contains("code-moniker-other.sh")
+		);
 	}
 
 	#[test]
