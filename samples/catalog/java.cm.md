@@ -1,17 +1,17 @@
 ---
 name: java
 lang: java
-blurb: Java naming, size budgets, layering, and Spring conventions
+blurb: Java naming, size budgets, SDK usage, layering, and Spring conventions
 published: true
 ---
 
 # Java conventions
 
 A Java-flavoured rule set: PascalCase classes, JUnit naming, class size
-budgets, a domain/infrastructure boundary, and a battery of Spring
-conventions (stereotype suffixes and packages, injection style, transaction
-placement, proxy self-invocation, test slices). The layout below is a small
-Maven-style project where each rule is broken exactly once.
+budgets, an SDK logging guardrail, a domain/infrastructure boundary, and a
+battery of Spring conventions (stereotype suffixes and packages, injection
+style, transaction placement, proxy self-invocation, test slices). The layout
+below is a small Maven-style project where every rule is demonstrated.
 
 ```toml cm:rules
 default_rules = false
@@ -64,6 +64,19 @@ id = "domain-no-infra"
 rationale = "Domain code should not know persistence or delivery details. Keep infrastructure behind service or application boundaries."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
+
+[[java.refs.where]]
+id = "no-system-out-println"
+severity = "error"
+rationale = "Direct standard-output writes bypass the project's logging policy, configuration, and centralized collection."
+expr = """
+  NOT (
+    kind = 'method_call'
+    AND target.name = 'println'
+    AND target ~ '**/sdk:java/path:java/path:lang/path:System/path:out/**'
+  )
+"""
+message = "Use the project logger instead of System.out.println."
 
 [[java.refs.where]]
 id = "no-unnecessary-qualified-type-name"
@@ -390,6 +403,24 @@ package com.acme.billing;
 
 public class BillingClock {
 	private java.time.LocalDate businessDate;
+}
+```
+
+## Standard output
+
+Both `println(String)` and `println()` are rejected when they target
+`System.out`. The neighboring `System.err.println` call stays valid because
+the SDK target preserves the `out` versus `err` member path:
+
+```java cm:file=src/main/java/com/acme/billing/ConsoleWriter.java
+package com.acme.billing;
+
+public class ConsoleWriter {
+	public void write(String message) {
+		System.out.println(message);
+		System.out.println();
+		System.err.println(message);
+	}
 }
 ```
 
@@ -734,6 +765,8 @@ java.class.spring-configuration-package @ src/main/java/com/acme/billing/Billing
 java.class.spring-repository-package @ src/main/java/com/acme/billing/BillingRepository.java:L5-L10
 java.class.spring-service-package @ src/main/java/com/acme/billing/BillingService.java:L5-L10
 java.class.class-budget @ src/main/java/com/acme/billing/BulkLoader.java:L3-L30
+java.refs.no-system-out-println @ src/main/java/com/acme/billing/ConsoleWriter.java:L5
+java.refs.no-system-out-println @ src/main/java/com/acme/billing/ConsoleWriter.java:L6
 java.class.main-classes-not-test-suffixed @ src/main/java/com/acme/billing/InvoiceTest.java:L3-L7
 java.method.spring-transactional-methods-in-service @ src/main/java/com/acme/billing/InvoiceWriter.java:L6-L8
 java.class.spring-proxy-class-no-self-invocation @ src/main/java/com/acme/billing/LedgerKeeper.java:L5-L13
