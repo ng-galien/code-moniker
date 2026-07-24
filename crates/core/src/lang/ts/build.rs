@@ -91,6 +91,78 @@ pub(in crate::lang::ts) fn external_pkg_builder(project: &[u8], pkg: &str) -> Mo
 	b
 }
 
+pub(in crate::lang::ts) fn module_specifier_builder(project: &[u8], spec: &str) -> MonikerBuilder {
+	if let Some((node_module, tail)) = node_builtin_specifier(spec) {
+		let mut builder = crate::lang::sdk::sdk_target_builder(project, b"ts");
+		builder.segment(kinds::PATH, node_module.as_bytes());
+		for piece in tail.split('/').filter(|piece| !piece.is_empty()) {
+			builder.segment(kinds::PATH, piece.as_bytes());
+		}
+		return builder;
+	}
+	external_pkg_builder(project, spec)
+}
+
+fn node_builtin_specifier(spec: &str) -> Option<(String, &str)> {
+	if let Some(explicit) = spec.strip_prefix("node:") {
+		let (root, tail) = explicit
+			.split_once('/')
+			.map_or((explicit, ""), |(root, tail)| (root, tail));
+		return (!root.is_empty()).then(|| (format!("node:{root}"), tail));
+	}
+	let (root, tail) = spec
+		.split_once('/')
+		.map_or((spec, ""), |(root, tail)| (root, tail));
+	NODE_BARE_BUILTINS
+		.contains(&root)
+		.then(|| (format!("node:{root}"), tail))
+}
+
+const NODE_BARE_BUILTINS: &[&str] = &[
+	"assert",
+	"async_hooks",
+	"buffer",
+	"child_process",
+	"cluster",
+	"console",
+	"constants",
+	"crypto",
+	"dgram",
+	"diagnostics_channel",
+	"dns",
+	"domain",
+	"events",
+	"fs",
+	"http",
+	"http2",
+	"https",
+	"inspector",
+	"module",
+	"net",
+	"os",
+	"path",
+	"perf_hooks",
+	"process",
+	"punycode",
+	"querystring",
+	"readline",
+	"repl",
+	"stream",
+	"string_decoder",
+	"sys",
+	"timers",
+	"tls",
+	"trace_events",
+	"tty",
+	"url",
+	"util",
+	"v8",
+	"vm",
+	"wasi",
+	"worker_threads",
+	"zlib",
+];
+
 fn split_package_specifier(spec: &str) -> (&str, &str) {
 	if let Some(after_scope) = spec.strip_prefix('@') {
 		let mut parts = after_scope.splitn(3, '/');
@@ -214,6 +286,35 @@ mod tests {
 		assert_eq!(segments[1].name, b"sub");
 		assert_eq!(segments[2].kind, b"path");
 		assert_eq!(segments[2].name, b"path");
+	}
+
+	#[test]
+	fn node_prefixed_and_bare_builtins_share_one_sdk_identity() {
+		let prefixed = module_specifier_builder(b"app", "node:fs/promises").build();
+		let bare = module_specifier_builder(b"app", "fs/promises").build();
+
+		assert_eq!(bare, prefixed);
+		let segments = bare.as_view().segments().collect::<Vec<_>>();
+		assert_eq!(
+			segments
+				.iter()
+				.map(|segment| (segment.kind, segment.name))
+				.collect::<Vec<_>>(),
+			vec![
+				(b"sdk".as_slice(), b"ts".as_slice()),
+				(b"path".as_slice(), b"node:fs".as_slice()),
+				(b"path".as_slice(), b"promises".as_slice()),
+			]
+		);
+	}
+
+	#[test]
+	fn ordinary_package_specifier_remains_external() {
+		let package = module_specifier_builder(b"app", "react").build();
+		let first = package.as_view().segments().next().unwrap();
+
+		assert_eq!(first.kind, b"external_pkg");
+		assert_eq!(first.name, b"react");
 	}
 
 	#[test]

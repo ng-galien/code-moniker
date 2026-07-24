@@ -132,14 +132,15 @@ namespace Acme.Domain
 }
 ```
 
-A note on `domain-no-infra`: the C# extractor records cross-namespace
-references either as `external_pkg` targets (for `using` directives) or as
-name-match guesses inside the source's own namespace, so no reference ever
-carries a `package:Infrastructure` target and the rule cannot fire today. It
-is kept in the sample as the intended shape of the layering contract.
+A note on `domain-no-infra`: the C# extractor records BCL references under
+`sdk:cs`, dependency namespaces under `external_pkg`, and other
+cross-namespace references as name-match guesses inside the source's own
+namespace. No reference therefore carries a `package:Infrastructure` target,
+so the rule cannot fire today. It is kept in the sample as the intended shape
+of the layering contract.
 
 ```cm:expect
-! cs.refs.domain-no-infra C# cross-namespace refs resolve to external_pkg or in-module name-match targets, never package:Infrastructure
+! cs.refs.domain-no-infra C# cross-namespace refs resolve to SDK, dependency, or in-module name-match targets, never package:Infrastructure
 cs.class.class-budget @ src/Domain/CustomerProfile.cs:L3-L26
 cs.interface.interface-starts-with-i @ src/Domain/Order.cs:L5-L8
 cs.class.class-pascalcase @ src/Domain/Order.cs:L15-L22

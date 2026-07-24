@@ -226,7 +226,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         572
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -239,7 +239,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         606
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -252,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         644
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -265,7 +265,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         682
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
     },
     {
       "alias": "",
@@ -278,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         831
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -291,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         965
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -304,7 +304,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1036
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -317,7 +317,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1368
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -330,7 +330,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1382
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -343,7 +343,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         12
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:lower"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:lower"
     },
     {
       "alias": "",
@@ -356,7 +356,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         18
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:split_part"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:split_part"
     },
     {
       "alias": "",
@@ -369,7 +369,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1689
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -382,7 +382,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1702
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -421,7 +421,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         2385
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
     },
     {
       "alias": "",
@@ -447,7 +447,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         2794
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:pg_catalog/path:now"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:now"
     }
   ],
   "root": "code+moniker://app/lang:sql/module:users"

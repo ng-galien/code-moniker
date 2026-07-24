@@ -10,10 +10,12 @@ use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
 };
 use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::linkage::resolve::CIncludeVisibility;
+use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::resolve::python_bindings::PythonBindingGraph;
 use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
@@ -27,6 +29,27 @@ pub(in crate::linkage) struct SemanticLinkage<'a> {
 	locations: &'a ReferenceLocations,
 	source_groups: &'a SourceGroupPolicy,
 	packages: &'a WorkspacePackageIndex,
+	manifests: &'a ManifestPolicy,
+}
+
+pub(in crate::linkage) struct SemanticPolicies<'a> {
+	source_groups: &'a SourceGroupPolicy,
+	packages: &'a WorkspacePackageIndex,
+	manifests: &'a ManifestPolicy,
+}
+
+impl<'a> SemanticPolicies<'a> {
+	pub(in crate::linkage) fn new(
+		source_groups: &'a SourceGroupPolicy,
+		packages: &'a WorkspacePackageIndex,
+		manifests: &'a ManifestPolicy,
+	) -> Self {
+		Self {
+			source_groups,
+			packages,
+			manifests,
+		}
+	}
 }
 
 impl<'a> SemanticLinkage<'a> {
@@ -35,16 +58,16 @@ impl<'a> SemanticLinkage<'a> {
 		methods: &'a MethodTable,
 		candidates: &'a CandidateCatalog,
 		locations: &'a ReferenceLocations,
-		source_groups: &'a SourceGroupPolicy,
-		packages: &'a WorkspacePackageIndex,
+		policies: SemanticPolicies<'a>,
 	) -> Self {
 		Self {
 			material,
 			methods,
 			candidates,
 			locations,
-			source_groups,
-			packages,
+			source_groups: policies.source_groups,
+			packages: policies.packages,
+			manifests: policies.manifests,
 		}
 	}
 
@@ -94,6 +117,21 @@ impl<'a> SemanticLinkage<'a> {
 	) -> Option<&'b MonikerTypeSet> {
 		let callable = self.candidates.candidate(symbol)?.moniker;
 		return_types.get(callable)
+	}
+
+	fn manifest_declares_target(
+		&self,
+		method_call: MethodCallReference<'_>,
+		target: &Moniker,
+	) -> bool {
+		let Some(location) = self.locations.get(method_call.reference_idx) else {
+			return false;
+		};
+		let Some(query) = LinkageQuery::at(method_call.reference, self.material, location) else {
+			return false;
+		};
+		self.manifests
+			.declares_external_target(&query.with_target(target))
 	}
 }
 
@@ -186,19 +224,28 @@ fn classify_c_unindexed_external_dependencies(
 			continue;
 		}
 		let reference = &references[reference_idx];
-		if reference.kind == "imports_module" {
-			continue;
-		}
 		let Some(location) = linkage.locations.get(reference_idx) else {
 			continue;
 		};
-		if !linkage
+		let c_source = linkage
 			.material
 			.files
 			.get(location.source_file)
-			.is_some_and(|file| file.lang == code_moniker_core::lang::Lang::C)
-			|| !visibility.depends_on_unindexed_external(location.source_file)
-		{
+			.is_some_and(|file| file.lang == code_moniker_core::lang::Lang::C);
+		if !c_source {
+			continue;
+		}
+		if reference.kind == "imports_module" {
+			if reference.receiver.as_deref() == Some("c_build_dependency") {
+				*decision = ReferenceLinkageDecision::external(
+					ExternalOrigin::Dependency,
+					reference_idx,
+					reference.id,
+				);
+			}
+			continue;
+		}
+		if !visibility.depends_on_unindexed_external(location.source_file) {
 			continue;
 		}
 		*decision = ReferenceLinkageDecision::dynamic(
@@ -1241,6 +1288,21 @@ struct ReceiverFieldTables {
 	supers: FxHashMap<Moniker, Vec<Moniker>>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	value_types: FxHashMap<Moniker, MonikerTypeSet>,
+	invariant_external_origins: FxHashMap<Moniker, ExternalOrigin>,
+}
+
+impl ReceiverFieldTables {
+	fn record_alias(&mut self, raw: &Moniker, target: &Moniker, origin: Option<ExternalOrigin>) {
+		self.type_aliases.insert(raw.clone(), target.clone());
+		self.record_external_origin(raw, origin);
+	}
+
+	fn record_external_origin(&mut self, target: &Moniker, origin: Option<ExternalOrigin>) {
+		if let Some(origin @ (ExternalOrigin::Sdk | ExternalOrigin::Injected)) = origin {
+			self.invariant_external_origins
+				.insert(target.clone(), origin);
+		}
+	}
 }
 
 #[derive(Default)]
@@ -1276,6 +1338,7 @@ fn build_receiver_field_tables(
 		supers: FxHashMap::default(),
 		type_aliases: FxHashMap::default(),
 		value_types: FxHashMap::default(),
+		invariant_external_origins: FxHashMap::default(),
 	};
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
@@ -1289,10 +1352,15 @@ fn build_receiver_field_tables(
 		else {
 			continue;
 		};
+		let external_origin = match decision {
+			ReferenceLinkageDecision::External { origin, .. } => Some(*origin),
+			_ => None,
+		};
+		tables.record_external_origin(&target, external_origin);
 		if let Some(raw) = linkage.material.reference_target(&reference.id)
 			&& raw != &target
 		{
-			tables.type_aliases.insert(raw.clone(), target.clone());
+			tables.record_alias(raw, &target, external_origin);
 		}
 		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
 			continue;
@@ -1493,11 +1561,12 @@ fn typed_receiver_types_decision(
 					targets.insert(target);
 				}
 			}
-			ReferenceLinkageDecision::External { target, .. } => {
-				if external_target.is_some() && external_target != target {
+			ReferenceLinkageDecision::External { origin, target, .. } => {
+				let external = target.map(|target| (origin, target));
+				if external_target.is_some() && external_target != external {
 					open = true;
 				}
-				external_target = target;
+				external_target = external;
 			}
 			ReferenceLinkageDecision::Dynamic { candidates, .. } => {
 				for target in candidates.iter() {
@@ -1535,7 +1604,8 @@ fn typed_receiver_types_decision(
 			)
 		});
 	}
-	external_target.map(|target| method_call.external_decision(target))
+	external_target
+		.map(|(origin, target)| method_call.external_decision_with_origin(origin, target))
 }
 
 fn resolve_imported_method_call(
@@ -1678,8 +1748,9 @@ fn resolve_method_through_supers(
 			return declared_groups_permit_decision(linkage, &decision).then_some(decision);
 		}
 		if external_target_shape(&current) || linkage.packages.is_foreign_moniker(&current) {
+			let origin = external_origin(linkage, tables, &current, method_call);
 			let target = method_target(&current, method_call.call_name(), method_call.call_arity());
-			return Some(method_call.external_decision(target));
+			return Some(method_call.external_decision_with_origin(origin, target));
 		}
 		if let Some(parents) = tables.supers.get(&current) {
 			for parent in parents {
@@ -1742,9 +1813,13 @@ impl<'a> MethodCallReference<'a> {
 		self.reference.call_arity
 	}
 
-	fn external_decision(&self, target: Moniker) -> ReferenceLinkageDecision {
+	fn external_decision_with_origin(
+		&self,
+		origin: ExternalOrigin,
+		target: Moniker,
+	) -> ReferenceLinkageDecision {
 		ReferenceLinkageDecision::external_target(
-			ExternalOrigin::Dependency,
+			origin,
 			self.reference_idx,
 			self.reference.id,
 			target,
@@ -2159,10 +2234,10 @@ fn resolve_receiver_chain(
 				typed_receiver_types_decision(linkage, tables, types, method_call)
 			}
 		}
-		ReferenceStatus::External(target) => {
+		ReferenceStatus::External { origin, target } => {
 			let owner = callable_owner(target)?;
 			let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
-			Some(method_call.external_decision(target))
+			Some(method_call.external_decision_with_origin(*origin, target))
 		}
 	}
 }
@@ -2170,7 +2245,10 @@ fn resolve_receiver_chain(
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ReferenceStatus {
 	Resolved(SymbolOrdinal),
-	External(Moniker),
+	External {
+		origin: ExternalOrigin,
+		target: Moniker,
+	},
 }
 
 fn collect_return_types(
@@ -2262,12 +2340,16 @@ fn reference_status(
 		}
 		ReferenceLinkageDecision::External {
 			reference_idx,
+			origin,
 			target,
 			..
 		} => target
 			.as_ref()
 			.or_else(|| material.reference_target(&references[*reference_idx].id))
-			.map(|target| ReferenceStatus::External(target.clone())),
+			.map(|target| ReferenceStatus::External {
+				origin: *origin,
+				target: target.clone(),
+			}),
 		_ => None,
 	}
 }
@@ -2313,7 +2395,38 @@ fn external_target_shape(target: &Moniker) -> bool {
 	target
 		.as_view()
 		.segments()
-		.any(|segment| segment.kind == kinds::EXTERNAL_PKG)
+		.next()
+		.is_some_and(|segment| matches!(segment.kind, kinds::EXTERNAL_PKG | kinds::SDK))
+}
+
+fn external_origin(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	target: &Moniker,
+	method_call: MethodCallReference<'_>,
+) -> ExternalOrigin {
+	let mut current = Some(target.clone());
+	while let Some(moniker) = current {
+		if let Some(origin) = tables.invariant_external_origins.get(&moniker) {
+			return *origin;
+		}
+		current = moniker.parent();
+	}
+	if target
+		.as_view()
+		.segments()
+		.next()
+		.is_some_and(|segment| segment.kind == kinds::SDK)
+	{
+		return ExternalOrigin::Sdk;
+	}
+	if linkage.packages.is_foreign_moniker(target) {
+		return ExternalOrigin::Dependency;
+	}
+	if linkage.manifest_declares_target(method_call, target) {
+		return ExternalOrigin::Dependency;
+	}
+	ExternalOrigin::UnknownExternal
 }
 
 #[cfg(test)]

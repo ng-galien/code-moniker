@@ -1,0 +1,129 @@
+---
+source: crates/core/tests/extractors_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/extractors/java/SystemStreams.java
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/comment:23",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams",
+      "position": [
+        23,
+        47
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams",
+      "position": [
+        48,
+        343
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/comment:84",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams",
+      "position": [
+        84,
+        118
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams",
+      "position": [
+        120,
+        341
+      ],
+      "signature": "String",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)/comment:169",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "position": [
+        169,
+        221
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)/comment:255",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "position": [
+        255,
+        307
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "kind": "uses_type",
+      "position": [
+        149,
+        155
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "kind": "method_call",
+      "position": [
+        224,
+        251
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:System/path:out/method:println(_)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)",
+      "kind": "method_call",
+      "position": [
+        310,
+        337
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:System/path:err/method:println(_)"
+    }
+  ],
+  "root": "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams"
+}

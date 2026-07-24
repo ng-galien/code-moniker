@@ -53,7 +53,7 @@ fn package_key(moniker: &Moniker) -> Option<Vec<u8>> {
 			key.push(0);
 			key.extend_from_slice(segment.name);
 			has_package = true;
-		} else if segment.kind == kinds::EXTERNAL_PKG {
+		} else if matches!(segment.kind, kinds::EXTERNAL_PKG | kinds::SDK) {
 			return None;
 		}
 	}

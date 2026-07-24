@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/jobs.py
 ---
@@ -214,7 +213,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         50
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:asyncio"
+      "to": "code+moniker://app/sdk:python/path:asyncio"
     },
     {
       "alias": "",
@@ -227,7 +226,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         93
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+      "to": "code+moniker://app/sdk:python/path:contextlib/function:asynccontextmanager"
     },
     {
       "alias": "",
@@ -240,7 +239,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         127
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -253,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         170
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:AsyncIterator"
+      "to": "code+moniker://app/sdk:python/path:typing/function:AsyncIterator"
     },
     {
       "alias": "",
@@ -266,7 +265,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         170
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -279,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         183
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -292,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         215
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -305,7 +304,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         232
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:dict"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:dict"
     },
     {
       "alias": "",
@@ -318,7 +317,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         293
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -341,7 +340,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -354,7 +353,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         420
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+      "to": "code+moniker://app/sdk:python/path:contextlib/function:asynccontextmanager"
     },
     {
       "alias": "",
@@ -367,7 +366,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         491
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:AsyncIterator"
+      "to": "code+moniker://app/sdk:python/path:typing/function:AsyncIterator"
     },
     {
       "alias": "",
@@ -393,7 +392,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         525
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:print"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:print"
     },
     {
       "alias": "",
@@ -406,7 +405,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         590
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:print"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:print"
     },
     {
       "alias": "job",
@@ -478,7 +477,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         1108
       ],
       "receiver_hint": "asyncio",
-      "to": "code+moniker://app/external_pkg:asyncio/function:sleep"
+      "to": "code+moniker://app/sdk:python/path:asyncio/function:sleep"
     },
     {
       "alias": "",
@@ -491,7 +490,7 @@ input_file: crates/core/tests/fixtures/extractors/python/jobs.py
         1099
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:asyncio"
+      "to": "code+moniker://app/sdk:python/path:asyncio"
     },
     {
       "alias": "",

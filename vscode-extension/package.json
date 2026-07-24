@@ -2,7 +2,7 @@
 	"name": "code-moniker",
 	"displayName": "Code Moniker",
 	"description": "Beta VS Code workbench for the Code Moniker CLI: rules, symbol navigation, checks, and executable samples.",
-	"version": "0.1.0",
+	"version": "0.5.0",
 	"publisher": "code-moniker",
 	"license": "MIT",
 	"repository": {

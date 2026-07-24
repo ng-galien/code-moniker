@@ -230,13 +230,31 @@ mod tests {
 		assert!(
 			segments
 				.iter()
-				.any(|segment| { segment.kind == b"external_pkg" && segment.name == b"System" })
+				.any(|segment| { segment.kind == b"sdk" && segment.name == b"cs" })
+		);
+		assert!(
+			segments
+				.iter()
+				.any(|segment| { segment.kind == b"path" && segment.name == b"System" })
 		);
 		assert!(
 			segments
 				.iter()
 				.any(|segment| { segment.kind == b"path" && segment.name == b"ResourceManager" })
 		);
+	}
+
+	#[test]
+	fn microsoft_namespace_is_not_implicitly_owned_by_the_sdk() {
+		let src = "using Microsoft.Extensions.Logging; class Service {}";
+		let g = extract_default("Service.cs", src, &make_anchor(), false);
+		let reference = g
+			.refs()
+			.find(|reference| reference.kind == b"imports_module")
+			.expect("using reference");
+		let first = reference.target.as_view().segments().next().unwrap();
+		assert_eq!(first.kind, b"external_pkg");
+		assert_eq!(first.name, b"Microsoft");
 	}
 
 	#[test]
@@ -276,6 +294,63 @@ mod tests {
 			.find(|r| r.kind == b"imports_module")
 			.expect("imports_module ref");
 		assert_eq!(r.confidence, b"imported".to_vec());
+	}
+
+	#[test]
+	fn extract_system_prefixed_nuget_namespace_stays_manifest_owned() {
+		for namespace in [
+			"System.Reactive.Linq",
+			"System.CommandLine",
+			"System.IO.Abstractions",
+			"System.Linq.Dynamic.Core",
+		] {
+			let source = format!("using {namespace};\n");
+			let g = extract_default("F.cs", &source, &make_anchor(), false);
+			let reference = g
+				.refs()
+				.find(|reference| reference.kind == b"imports_module")
+				.expect("imports_module ref");
+			assert_eq!(
+				reference.confidence,
+				b"imported".to_vec(),
+				"{namespace} must be resolved through the project manifest",
+			);
+			assert_eq!(
+				reference.target.as_view().segments().next().unwrap().kind,
+				b"external_pkg",
+			);
+		}
+	}
+
+	#[test]
+	fn extract_qualified_bcl_types_outside_the_short_catalog_use_sdk_targets() {
+		let source = concat!(
+			"class Service { ",
+			"System.IO.StreamReader reader; ",
+			"System.Net.Http.HttpClient client = new System.Net.Http.HttpClient(); ",
+			"}",
+		);
+		let g = extract_default("Service.cs", source, &make_anchor(), false);
+		for type_name in ["StreamReader", "HttpClient"] {
+			let reference = g
+				.refs()
+				.find(|reference| {
+					reference.kind == b"uses_type"
+						&& reference
+							.target
+							.as_view()
+							.segments()
+							.last()
+							.is_some_and(|segment| segment.name == type_name.as_bytes())
+				})
+				.unwrap_or_else(|| panic!("missing uses_type for {type_name}"));
+			assert_eq!(
+				reference.target.as_view().segments().next().unwrap().kind,
+				b"sdk",
+				"{type_name} must be owned by the target framework",
+			);
+			assert_eq!(reference.confidence, b"external".to_vec());
+		}
 	}
 
 	#[test]

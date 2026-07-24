@@ -374,12 +374,12 @@ go 1.21"#,
 	}
 
 	/// `package_moniker(import_root)` must be `@>`-ancestor of (or equal
-	/// to) the ref target the extractor emits for the same import. Python
-	/// uses `os` because only stdlib goes through `external_pkg`; Java is
-	/// excluded since non-stdlib imports use `lang:java/package:…`.
+	/// to) the ref target the extractor emits for the same dependency
+	/// import. Java and Python use language-specific package identities
+	/// that are covered by linkage acceptance tests instead.
 	#[test]
 	fn package_moniker_binds_extractor_ref_per_language() {
-		use crate::lang::{cs, go, python, rs, ts};
+		use crate::lang::{cs, go, rs, ts};
 		let anchor = MonikerBuilder::new().project(b"app").build();
 
 		struct Case {
@@ -407,9 +407,6 @@ go 1.21"#,
 				false,
 				&rs::Presets::default(),
 			)
-		}
-		fn run_python(a: &Moniker) -> crate::core::code_graph::CodeGraph {
-			python::extract("m.py", "import os\n", a, false, &python::Presets::default())
 		}
 		fn run_go(a: &Moniker) -> crate::core::code_graph::CodeGraph {
 			go::extract(
@@ -444,13 +441,6 @@ go 1.21"#,
 				extractor_head: "serde_json",
 				import_root: "serde_json",
 				run: run_rs,
-			},
-			Case {
-				lang: "python",
-				manifest: Manifest::Pyproject,
-				extractor_head: "os",
-				import_root: "os",
-				run: run_python,
 			},
 			Case {
 				lang: "go",

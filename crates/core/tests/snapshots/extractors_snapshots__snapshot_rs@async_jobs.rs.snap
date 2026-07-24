@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
 ---
@@ -292,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         30
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections"
     },
     {
       "alias": "",
@@ -305,7 +304,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         30
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -331,7 +330,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         282
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -357,7 +356,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         391
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -383,7 +382,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         408
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -396,7 +395,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         495
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -435,7 +434,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         550
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -461,7 +460,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         626
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         731
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:push"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:push"
     },
     {
       "alias": "",
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         730
       ],
       "receiver_hint": "id",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:to_string"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:to_string"
     },
     {
       "alias": "",

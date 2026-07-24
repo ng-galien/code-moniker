@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 130
 expression: body
 input_file: crates/core/tests/fixtures/extractors/go/accounts.go
 ---
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         352
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:errors"
+      "to": "code+moniker://app/sdk:go/path:errors"
     },
     {
       "alias": "",
@@ -526,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         359
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:fmt"
+      "to": "code+moniker://app/sdk:go/path:fmt"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         370
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strings"
+      "to": "code+moniker://app/sdk:go/path:strings"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         378
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:sync"
+      "to": "code+moniker://app/sdk:go/path:sync"
     },
     {
       "alias": "",
@@ -565,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1656
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex"
     },
     {
       "alias": "",
@@ -578,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         739
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:errors/func:New"
+      "to": "code+moniker://app/sdk:go/path:errors/func:New"
     },
     {
       "alias": "",
@@ -591,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1069
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:fmt/func:Sprintf"
+      "to": "code+moniker://app/sdk:go/path:fmt/func:Sprintf"
     },
     {
       "alias": "",
@@ -669,7 +668,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1672
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex"
     },
     {
       "alias": "",
@@ -721,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1814
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:make"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:make"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1888
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
@@ -760,7 +759,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         1910
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -786,7 +785,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2128
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
@@ -799,7 +798,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2150
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -838,7 +837,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2323
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:Lock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:Lock()"
     },
     {
       "alias": "",
@@ -851,7 +850,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2344
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:Unlock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:Unlock()"
     },
     {
       "alias": "",
@@ -890,7 +889,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2928
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:make"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:make"
     },
     {
       "alias": "",
@@ -903,7 +902,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2960
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:close"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:close"
     },
     {
       "alias": "",
@@ -916,7 +915,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2975
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
@@ -929,7 +928,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         2998
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
+      "to": "code+moniker://app/sdk:go/path:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -994,7 +993,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         3423
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:append"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:append"
     },
     {
       "alias": "",
@@ -1007,7 +1006,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         3664
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strings/func:IndexByte"
+      "to": "code+moniker://app/sdk:go/path:strings/func:IndexByte"
     },
     {
       "alias": "",
@@ -1020,7 +1019,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         3710
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strings/func:ToLower"
+      "to": "code+moniker://app/sdk:go/path:strings/func:ToLower"
     },
     {
       "alias": "",
@@ -1033,7 +1032,7 @@ input_file: crates/core/tests/fixtures/extractors/go/accounts.go
         3749
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strings/func:ToLower"
+      "to": "code+moniker://app/sdk:go/path:strings/func:ToLower"
     }
   ],
   "root": "code+moniker://app/lang:go/module:accounts"

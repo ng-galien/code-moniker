@@ -56,5 +56,3 @@ fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	);
 	builder.build()
 }
-
-pub(crate) use builtins::STDLIB_HEADER_ROOTS;

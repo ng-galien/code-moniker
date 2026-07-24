@@ -34,10 +34,6 @@ pub fn extract(
 	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
-pub fn builtin_external_root(root: &str) -> bool {
-	sdk_pipeline::STDLIB_PACKAGES.binary_search(&root).is_ok()
-}
-
 pub struct Lang;
 
 const DEF_KINDS: &[&str] = &[

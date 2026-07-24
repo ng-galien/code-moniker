@@ -193,7 +193,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/jsx.tsx
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
       "kind": "uses_type",
       "position": [
@@ -232,7 +232,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/jsx.tsx
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
       "kind": "method_call",
       "position": [
@@ -240,7 +240,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/jsx.tsx
         945
       ],
       "receiver_hint": "labels",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:map"
+      "to": "code+moniker://app/lang:ts/module:jsx/path:labels/method:map"
     },
     {
       "alias": "",

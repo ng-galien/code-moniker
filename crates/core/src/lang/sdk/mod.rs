@@ -23,3 +23,15 @@ pub use model::{
 pub use resolve::{LangResolverStrategy, LocalResolver, Resolution};
 pub use scope::{Namespace, Rib, Scope, ScopeId, ScopeTree};
 pub use types::{TypeEnv, TypeExpr};
+
+use crate::core::moniker::MonikerBuilder;
+
+/// Starts a target owned by a language runtime or standard SDK.
+/// `sdk:<lang>` is the root; callers append every lexical namespace segment,
+/// including Java's repeated `path:java`.
+pub(crate) fn sdk_target_builder(project: &[u8], language: &[u8]) -> MonikerBuilder {
+	let mut builder = MonikerBuilder::new();
+	builder.project(project);
+	builder.segment(crate::lang::kinds::SDK, language);
+	builder
+}

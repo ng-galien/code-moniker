@@ -757,9 +757,13 @@ export interface SymbolGraphEdge {
 }
 export interface UnlinkedRefsDto {
   candidate: number;
+  dependency: number;
   dynamic: number;
   external: number;
+  injected_external: number;
   manifest_blocked: number;
+  sdk: number;
+  unknown_external: number;
   unresolved: number;
   unresolved_reasons: {
     [k: string]: number;
@@ -839,14 +843,18 @@ export interface AuditSampleDto {
 export interface AuditTotalsDto {
   blocked: number;
   candidate: number;
+  dependency: number;
   dynamic: number;
   explained: number;
   external: number;
+  injected_external: number;
   name_match_candidate: number;
   name_match_resolved: number;
   references: number;
   resolved: number;
+  sdk: number;
   unique: number;
+  unknown_external: number;
   unresolved: number;
   weak_or_unexplained: number;
 }

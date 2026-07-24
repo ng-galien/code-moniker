@@ -19,10 +19,7 @@ pub(super) fn collect_include(state: &mut CDiscover<'_>, node: Node<'_>, scope: 
 		"system_lib_string" => {
 			let inner = text.trim_start_matches('<').trim_end_matches('>');
 			let (target, confidence) = if is_stdlib_header_path(inner) {
-				(
-					system_include_target(&state.root, inner),
-					kinds::CONF_EXTERNAL,
-				)
+				(sdk_include_target(&state.root, inner), kinds::CONF_EXTERNAL)
 			} else if let Some(target) =
 				resolved_workspace_include_target(&state.root, inner, false, &state.presets)
 			{
@@ -94,7 +91,25 @@ fn push_include(
 	});
 }
 
-// `<sys/types.h>` → external_pkg:sys/path:types — the last piece drops `.h`.
+fn sdk_include_target(root: &Moniker, include_path: &str) -> Moniker {
+	let mut builder = crate::lang::sdk::sdk_target_builder(root.as_view().project(), b"c");
+	let pieces = include_path
+		.split('/')
+		.filter(|piece| !piece.is_empty())
+		.collect::<Vec<_>>();
+	for (index, piece) in pieces.iter().enumerate() {
+		let name = if index == pieces.len() - 1 {
+			strip_header_suffix(piece)
+		} else {
+			piece
+		};
+		builder.segment(kinds::PATH, name.as_bytes());
+	}
+	builder.build()
+}
+
+// Unrecognized `<vendor/types.h>` fallback → external_pkg:vendor/path:types.
+// The last piece drops `.h`; known C/POSIX roots use `sdk:c` instead.
 fn system_include_target(root: &Moniker, include_path: &str) -> Moniker {
 	let mut builder = MonikerBuilder::new();
 	builder.project(root.as_view().project());

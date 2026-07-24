@@ -366,7 +366,6 @@ TS external-shaped refs are not enough. Declared packages may become external de
 undeclared packages must stay unresolved so extractor confidence cannot bypass workspace policy.
 """
 symbols = [
-  "module:language/module:ts/fn:builtin_external_root",
   "module:language/module:ts/fn:package_prefix",
   "module:resolve/module:manifest/fn:source_root_declares_dependency",
 ]

@@ -94,7 +94,7 @@ pub(super) fn wildcard_target(module: &Moniker, pieces: &[&str], confidence: &[u
 		}
 		return builder.build();
 	}
-	external_package_target(module.as_view().project(), pieces)
+	external_or_sdk_target(module.as_view().project(), pieces)
 }
 
 pub(super) fn symbol_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Moniker {
@@ -113,7 +113,7 @@ pub(super) fn symbol_target(module: &Moniker, pieces: &[&str], confidence: &[u8]
 		builder.segment(kinds::PATH, pieces[last].as_bytes());
 		return builder.build();
 	}
-	external_package_target(module.as_view().project(), pieces)
+	external_or_sdk_target(module.as_view().project(), pieces)
 }
 
 fn static_owner_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Option<Moniker> {
@@ -135,7 +135,7 @@ fn static_owner_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> 
 		}
 		return Some(builder.build());
 	}
-	Some(external_package_target(module.as_view().project(), owner))
+	Some(external_or_sdk_target(module.as_view().project(), owner))
 }
 
 pub(super) fn same_package_symbol_target(module: &Moniker, name: &[u8]) -> Moniker {
@@ -162,10 +162,9 @@ pub(super) fn java_lang_target(module: &Moniker, name: &[u8]) -> Moniker {
 }
 
 pub(super) fn java_external_target_shape(target: &Moniker) -> bool {
-	target
-		.as_view()
-		.segments()
-		.any(|segment| segment.kind == kinds::EXTERNAL_PKG)
+	target.as_view().segments().next().is_some_and(|segment| {
+		matches!(segment.kind, kinds::EXTERNAL_PKG | crate::lang::kinds::SDK)
+	})
 }
 
 fn project_regime_builder(module: &Moniker) -> MonikerBuilder {
@@ -193,13 +192,132 @@ pub(super) fn external_package_target(project: &[u8], pieces: &[&str]) -> Monike
 	builder.build()
 }
 
+pub(super) fn external_or_sdk_target(project: &[u8], pieces: &[&str]) -> Moniker {
+	if !is_java_sdk_path(pieces) {
+		return external_package_target(project, pieces);
+	}
+	let mut builder = crate::lang::sdk::sdk_target_builder(project, b"java");
+	for piece in pieces {
+		builder.segment(kinds::PATH, piece.as_bytes());
+	}
+	builder.build()
+}
+
+fn is_java_sdk_path(pieces: &[&str]) -> bool {
+	matches!(pieces.first().copied(), Some("java" | "sun")) || is_javax_sdk_path(pieces)
+}
+
 pub(super) fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 	if pieces.is_empty() {
 		return kinds::CONF_IMPORTED;
 	}
-	match pieces[0] {
-		"java" | "javax" | "kotlin" | "sun" => kinds::CONF_EXTERNAL,
-		"com" if pieces.get(1).copied() == Some("sun") => kinds::CONF_EXTERNAL,
-		_ => kinds::CONF_IMPORTED,
+	if is_java_sdk_path(pieces) {
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_IMPORTED
+	}
+}
+
+// Conservative Java SE/JDK 21 ownership. `javax` is a shared historical
+// namespace: JPA, Servlet, Validation, JAX-RS and JAXB are supplied by project
+// dependencies on current JDKs, so the root itself is not enough evidence.
+fn is_javax_sdk_path(pieces: &[&str]) -> bool {
+	matches!(
+		pieces,
+		["javax", "accessibility", ..]
+			| ["javax", "annotation", "processing", ..]
+			| ["javax", "crypto", ..]
+			| ["javax", "imageio", ..]
+			| ["javax", "lang", "model", ..]
+			| ["javax", "management", ..]
+			| ["javax", "naming", ..]
+			| ["javax", "net", ..]
+			| ["javax", "print", ..]
+			| ["javax", "rmi", "ssl", ..]
+			| ["javax", "script", ..]
+			| ["javax", "security", ..]
+			| ["javax", "smartcardio", ..]
+			| ["javax", "sound", ..]
+			| ["javax", "sql", ..]
+			| ["javax", "swing", ..]
+			| ["javax", "tools", ..]
+			| ["javax", "transaction", "xa", ..]
+			| ["javax", "xml"]
+			| ["javax", "xml", "catalog", ..]
+			| ["javax", "xml", "crypto", ..]
+			| ["javax", "xml", "datatype", ..]
+			| ["javax", "xml", "namespace", ..]
+			| ["javax", "xml", "parsers", ..]
+			| ["javax", "xml", "stream", ..]
+			| ["javax", "xml", "transform", ..]
+			| ["javax", "xml", "validation", ..]
+			| ["javax", "xml", "xpath", ..]
+	)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn sdk_root_preserves_java_namespace_and_excludes_kotlin() {
+		let java = external_or_sdk_target(b"app", &["java", "lang", "String"]);
+		let java_segments = java.as_view().segments().collect::<Vec<_>>();
+		assert_eq!(
+			(java_segments[0].kind, java_segments[0].name),
+			(crate::lang::kinds::SDK, b"java".as_slice())
+		);
+		assert_eq!(
+			(java_segments[1].kind, java_segments[1].name),
+			(kinds::PATH, b"java".as_slice())
+		);
+
+		let kotlin = external_or_sdk_target(b"app", &["kotlin", "collections", "List"]);
+		let kotlin_root = kotlin.as_view().segments().next().unwrap();
+		assert_eq!(
+			(kotlin_root.kind, kotlin_root.name),
+			(kinds::EXTERNAL_PKG, b"kotlin".as_slice())
+		);
+	}
+
+	#[test]
+	fn javax_sdk_ownership_is_conservative() {
+		let crypto = external_or_sdk_target(b"app", &["javax", "crypto", "Cipher"]);
+		assert_eq!(
+			crypto.as_view().segments().next().unwrap().kind,
+			crate::lang::kinds::SDK,
+		);
+
+		for third_party in [
+			&["javax", "persistence", "Entity"][..],
+			&["javax", "servlet", "Servlet"][..],
+			&["javax", "validation", "Validator"][..],
+			&["javax", "ws", "rs", "Path"][..],
+			&["javax", "xml", "bind", "JAXBContext"][..],
+		] {
+			let target = external_or_sdk_target(b"app", third_party);
+			assert_eq!(
+				target.as_view().segments().next().unwrap().kind,
+				kinds::EXTERNAL_PKG,
+				"{third_party:?} must remain manifest-owned",
+			);
+			assert_eq!(external_or_imported(third_party), kinds::CONF_IMPORTED);
+		}
+	}
+
+	#[test]
+	fn com_sun_namespace_remains_manifest_owned() {
+		for third_party in [
+			&["com", "sun", "jersey", "api", "client", "Client"][..],
+			&["com", "sun", "xml", "bind", "Marshaller"][..],
+		] {
+			let target = external_or_sdk_target(b"app", third_party);
+			assert_eq!(
+				target.as_view().segments().next().unwrap().kind,
+				kinds::EXTERNAL_PKG,
+				"{third_party:?} must remain manifest-owned",
+			);
+			assert_eq!(external_or_imported(third_party), kinds::CONF_IMPORTED);
+		}
 	}
 }

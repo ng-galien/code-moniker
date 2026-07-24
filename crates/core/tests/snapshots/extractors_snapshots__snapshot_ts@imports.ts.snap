@@ -253,7 +253,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         258
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:node:fs"
+      "to": "code+moniker://app/sdk:ts/path:node:fs"
     },
     {
       "alias": "Util",
@@ -331,7 +331,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         493
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:node:buffer/path:Buffer"
+      "to": "code+moniker://app/sdk:ts/path:node:buffer/path:Buffer"
     },
     {
       "alias": "",
@@ -427,7 +427,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "instantiates",
       "position": [
@@ -474,7 +474,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         912
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Date"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Date"
     },
     {
       "alias": "",
@@ -500,7 +500,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         1007
       ],
       "receiver_hint": "fs",
-      "to": "code+moniker://app/external_pkg:node:fs/method:statSync"
+      "to": "code+moniker://app/sdk:ts/path:node:fs/method:statSync"
     },
     {
       "alias": "",
@@ -513,7 +513,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         990
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:node:fs"
+      "to": "code+moniker://app/sdk:ts/path:node:fs"
     },
     {
       "alias": "",
@@ -526,7 +526,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/imports.ts
         1072
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:node:buffer/class:Buffer"
+      "to": "code+moniker://app/sdk:ts/path:node:buffer/class:Buffer"
     },
     {
       "alias": "",

@@ -43,13 +43,6 @@ pub fn extract(
 	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
-pub fn builtin_external_root(root: &str) -> bool {
-	sdk_pipeline::STDLIB_HEADER_ROOTS
-		.binary_search(&root)
-		.is_ok()
-		|| root == "libc"
-}
-
 pub struct Lang;
 
 const DEF_KINDS: &[&str] = &[
@@ -332,7 +325,14 @@ mod tests {
 				.target
 				.as_view()
 				.segments()
-				.any(|s| s.kind == b"external_pkg" && s.name == b"stdio"),
+				.any(|s| s.kind == b"sdk" && s.name == b"c"),
+		);
+		assert!(
+			external
+				.target
+				.as_view()
+				.segments()
+				.any(|s| s.kind == b"path" && s.name == b"stdio")
 		);
 		let internal = g
 			.refs()
@@ -507,7 +507,13 @@ mod tests {
 			libc.target
 				.as_view()
 				.segments()
-				.any(|s| s.kind == b"external_pkg" && s.name == b"libc"),
+				.any(|s| s.kind == b"sdk" && s.name == b"c"),
+		);
+		assert!(
+			libc.target
+				.as_view()
+				.segments()
+				.any(|s| s.kind == b"path" && s.name == b"libc")
 		);
 	}
 

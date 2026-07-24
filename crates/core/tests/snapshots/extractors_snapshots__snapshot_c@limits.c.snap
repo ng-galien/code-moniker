@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 131
 expression: body
 input_file: crates/core/tests/fixtures/extractors/c/limits.c
 ---
@@ -253,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/c/limits.c
         20
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:assert"
+      "to": "code+moniker://app/sdk:c/path:assert"
     },
     {
       "alias": "",

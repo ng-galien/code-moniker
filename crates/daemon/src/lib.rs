@@ -39,8 +39,8 @@ use code_moniker_workspace::notes::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
-	WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
+	ExternalReferenceOrigin, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
+	SymbolRecord, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
@@ -1230,6 +1230,10 @@ fn resolution_audit_response(
 			unique: audit.totals.unique,
 			candidate: audit.totals.candidate,
 			external: audit.totals.external,
+			sdk: audit.totals.sdk,
+			dependency: audit.totals.dependency,
+			injected_external: audit.totals.injected_external,
+			unknown_external: audit.totals.unknown_external,
 			dynamic: audit.totals.dynamic,
 			blocked: audit.totals.blocked,
 			unresolved: audit.totals.unresolved,
@@ -1320,7 +1324,7 @@ fn bounded_source_excerpt(source: &str, (start, end): (u32, u32)) -> String {
 // Classifies references without an in-workspace target so external-by-design
 // links never masquerade as resolution gaps in graph outputs.
 struct UnlinkedClassifier {
-	external: HashSet<ReferenceId>,
+	external: HashMap<ReferenceId, ExternalReferenceOrigin>,
 	candidate: HashSet<ReferenceId>,
 	dynamic: HashSet<ReferenceId>,
 	manifest_blocked: HashSet<ReferenceId>,
@@ -1334,7 +1338,7 @@ impl UnlinkedClassifier {
 				.linkage
 				.external
 				.iter()
-				.map(|reference| reference.reference)
+				.map(|reference| (reference.reference, reference.origin))
 				.collect(),
 			candidate: snapshot
 				.linkage
@@ -1365,8 +1369,14 @@ impl UnlinkedClassifier {
 	}
 
 	fn tally(&self, reference: &ReferenceId, unlinked: &mut UnlinkedRefsDto) {
-		if self.external.contains(reference) {
+		if let Some(origin) = self.external.get(reference) {
 			unlinked.external += 1;
+			match origin {
+				ExternalReferenceOrigin::Sdk => unlinked.sdk += 1,
+				ExternalReferenceOrigin::Dependency => unlinked.dependency += 1,
+				ExternalReferenceOrigin::Injected => unlinked.injected_external += 1,
+				ExternalReferenceOrigin::UnknownExternal => unlinked.unknown_external += 1,
+			}
 		} else if self.candidate.contains(reference) {
 			unlinked.candidate += 1;
 		} else if self.dynamic.contains(reference) {

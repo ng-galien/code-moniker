@@ -60,7 +60,11 @@ fn import_spec(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 		.unwrap_or("");
 
 	let confidence = stdlib_or_imported(&pieces);
-	let target = external_package_target(state.root.as_view().project(), &pieces);
+	let target = if confidence == kinds::CONF_EXTERNAL {
+		sdk_package_target(state.root.as_view().project(), &pieces)
+	} else {
+		external_package_target(state.root.as_view().project(), &pieces)
+	};
 
 	let bind: Option<&[u8]> = match alias_text {
 		"" => pieces.last().copied().map(str::as_bytes),
@@ -98,6 +102,14 @@ pub(super) fn external_package_target(project: &[u8], pieces: &[&str]) -> Monike
 		for piece in tail {
 			builder.segment(kinds::PATH, piece.as_bytes());
 		}
+	}
+	builder.build()
+}
+
+fn sdk_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
+	let mut builder = crate::lang::sdk::sdk_target_builder(project, b"go");
+	for piece in pieces {
+		builder.segment(kinds::PATH, piece.as_bytes());
 	}
 	builder.build()
 }

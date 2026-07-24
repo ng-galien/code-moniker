@@ -1170,13 +1170,22 @@ impl<'src_lang> CsDiscover<'src_lang> {
 		let raw = type_node.utf8_text(self.source_bytes).ok()?;
 		let normalized = raw.strip_prefix("global::").unwrap_or(raw);
 		let pieces = normalized.split('.').collect::<Vec<_>>();
-		if pieces.len() < 2 || !matches!(pieces[0], "System" | "Microsoft" | "mscorlib") {
+		if pieces.len() < 2 || !matches!(pieces[0], "System" | "mscorlib") {
 			return None;
 		}
-		Some((
-			build_module_target(self.module.as_view().project(), &pieces),
-			kinds::CONF_EXTERNAL,
-		))
+		let sdk_owned = is_csharp_sdk_type_path(&pieces);
+		let (target, confidence) = if sdk_owned {
+			(
+				csharp_sdk_target(self.module.as_view().project(), &pieces),
+				kinds::CONF_EXTERNAL,
+			)
+		} else {
+			(
+				build_module_target(self.module.as_view().project(), &pieces),
+				kinds::CONF_IMPORTED,
+			)
+		};
+		Some((target, confidence))
 	}
 
 	fn collect_base_list_refs(&self, base_list: Node<'_>, out: &mut Vec<CsRefSpec>) {
@@ -1668,23 +1677,130 @@ fn clr_system_path(name: &[u8]) -> Option<&'static [&'static str]> {
 }
 
 fn build_module_target(project: &[u8], pieces: &[&str]) -> Moniker {
-	let mut b = MonikerBuilder::new();
-	b.project(project);
-	if !pieces.is_empty() {
-		b.segment(kinds::EXTERNAL_PKG, pieces[0].as_bytes());
-		for p in &pieces[1..] {
-			b.segment(kinds::PATH, p.as_bytes());
+	if is_csharp_sdk_path(pieces) {
+		return csharp_sdk_target(project, pieces);
+	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(project);
+	if let Some((head, tail)) = pieces.split_first() {
+		builder.segment(kinds::EXTERNAL_PKG, head.as_bytes());
+		for piece in tail {
+			builder.segment(kinds::PATH, piece.as_bytes());
 		}
 	}
-	b.build()
+	builder.build()
+}
+
+fn csharp_sdk_target(project: &[u8], pieces: &[&str]) -> Moniker {
+	let mut builder = crate::lang::sdk::sdk_target_builder(project, b"cs");
+	for piece in pieces {
+		builder.segment(kinds::PATH, piece.as_bytes());
+	}
+	builder.build()
 }
 
 fn stdlib_or_imported(pieces: &[&str]) -> &'static [u8] {
 	if pieces.is_empty() {
 		return kinds::CONF_IMPORTED;
 	}
-	match pieces[0] {
-		"System" | "Microsoft" | "mscorlib" => kinds::CONF_EXTERNAL,
-		_ => kinds::CONF_IMPORTED,
+	if is_csharp_sdk_path(pieces) {
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_IMPORTED
 	}
+}
+
+// A namespace beginning with `System` is not necessarily part of the target
+// framework: System.Reactive and System.CommandLine are NuGet packages. Keep
+// the static extractor conservative until target-framework reference packs
+// become an indexed input.
+fn is_csharp_sdk_path(pieces: &[&str]) -> bool {
+	matches!(pieces, ["mscorlib", ..] | ["System"])
+		|| pieces.last().is_some_and(|member| {
+			clr_system_path(member.as_bytes()).is_some_and(|path| path == pieces)
+		}) || is_csharp_bcl_namespace(pieces)
+}
+
+fn is_csharp_sdk_type_path(pieces: &[&str]) -> bool {
+	is_csharp_sdk_path(pieces)
+		|| pieces
+			.split_last()
+			.is_some_and(|(_, namespace)| is_csharp_bcl_namespace(namespace))
+}
+
+fn is_csharp_bcl_namespace(pieces: &[&str]) -> bool {
+	matches!(
+		pieces,
+		["System", "Buffers"]
+			| ["System", "Buffers", "Binary"]
+			| ["System", "Collections"]
+			| ["System", "Collections", "Concurrent"]
+			| ["System", "Collections", "Generic"]
+			| ["System", "Collections", "ObjectModel"]
+			| ["System", "Collections", "Specialized"]
+			| ["System", "ComponentModel"]
+			| ["System", "Data"]
+			| ["System", "Data", "Common"]
+			| ["System", "Diagnostics"]
+			| ["System", "Diagnostics", "CodeAnalysis"]
+			| ["System", "Diagnostics", "Contracts"]
+			| ["System", "Diagnostics", "Metrics"]
+			| ["System", "Diagnostics", "Tracing"]
+			| ["System", "Dynamic"]
+			| ["System", "Formats", "Asn1"]
+			| ["System", "Formats", "Tar"]
+			| ["System", "Globalization"]
+			| ["System", "IO"]
+			| ["System", "IO", "Compression"]
+			| ["System", "IO", "IsolatedStorage"]
+			| ["System", "IO", "MemoryMappedFiles"]
+			| ["System", "IO", "Pipes"]
+			| ["System", "Linq"]
+			| ["System", "Linq", "Expressions"]
+			| ["System", "Net"]
+			| ["System", "Net", "Http"]
+			| ["System", "Net", "Http", "Headers"]
+			| ["System", "Net", "Mail"]
+			| ["System", "Net", "Mime"]
+			| ["System", "Net", "NetworkInformation"]
+			| ["System", "Net", "Quic"]
+			| ["System", "Net", "Security"]
+			| ["System", "Net", "Sockets"]
+			| ["System", "Net", "WebSockets"]
+			| ["System", "Numerics"]
+			| ["System", "Reflection"]
+			| ["System", "Reflection", "Emit"]
+			| ["System", "Reflection", "Metadata"]
+			| ["System", "Reflection", "PortableExecutable"]
+			| ["System", "Resources"]
+			| ["System", "Runtime"]
+			| ["System", "Runtime", "CompilerServices"]
+			| ["System", "Runtime", "ConstrainedExecution"]
+			| ["System", "Runtime", "ExceptionServices"]
+			| ["System", "Runtime", "InteropServices"]
+			| ["System", "Runtime", "Intrinsics"]
+			| ["System", "Runtime", "Loader"]
+			| ["System", "Runtime", "Serialization"]
+			| ["System", "Runtime", "Versioning"]
+			| ["System", "Security"]
+			| ["System", "Security", "Claims"]
+			| ["System", "Security", "Cryptography"]
+			| ["System", "Security", "Principal"]
+			| ["System", "Text"]
+			| ["System", "Text", "Encodings", "Web"]
+			| ["System", "Text", "Json"]
+			| ["System", "Text", "RegularExpressions"]
+			| ["System", "Text", "Unicode"]
+			| ["System", "Threading"]
+			| ["System", "Threading", "Channels"]
+			| ["System", "Threading", "Tasks"]
+			| ["System", "Threading", "Tasks", "Sources"]
+			| ["System", "Transactions"]
+			| ["System", "Xml"]
+			| ["System", "Xml", "Linq"]
+			| ["System", "Xml", "Schema"]
+			| ["System", "Xml", "Serialization"]
+			| ["System", "Xml", "XPath"]
+			| ["System", "Xml", "Xsl"]
+	)
 }

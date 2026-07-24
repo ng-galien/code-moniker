@@ -39,7 +39,7 @@ visibility = "public"
 [[refs]]
 kind = "imports_symbol"
 from = "code+moniker://app/lang:ts/module:orders"
-to = "code+moniker://app/external_pkg:crypto/path:randomUUID"
+to = "code+moniker://app/sdk:ts/path:node:crypto/path:randomUUID"
 confidence = "external"
 
 [[refs]]
@@ -52,7 +52,7 @@ confidence = "imported"
 kind = "uses_type"
 from = "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])"
 to = "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
-confidence = "external"
+confidence = "imported"
 
 [[refs]]
 label = "priceOrder.instantiates.Order"

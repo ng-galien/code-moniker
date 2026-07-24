@@ -49,10 +49,6 @@ pub(super) fn package_prefix(target: &Moniker) -> Option<String> {
 	std::str::from_utf8(head.name).ok().map(str::to_string)
 }
 
-pub(super) fn builtin_external_root(root: &str) -> bool {
-	root == "code-moniker-ts-runtime" || root.starts_with("node:")
-}
-
 pub(super) fn source_declares_external_package(
 	manifest: Manifest,
 	deps: &FxHashSet<String>,

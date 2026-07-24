@@ -123,10 +123,9 @@ pub(super) fn result_type_expr(state: &GoDiscover<'_>, result: Node<'_>) -> Opti
 }
 
 pub(super) fn external_target_shape(target: &Moniker) -> bool {
-	target
-		.as_view()
-		.segments()
-		.any(|segment| segment.kind == kinds::EXTERNAL_PKG)
+	target.as_view().segments().next().is_some_and(|segment| {
+		matches!(segment.kind, kinds::EXTERNAL_PKG | crate::lang::kinds::SDK)
+	})
 }
 
 pub(super) fn owner_confidence(state: &GoDiscover<'_>, owner: &Moniker) -> &'static [u8] {

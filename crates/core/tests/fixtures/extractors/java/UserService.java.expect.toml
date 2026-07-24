@@ -18,7 +18,7 @@ parent = "code+moniker://app/lang:java/package:app/package:user/module:UserServi
 [[refs]]
 kind = "imports_symbol"
 from = "code+moniker://app/lang:java/package:app/package:user/module:UserService"
-to = "code+moniker://app/external_pkg:java/path:util/path:List"
+to = "code+moniker://app/sdk:java/path:java/path:util/path:List"
 confidence = "external"
 
 [[refs]]

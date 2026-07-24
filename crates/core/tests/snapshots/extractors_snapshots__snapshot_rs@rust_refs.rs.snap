@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
 ---
@@ -110,7 +109,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         29
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections"
     },
     {
       "alias": "",
@@ -123,7 +122,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         29
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -136,7 +135,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         86
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -149,7 +148,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         102
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -162,7 +161,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         187
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -175,7 +174,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         214
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -188,7 +187,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         312
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter/method:map"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter/method:map"
     },
     {
       "alias": "",
@@ -201,7 +200,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         289
       ],
       "receiver_hint": "values",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter"
     },
     {
       "alias": "",
@@ -214,7 +213,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         311
       ],
       "receiver_hint": "v",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter/method:map/method:to_string"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter/method:map/method:to_string"
     },
     {
       "alias": "",
@@ -227,7 +226,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         331
       ],
       "receiver_hint": "value",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter/method:map/method:len"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter/method:map/method:len"
     },
     {
       "alias": "",
@@ -240,7 +239,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         380
       ],
       "receiver_hint": "seen",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap/method:insert"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap/method:insert"
     },
     {
       "alias": "",
@@ -253,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         366
       ],
       "receiver_hint": "value",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter/method:map/method:clone"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter/method:map/method:clone"
     },
     {
       "alias": "",
@@ -266,7 +265,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         379
       ],
       "receiver_hint": "value",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter/method:map/method:len"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter/method:map/method:len"
     },
     {
       "alias": "",
@@ -279,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         400
       ],
       "receiver_hint": "out",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:push"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:push"
     },
     {
       "alias": "",
@@ -292,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
         452
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:macros/macro:vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:macros/macro:vec"
     },
     {
       "alias": "",

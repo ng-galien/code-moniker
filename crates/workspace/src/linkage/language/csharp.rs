@@ -65,7 +65,3 @@ fn is_target_callable_kind(kind: &[u8]) -> bool {
 fn is_def_callable_kind(kind: &[u8]) -> bool {
 	matches!(kind, kinds::METHOD | kinds::CONSTRUCTOR)
 }
-
-pub(super) fn builtin_external_root(root: &str) -> bool {
-	matches!(root, "System" | "Microsoft" | "mscorlib")
-}

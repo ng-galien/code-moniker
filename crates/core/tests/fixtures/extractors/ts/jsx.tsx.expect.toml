@@ -33,8 +33,8 @@ confidence = "imported"
 label = "counter list maps labels"
 kind = "method_call"
 from = "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})"
-to = "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:map"
-confidence = "external"
+to = "code+moniker://app/lang:ts/module:jsx/path:labels/method:map"
+confidence = "name_match"
 
 [[refs]]
 label = "counter list reads counter"

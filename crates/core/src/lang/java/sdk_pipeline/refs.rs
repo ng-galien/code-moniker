@@ -522,15 +522,23 @@ fn expression_external_owner(
 			(confidence == kinds::CONF_EXTERNAL).then_some(target)
 		}
 		"class_literal" => Some(java_lang_target(&state.root, b"Class")),
-		"field_access" | "scoped_identifier" => node
-			.child_by_field_name("field")
-			.or_else(|| node.child_by_field_name("name"))
-			.and_then(|field| (node_slice(field, state.source) == b"class").then_some(()))
-			.map(|_| java_lang_target(&state.root, b"Class"))
-			.or_else(|| {
-				node.child_by_field_name("object")
-					.and_then(|object| expression_external_owner(state, object, owner, env))
-			}),
+		"field_access" | "scoped_identifier" => {
+			let member = node
+				.child_by_field_name("field")
+				.or_else(|| node.child_by_field_name("name"))?;
+			if node_slice(member, state.source) == b"class" {
+				return Some(java_lang_target(&state.root, b"Class"));
+			}
+			let object = node
+				.child_by_field_name("object")
+				.or_else(|| node.child_by_field_name("scope"))?;
+			let external_owner = expression_external_owner(state, object, owner, env)?;
+			Some(extend_segment(
+				&external_owner,
+				kinds::PATH,
+				node_slice(member, state.source),
+			))
+		}
 		"method_invocation" => infer_call_type(state, node, owner, env)
 			.and_then(|ty| ty.receiver_owner().cloned())
 			.filter(java_external_target_shape)

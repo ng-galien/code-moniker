@@ -193,8 +193,12 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
 	);
 	let _ = writeln!(
 		out,
-		"unlinked refs: external {} · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
+		"unlinked refs: external {} (sdk {} · dependency {} · injected {} · unknown {}) · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
 		result.unlinked.external,
+		result.unlinked.sdk,
+		result.unlinked.dependency,
+		result.unlinked.injected_external,
+		result.unlinked.unknown_external,
 		result.unlinked.candidate,
 		result.unlinked.dynamic,
 		result.unlinked.manifest_blocked,
@@ -233,6 +237,10 @@ mod tests {
 			callees: Vec::new(),
 			unlinked: UnlinkedRefsDto {
 				external: 1,
+				sdk: 1,
+				dependency: 0,
+				injected_external: 0,
+				unknown_external: 0,
 				candidate: 2,
 				dynamic: 3,
 				manifest_blocked: 4,
@@ -244,7 +252,7 @@ mod tests {
 		let rendered = render_graph(&result, 10);
 
 		assert!(rendered.contains(
-			"unlinked refs: external 1 · candidate 2 · dynamic 3 · manifest-blocked 4 · unresolved 5"
+			"unlinked refs: external 1 (sdk 1 · dependency 0 · injected 0 · unknown 0) · candidate 2 · dynamic 3 · manifest-blocked 4 · unresolved 5"
 		));
 	}
 }

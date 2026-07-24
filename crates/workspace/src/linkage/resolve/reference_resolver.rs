@@ -122,10 +122,6 @@ fn global_resolution_evidence(query: &LinkageQuery<'_>) -> ResolutionEvidence {
 	}
 }
 
-// The extractor already committed to "this import root is not part of the
-// project" by anchoring the target on external_pkg. When nothing internal
-// matched and no manifest could confirm it, honour that claim instead of
-// reporting a hole: the reference is external, whatever the build system.
 fn resolve_scopes(
 	resolver: &ReferenceResolver<'_>,
 	query: &LinkageQuery<'_>,
@@ -152,9 +148,27 @@ fn resolve_scopes(
 			return decision;
 		}
 	}
+	if sdk_tagged(query) {
+		return ReferenceLinkageDecision::external(
+			ExternalOrigin::Sdk,
+			site.reference_idx,
+			site.reference.id,
+		);
+	}
 	if external_fallthrough(query, policies) {
 		return ReferenceLinkageDecision::external(
 			ExternalOrigin::Dependency,
+			site.reference_idx,
+			site.reference.id,
+		);
+	}
+	if external_tagged(query)
+		&& !crate::linkage::resolve::manifest::source_has_manifest_entry(
+			policies.manifests,
+			query.source_file,
+		) {
+		return ReferenceLinkageDecision::external(
+			ExternalOrigin::UnknownExternal,
 			site.reference_idx,
 			site.reference.id,
 		);
@@ -302,11 +316,12 @@ fn moniker_package_chain(moniker: &code_moniker_core::core::moniker::Moniker) ->
 
 fn external_fallthrough(query: &LinkageQuery<'_>, policies: &LinkagePolicies<'_>) -> bool {
 	policies.packages.is_foreign(query)
-		|| (external_tagged(query)
-			&& !crate::linkage::resolve::manifest::source_has_manifest_entry(
-				policies.manifests,
-				query.source_file,
-			))
+}
+
+fn sdk_tagged(query: &LinkageQuery<'_>) -> bool {
+	query
+		.target_first
+		.is_some_and(|segment| segment.kind == code_moniker_core::lang::kinds::SDK)
 }
 
 fn external_tagged(query: &LinkageQuery<'_>) -> bool {

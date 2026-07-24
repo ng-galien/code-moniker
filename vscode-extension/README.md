@@ -121,7 +121,7 @@ Package and install the extension from this directory:
 
 ```sh
 npm run package
-code --install-extension code-moniker-0.1.0.vsix
+code --install-extension code-moniker-0.5.0.vsix
 ```
 
 ## Structure

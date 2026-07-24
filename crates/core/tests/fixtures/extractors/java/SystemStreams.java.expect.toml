@@ -1,0 +1,31 @@
+root = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams"
+
+[[defs]]
+label = "SystemStreams"
+kind = "class"
+moniker = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams"
+visibility = "public"
+
+[[defs]]
+label = "SystemStreams.writeBoth"
+kind = "method"
+moniker = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)"
+parent = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams"
+
+[[refs]]
+label = "SystemStreams.writeBoth.calls.out.println"
+kind = "method_call"
+from = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)"
+to = "code+moniker://app/sdk:java/path:java/path:lang/path:System/path:out/method:println(_)"
+confidence = "external"
+
+[[refs]]
+label = "SystemStreams.writeBoth.calls.err.println"
+kind = "method_call"
+from = "code+moniker://app/lang:java/package:app/package:platform/module:SystemStreams/class:SystemStreams/method:writeBoth(String)"
+to = "code+moniker://app/sdk:java/path:java/path:lang/path:System/path:err/method:println(_)"
+confidence = "external"
+
+[[absent.refs]]
+kind = "method_call"
+to = "code+moniker://app/sdk:java/path:java/path:lang/path:System/method:println(_)"

@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -977,6 +977,10 @@ pub enum QueryResult {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UnlinkedRefsDto {
 	pub external: usize,
+	pub sdk: usize,
+	pub dependency: usize,
+	pub injected_external: usize,
+	pub unknown_external: usize,
 	pub candidate: usize,
 	pub dynamic: usize,
 	pub manifest_blocked: usize,
@@ -1062,6 +1066,10 @@ pub struct AuditTotalsDto {
 	pub unique: usize,
 	pub candidate: usize,
 	pub external: usize,
+	pub sdk: usize,
+	pub dependency: usize,
+	pub injected_external: usize,
+	pub unknown_external: usize,
 	pub dynamic: usize,
 	pub blocked: usize,
 	pub unresolved: usize,
@@ -2496,11 +2504,15 @@ fn format_resolution_audit(out: &mut String, result: &ResolutionAuditResult) {
 	}
 	let _ = writeln!(
 		out,
-		"refs: {} unique: {} candidate: {} external: {} dynamic: {} blocked: {} unresolved: {} explained: {} weak_or_unexplained: {} name_match_candidate: {}",
+		"refs: {} unique: {} candidate: {} external: {} sdk: {} dependency: {} injected_external: {} unknown_external: {} dynamic: {} blocked: {} unresolved: {} explained: {} weak_or_unexplained: {} name_match_candidate: {}",
 		t.references,
 		t.unique,
 		t.candidate,
 		t.external,
+		t.sdk,
+		t.dependency,
+		t.injected_external,
+		t.unknown_external,
 		t.dynamic,
 		t.blocked,
 		t.unresolved,
@@ -2612,8 +2624,12 @@ fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
 fn format_unlinked(out: &mut String, unlinked: &UnlinkedRefsDto) {
 	let _ = writeln!(
 		out,
-		"unlinked refs: external {} · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
+		"unlinked refs: external {} (sdk {} · dependency {} · injected {} · unknown {}) · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
 		unlinked.external,
+		unlinked.sdk,
+		unlinked.dependency,
+		unlinked.injected_external,
+		unlinked.unknown_external,
 		unlinked.candidate,
 		unlinked.dynamic,
 		unlinked.manifest_blocked,
@@ -3185,6 +3201,10 @@ mod tests {
 					unique: 4,
 					candidate: 2,
 					external: 1,
+					sdk: 1,
+					dependency: 0,
+					injected_external: 0,
+					unknown_external: 0,
 					dynamic: 1,
 					blocked: 1,
 					unresolved: 1,

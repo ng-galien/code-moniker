@@ -9,7 +9,9 @@ use crate::linkage::resolve::CrateForwards;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
-use crate::linkage::resolve::{MethodTable, SemanticLinkage, WorkspacePackageIndex};
+use crate::linkage::resolve::{
+	MethodTable, SemanticLinkage, SemanticPolicies, WorkspacePackageIndex,
+};
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
@@ -99,8 +101,7 @@ fn resolve_full_linkage(
 		methods,
 		candidates,
 		&locations,
-		&source_groups,
-		&packages,
+		SemanticPolicies::new(&source_groups, &packages, &manifests),
 	)
 	.enhance(&mut decisions, &index.references);
 	timings.semantic_enhance = semantic_timer.elapsed();

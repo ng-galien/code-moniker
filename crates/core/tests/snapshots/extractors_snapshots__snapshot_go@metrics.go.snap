@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 130
 expression: body
 input_file: crates/core/tests/fixtures/extractors/go/metrics.go
 ---
@@ -578,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         36
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:context"
+      "to": "code+moniker://app/sdk:go/path:context"
     },
     {
       "alias": "",
@@ -591,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         42
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:io"
+      "to": "code+moniker://app/sdk:go/path:io"
     },
     {
       "alias": "fmtx",
@@ -604,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         54
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:fmt"
+      "to": "code+moniker://app/sdk:go/path:fmt"
     },
     {
       "alias": ".",
@@ -617,7 +616,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         67
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strings"
+      "to": "code+moniker://app/sdk:go/path:strings"
     },
     {
       "alias": "_",
@@ -682,7 +681,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         261
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:fmt/func:Errorf"
+      "to": "code+moniker://app/sdk:go/path:fmt/func:Errorf"
     },
     {
       "alias": "",
@@ -695,7 +694,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         298
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:make"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:make"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         761
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:io/struct:Reader"
+      "to": "code+moniker://app/sdk:go/path:io/struct:Reader"
     },
     {
       "alias": "",
@@ -838,7 +837,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1001
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:io/struct:Writer"
+      "to": "code+moniker://app/sdk:go/path:io/struct:Writer"
     },
     {
       "alias": "",
@@ -877,7 +876,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1102
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:io/struct:Writer"
+      "to": "code+moniker://app/sdk:go/path:io/struct:Writer"
     },
     {
       "alias": "",
@@ -916,7 +915,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1301
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:context/struct:Context"
+      "to": "code+moniker://app/sdk:go/path:context/struct:Context"
     },
     {
       "alias": "",
@@ -994,7 +993,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1547
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:len"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:len"
     },
     {
       "alias": "",
@@ -1098,7 +1097,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1986
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:make"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:make"
     },
     {
       "alias": "",
@@ -1111,7 +1110,7 @@ input_file: crates/core/tests/fixtures/extractors/go/metrics.go
         1985
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtin/func:len"
+      "to": "code+moniker://app/sdk:go/path:builtin/func:len"
     },
     {
       "alias": "",

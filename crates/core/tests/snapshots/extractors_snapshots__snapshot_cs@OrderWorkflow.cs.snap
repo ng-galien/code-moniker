@@ -278,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         35
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System"
+      "to": "code+moniker://app/sdk:cs/path:System"
     },
     {
       "alias": "",
@@ -291,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         69
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic"
     },
     {
       "alias": "",
@@ -304,7 +304,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         88
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Linq"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Linq"
     },
     {
       "alias": "",
@@ -317,7 +317,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         112
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading"
     },
     {
       "alias": "",
@@ -330,7 +330,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         142
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks"
     },
     {
       "alias": "",
@@ -343,7 +343,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         387
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -356,7 +356,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         401
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IReadOnlyList"
     },
     {
       "alias": "",
@@ -408,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         464
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "token",
@@ -421,7 +421,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         464
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "",
@@ -434,7 +434,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         478
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -447,7 +447,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         519
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "token",
@@ -460,7 +460,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         519
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "",
@@ -577,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         895
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -590,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         937
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "token",
@@ -603,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
         937
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:CancellationToken"
     },
     {
       "alias": "",

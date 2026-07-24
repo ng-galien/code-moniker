@@ -356,7 +356,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         43
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Clock"
     },
     {
       "alias": "",
@@ -369,7 +369,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         69
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Instant"
     },
     {
       "alias": "",
@@ -382,7 +382,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         92
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+      "to": "code+moniker://app/sdk:java/path:java/path:util/path:List"
     },
     {
       "alias": "",
@@ -408,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         243
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Clock"
     },
     {
       "alias": "",
@@ -421,7 +421,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         847
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:String"
     },
     {
       "alias": "",
@@ -447,7 +447,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         881
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Instant"
     },
     {
       "alias": "",
@@ -460,7 +460,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         1004
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+      "to": "code+moniker://app/sdk:java/path:java/path:util/path:List"
     },
     {
       "alias": "",
@@ -473,7 +473,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         171
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:Runnable"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:Runnable"
     },
     {
       "alias": "",
@@ -499,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         237
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Clock"
     },
     {
       "alias": "",
@@ -525,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         301
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Clock"
     },
     {
       "alias": "",
@@ -538,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         379
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:Override"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:Override"
     },
     {
       "alias": "",
@@ -551,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         486
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+      "to": "code+moniker://app/sdk:java/path:java/path:util/path:List"
     },
     {
       "alias": "",
@@ -603,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         542
       ],
       "receiver_hint": "clock",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock/method:instant()"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Clock/method:instant()"
     },
     {
       "alias": "",
@@ -629,7 +629,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         691
       ],
       "receiver_hint": "expired",
-      "to": "code+moniker://app/external_pkg:java/path:util/path:List/method:forEach(_)"
+      "to": "code+moniker://app/sdk:java/path:java/path:util/path:List/method:forEach(_)"
     },
     {
       "alias": "",
@@ -681,7 +681,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         844
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:String"
     },
     {
       "alias": "",
@@ -707,7 +707,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         871
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Instant"
     },
     {
       "alias": "",
@@ -720,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         971
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+      "to": "code+moniker://app/sdk:java/path:java/path:util/path:List"
     },
     {
       "alias": "",
@@ -746,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         998
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
+      "to": "code+moniker://app/sdk:java/path:java/path:time/path:Instant"
     },
     {
       "alias": "",
@@ -759,7 +759,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         1025
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:String"
     },
     {
       "alias": "",
@@ -772,7 +772,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         1083
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:Iterable"
+      "to": "code+moniker://app/sdk:java/path:java/path:lang/path:Iterable"
     },
     {
       "alias": "",

@@ -33,19 +33,19 @@ parent = "code+moniker://app/lang:java/package:app/package:order/module:OrderWor
 [[refs]]
 kind = "implements"
 from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
-to = "code+moniker://app/external_pkg:java/path:lang/path:Runnable"
+to = "code+moniker://app/sdk:java/path:java/path:lang/path:Runnable"
 confidence = "external"
 
 [[refs]]
 kind = "imports_symbol"
 from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow"
-to = "code+moniker://app/external_pkg:java/path:time/path:Clock"
+to = "code+moniker://app/sdk:java/path:java/path:time/path:Clock"
 confidence = "external"
 
 [[refs]]
 kind = "uses_type"
 from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order"
-to = "code+moniker://app/external_pkg:java/path:time/path:Instant"
+to = "code+moniker://app/sdk:java/path:java/path:time/path:Instant"
 confidence = "external"
 
 [[refs]]

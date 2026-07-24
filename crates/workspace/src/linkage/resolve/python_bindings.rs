@@ -794,7 +794,7 @@ fn binding_name(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> Op
 	if reference.kind.as_bytes() == kinds::IMPORTS_MODULE {
 		let mut segments = target.as_view().segments();
 		let first = segments.next()?;
-		let binding = if first.kind == kinds::LANG {
+		let binding = if matches!(first.kind, kinds::LANG | kinds::SDK) {
 			segments.next()?
 		} else {
 			first

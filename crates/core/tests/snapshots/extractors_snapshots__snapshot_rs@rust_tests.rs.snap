@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
 ---
@@ -253,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         11
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:cfg"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:cfg"
     },
     {
       "alias": "",
@@ -266,7 +265,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         62
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:test"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:test"
     },
     {
       "alias": "",
@@ -279,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         134
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:test"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:test"
     },
     {
       "alias": "",
@@ -318,7 +317,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         265
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:test"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:test"
     },
     {
       "alias": "",
@@ -331,7 +330,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         349
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:test"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:test"
     },
     {
       "alias": "",
@@ -344,7 +343,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
         450
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:attributes/fn:test"
+      "to": "code+moniker://app/sdk:rs/path:std/path:attributes/fn:test"
     },
     {
       "alias": "",

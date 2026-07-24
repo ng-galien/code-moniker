@@ -525,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         274
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System"
+      "to": "code+moniker://app/sdk:cs/path:System"
     },
     {
       "alias": "",
@@ -538,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         311
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Concurrent"
     },
     {
       "alias": "",
@@ -551,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         345
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic"
     },
     {
       "alias": "",
@@ -564,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         364
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Linq"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Linq"
     },
     {
       "alias": "",
@@ -577,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         394
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks"
     },
     {
       "alias": "",
@@ -590,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         688
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Exception"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Exception"
     },
     {
       "alias": "",
@@ -603,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         944
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Exception"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Exception"
     },
     {
       "alias": "",
@@ -616,7 +616,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1347
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -642,7 +642,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1386
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -668,7 +668,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1431
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -720,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1479
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IAsyncEnumerable"
     },
     {
       "alias": "",
@@ -759,7 +759,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1664
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
     },
     {
       "alias": "",
@@ -785,7 +785,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1678
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
     },
     {
       "alias": "",
@@ -798,7 +798,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1707
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -850,7 +850,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         1837
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -902,7 +902,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         2069
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -980,7 +980,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         2504
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IAsyncEnumerable"
     },
     {
       "alias": "",
@@ -1071,7 +1071,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         3025
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -1123,7 +1123,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         3343
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Threading/path:Tasks/path:Task"
     },
     {
       "alias": "",
@@ -1149,7 +1149,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         3402
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IReadOnlyList"
     },
     {
       "alias": "tags",
@@ -1162,7 +1162,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         3410
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IReadOnlyList"
     },
     {
       "alias": "",
@@ -1253,7 +1253,7 @@ input_file: crates/core/tests/fixtures/extractors/cs/UserService.cs
         3689
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+      "to": "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic/path:IAsyncEnumerable"
     },
     {
       "alias": "",

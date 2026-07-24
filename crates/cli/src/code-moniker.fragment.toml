@@ -47,7 +47,7 @@ expr     = """
   $crate_cli
   AND kind = 'calls'
   AND source.kind != 'test'
-  => NOT target ~ '**/external_pkg:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'
+  => NOT target ~ '**/sdk:rs/path:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'
 """
 message  = "Macro `{target}` outside tests can hide domain calls from the Rust extractor; bind the value first or use explicit control flow."
 rationale = """

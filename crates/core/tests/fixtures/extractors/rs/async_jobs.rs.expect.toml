@@ -45,7 +45,7 @@ visibility = "public"
 [[refs]]
 kind = "imports_symbol"
 from = "code+moniker://app/lang:rs/module:async_jobs"
-to = "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+to = "code+moniker://app/sdk:rs/path:std/path:collections/path:VecDeque"
 confidence = "external"
 
 [[refs]]

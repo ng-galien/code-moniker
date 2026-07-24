@@ -59,19 +59,19 @@ signature = "payment:Payment"
 [[refs]]
 kind = "uses_type"
 from = "code+moniker://app/lang:python/module:payments/type:Metadata"
-to = "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+to = "code+moniker://app/sdk:python/path:collections/path:abc/function:Mapping"
 confidence = "external"
 
 [[refs]]
 kind = "extends"
 from = "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
-to = "code+moniker://app/external_pkg:enum/function:StrEnum"
+to = "code+moniker://app/sdk:python/path:enum/function:StrEnum"
 confidence = "external"
 
 [[refs]]
 kind = "extends"
 from = "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
-to = "code+moniker://app/external_pkg:typing/function:TypedDict"
+to = "code+moniker://app/sdk:python/path:typing/function:TypedDict"
 confidence = "external"
 
 [[refs]]
@@ -83,13 +83,13 @@ confidence = "resolved"
 [[refs]]
 kind = "annotates"
 from = "code+moniker://app/lang:python/module:payments/class:Payment"
-to = "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+to = "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
 confidence = "external"
 
 [[refs]]
 kind = "uses_type"
 from = "code+moniker://app/lang:python/module:payments/class:Payment"
-to = "code+moniker://app/external_pkg:decimal/function:Decimal"
+to = "code+moniker://app/sdk:python/path:decimal/function:Decimal"
 confidence = "external"
 
 [[refs]]
@@ -107,7 +107,7 @@ confidence = "resolved"
 [[refs]]
 kind = "extends"
 from = "code+moniker://app/lang:python/module:payments/class:PaymentGateway"
-to = "code+moniker://app/external_pkg:typing/function:Protocol"
+to = "code+moniker://app/sdk:python/path:typing/function:Protocol"
 confidence = "external"
 
 [[refs]]

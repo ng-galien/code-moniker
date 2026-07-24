@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 131
 expression: body
 input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
 ---
@@ -383,7 +382,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         19
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:stdio"
+      "to": "code+moniker://app/sdk:c/path:stdio"
     },
     {
       "alias": "",
@@ -396,7 +395,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         39
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:stdlib"
+      "to": "code+moniker://app/sdk:c/path:stdlib"
     },
     {
       "alias": "",
@@ -409,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         59
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:string"
+      "to": "code+moniker://app/sdk:c/path:string"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         763
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:malloc"
+      "to": "code+moniker://app/sdk:c/path:libc/func:malloc"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         946
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:malloc"
+      "to": "code+moniker://app/sdk:c/path:libc/func:malloc"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         1010
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:strdup"
+      "to": "code+moniker://app/sdk:c/path:libc/func:strdup"
     },
     {
       "alias": "",
@@ -708,7 +707,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         1450
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:free"
+      "to": "code+moniker://app/sdk:c/path:libc/func:free"
     },
     {
       "alias": "",
@@ -734,7 +733,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         1465
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:free"
+      "to": "code+moniker://app/sdk:c/path:libc/func:free"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/c/kvstore.c
         1498
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:libc/func:free"
+      "to": "code+moniker://app/sdk:c/path:libc/func:free"
     },
     {
       "alias": "",

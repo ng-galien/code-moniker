@@ -1,4 +1,4 @@
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::moniker::Moniker;
 
 use super::super::kinds;
 
@@ -9,9 +9,8 @@ pub(super) fn is_libc_function(name: &[u8]) -> bool {
 }
 
 pub(super) fn libc_function_target(root: &Moniker, name: &[u8]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(root.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"libc");
+	let mut builder = crate::lang::sdk::sdk_target_builder(root.as_view().project(), b"c");
+	builder.segment(kinds::PATH, b"libc");
 	builder.segment(kinds::FUNC, name);
 	builder.build()
 }
@@ -25,9 +24,9 @@ pub(super) fn is_stdlib_header_path(path: &str) -> bool {
 	STDLIB_HEADER_ROOTS.binary_search(&root).is_ok()
 }
 
-// First path piece of C and common POSIX header includes; the linkage layer
-// keys manifest-free external classification on this set.
-pub(crate) const STDLIB_HEADER_ROOTS: &[&str] = &[
+// First path piece of C and common POSIX header includes. The extractor uses
+// this set to emit canonical `sdk:c` targets rather than unknown externals.
+pub(super) const STDLIB_HEADER_ROOTS: &[&str] = &[
 	"arpa",
 	"assert",
 	"complex",

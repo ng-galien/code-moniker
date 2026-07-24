@@ -16,7 +16,7 @@ use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
 // Bump when cached graph semantics change, even if the binary layout stays stable.
-const CACHE_FORMAT_VERSION: u32 = 7;
+const CACHE_FORMAT_VERSION: u32 = 8;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
@@ -384,6 +384,26 @@ mod tests {
 		assert!(load(tmp.path(), &key1).is_some());
 		assert!(load(tmp.path(), &key2).is_none());
 		assert_ne!(key1.full_path(tmp.path()), key2.full_path(tmp.path()));
+	}
+
+	#[test]
+	fn load_rejects_previous_semantic_format_version() {
+		let tmp = tempfile::tempdir().unwrap();
+		let src = tmp.path().join("src.ts");
+		std::fs::write(&src, b"export class Foo {}\n").unwrap();
+		let key = CacheKey::from_path(&src, tmp.path()).unwrap();
+		store(tmp.path(), &key, &graph_with_one_def());
+
+		let path = key.full_path(tmp.path());
+		let mut bytes = std::fs::read(&path).unwrap();
+		bytes[OFF_FORMAT..OFF_MTIME]
+			.copy_from_slice(&CACHE_FORMAT_VERSION.saturating_sub(1).to_le_bytes());
+		std::fs::write(path, bytes).unwrap();
+
+		assert!(
+			load(tmp.path(), &key).is_none(),
+			"cache entries from the pre-SDK semantic format must be rejected"
+		);
 	}
 
 	#[test]

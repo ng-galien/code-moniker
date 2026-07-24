@@ -149,7 +149,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/jsx_legacy.jsx
         517
       ],
       "receiver_hint": "document",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:getElementById"
+      "to": "code+moniker://app/sdk:ts/path:runtime/path:document/method:getElementById"
     },
     {
       "alias": "",
@@ -162,7 +162,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/jsx_legacy.jsx
         494
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/function:document"
+      "to": "code+moniker://app/sdk:ts/path:runtime/function:document"
     }
   ],
   "root": "code+moniker://app/lang:ts/module:jsx_legacy"

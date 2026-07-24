@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/accounts.py
 ---
@@ -487,7 +486,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         452
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:logging"
+      "to": "code+moniker://app/sdk:python/path:logging"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         493
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         493
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:field"
     },
     {
       "alias": "",
@@ -526,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         551
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Iterable"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Iterable"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         551
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Iterator"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         551
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Optional"
     },
     {
       "alias": "",
@@ -565,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         551
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -578,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         636
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:logging/path:getLogger"
+      "to": "code+moniker://app/sdk:python/path:logging/path:getLogger"
     },
     {
       "alias": "",
@@ -591,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         666
       ],
       "receiver_hint": "logging",
-      "to": "code+moniker://app/external_pkg:logging/function:getLogger"
+      "to": "code+moniker://app/sdk:python/path:logging/function:getLogger"
     },
     {
       "alias": "",
@@ -604,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         646
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:logging"
+      "to": "code+moniker://app/sdk:python/path:logging"
     },
     {
       "alias": "",
@@ -617,7 +616,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         665
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:python_runtime/path:__name__"
+      "to": "code+moniker://app/sdk:python/path:runtime/path:__name__"
     },
     {
       "alias": "",
@@ -630,7 +629,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         679
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -643,7 +642,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1014
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -656,7 +655,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1029
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -669,7 +668,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1043
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -682,7 +681,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1057
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:list"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:list"
     },
     {
       "alias": "",
@@ -695,7 +694,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1098
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:field"
     },
     {
       "alias": "",
@@ -708,7 +707,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1097
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:list"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:list"
     },
     {
       "alias": "",
@@ -721,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1134
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:Exception"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:Exception"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1386
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:super"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:super"
     },
     {
       "alias": "user_id",
@@ -757,7 +756,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -770,7 +769,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1487
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:Exception"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:Exception"
     },
     {
       "alias": "",
@@ -796,7 +795,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1628
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:super"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:super"
     },
     {
       "alias": "field_name",
@@ -806,7 +805,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "value",
@@ -816,7 +815,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -829,7 +828,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1772
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -842,7 +841,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1909
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Optional"
     },
     {
       "alias": "",
@@ -865,7 +864,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -878,7 +877,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         1972
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Optional"
     },
     {
       "alias": "",
@@ -901,7 +900,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -963,7 +962,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         2060
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Iterator"
     },
     {
       "alias": "",
@@ -1061,7 +1060,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -1100,7 +1099,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         2617
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Iterable"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Iterable"
     },
     {
       "alias": "",
@@ -1165,7 +1164,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         2981
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:list"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:list"
     },
     {
       "alias": "",
@@ -1214,7 +1213,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "name",
@@ -1224,7 +1223,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "new_user",
@@ -1260,7 +1259,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         3131
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:list"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:list"
     },
     {
       "alias": "",
@@ -1296,7 +1295,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -1322,7 +1321,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         3517
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Optional"
     },
     {
       "alias": "",
@@ -1358,7 +1357,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -1371,7 +1370,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         3617
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Optional"
     },
     {
       "alias": "",
@@ -1407,7 +1406,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -1495,7 +1494,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         4191
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Iterator"
     },
     {
       "alias": "",
@@ -1534,7 +1533,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         4346
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -1547,7 +1546,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         4602
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/external_pkg:builtins/path:str/method:partition"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str/method:partition"
     },
     {
       "alias": "",
@@ -1573,7 +1572,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
         4653
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/external_pkg:builtins/path:str/method:lower"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str/method:lower"
     },
     {
       "alias": "email",
@@ -1583,7 +1582,7 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     }
   ],
   "root": "code+moniker://app/lang:python/module:accounts"

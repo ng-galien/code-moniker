@@ -51,14 +51,14 @@ confidence = "external"
 label = "boot calls fs stat"
 kind = "method_call"
 from = "code+moniker://app/lang:ts/module:imports/function:boot()"
-to = "code+moniker://app/external_pkg:node:fs/method:statSync"
+to = "code+moniker://app/sdk:ts/path:node:fs/method:statSync"
 confidence = "external"
 
 [[refs]]
 label = "boot instantiates buffer"
 kind = "instantiates"
 from = "code+moniker://app/lang:ts/module:imports/function:boot()"
-to = "code+moniker://app/external_pkg:node:buffer/class:Buffer"
+to = "code+moniker://app/sdk:ts/path:node:buffer/class:Buffer"
 confidence = "external"
 
 [[refs]]

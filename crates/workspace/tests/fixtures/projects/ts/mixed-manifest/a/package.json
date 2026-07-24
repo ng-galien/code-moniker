@@ -1,0 +1,6 @@
+{
+  "name": "declared-zustand-consumer",
+  "dependencies": {
+    "zustand": "^5.0.0"
+  }
+}

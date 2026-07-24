@@ -304,10 +304,6 @@ fn callable_is_variadic(name: &[u8]) -> bool {
 		.is_some_and(|r#type| r#type.ends_with(b"..."))
 }
 
-pub(super) fn builtin_external_root(root: &str) -> bool {
-	root == "pg_catalog"
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

@@ -379,12 +379,20 @@ fn refresh_incremental_linkage(
 	timings.changed_refs = changed_reference_indexes.len();
 	let locations = (!changed_reference_indexes.is_empty())
 		.then(|| ReferenceLocations::from_material(input.material));
+	let refresh_policies = locations
+		.as_ref()
+		.map(|_| RefreshPolicies::build(input.material));
 	let resolve_timer = Instant::now();
-	let changed = match &locations {
-		Some(locations) => {
-			resolve_reference_decisions(input, &changed_reference_indexes, candidates, locations)
-		}
-		None => Vec::new(),
+	let changed = match (&locations, &refresh_policies) {
+		(Some(locations), Some(policies)) => resolve_reference_decisions(
+			input,
+			&changed_reference_indexes,
+			candidates,
+			locations,
+			policies,
+		),
+		(None, None) => Vec::new(),
+		_ => unreachable!("locations and policies are built together"),
 	};
 	timings.resolve_references = resolve_timer.elapsed();
 	let apply_timer = Instant::now();
@@ -412,15 +420,19 @@ fn refresh_incremental_linkage(
 	let stale_reference_ids =
 		reference_ids_for_set(execution.stale_references(), &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
-	let source_groups = SourceGroupPolicy::build(input.material);
-	let packages = WorkspacePackageIndex::build(input.material);
+	let Some(refresh_policies) = refresh_policies.as_ref() else {
+		unreachable!("changed references always build refresh policies");
+	};
 	SemanticLinkage::new(
 		input.material,
 		methods,
 		candidates,
 		&locations,
-		&source_groups,
-		&packages,
+		crate::linkage::resolve::SemanticPolicies::new(
+			&refresh_policies.source_groups,
+			&refresh_policies.packages,
+			&refresh_policies.manifests,
+		),
 	)
 	.enhance_changed(
 		store.decisions_mut(),
@@ -438,22 +450,36 @@ fn refresh_incremental_linkage(
 	false
 }
 
+struct RefreshPolicies {
+	manifests: ManifestPolicy,
+	source_groups: SourceGroupPolicy,
+	packages: WorkspacePackageIndex,
+}
+
+impl RefreshPolicies {
+	fn build(material: &CodeIndexMaterial) -> Self {
+		Self {
+			manifests: ManifestPolicy::build(material),
+			source_groups: SourceGroupPolicy::build(material),
+			packages: WorkspacePackageIndex::build(material),
+		}
+	}
+}
+
 fn resolve_reference_decisions(
 	input: &IncrementalLinkageInput<'_>,
 	reference_indexes: &[usize],
 	candidates: &CandidateCatalog,
 	locations: &ReferenceLocations,
+	refresh_policies: &RefreshPolicies,
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = ReferenceResolver::new(input.material);
-	let manifests = ManifestPolicy::build(input.material);
-	let source_groups = SourceGroupPolicy::build(input.material);
-	let packages = WorkspacePackageIndex::build(input.material);
-	let forwards = CrateForwards::build(input.material, &manifests);
+	let forwards = CrateForwards::build(input.material, &refresh_policies.manifests);
 	let policies = LinkagePolicies {
 		candidates,
-		manifests: &manifests,
-		source_groups: &source_groups,
-		packages: &packages,
+		manifests: &refresh_policies.manifests,
+		source_groups: &refresh_policies.source_groups,
+		packages: &refresh_policies.packages,
 		forwards: &forwards,
 	};
 	indexes_to_references(input.index, reference_indexes)

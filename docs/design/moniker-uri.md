@@ -52,9 +52,7 @@ A moniker is split by an event-frontier into two regimes:
 
 - **Project regime** — from the project root down to the srcset
   segment (`srcset:<name>`, `workspace_app:<name>`, …). Kinds are
-  caller-supplied; the extension does not interpret them. External
-  packages live entirely in the project regime
-  (`external_pkg:maven/...`).
+  caller-supplied; the extension does not interpret them.
 - **Language regime** — everything below the srcset segment,
   produced by an extractor.
 
@@ -71,8 +69,8 @@ by the extractor:
 | Python             | `lang:python`  | `package:<seg>/module:<stem>` |
 | SQL / PL/pgSQL     | `lang:sql`     | `schema:<name>/module:<stem>` |
 
-`lang:` is mandatory for every extractor-produced moniker. External
-modules (no source) and project-regime nodes have no `lang:` segment.
+`lang:` is mandatory for source-owned definitions. SDK and external
+package targets have no `lang:` segment.
 
 The `lang:` segment serves three purposes:
 
@@ -82,6 +80,61 @@ The `lang:` segment serves three purposes:
 2. Anchors language-specific match strategies in `bind_match`.
 3. Encodes language as identity: a `class:Foo` in Java and a
    `class:Foo` in TypeScript are not the same node.
+
+## SDK and external package regimes
+
+References outside the indexed source tree use two distinct canonical roots:
+
+- `sdk:<lang>` identifies a language runtime, standard library, or platform
+  SDK. Linkage records these references with origin `sdk`.
+- `external_pkg:<package>` identifies a package or dependency outside the
+  project. Its presence alone is not proof of a declared dependency: manifests,
+  workspace package evidence, or language-specific build provenance determine
+  whether linkage records `dependency` or `unknown_external`.
+
+The SDK root carries provenance only. It does not replace lexical namespace
+segments, so Java repeats `java` for the `java.lang` package:
+
+```text
+code+moniker://./sdk:java/path:java/path:lang/path:System/path:out/method:println(_)
+```
+
+Canonical SDK examples:
+
+| Platform | Canonical target |
+|----------|------------------|
+| Java | `sdk:java/path:java/path:lang/path:String` |
+| Rust | `sdk:rs/path:std/path:vec/struct:Vec` |
+| Python | `sdk:python/path:builtins/path:str` |
+| Go | `sdk:go/path:fmt/func:Println` |
+| C | `sdk:c/path:libc/func:malloc` |
+| C# | `sdk:cs/path:System/path:String` |
+| TypeScript / Node | `sdk:ts/path:runtime/class:Promise`, `sdk:ts/path:node:fs` (`fs` and `node:fs`) |
+| SQL / PostgreSQL | `sdk:sql/path:pg_catalog/path:now` |
+
+These regimes are mutually exclusive: a canonical moniker never contains both
+`sdk` and `external_pkg`. SDK references are external by design but are not
+dependencies. Public audit totals preserve that distinction with `sdk`,
+`dependency`, `injected_external`, and `unknown_external`; the compatibility
+total `external` is their sum.
+
+SDK ownership is conservative and follows language resolution precedence:
+
+1. lexical and project-local bindings are considered before SDK fallback when
+   the language permits shadowing;
+2. a shared historical namespace is not sufficient ownership evidence
+   (`javax.persistence` remains a Java dependency, and `System.Reactive`
+   remains a C# dependency);
+3. only context-independent provenance (`sdk` and `injected`) may be propagated
+   between references. Dependency versus `unknown_external` is recomputed from
+   the call-site manifest boundary.
+
+The Java ownership table follows the Java SE/JDK 21 package surface for the
+ambiguous `javax` namespace. The C# table is intentionally an exact,
+allocation-free set of BCL namespaces and known CLR type paths; unknown
+`System.*` namespaces remain manifest-owned. Until target versions and
+reference packs become indexed inputs, false negatives are preferred over
+silently converting a project dependency into SDK provenance.
 
 ## Binding lives outside the URI
 

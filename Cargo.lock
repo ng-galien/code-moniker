@@ -422,7 +422,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "code-moniker"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-check"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",
@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "insta",
  "proptest",
@@ -502,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "code-moniker-check",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon-client"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "code-moniker-query",
@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-query"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-workspace"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",

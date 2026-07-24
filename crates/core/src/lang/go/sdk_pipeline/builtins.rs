@@ -1,4 +1,4 @@
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::moniker::Moniker;
 
 use super::super::kinds;
 
@@ -32,9 +32,8 @@ pub(super) fn is_builtin_func(name: &[u8]) -> bool {
 }
 
 pub(super) fn builtin_func_target(root: &Moniker, name: &[u8]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(root.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"builtin");
+	let mut builder = crate::lang::sdk::sdk_target_builder(root.as_view().project(), b"go");
+	builder.segment(kinds::PATH, b"builtin");
 	builder.segment(kinds::FUNC, name);
 	builder.build()
 }
@@ -48,7 +47,7 @@ const BUILTIN_FUNCS: &[&str] = &[
 // Top-level import roots of the Go standard library (`go list std`, deduped
 // to the first path piece). The linkage layer keys manifest-free external
 // classification on this set.
-pub(crate) const STDLIB_PACKAGES: &[&str] = &[
+pub(super) const STDLIB_PACKAGES: &[&str] = &[
 	"archive",
 	"bufio",
 	"builtin",

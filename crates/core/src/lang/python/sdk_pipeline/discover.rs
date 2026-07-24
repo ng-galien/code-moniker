@@ -2609,11 +2609,9 @@ fn attribute_callee_type(
 }
 
 fn is_external_shaped(target: &Moniker) -> bool {
-	target
-		.as_view()
-		.segments()
-		.next()
-		.is_some_and(|segment| segment.kind == kinds::EXTERNAL_PKG)
+	target.as_view().segments().next().is_some_and(|segment| {
+		matches!(segment.kind, kinds::EXTERNAL_PKG | crate::lang::kinds::SDK)
+	})
 }
 
 fn self_attr_key(
@@ -3171,8 +3169,12 @@ fn imported_nonconcrete_typing(discover: &PyDiscover<'_>, scope: &Moniker, name:
 	let Some(last) = segments.last() else {
 		return false;
 	};
-	root.kind == kinds::EXTERNAL_PKG
-		&& matches!(root.name, b"typing" | b"typing_extensions")
+	((root.kind == crate::lang::kinds::SDK
+		&& root.name == b"python"
+		&& segments
+			.get(1)
+			.is_some_and(|segment| segment.name == b"typing"))
+		|| (root.kind == kinds::EXTERNAL_PKG && root.name == b"typing_extensions"))
 		&& (is_typing_container(last.name)
 			|| matches!(last.name, b"Any" | b"Self" | b"Never" | b"NoReturn"))
 }
@@ -3199,8 +3201,14 @@ fn qualified_nonconcrete_typing(
 		return false;
 	};
 	let leaf = last_attribute(node, discover.source_bytes);
-	root.kind == kinds::EXTERNAL_PKG
-		&& matches!(root.name, b"typing" | b"typing_extensions")
+	let sdk_typing = root.kind == crate::lang::kinds::SDK
+		&& root.name == b"python"
+		&& module
+			.as_view()
+			.segments()
+			.nth(1)
+			.is_some_and(|segment| segment.name == b"typing");
+	(sdk_typing || (root.kind == kinds::EXTERNAL_PKG && root.name == b"typing_extensions"))
 		&& (is_typing_container(leaf.as_bytes())
 			|| matches!(leaf.as_bytes(), b"Any" | b"Self" | b"Never" | b"NoReturn"))
 }
@@ -4141,10 +4149,8 @@ fn build_module_target(
 		}
 		return b.build();
 	}
-	let mut b = MonikerBuilder::new();
-	b.project(project);
-	b.segment(kinds::EXTERNAL_PKG, pieces[0].as_bytes());
-	for p in &pieces[1..] {
+	let mut b = crate::lang::sdk::sdk_target_builder(project, b"python");
+	for p in pieces {
 		b.segment(kinds::PATH, p.as_bytes());
 	}
 	b.build()
@@ -4415,17 +4421,15 @@ fn is_python_runtime_global(name: &[u8]) -> bool {
 }
 
 fn python_runtime_external_target(module: &Moniker, name: &[u8]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(module.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"python_runtime");
+	let mut builder = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"python");
+	builder.segment(kinds::PATH, b"runtime");
 	builder.segment(kinds::PATH, name);
 	builder.build()
 }
 
 fn builtin_external_target(module: &Moniker, name: &[u8]) -> Moniker {
-	let mut b = MonikerBuilder::new();
-	b.project(module.as_view().project());
-	b.segment(kinds::EXTERNAL_PKG, b"builtins");
+	let mut b = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"python");
+	b.segment(kinds::PATH, b"builtins");
 	b.segment(kinds::PATH, name);
 	b.build()
 }
@@ -4467,7 +4471,7 @@ const TYPING_CONTAINER_NAMES: &[&[u8]] = &[
 	b"Union",
 ];
 
-pub(crate) const STDLIB_PACKAGES: &[&str] = &[
+const STDLIB_PACKAGES: &[&str] = &[
 	"__future__",
 	"abc",
 	"aifc",

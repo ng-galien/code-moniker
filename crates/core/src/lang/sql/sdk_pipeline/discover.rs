@@ -6,7 +6,6 @@ use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
-use crate::core::moniker::MonikerBuilder;
 use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
@@ -588,9 +587,8 @@ fn emit_call(
 			kinds::CONF_NAME_MATCH
 		};
 	let target = if confidence == kinds::CONF_EXTERNAL {
-		let mut b = MonikerBuilder::new();
-		b.project(module.as_view().project());
-		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
+		let mut b = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"sql");
+		b.segment(kinds::PATH, b"pg_catalog");
 		b.segment(kinds::PATH, builtin_name);
 		b.build()
 	} else {
@@ -1277,9 +1275,8 @@ fn emit_uses_type(
 fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
 	let base = canonical_type_base(canonical);
 	if is_builtin_type(base) {
-		let mut b = MonikerBuilder::new();
-		b.project(module.as_view().project());
-		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
+		let mut b = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"sql");
+		b.segment(kinds::PATH, b"pg_catalog");
 		b.segment(kinds::PATH, canonical);
 		return (b.build(), kinds::CONF_EXTERNAL);
 	}

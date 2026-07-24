@@ -18,5 +18,5 @@ pub(in crate::linkage) use reference_resolver::{LinkagePolicies, ReferenceResolv
 pub(in crate::linkage) use scope::{
 	GlobalScopeResolver, LocalScopeResolver, matches_any_source, matches_any_symbol,
 };
-pub(in crate::linkage) use semantic::{MethodTable, SemanticLinkage};
+pub(in crate::linkage) use semantic::{MethodTable, SemanticLinkage, SemanticPolicies};
 pub(in crate::linkage) use workspace_packages::WorkspacePackageIndex;

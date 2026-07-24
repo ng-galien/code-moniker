@@ -132,8 +132,7 @@ fn can_use_contextual_name_match(query: &LinkageQuery<'_>) -> bool {
 	{
 		return true;
 	}
-	query.confidence == Some(confidence(kinds::CONF_EXTERNAL))
-		&& external_root(query).is_some_and(|root| !is_builtin_external_root(root))
+	query.confidence == Some(confidence(kinds::CONF_EXTERNAL)) && external_root(query).is_some()
 }
 
 fn is_qualified_local_rust_call(query: &LinkageQuery<'_>) -> bool {
@@ -189,14 +188,6 @@ fn external_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a [u8]> {
 		.segments()
 		.next()
 		.and_then(|head| (head.kind == kinds::EXTERNAL_PKG).then_some(head.name))
-}
-
-fn is_builtin_external_root(root: &[u8]) -> bool {
-	matches!(root, b"std" | b"core" | b"alloc" | b"proc_macro")
-}
-
-pub(super) fn builtin_external_root(root: &str) -> bool {
-	matches!(root, "std" | "core" | "alloc" | "proc_macro" | "test")
 }
 
 pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {

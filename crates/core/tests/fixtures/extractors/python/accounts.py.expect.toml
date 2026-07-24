@@ -19,13 +19,13 @@ visibility = "public"
 [[refs]]
 kind = "imports_module"
 from = "code+moniker://app/lang:python/module:accounts"
-to = "code+moniker://app/external_pkg:logging"
+to = "code+moniker://app/sdk:python/path:logging"
 confidence = "external"
 
 [[refs]]
 kind = "extends"
 from = "code+moniker://app/lang:python/module:accounts/class:UserRepository"
-to = "code+moniker://app/external_pkg:typing/function:Protocol"
+to = "code+moniker://app/sdk:python/path:typing/function:Protocol"
 confidence = "external"
 
 [[refs]]

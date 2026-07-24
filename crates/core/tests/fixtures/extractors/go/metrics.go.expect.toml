@@ -40,7 +40,7 @@ confidence = "resolved"
 [[refs]]
 label = "reader embeds io reader"
 kind = "extends"
-to = "code+moniker://app/external_pkg:io/struct:Reader"
+to = "code+moniker://app/sdk:go/path:io/struct:Reader"
 confidence = "external"
 
 [[refs]]
@@ -68,7 +68,7 @@ confidence = "resolved"
 label = "len goes to the builtin universe block"
 kind = "calls"
 from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
-to = "code+moniker://app/external_pkg:builtin/func:len"
+to = "code+moniker://app/sdk:go/path:builtin/func:len"
 confidence = "external"
 
 [[refs]]

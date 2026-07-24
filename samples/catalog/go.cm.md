@@ -274,14 +274,15 @@ func (o Order_record) Reconcile() int {
 }
 ```
 
-Note on `domain-no-infra`: extracted Go import targets are spelled with
-`external_pkg:`/`path:` segments (`package:` segments only appear on the
-source side, mirroring the importing file's directory), so the `tgt_infra`
-alias — `target ~ '**/package:/^(infra|infrastructure)$/**'` — can never
-match a Go ref target and the rule stays silent in any layout.
+Note on `domain-no-infra`: extracted Go import targets use
+`external_pkg:`/`path:` for dependencies and `sdk:go`/`path:` for the
+standard library. `package:` segments only appear on the source side,
+mirroring the importing file's directory, so the `tgt_infra` alias —
+`target ~ '**/package:/^(infra|infrastructure)$/**'` — can never match a Go
+ref target and the rule stays silent in any layout.
 
 ```cm:expect
-! go.refs.domain-no-infra extracted Go ref targets use external_pkg:/path: segments, never package:, so the tgt_infra package pattern cannot match
+! go.refs.domain-no-infra extracted Go ref targets use dependency or SDK roots with path: segments, never package:, so the tgt_infra package pattern cannot match
 go.interface.interface-small @ domain/order.go:L6-L13
 go.struct.exported-struct-pascalcase @ domain/order.go:L15-L17
 go.func.exported-func-small @ domain/order.go:L24-L107

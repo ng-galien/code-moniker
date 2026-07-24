@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
 ---
@@ -487,7 +486,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         274
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         274
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         294
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync"
     },
     {
       "alias": "",
@@ -526,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         294
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:Arc"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:Arc"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         317
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         317
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:RwLock"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:RwLock"
     },
     {
       "alias": "",
@@ -565,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         480
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:fmt/trait:Debug"
+      "to": "code+moniker://app/sdk:rs/path:std/path:fmt/trait:Debug"
     },
     {
       "alias": "",
@@ -578,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         480
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:clone/trait:Clone"
+      "to": "code+moniker://app/sdk:rs/path:std/path:clone/trait:Clone"
     },
     {
       "alias": "",
@@ -591,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         480
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:cmp/trait:PartialEq"
+      "to": "code+moniker://app/sdk:rs/path:std/path:cmp/trait:PartialEq"
     },
     {
       "alias": "",
@@ -604,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         480
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:cmp/trait:Eq"
+      "to": "code+moniker://app/sdk:rs/path:std/path:cmp/trait:Eq"
     },
     {
       "alias": "",
@@ -617,7 +616,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         570
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -630,7 +629,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         773
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:fmt/trait:Debug"
+      "to": "code+moniker://app/sdk:rs/path:std/path:fmt/trait:Debug"
     },
     {
       "alias": "",
@@ -643,7 +642,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1027
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:fmt/path:Display"
+      "to": "code+moniker://app/sdk:rs/path:std/path:fmt/path:Display"
     },
     {
       "alias": "",
@@ -656,7 +655,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1086
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:fmt/path:Formatter"
+      "to": "code+moniker://app/sdk:rs/path:std/path:fmt/path:Formatter"
     },
     {
       "alias": "",
@@ -669,7 +668,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1111
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:fmt/path:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:fmt/path:Result"
     },
     {
       "alias": "",
@@ -695,7 +694,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1177
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
+      "to": "code+moniker://app/sdk:rs/path:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -721,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1234
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
+      "to": "code+moniker://app/sdk:rs/path:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1291
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
+      "to": "code+moniker://app/sdk:rs/path:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -760,7 +759,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1325
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:error/path:Error"
+      "to": "code+moniker://app/sdk:rs/path:std/path:error/path:Error"
     },
     {
       "alias": "",
@@ -773,7 +772,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1500
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:marker/trait:Send"
+      "to": "code+moniker://app/sdk:rs/path:std/path:marker/trait:Send"
     },
     {
       "alias": "",
@@ -786,7 +785,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1507
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:marker/trait:Sync"
+      "to": "code+moniker://app/sdk:rs/path:std/path:marker/trait:Sync"
     },
     {
       "alias": "",
@@ -799,7 +798,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1551
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -812,7 +811,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1558
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -851,7 +850,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1625
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -864,7 +863,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1632
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -916,7 +915,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1691
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -955,7 +954,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1791
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:boxed/struct:Box"
+      "to": "code+moniker://app/sdk:rs/path:std/path:boxed/struct:Box"
     },
     {
       "alias": "",
@@ -968,7 +967,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         1804
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:iter/trait:Iterator"
+      "to": "code+moniker://app/sdk:rs/path:std/path:iter/trait:Iterator"
     },
     {
       "alias": "",
@@ -994,7 +993,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2005
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:Arc"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:Arc"
     },
     {
       "alias": "",
@@ -1007,7 +1006,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2012
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:RwLock"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:RwLock"
     },
     {
       "alias": "",
@@ -1020,7 +1019,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2020
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -1059,7 +1058,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2141
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:Arc"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:Arc"
     },
     {
       "alias": "",
@@ -1072,7 +1071,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2140
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:RwLock"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:RwLock"
     },
     {
       "alias": "",
@@ -1085,7 +1084,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2139
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -1098,7 +1097,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2336
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -1111,7 +1110,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2363
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:sync/path:RwLockReadGuard"
+      "to": "code+moniker://app/sdk:rs/path:std/path:sync/path:RwLockReadGuard"
     },
     {
       "alias": "",
@@ -1124,7 +1123,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2375
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+      "to": "code+moniker://app/sdk:rs/path:std/path:collections/path:HashMap"
     },
     {
       "alias": "",
@@ -1163,7 +1162,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2480
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:map_err"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:map_err"
     },
     {
       "alias": "",
@@ -1176,7 +1175,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2428
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:read"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:read"
     },
     {
       "alias": "",
@@ -1202,7 +1201,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2478
       ],
       "receiver_hint": "e",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:to_string"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:to_string"
     },
     {
       "alias": "",
@@ -1215,7 +1214,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2499
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:default/trait:Default"
+      "to": "code+moniker://app/sdk:rs/path:std/path:default/trait:Default"
     },
     {
       "alias": "",
@@ -1254,7 +1253,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2643
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -1267,7 +1266,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2650
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -1306,7 +1305,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2712
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result/enum_constant:Ok"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result/enum_constant:Ok"
     },
     {
       "alias": "",
@@ -1319,7 +1318,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2711
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
@@ -1332,7 +1331,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2702
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:get"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:get"
     },
     {
       "alias": "",
@@ -1358,7 +1357,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2764
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -1371,7 +1370,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2771
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
+      "to": "code+moniker://app/sdk:rs/path:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -1423,7 +1422,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2981
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result/enum_constant:Ok"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result/enum_constant:Ok"
     },
     {
       "alias": "",
@@ -1436,7 +1435,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2980
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
@@ -1449,7 +1448,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2971
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:find"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:find"
     },
     {
       "alias": "",
@@ -1462,7 +1461,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         2944
       ],
       "receiver_hint": "by_id",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:values"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:values"
     },
     {
       "alias": "",
@@ -1488,7 +1487,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3025
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result"
     },
     {
       "alias": "",
@@ -1527,7 +1526,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3141
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:map_err"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:map_err"
     },
     {
       "alias": "",
@@ -1540,7 +1539,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3089
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:write"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:write"
     },
     {
       "alias": "",
@@ -1566,7 +1565,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3139
       ],
       "receiver_hint": "e",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:to_string"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:to_string"
     },
     {
       "alias": "",
@@ -1579,7 +1578,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3335
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:any"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:any"
     },
     {
       "alias": "",
@@ -1592,7 +1591,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3304
       ],
       "receiver_hint": "by_id",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:values"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:values"
     },
     {
       "alias": "",
@@ -1605,7 +1604,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3411
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result/enum_constant:Err"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result/enum_constant:Err"
     },
     {
       "alias": "",
@@ -1631,7 +1630,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3409
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:macros/macro:format"
+      "to": "code+moniker://app/sdk:rs/path:std/path:macros/macro:format"
     },
     {
       "alias": "",
@@ -1644,7 +1643,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3462
       ],
       "receiver_hint": "by_id",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:insert"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:insert"
     },
     {
       "alias": "",
@@ -1657,7 +1656,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3447
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:clone"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:clone"
     },
     {
       "alias": "",
@@ -1670,7 +1669,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3461
       ],
       "receiver_hint": "user",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:clone"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:clone"
     },
     {
       "alias": "",
@@ -1683,7 +1682,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3474
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:result/enum:Result/enum_constant:Ok"
+      "to": "code+moniker://app/sdk:rs/path:std/path:result/enum:Result/enum_constant:Ok"
     },
     {
       "alias": "",
@@ -1696,7 +1695,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3508
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:boxed/struct:Box"
+      "to": "code+moniker://app/sdk:rs/path:std/path:boxed/struct:Box"
     },
     {
       "alias": "",
@@ -1709,7 +1708,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3521
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:iter/trait:Iterator"
+      "to": "code+moniker://app/sdk:rs/path:std/path:iter/trait:Iterator"
     },
     {
       "alias": "",
@@ -1735,7 +1734,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3697
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -1774,7 +1773,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3773
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:collect"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:collect"
     },
     {
       "alias": "",
@@ -1787,7 +1786,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3763
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
@@ -1800,7 +1799,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3754
       ],
       "receiver_hint": "g",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:values"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:values"
     },
     {
       "alias": "",
@@ -1813,7 +1812,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3798
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -1826,7 +1825,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3837
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:boxed/struct:Box"
+      "to": "code+moniker://app/sdk:rs/path:std/path:boxed/struct:Box"
     },
     {
       "alias": "",
@@ -1839,7 +1838,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         3836
       ],
       "receiver_hint": "snapshot",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec/method:into_iter"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter"
     },
     {
       "alias": "",
@@ -1852,7 +1851,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4032
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
+      "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
@@ -1878,7 +1877,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4113
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:collect"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:collect"
     },
     {
       "alias": "",
@@ -1891,7 +1890,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4100
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:filter"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:filter"
     },
     {
       "alias": "",
@@ -1917,7 +1916,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4099
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:any"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:any"
     },
     {
       "alias": "",
@@ -1930,7 +1929,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4081
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:iter"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:iter"
     },
     {
       "alias": "",
@@ -1943,7 +1942,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
         4439
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/external_pkg:std/path:prelude/method:find"
+      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:find"
     },
     {
       "alias": "",

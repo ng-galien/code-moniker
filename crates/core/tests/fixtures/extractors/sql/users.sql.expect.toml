@@ -22,7 +22,7 @@ moniker = "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users
 [[refs]]
 kind = "uses_type"
 from = "code+moniker://app/lang:sql/module:users/schema:app/table:users"
-to = "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+to = "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
 confidence = "external"
 
 [[refs]]
@@ -34,5 +34,5 @@ confidence = "name_match"
 [[refs]]
 kind = "calls"
 from = "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users"
-to = "code+moniker://app/external_pkg:pg_catalog/path:now"
+to = "code+moniker://app/sdk:sql/path:pg_catalog/path:now"
 confidence = "external"

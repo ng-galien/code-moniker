@@ -33,20 +33,20 @@ visibility = "module"
 [[refs]]
 kind = "imports_module"
 from = "code+moniker://app/lang:go/module:http_handlers"
-to = "code+moniker://app/external_pkg:net/path:http"
+to = "code+moniker://app/sdk:go/path:net/path:http"
 confidence = "external"
 
 [[refs]]
 kind = "uses_type"
 from = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
-to = "code+moniker://app/external_pkg:context/struct:Context"
+to = "code+moniker://app/sdk:go/path:context/struct:Context"
 confidence = "external"
 
 [[refs]]
 label = "parseID.calls.strconv.ParseInt"
 kind = "calls"
 from = "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
-to = "code+moniker://app/external_pkg:strconv/func:ParseInt"
+to = "code+moniker://app/sdk:go/path:strconv/func:ParseInt"
 confidence = "external"
 
 [[refs]]

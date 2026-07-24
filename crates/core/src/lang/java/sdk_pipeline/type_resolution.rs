@@ -8,7 +8,7 @@ use super::super::kinds;
 use super::builtins;
 use super::discover::JavaDiscover;
 use super::imports::{
-	external_or_imported, external_package_target, java_lang_target, same_package_symbol_target,
+	external_or_imported, external_or_sdk_target, java_lang_target, same_package_symbol_target,
 };
 use super::syntax::{generic_base, generic_type_arguments, named_children, type_path};
 
@@ -102,7 +102,7 @@ pub(super) fn resolve_type_path(
 		.collect::<Vec<_>>();
 	let confidence = external_or_imported(&as_str);
 	(
-		external_package_target(state.root.as_view().project(), &as_str),
+		external_or_sdk_target(state.root.as_view().project(), &as_str),
 		confidence,
 	)
 }

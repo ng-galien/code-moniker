@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::audit::{AuditOptions, resolution_audit};
 use code_moniker_workspace::snapshot::{
-	DynamicReason, ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
+	DynamicReason, ExternalReferenceOrigin, ReferenceRecord, UnresolvedReason, WorkspaceRequest,
+	WorkspaceSnapshot,
 };
 use code_moniker_workspace::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 
@@ -28,11 +29,33 @@ fn load_workspace_with_options(options: LocalWorkspaceOptions) -> WorkspaceSnaps
 		),
 		"workspace refresh failed: {transition:?}"
 	);
-	workspace
+	let snapshot = workspace
 		.queries()
 		.snapshot()
 		.expect("ready workspace should expose a snapshot")
-		.clone()
+		.clone();
+	assert_external_origins_match_target_regime(&snapshot);
+	snapshot
+}
+
+fn assert_external_origins_match_target_regime(snapshot: &WorkspaceSnapshot) {
+	for reference in &snapshot.linkage.external {
+		let sdk_target = reference.target_identity.contains("/sdk:");
+		match reference.origin {
+			ExternalReferenceOrigin::Sdk => assert!(
+				sdk_target,
+				"SDK provenance requires an sdk:<lang> target, got {}",
+				reference.target_identity
+			),
+			ExternalReferenceOrigin::Dependency
+			| ExternalReferenceOrigin::Injected
+			| ExternalReferenceOrigin::UnknownExternal => assert!(
+				!sdk_target,
+				"target {} must use SDK provenance instead of {:?}",
+				reference.target_identity, reference.origin
+			),
+		}
+	}
 }
 
 #[test]
@@ -161,7 +184,7 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 		&snapshot,
 		"calls",
 		"module:main/func:run()",
-		"external_pkg:libc/func:assert",
+		"sdk:c/path:libc/func:assert",
 	);
 	assert_linked_to(
 		&snapshot,
@@ -728,6 +751,12 @@ fn ts_manifest_declared_zustand_store_api_methods_are_external() {
 	let snapshot = load_workspace("projects/ts/zustand-manifest");
 
 	assert_external_reference(&snapshot, "calls", "external_pkg:zustand/function:create");
+	assert_external_origin(
+		&snapshot,
+		"calls",
+		"external_pkg:zustand/function:create",
+		ExternalReferenceOrigin::Dependency,
+	);
 	assert_external_reference_from_symbol(
 		&snapshot,
 		"calls",
@@ -743,6 +772,48 @@ fn ts_manifest_declared_zustand_store_api_methods_are_external() {
 		&snapshot,
 		"setState",
 		"external_pkg:zustand/function:create/method:setState",
+	);
+	assert_external_method_call_origin(&snapshot, "getState", ExternalReferenceOrigin::Dependency);
+	assert_external_method_call_origin(&snapshot, "setState", ExternalReferenceOrigin::Dependency);
+}
+
+#[test]
+fn ts_no_manifest_receiver_chain_preserves_unknown_external_origin() {
+	let snapshot = load_workspace("projects/ts/no-manifest");
+
+	assert_external_origin(
+		&snapshot,
+		"calls",
+		"external_pkg:zustand/function:create",
+		ExternalReferenceOrigin::UnknownExternal,
+	);
+	assert_external_method_call_target(
+		&snapshot,
+		"getState",
+		"external_pkg:zustand/function:create/method:getState",
+	);
+	assert_external_method_call_origin(
+		&snapshot,
+		"getState",
+		ExternalReferenceOrigin::UnknownExternal,
+	);
+}
+
+#[test]
+fn ts_external_receiver_origin_is_scoped_to_the_call_site_manifest() {
+	let snapshot = load_workspace("projects/ts/mixed-manifest");
+
+	assert_external_method_call_origin_from_symbol(
+		&snapshot,
+		"dir:a/dir:src/module:app/function:fromA()",
+		"getState",
+		ExternalReferenceOrigin::Dependency,
+	);
+	assert_external_method_call_origin_from_symbol(
+		&snapshot,
+		"dir:b/dir:src/module:app/function:fromB()",
+		"getState",
+		ExternalReferenceOrigin::UnknownExternal,
 	);
 }
 
@@ -774,6 +845,7 @@ fn ts_manifest_undeclared_package_imports_are_not_external() {
 		"external_pkg:zustand/path:create",
 	);
 	assert_not_external_reference(&snapshot, "calls", "external_pkg:zustand/function:create");
+	assert_not_external_method_call(&snapshot, "getState");
 }
 
 #[test]
@@ -788,6 +860,21 @@ fn go_same_package_cross_file_calls_resolve() {
 		0,
 		"module:router/func:NewRouter()",
 	);
+}
+
+#[test]
+fn python_project_module_shadows_stdlib_module() {
+	let snapshot = load_workspace("projects/python/stdlib-shadow");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:app/function:run()",
+		"calls",
+		"dumps",
+		1,
+		"module:json/function:dumps(value)",
+	);
+	assert_external_reference(&snapshot, "imports_module", "sdk:python/path:sys");
 }
 
 #[test]
@@ -814,18 +901,18 @@ fn go_short_var_receivers_link_methods_across_files() {
 fn go_stdlib_imports_classify_external_with_manifest() {
 	let snapshot = load_workspace("projects/go/module-workspace");
 
-	assert_external_reference(&snapshot, "imports_module", "external_pkg:fmt");
+	assert_external_reference(&snapshot, "imports_module", "sdk:go/path:fmt");
 	assert_external_reference_from_symbol(
 		&snapshot,
 		"calls",
 		"module:app/func:Build()",
-		"external_pkg:strings/func:ToUpper",
+		"sdk:go/path:strings/func:ToUpper",
 	);
 	assert_external_reference_from_symbol(
 		&snapshot,
 		"calls",
 		"module:app/func:Build()",
-		"external_pkg:fmt/func:Println",
+		"sdk:go/path:fmt/func:Println",
 	);
 }
 
@@ -843,7 +930,7 @@ fn python_module_constants_and_builtins_resolve() {
 		&snapshot,
 		"calls",
 		"module:limits/function:effective_limit",
-		"external_pkg:builtins/path:print",
+		"sdk:python/path:builtins/path:print",
 	);
 }
 
@@ -1101,7 +1188,7 @@ fn python_annotated_factory_returns_resolve_direct_and_assigned_chains() {
 		&snapshot,
 		"method_call",
 		"package:orders_service/module:listing/function:first_entry_key_normalized()",
-		"external_pkg:builtins/path:str/method:strip",
+		"sdk:python/path:builtins/path:str/method:strip",
 	);
 }
 
@@ -1219,11 +1306,11 @@ fn python_self_reads_bind_to_the_method_param() {
 fn python_bare_builtin_reads_classify_external() {
 	let snapshot = load_workspace("projects/python/orders-service");
 
-	assert_external_reference(&snapshot, "reads", "external_pkg:builtins/path:KeyError");
+	assert_external_reference(&snapshot, "reads", "sdk:python/path:builtins/path:KeyError");
 	assert_external_reference(
 		&snapshot,
 		"reads",
-		"external_pkg:builtins/path:TimeoutError",
+		"sdk:python/path:builtins/path:TimeoutError",
 	);
 }
 
@@ -1293,7 +1380,7 @@ fn python_regular_module_facade_preserves_external_provenance() {
 		&snapshot,
 		"calls",
 		"module:report/function:open_exported_path()",
-		"external_pkg:pathlib/function:Path",
+		"sdk:python/path:pathlib/function:Path",
 	);
 }
 
@@ -1556,7 +1643,7 @@ fn python_regular_module_imports_participate_in_facade_bindings() {
 		&snapshot,
 		"calls",
 		"module:report/function:call_exported_external_module()",
-		"external_pkg:pathlib/function:Path",
+		"sdk:python/path:pathlib/function:Path",
 	);
 }
 
@@ -1653,12 +1740,17 @@ fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:lang/path:System/method:println",
+		"sdk:java/path:java/path:lang/path:System/path:out/method:println",
 	);
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:lang/path:String/method:trim",
+		"sdk:java/path:java/path:lang/path:System/path:err/method:println",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"sdk:java/path:java/path:lang/path:String/method:trim",
 	);
 	assert_external_reference(
 		snapshot,
@@ -1678,12 +1770,12 @@ fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
 		"annotates",
-		"external_pkg:java/path:lang/path:Deprecated",
+		"sdk:java/path:java/path:lang/path:Deprecated",
 	);
 	assert_external_reference(
 		snapshot,
 		"annotates",
-		"external_pkg:java/path:lang/path:SuppressWarnings",
+		"sdk:java/path:java/path:lang/path:SuppressWarnings",
 	);
 	assert_external_reference(
 		snapshot,
@@ -1821,27 +1913,27 @@ fn assert_java_nested_type_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
 		"uses_type",
-		"external_pkg:java/path:util/path:Map/path:Entry",
+		"sdk:java/path:java/path:util/path:Map/path:Entry",
 	);
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:util/path:Map/method:entry",
+		"sdk:java/path:java/path:util/path:Map/method:entry",
 	);
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:util/path:Map/path:Entry/method:getKey",
+		"sdk:java/path:java/path:util/path:Map/path:Entry/method:getKey",
 	);
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:util/path:Map/path:Entry/method:getValue",
+		"sdk:java/path:java/path:util/path:Map/path:Entry/method:getValue",
 	);
 	assert_external_reference(
 		snapshot,
 		"method_call",
-		"external_pkg:java/path:lang/path:Class/method:getSimpleName",
+		"sdk:java/path:java/path:lang/path:Class/method:getSimpleName",
 	);
 	assert_linked_to(
 		snapshot,
@@ -2670,6 +2762,103 @@ fn assert_external_method_call_target(
 	);
 }
 
+fn assert_external_method_call_origin(
+	snapshot: &WorkspaceSnapshot,
+	call_name: &str,
+	expected: ExternalReferenceOrigin,
+) {
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call" && reference.call_name.as_deref() == Some(call_name)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			snapshot
+				.linkage
+				.external
+				.iter()
+				.any(|external| external.reference == reference.id && external.origin == expected)
+		}),
+		"no `{call_name}` method_call had external origin {expected:?}",
+	);
+}
+
+fn assert_external_method_call_origin_from_symbol(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	expected: ExternalReferenceOrigin,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			snapshot
+				.linkage
+				.external
+				.iter()
+				.any(|external| external.reference == reference.id && external.origin == expected)
+		}),
+		"no `{call_name}` method_call from `{}` had external origin {expected:?}; observed: {:?}",
+		source.identity,
+		references
+			.iter()
+			.map(|reference| {
+				(
+					reference.target_identity.as_ref(),
+					snapshot
+						.linkage
+						.external
+						.iter()
+						.filter(|external| external.reference == reference.id)
+						.map(|external| (external.target_identity.as_ref(), external.origin))
+						.collect::<Vec<_>>(),
+				)
+			})
+			.collect::<Vec<_>>(),
+	);
+}
+
+fn assert_not_external_method_call(snapshot: &WorkspaceSnapshot, call_name: &str) {
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call" && reference.call_name.as_deref() == Some(call_name)
+		})
+		.collect::<Vec<_>>();
+	assert!(!references.is_empty(), "missing `{call_name}` method_call");
+	assert!(
+		references.iter().all(|reference| {
+			snapshot
+				.linkage
+				.external
+				.iter()
+				.all(|external| external.reference != reference.id)
+		}),
+		"`{call_name}` must not bypass manifest policy through semantic propagation",
+	);
+}
+
 fn assert_call_unresolved(
 	snapshot: &WorkspaceSnapshot,
 	source_identity: &str,
@@ -2762,6 +2951,28 @@ fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference
 	assert!(
 		reference_is_external(snapshot, reference),
 		"reference `{}` should be classified external",
+		reference.target_identity
+	);
+}
+
+fn assert_external_origin(
+	snapshot: &WorkspaceSnapshot,
+	kind: &str,
+	reference_target: &str,
+	expected: ExternalReferenceOrigin,
+) {
+	let reference = find_reference(snapshot, kind, reference_target)
+		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
+	let origin = snapshot
+		.linkage
+		.external
+		.iter()
+		.find(|external| external.reference == reference.id)
+		.map(|external| external.origin);
+	assert_eq!(
+		origin,
+		Some(expected),
+		"reference `{}` has the wrong external origin",
 		reference.target_identity
 	);
 }

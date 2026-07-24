@@ -15,6 +15,7 @@ pub const LANG: &[u8] = b"lang";
 
 pub const PATH: &[u8] = b"path";
 pub const DIR: &[u8] = b"dir";
+pub const SDK: &[u8] = b"sdk";
 pub const EXTERNAL_PKG: &[u8] = b"external_pkg";
 pub const PACKAGE: &[u8] = b"package";
 

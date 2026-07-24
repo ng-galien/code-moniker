@@ -1,5 +1,5 @@
 use crate::core::code_graph::RefAttrs;
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::moniker::Moniker;
 use crate::lang::sdk::Namespace;
 
 use super::super::kinds;
@@ -47,9 +47,21 @@ pub(super) fn external_runtime_target(
 	kind: &'static [u8],
 	name: &[u8],
 ) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(module.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"code-moniker-ts-runtime");
+	let mut builder = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"ts");
+	builder.segment(kinds::PATH, b"runtime");
+	builder.segment(kind, name);
+	builder.build()
+}
+
+pub(super) fn external_runtime_member_target(
+	module: &Moniker,
+	owner: &[u8],
+	kind: &'static [u8],
+	name: &[u8],
+) -> Moniker {
+	let mut builder = crate::lang::sdk::sdk_target_builder(module.as_view().project(), b"ts");
+	builder.segment(kinds::PATH, b"runtime");
+	builder.segment(kinds::PATH, owner);
 	builder.segment(kind, name);
 	builder.build()
 }
@@ -98,6 +110,7 @@ pub(super) fn is_global_type(name: &[u8]) -> bool {
 		|| matches!(
 			name,
 			b"Awaited"
+				| b"AsyncIterable"
 				| b"CanvasRenderingContext2D"
 				| b"ClipboardEvent"
 				| b"Element" | b"Event"

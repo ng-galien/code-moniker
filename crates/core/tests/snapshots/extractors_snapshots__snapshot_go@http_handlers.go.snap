@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 130
 expression: body
 input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
 ---
@@ -253,7 +252,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         37
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:context"
+      "to": "code+moniker://app/sdk:go/path:context"
     },
     {
       "alias": "",
@@ -266,7 +265,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         54
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:encoding/path:json"
+      "to": "code+moniker://app/sdk:go/path:encoding/path:json"
     },
     {
       "alias": "",
@@ -279,7 +278,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         66
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http"
+      "to": "code+moniker://app/sdk:go/path:net/path:http"
     },
     {
       "alias": "",
@@ -292,7 +291,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         77
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strconv"
+      "to": "code+moniker://app/sdk:go/path:strconv"
     },
     {
       "alias": "",
@@ -318,7 +317,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         291
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:context/struct:Context"
+      "to": "code+moniker://app/sdk:go/path:context/struct:Context"
     },
     {
       "alias": "",
@@ -396,7 +395,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         644
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:ResponseWriter"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:ResponseWriter"
     },
     {
       "alias": "",
@@ -409,7 +408,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         661
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:Request"
     },
     {
       "alias": "",
@@ -435,7 +434,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         801
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/func:Error"
     },
     {
       "alias": "",
@@ -461,7 +460,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         911
       ],
       "receiver_hint": "r",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/method:Context()"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:Request/method:Context()"
     },
     {
       "alias": "",
@@ -474,7 +473,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         981
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/func:Error"
     },
     {
       "alias": "",
@@ -487,7 +486,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1030
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:encoding/path:json/func:NewEncoder/method:Encode(_)"
+      "to": "code+moniker://app/sdk:go/path:encoding/path:json/func:NewEncoder/method:Encode(_)"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1017
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:encoding/path:json/func:NewEncoder"
+      "to": "code+moniker://app/sdk:go/path:encoding/path:json/func:NewEncoder"
     },
     {
       "alias": "",
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1081
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:Request"
     },
     {
       "alias": "",
@@ -526,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1131
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/path:URL/method:Query()/method:Get(_)"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:Request/path:URL/method:Query()/method:Get(_)"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1121
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/path:URL/method:Query()"
+      "to": "code+moniker://app/sdk:go/path:net/path:http/struct:Request/path:URL/method:Query()"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
         1212
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:strconv/func:ParseInt"
+      "to": "code+moniker://app/sdk:go/path:strconv/func:ParseInt"
     }
   ],
   "root": "code+moniker://app/lang:go/module:http_handlers"

@@ -584,6 +584,110 @@ function outer() {
 	}
 
 	#[test]
+	fn extract_unknown_member_call_does_not_claim_sdk_provenance() {
+		let g = extract(
+			"app.ts",
+			"function read(store: Store) { return store.getState(); }",
+			&make_anchor(),
+			false,
+		);
+		let call = g
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call"
+					&& reference
+						.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"getState")
+			})
+			.expect("getState method call");
+		let first = call.target.as_view().segments().next().unwrap();
+		assert_ne!(first.kind, b"sdk");
+		assert_eq!(call.confidence.as_ref(), b"name_match");
+	}
+
+	#[test]
+	fn extract_global_member_call_preserves_runtime_owner() {
+		let g = extract(
+			"app.ts",
+			"function read() { return Object.fromEntries([]); }",
+			&make_anchor(),
+			false,
+		);
+		let call = g
+			.refs()
+			.find(|reference| reference.kind == b"method_call")
+			.expect("Object.fromEntries method call");
+		let segments = call.target.as_view().segments().collect::<Vec<_>>();
+		assert_eq!(
+			segments
+				.iter()
+				.map(|segment| (segment.kind, segment.name))
+				.collect::<Vec<_>>(),
+			vec![
+				(b"sdk".as_slice(), b"ts".as_slice()),
+				(b"path".as_slice(), b"runtime".as_slice()),
+				(b"path".as_slice(), b"Object".as_slice()),
+				(b"method".as_slice(), b"fromEntries".as_slice()),
+			]
+		);
+	}
+
+	#[test]
+	fn extract_local_binding_shadows_runtime_global_for_member_calls() {
+		let g = extract(
+			"app.ts",
+			"interface Logger { flush(): void } function run(console: Logger) { console.flush(); }",
+			&make_anchor(),
+			true,
+		);
+		let call = g
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call" && reference.call_name.as_ref() == b"flush"
+			})
+			.expect("console.flush method call");
+		assert_ne!(
+			call.target.as_view().segments().next().unwrap().kind,
+			b"sdk",
+			"a lexical binding named like a runtime global must win",
+		);
+	}
+
+	#[test]
+	fn extract_module_binding_shadows_runtime_global_for_member_calls() {
+		let g = extract(
+			"app.ts",
+			"const console = { flush() {} }; export function run() { console.flush(); }",
+			&make_anchor(),
+			true,
+		);
+		let call = g
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call" && reference.call_name.as_ref() == b"flush"
+			})
+			.expect("console.flush method call");
+		assert_ne!(
+			call.target.as_view().segments().next().unwrap().kind,
+			b"sdk",
+			"a module binding named like a runtime global must win",
+		);
+		let segments = call.target.as_view().segments().collect::<Vec<_>>();
+		assert!(
+			segments.windows(2).any(|pair| {
+				pair[0].kind == b"const"
+					&& pair[0].name == b"console"
+					&& pair[1].kind == b"method"
+					&& pair[1].name == b"flush"
+			}),
+			"unexpected target {segments:?}",
+		);
+	}
+
+	#[test]
 	fn extract_jsx_expression_identifier_still_emits_read() {
 		let g = extract(
 			"app.tsx",

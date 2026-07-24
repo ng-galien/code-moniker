@@ -170,7 +170,11 @@ fn libc_target_matches_workspace_function(
 ) -> bool {
 	let libc_target = query
 		.target_first
-		.is_some_and(|segment| segment.kind == b"external_pkg" && segment.name == b"libc");
+		.is_some_and(|segment| segment.kind == kinds::SDK && segment.name == b"c")
+		&& query
+			.target_segments()
+			.nth(1)
+			.is_some_and(|segment| segment.kind == kinds::PATH && segment.name == b"libc");
 	let c_candidate = candidate
 		.moniker
 		.as_view()

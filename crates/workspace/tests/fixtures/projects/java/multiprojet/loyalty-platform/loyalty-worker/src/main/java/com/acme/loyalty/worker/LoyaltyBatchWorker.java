@@ -18,6 +18,6 @@ public class LoyaltyBatchWorker {
     }
 
     public static void main(String[] args) {
-        System.out.println(new LoyaltyBatchWorker().routeBatch("c-500"));
+        System.err.println(new LoyaltyBatchWorker().routeBatch("c-500"));
     }
 }

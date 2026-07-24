@@ -135,11 +135,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 				)
 			})
 			.collect(),
-		external: linkage
-			.external
-			.iter()
-			.map(|external| reference_key(external.reference))
-			.collect(),
+		external: external_normal_form(linkage, &reference_keys),
 		manifest_blocked: linkage
 			.manifest_blocked
 			.iter()
@@ -151,6 +147,27 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 			.map(|unresolved| reference_key(unresolved.reference))
 			.collect(),
 	}
+}
+
+fn external_normal_form(
+	linkage: &LinkageSnapshot,
+	reference_keys: &BTreeMap<ReferenceId, String>,
+) -> BTreeSet<String> {
+	linkage
+		.external
+		.iter()
+		.map(|external| {
+			let reference = reference_keys
+				.get(&external.reference)
+				.cloned()
+				.unwrap_or_else(|| format!("<missing reference {}>", external.reference));
+			format!(
+				"{reference} -> {} origin={}",
+				external.target_identity,
+				external.origin.label(),
+			)
+		})
+		.collect()
 }
 
 struct IncrementalSession {
@@ -780,6 +797,41 @@ fn removing_an_unreferenced_python_module_has_an_empty_dependency_closure() {
 		"an unreferenced deleted module has no dependent references"
 	);
 	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
+fn manifest_origin_refresh_matches_full_rebuild_across_sibling_projects() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	for project in ["a", "b"] {
+		fs::create_dir_all(temp.path().join(project).join("src")).expect("project src");
+		fs::write(
+			temp.path().join(project).join("src/store.ts"),
+			"import { create } from \"zustand\";\nexport const useStore = create(() => ({ count: 0 }));\n",
+		)
+		.expect("store");
+		fs::write(
+			temp.path().join(project).join("src/app.ts"),
+			format!(
+				"import {{ useStore }} from \"./store\";\nexport function from{project}() {{ return useStore.getState().count; }}\n"
+			),
+		)
+		.expect("app");
+	}
+	fs::write(
+		temp.path().join("a/package.json"),
+		"{\"name\":\"a\",\"dependencies\":{\"zustand\":\"^5.0.0\"}}\n",
+	)
+	.expect("manifest");
+	let mut session = IncrementalSession::open(temp.path());
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+
+	session.edit("a/package.json", "{\"name\":\"a\",\"dependencies\":{}}\n");
+
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"manifest edits must reclassify semantic external origins exactly like a full rebuild",
+	);
 }
 
 const ALPHA_VARIANTS: &[&str] = &[

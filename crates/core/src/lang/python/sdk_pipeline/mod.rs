@@ -31,5 +31,3 @@ pub fn extract(
 	GraphEmitter::emit(&discovered, &discovered_parts.refs)
 		.unwrap_or_else(|err| panic!("Python SDK graph emission failed: {err}"))
 }
-
-pub(crate) use discover::STDLIB_PACKAGES;

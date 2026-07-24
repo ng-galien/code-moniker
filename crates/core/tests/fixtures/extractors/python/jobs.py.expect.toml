@@ -33,13 +33,13 @@ parent = "code+moniker://app/lang:python/module:jobs/class:Worker"
 [[refs]]
 kind = "imports_symbol"
 from = "code+moniker://app/lang:python/module:jobs"
-to = "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+to = "code+moniker://app/sdk:python/path:contextlib/function:asynccontextmanager"
 confidence = "external"
 
 [[refs]]
 kind = "extends"
 from = "code+moniker://app/lang:python/module:jobs/class:JobStore"
-to = "code+moniker://app/external_pkg:typing/function:Protocol"
+to = "code+moniker://app/sdk:python/path:typing/function:Protocol"
 confidence = "external"
 
 [[refs]]
@@ -59,7 +59,7 @@ confidence = "name_match"
 label = "Worker.run_once.calls.asyncio.sleep"
 kind = "calls"
 from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
-to = "code+moniker://app/external_pkg:asyncio/function:sleep"
+to = "code+moniker://app/sdk:python/path:asyncio/function:sleep"
 confidence = "external"
 
 [[refs]]

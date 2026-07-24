@@ -154,14 +154,18 @@
       "required": [
         "blocked",
         "candidate",
+        "dependency",
         "dynamic",
         "explained",
         "external",
+        "injected_external",
         "name_match_candidate",
         "name_match_resolved",
         "references",
         "resolved",
+        "sdk",
         "unique",
+        "unknown_external",
         "unresolved",
         "weak_or_unexplained"
       ],
@@ -172,6 +176,11 @@
           "minimum": 0.0
         },
         "candidate": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dependency": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -187,6 +196,11 @@
           "minimum": 0.0
         },
         "external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "injected_external": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -211,7 +225,17 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "sdk": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "unique": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unknown_external": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -3579,14 +3603,23 @@
       "type": "object",
       "required": [
         "candidate",
+        "dependency",
         "dynamic",
         "external",
+        "injected_external",
         "manifest_blocked",
+        "sdk",
+        "unknown_external",
         "unresolved",
         "unresolved_reasons"
       ],
       "properties": {
         "candidate": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dependency": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -3601,7 +3634,22 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "injected_external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "manifest_blocked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "sdk": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unknown_external": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0

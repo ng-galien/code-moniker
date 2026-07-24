@@ -18,7 +18,7 @@ parent = "code+moniker://app/lang:cs/module:UserService/class:UserService"
 [[refs]]
 kind = "imports_module"
 from = "code+moniker://app/lang:cs/module:UserService"
-to = "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+to = "code+moniker://app/sdk:cs/path:System/path:Collections/path:Generic"
 confidence = "external"
 
 [[refs]]

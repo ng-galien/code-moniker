@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,10 @@ pub struct AuditTotals {
 	pub unique: usize,
 	pub candidate: usize,
 	pub external: usize,
+	pub sdk: usize,
+	pub dependency: usize,
+	pub injected_external: usize,
+	pub unknown_external: usize,
 	pub dynamic: usize,
 	pub blocked: usize,
 	pub unresolved: usize,
@@ -100,7 +104,7 @@ struct AuditLookups<'a> {
 	source_texts: HashMap<crate::snapshot::SourceId, &'a str>,
 	unresolved: HashMap<crate::snapshot::ReferenceId, &'static str>,
 	blocked: HashMap<crate::snapshot::ReferenceId, &'static str>,
-	external: HashSet<crate::snapshot::ReferenceId>,
+	external: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin>,
 	resolved: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ResolutionEvidence>,
 	candidates: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::CandidateReference>,
 	dynamic: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::DynamicReference>,
@@ -172,8 +176,11 @@ fn blocked_reasons(
 
 fn external_references(
 	references: &[crate::snapshot::ExternalReference],
-) -> HashSet<crate::snapshot::ReferenceId> {
-	references.iter().map(|item| item.reference).collect()
+) -> HashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin> {
+	references
+		.iter()
+		.map(|item| (item.reference, item.origin))
+		.collect()
 }
 
 fn resolved_evidence(
@@ -279,12 +286,22 @@ pub fn resolution_audit(
 		}
 	}
 	totals.resolved = totals.unique;
-	totals.explained =
-		totals.unique + totals.candidate + totals.external + totals.dynamic + totals.blocked;
-	totals.weak_or_unexplained = totals.candidate + totals.unresolved;
+	debug_assert_eq!(
+		totals.external,
+		totals.sdk + totals.dependency + totals.injected_external + totals.unknown_external,
+		"external compatibility total must equal its provenance buckets"
+	);
+	totals.explained = totals.unique
+		+ totals.candidate
+		+ totals.sdk
+		+ totals.dependency
+		+ totals.injected_external
+		+ totals.dynamic
+		+ totals.blocked;
+	totals.weak_or_unexplained = totals.candidate + totals.unknown_external + totals.unresolved;
 	debug_assert_eq!(
 		totals.references,
-		totals.explained + totals.unresolved,
+		totals.explained + totals.unknown_external + totals.unresolved,
 		"resolution audit categories must partition every reference"
 	);
 
@@ -355,9 +372,32 @@ fn classify_reference(
 			candidate_targets: candidate_identities(&candidate.targets, &lookups.symbol_identities),
 		});
 	}
-	if lookups.external.contains(&reference.id) {
+	if let Some(origin) = lookups.external.get(&reference.id) {
 		totals.external += 1;
-		return None;
+		match origin {
+			crate::snapshot::ExternalReferenceOrigin::Sdk => {
+				totals.sdk += 1;
+				return None;
+			}
+			crate::snapshot::ExternalReferenceOrigin::Dependency => {
+				totals.dependency += 1;
+				return None;
+			}
+			crate::snapshot::ExternalReferenceOrigin::Injected => {
+				totals.injected_external += 1;
+				return None;
+			}
+			crate::snapshot::ExternalReferenceOrigin::UnknownExternal => {
+				totals.unknown_external += 1;
+				return Some(AuditClassification {
+					status: "unknown_external",
+					reason: origin.label(),
+					evidence: "extractor",
+					scope: "external",
+					candidate_targets: Vec::new(),
+				});
+			}
+		}
 	}
 	if let Some(dynamic) = lookups.dynamic.get(&reference.id) {
 		totals.dynamic += 1;
@@ -637,7 +677,7 @@ mod tests {
 		let mut target_record = SymbolRecord::new(candidate_target, source, "Target", "class");
 		target_record.identity =
 			Arc::from("code+moniker://./lang:python/module:sample/class:Target");
-		let references = (0..6)
+		let references = (0..9)
 			.map(|idx| {
 				ReferenceRecord::new(
 					ReferenceId::at(0, idx),
@@ -682,15 +722,19 @@ mod tests {
 
 		let audit = resolution_audit(&snapshot, "lang:python", AuditOptions::default());
 
-		assert_eq!(audit.totals.references, 6);
+		assert_eq!(audit.totals.references, 9);
 		assert_eq!(audit.totals.unique, 1);
 		assert_eq!(audit.totals.candidate, 1);
-		assert_eq!(audit.totals.external, 1);
+		assert_eq!(audit.totals.external, 4);
+		assert_eq!(audit.totals.sdk, 1);
+		assert_eq!(audit.totals.dependency, 1);
+		assert_eq!(audit.totals.injected_external, 1);
+		assert_eq!(audit.totals.unknown_external, 1);
 		assert_eq!(audit.totals.dynamic, 1);
 		assert_eq!(audit.totals.blocked, 1);
 		assert_eq!(audit.totals.unresolved, 1);
-		assert_eq!(audit.totals.explained, 5);
-		assert_eq!(audit.totals.weak_or_unexplained, 2);
+		assert_eq!(audit.totals.explained, 7);
+		assert_eq!(audit.totals.weak_or_unexplained, 3);
 		assert_audit_clusters(&audit);
 		let candidate_cluster = audit
 			.clusters
@@ -727,7 +771,7 @@ mod tests {
 			index_generation: generation,
 			resolved_refs: 1,
 			candidate_refs: 1,
-			external_refs: 1,
+			external_refs: 4,
 			dynamic_refs: 1,
 			blocked_refs: 1,
 			manifest_blocked_refs: 1,
@@ -742,11 +786,28 @@ mod tests {
 				CandidateScope::Global,
 				crate::snapshot::ResolutionEvidence::NameMatch,
 			)],
-			external: vec![ExternalReference::new(
-				ReferenceId::at(0, 2),
-				"code+moniker://./external_pkg:sample/path:work",
-				ExternalReferenceOrigin::Dependency,
-			)],
+			external: vec![
+				ExternalReference::new(
+					ReferenceId::at(0, 2),
+					"code+moniker://./external_pkg:sample/path:work",
+					ExternalReferenceOrigin::Dependency,
+				),
+				ExternalReference::new(
+					ReferenceId::at(0, 6),
+					"code+moniker://./sdk:python/path:builtins/path:print",
+					ExternalReferenceOrigin::Sdk,
+				),
+				ExternalReference::new(
+					ReferenceId::at(0, 7),
+					"code+moniker://./external_pkg:generated/path:work",
+					ExternalReferenceOrigin::Injected,
+				),
+				ExternalReference::new(
+					ReferenceId::at(0, 8),
+					"code+moniker://./external_pkg:unknown/path:work",
+					ExternalReferenceOrigin::UnknownExternal,
+				),
+			],
 			dynamic: vec![DynamicReference::new(
 				ReferenceId::at(0, 3),
 				"code+moniker://./lang:python/module:sample/method:work",
@@ -786,6 +847,11 @@ mod tests {
 			cluster.pattern.status == "blocked"
 				&& cluster.pattern.reason == "manifest_blocked"
 				&& cluster.pattern.evidence == "policy"
+		}));
+		assert!(audit.clusters.iter().any(|cluster| {
+			cluster.pattern.status == "unknown_external"
+				&& cluster.pattern.reason == "unknown_external"
+				&& cluster.pattern.evidence == "extractor"
 		}));
 	}
 }

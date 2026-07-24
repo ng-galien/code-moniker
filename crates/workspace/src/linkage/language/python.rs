@@ -25,12 +25,42 @@ fn python_path_target_matches_def(
 	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
 		return false;
 	}
+	if is_non_shadowable_python_sdk_target(&target_segments) {
+		return false;
+	}
 	target_segments
 		.iter()
 		.zip(candidate_segments.iter())
 		.all(|(target, candidate_segment)| {
 			python_segment_matches(query, candidate, *target, *candidate_segment)
 		})
+}
+
+fn is_non_shadowable_python_sdk_target(segments: &[Segment<'_>]) -> bool {
+	if !segments
+		.first()
+		.is_some_and(|segment| segment.kind == kinds::SDK && segment.name == b"python")
+	{
+		return false;
+	}
+	let mut path = segments
+		.iter()
+		.skip(1)
+		.filter(|segment| segment.kind == kinds::PATH);
+	let Some(module) = path.next() else {
+		return false;
+	};
+	match module.name {
+		b"sys"
+		| b"builtins"
+		| b"_frozen_importlib"
+		| b"_frozen_importlib_external"
+		| b"zipimport" => true,
+		b"importlib" => path
+			.next()
+			.is_some_and(|segment| matches!(segment.name, b"_bootstrap" | b"_bootstrap_external")),
+		_ => false,
+	}
 }
 
 // A Python package is imported by its bare name, but its definitions live in
@@ -64,6 +94,13 @@ fn python_segment_matches(
 	target: Segment<'_>,
 	candidate_segment: Segment<'_>,
 ) -> bool {
+	if target.kind == kinds::SDK
+		&& target.name == b"python"
+		&& candidate_segment.kind == kinds::LANG
+		&& candidate_segment.name == b"python"
+	{
+		return true;
+	}
 	if target.kind == candidate_segment.kind {
 		return python_segment_name_matches(query, candidate, target, candidate_segment);
 	}

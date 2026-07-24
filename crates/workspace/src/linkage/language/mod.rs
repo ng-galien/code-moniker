@@ -81,19 +81,6 @@ pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 	}
 }
 
-pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
-	match lang {
-		Lang::Rs => rust::builtin_external_root(root),
-		Lang::Java => java::builtin_external_root(root),
-		Lang::Ts => ts::builtin_external_root(root),
-		Lang::Python => code_moniker_core::lang::python::builtin_external_root(root),
-		Lang::Go => code_moniker_core::lang::go::builtin_external_root(root),
-		Lang::C => code_moniker_core::lang::c::builtin_external_root(root),
-		Lang::Cs => csharp::builtin_external_root(root),
-		Lang::Sql => sql::builtin_external_root(root),
-	}
-}
-
 pub(super) fn package_prefix_for_target(lang: Lang, target: &Moniker) -> Option<String> {
 	match lang {
 		Lang::Java => java::package_prefix(target),

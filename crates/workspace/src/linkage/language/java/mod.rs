@@ -112,10 +112,6 @@ pub(super) fn package_prefix(target: &Moniker) -> Option<String> {
 	(!pieces.is_empty()).then(|| pieces.join("."))
 }
 
-pub(super) fn builtin_external_root(root: &str) -> bool {
-	root == "java"
-}
-
 pub(super) fn source_declares_external_package(
 	manifest: Manifest,
 	deps: &FxHashSet<String>,

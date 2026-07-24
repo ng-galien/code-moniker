@@ -13,7 +13,7 @@ use crate::lang::callable::{extend_callable_slots, extend_segment, extend_segmen
 use crate::lang::sdk::{DiscoveredDef, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
-use super::super::build::external_pkg_builder;
+use super::super::build::module_specifier_builder;
 use super::super::kinds;
 use super::canonicalize::{
 	anonymous_callback_name, append_module_segments, callable_param_slots, strip_known_extension,
@@ -23,8 +23,8 @@ use super::defs::{
 	collect_type_table, function_decl_info, namespace_for_kind, visibility_attr,
 };
 use super::refs::{
-	confidence_attr, external_runtime_target, is_global_type, is_global_value, namespace_for_ref,
-	ref_call_metadata,
+	confidence_attr, external_runtime_member_target, external_runtime_target, is_global_type,
+	is_global_value, namespace_for_ref, ref_call_metadata,
 };
 use super::syntax::{
 	apply_path_alias, class_member_visibility, collect_binding_names, first_identifier_text,
@@ -138,7 +138,7 @@ impl<'ctx, 'src> ImportTargetResolver<'ctx, 'src> {
 		} else if is_relative_specifier(raw_path) {
 			self.relative_module_builder(raw_path)
 		} else {
-			external_pkg_builder(self.ctx.module.as_view().project(), raw_path)
+			module_specifier_builder(self.ctx.module.as_view().project(), raw_path)
 		};
 		if let Some(symbol) = symbol {
 			builder.segment(kinds::PATH, symbol);
@@ -244,6 +244,7 @@ struct TsReferenceResolver<'a> {
 	imports: &'a TsImports,
 	type_table: &'a HashMap<Vec<u8>, Moniker>,
 	callable_table: &'a HashMap<(Moniker, Vec<u8>), CallableEntry>,
+	module_value_names: &'a HashSet<Vec<u8>>,
 	scopes: &'a TsScopes,
 	deep: bool,
 }
@@ -286,6 +287,8 @@ impl TsReferenceResolver<'_> {
 				(target, kinds::CONF_RESOLVED)
 			} else if let Some(target) = self.lookup_callable(name) {
 				(target, kinds::CONF_RESOLVED)
+			} else if let Some(target) = self.lookup_module_binding(name) {
+				(target, kinds::CONF_RESOLVED)
 			} else if is_global_value(name) {
 				(
 					external_runtime_target(self.module, kinds::FUNCTION, name),
@@ -312,6 +315,9 @@ impl TsReferenceResolver<'_> {
 		}
 		if let Some(target) = self.imports.target(name) {
 			return (target, self.ref_confidence(name));
+		}
+		if let Some(target) = self.lookup_module_binding(name) {
+			return (target, kinds::CONF_RESOLVED);
 		}
 		if is_global_value(name) {
 			return (
@@ -346,6 +352,8 @@ impl TsReferenceResolver<'_> {
 			)
 		} else if let Some(target) = self.imports.target(name) {
 			(target, confidence)
+		} else if let Some(target) = self.lookup_module_binding(name) {
+			(target, kinds::CONF_RESOLVED)
 		} else if is_global_value(name) {
 			(
 				external_runtime_target(self.module, kinds::FUNCTION, name),
@@ -371,16 +379,39 @@ impl TsReferenceResolver<'_> {
 			(target, self.ref_confidence(name))
 		} else if let Some(target) = self.type_table.get(name) {
 			(target.clone(), self.ref_confidence(name))
-		} else {
+		} else if is_global_type(name) {
 			(
 				external_runtime_target(self.module, target_kind, name),
 				kinds::CONF_EXTERNAL,
+			)
+		} else {
+			(
+				extend_segment(self.module, target_kind, name),
+				kinds::CONF_NAME_MATCH,
 			)
 		}
 	}
 
 	fn lookup_local_binding(&self, name: &[u8]) -> Option<Moniker> {
 		self.scopes.lookup_local(name)
+	}
+
+	fn lookup_module_binding(&self, name: &[u8]) -> Option<Moniker> {
+		if !self.module_value_names.contains(name) {
+			return None;
+		}
+		if let Some(target) = self.type_table.get(name) {
+			return Some(target.clone());
+		}
+		if let Some(target) = self.lookup_callable(name) {
+			return Some(target);
+		}
+		Some(extend_segment(self.module, kinds::CONST, name))
+	}
+
+	fn lookup_shadow_binding(&self, name: &[u8]) -> Option<Moniker> {
+		self.lookup_local_binding(name)
+			.or_else(|| self.lookup_module_binding(name))
 	}
 
 	fn is_local_name(&self, name: &[u8]) -> bool {
@@ -685,7 +716,13 @@ impl TsTypeRefs<'_, '_> {
 			.lookup_local_binding(name)
 			.or_else(|| self.imports.target(name))
 			.or_else(|| self.type_table.get(name).cloned())
-			.unwrap_or_else(|| external_runtime_target(self.module, kinds::CLASS, name));
+			.unwrap_or_else(|| {
+				if is_global_type(name) {
+					external_runtime_target(self.module, kinds::CLASS, name)
+				} else {
+					extend_segment(self.module, kinds::CLASS, name)
+				}
+			});
 		let attrs = RefAttrs {
 			confidence: self.type_confidence(name),
 			..RefAttrs::default()
@@ -708,7 +745,14 @@ impl TsTypeRefs<'_, '_> {
 			.imports
 			.target(root)
 			.map(|module| extend_segment(&module, kinds::CLASS, name))
-			.unwrap_or_else(|| external_runtime_target(self.module, kinds::CLASS, name));
+			.unwrap_or_else(|| {
+				if is_global_type(root) {
+					external_runtime_member_target(self.module, root, kinds::CLASS, name)
+				} else {
+					let owner = extend_segment(self.module, kinds::PATH, root);
+					extend_segment(&owner, kinds::CLASS, name)
+				}
+			});
 		let attrs = RefAttrs {
 			confidence: self.type_confidence(root),
 			..RefAttrs::default()
@@ -724,13 +768,25 @@ impl TsTypeRefs<'_, '_> {
 
 	fn emit_generic_type(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		if let Some(name) = generic_short(node, self.source) {
+			let root = node
+				.child_by_field_name("name")
+				.filter(|name_node| name_node.kind() == "nested_type_identifier")
+				.and_then(|name_node| nested_type_root(name_node, self.source))
+				.unwrap_or(name);
 			let target = self
 				.imports
-				.target(name)
+				.target(root)
+				.map(|module| extend_segment(&module, kinds::CLASS, name))
 				.or_else(|| self.type_table.get(name).cloned())
-				.unwrap_or_else(|| external_runtime_target(self.module, kinds::CLASS, name));
+				.unwrap_or_else(|| {
+					if is_global_type(root) {
+						external_runtime_target(self.module, kinds::CLASS, name)
+					} else {
+						extend_segment(self.module, kinds::CLASS, name)
+					}
+				});
 			let attrs = RefAttrs {
-				confidence: self.type_confidence(name),
+				confidence: self.type_confidence(root),
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(
@@ -782,8 +838,12 @@ impl TsTypeRefs<'_, '_> {
 	}
 
 	fn type_confidence(&self, name: &[u8]) -> &'static [u8] {
-		if is_global_type(name) || !self.type_table.contains_key(name) {
+		if is_global_type(name) {
 			kinds::CONF_EXTERNAL
+		} else if self.imports.target(name).is_some() {
+			self.refs.ref_confidence(name)
+		} else if self.type_table.contains_key(name) {
+			kinds::CONF_RESOLVED
 		} else {
 			self.refs.ref_confidence(name)
 		}
@@ -897,19 +957,39 @@ impl<'src> TsCalls<'_, 'src> {
 			.child_by_field_name("object")
 			.filter(|object| object.kind() == "identifier")
 			.map(|object| node_slice(object, self.source));
+		let shadowed_global_target = obj_ident
+			.filter(|name| is_global_value(name))
+			.and_then(|name| self.refs.lookup_shadow_binding(name));
 		let imported_target = obj_ident.and_then(|name| self.imports.target(name));
-		let target = imported_target
-			.clone()
-			.map(|module| extend_segment(&module, kinds::METHOD, name))
-			.unwrap_or_else(|| external_runtime_target(self.module, kinds::METHOD, name));
-		let confidence = imported_target
-			.as_ref()
-			.map(|_| {
+		let (target, confidence) = if let Some(owner) = shadowed_global_target {
+			(
+				extend_segment(&owner, kinds::METHOD, name),
+				kinds::CONF_NAME_MATCH,
+			)
+		} else if let Some(module) = imported_target {
+			(
+				extend_segment(&module, kinds::METHOD, name),
 				obj_ident
 					.map(|name| self.refs.ref_confidence(name))
-					.unwrap_or(kinds::CONF_EXTERNAL)
-			})
-			.unwrap_or(kinds::CONF_EXTERNAL);
+					.unwrap_or(kinds::CONF_IMPORTED),
+			)
+		} else if let Some(owner) = obj_ident.filter(|owner| is_global_value(owner)) {
+			(
+				external_runtime_member_target(self.module, owner, kinds::METHOD, name),
+				kinds::CONF_EXTERNAL,
+			)
+		} else if let Some(owner) = obj_ident {
+			let owner = extend_segment(self.module, kinds::PATH, owner);
+			(
+				extend_segment(&owner, kinds::METHOD, name),
+				kinds::CONF_NAME_MATCH,
+			)
+		} else {
+			(
+				extend_segment(self.module, kinds::METHOD, name),
+				kinds::CONF_NAME_MATCH,
+			)
+		};
 		let attrs = RefAttrs {
 			receiver_hint: receiver_hint(fn_node, self.source),
 			confidence,
@@ -1207,6 +1287,7 @@ pub(super) struct TsDiscover<'src> {
 	imports: TsImports,
 	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
+	module_value_names: HashSet<Vec<u8>>,
 }
 
 enum NodeShape<'src> {
@@ -1514,6 +1595,8 @@ impl<'a> TsDiscover<'a> {
 		collect_callable_table(root, source_bytes, &module, &mut callable_table);
 		let mut type_table: HashMap<Vec<u8>, Moniker> = HashMap::new();
 		collect_type_table(root, source_bytes, &module, &mut type_table);
+		let mut module_value_names = HashSet::new();
+		collect_module_value_names(root, source_bytes, &mut module_value_names);
 		let discover = Self {
 			module: module.clone(),
 			anchor,
@@ -1525,6 +1608,7 @@ impl<'a> TsDiscover<'a> {
 			imports: TsImports::default(),
 			type_table,
 			callable_table,
+			module_value_names,
 		};
 		let mut builder = SdkBuilder::new(module.clone());
 		SdkWalker::new(&discover, source_bytes).walk(root, &module, &mut builder);
@@ -1546,6 +1630,7 @@ impl<'a> TsDiscover<'a> {
 			imports: &self.imports,
 			type_table: &self.type_table,
 			callable_table: &self.callable_table,
+			module_value_names: &self.module_value_names,
 			scopes: &self.scopes,
 			deep: self.deep,
 		}
@@ -1645,6 +1730,27 @@ impl<'a> TsDiscover<'a> {
 			if let Some(value) = node.child_by_field_name("value") {
 				self.recurse_subtree(value, sym_moniker, graph);
 			}
+		}
+	}
+}
+
+fn collect_module_value_names(root: Node<'_>, source: &[u8], out: &mut HashSet<Vec<u8>>) {
+	let mut cursor = root.walk();
+	for child in root.named_children(&mut cursor) {
+		match child.kind() {
+			"lexical_declaration" | "variable_declaration" => {
+				let mut declaration_cursor = child.walk();
+				for declarator in child.named_children(&mut declaration_cursor) {
+					if declarator.kind() != "variable_declarator" {
+						continue;
+					}
+					if let Some(name) = declarator.child_by_field_name("name") {
+						out.extend(collect_binding_names(name, source));
+					}
+				}
+			}
+			"export_statement" => collect_module_value_names(child, source, out),
+			_ => {}
 		}
 	}
 }
@@ -2254,11 +2360,13 @@ fn handle_new<'src_lang>(
 				m
 			} else if let Some(m) = discover.type_table.get(n) {
 				m.clone()
-			} else {
+			} else if is_global_type(n) {
 				external_runtime_target(&discover.module, kinds::CLASS, n)
+			} else {
+				extend_segment(&discover.module, kinds::CLASS, n)
 			};
 			let attrs = RefAttrs {
-				confidence: if is_global_type(n) || !discover.type_table.contains_key(n) {
+				confidence: if is_global_type(n) {
 					kinds::CONF_EXTERNAL
 				} else if discover.type_table.values().any(|m| m == &target)
 					|| graph.contains(&target)

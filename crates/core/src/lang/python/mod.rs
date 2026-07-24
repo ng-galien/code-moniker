@@ -73,10 +73,6 @@ impl crate::lang::LangExtractor for Lang {
 	}
 }
 
-pub fn builtin_external_root(root: &str) -> bool {
-	root == "builtins" || sdk_pipeline::STDLIB_PACKAGES.binary_search(&root).is_ok()
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -267,7 +263,11 @@ mod tests {
 		assert_eq!(reference.confidence, b"external".to_vec());
 		assert_eq!(
 			reference.target.as_view().segments().next().unwrap().name,
-			b"python_runtime"
+			b"python"
+		);
+		assert_eq!(
+			reference.target.as_view().segments().nth(1).unwrap().name,
+			b"runtime"
 		);
 	}
 
@@ -515,8 +515,9 @@ mod tests {
 			.find(|r| r.kind == b"reads" && r.confidence == b"external")
 			.expect("external read");
 		let segs: Vec<_> = r.target.as_view().segments().collect();
-		assert_eq!(segs[0].kind, b"external_pkg");
-		assert_eq!(segs[0].name, b"asyncio");
+		assert_eq!(segs[0].kind, b"sdk");
+		assert_eq!(segs[0].name, b"python");
+		assert_eq!(segs[1].name, b"asyncio");
 	}
 
 	#[test]
@@ -781,9 +782,10 @@ mod tests {
 			.expect("method_call str.strip");
 		assert_eq!(r.confidence, b"external".to_vec());
 		let segments = r.target.as_view().segments().collect::<Vec<_>>();
-		assert_eq!(segments[0].kind, b"external_pkg");
-		assert_eq!(segments[0].name, b"builtins");
-		assert_eq!(segments[1].name, b"str");
+		assert_eq!(segments[0].kind, b"sdk");
+		assert_eq!(segments[0].name, b"python");
+		assert_eq!(segments[1].name, b"builtins");
+		assert_eq!(segments[2].name, b"str");
 	}
 
 	#[test]
@@ -795,7 +797,7 @@ mod tests {
 			.find(|reference| reference.kind == b"method_call")
 			.expect("method_call list.append");
 		assert_eq!(r.confidence, b"external".to_vec());
-		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"list");
+		assert_eq!(r.target.as_view().segments().nth(2).unwrap().name, b"list");
 	}
 
 	#[test]
@@ -810,7 +812,7 @@ mod tests {
 					.target
 					.as_view()
 					.segments()
-					.nth(1)
+					.nth(2)
 					.unwrap()
 					.name
 					.to_vec()
@@ -1007,7 +1009,7 @@ mod tests {
 			})
 			.expect("method_call str.strip");
 		assert_eq!(r.confidence, b"external".to_vec());
-		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"str");
+		assert_eq!(r.target.as_view().segments().nth(2).unwrap().name, b"str");
 	}
 
 	#[test]
@@ -1022,7 +1024,7 @@ mod tests {
 			})
 			.expect("method_call bytes.decode");
 		assert_eq!(r.confidence, b"external".to_vec());
-		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"bytes");
+		assert_eq!(r.target.as_view().segments().nth(2).unwrap().name, b"bytes");
 	}
 
 	#[test]
@@ -1034,7 +1036,7 @@ mod tests {
 			.find(|r| r.kind == b"returns_type")
 			.expect("returns_type str");
 		assert_eq!(r.confidence, b"external".to_vec());
-		assert_eq!(r.target.as_view().segments().nth(1).unwrap().name, b"str");
+		assert_eq!(r.target.as_view().segments().nth(2).unwrap().name, b"str");
 	}
 
 	#[test]

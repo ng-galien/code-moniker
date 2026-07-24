@@ -340,9 +340,9 @@ $$;
 			"pkg.sql",
 			"CREATE FUNCTION f(x int, y text) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;",
 		);
-		let int_target = "code+moniker://app/external_pkg:pg_catalog/path:int4";
-		let text_target = "code+moniker://app/external_pkg:pg_catalog/path:text";
-		let bigint_target = "code+moniker://app/external_pkg:pg_catalog/path:int8";
+		let int_target = "code+moniker://app/sdk:sql/path:pg_catalog/path:int4";
+		let text_target = "code+moniker://app/sdk:sql/path:pg_catalog/path:text";
+		let bigint_target = "code+moniker://app/sdk:sql/path:pg_catalog/path:int8";
 		let targets = ref_targets(&g);
 		assert!(
 			targets.iter().any(|t| t == int_target),
@@ -487,7 +487,7 @@ $$;
 		assert_eq!(catalog_call.confidence, b"external");
 		assert_eq!(
 			crate::core::uri::to_uri(&catalog_call.target, &Default::default()),
-			"code+moniker://app/external_pkg:pg_catalog/path:current_setting"
+			"code+moniker://app/sdk:sql/path:pg_catalog/path:current_setting"
 		);
 	}
 

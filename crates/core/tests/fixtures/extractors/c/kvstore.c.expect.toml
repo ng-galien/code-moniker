@@ -54,14 +54,14 @@ confidence = "resolved"
 label = "create calls libc malloc"
 kind = "calls"
 from = "code+moniker://app/lang:c/module:kvstore/func:kv_create()"
-to = "code+moniker://app/external_pkg:libc/func:malloc"
+to = "code+moniker://app/sdk:c/path:libc/func:malloc"
 confidence = "external"
 
 [[refs]]
 label = "insert calls libc strdup"
 kind = "calls"
 from = "code+moniker://app/lang:c/module:kvstore/func:kv_insert(store:kvstore*,key:char*,value:void*)"
-to = "code+moniker://app/external_pkg:libc/func:strdup"
+to = "code+moniker://app/sdk:c/path:libc/func:strdup"
 confidence = "external"
 
 [[refs]]
@@ -95,7 +95,7 @@ confidence = "resolved"
 [[refs]]
 kind = "imports_module"
 from = "code+moniker://app/lang:c/module:kvstore"
-to = "code+moniker://app/external_pkg:stdio"
+to = "code+moniker://app/sdk:c/path:stdio"
 confidence = "external"
 
 [[refs]]

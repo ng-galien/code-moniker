@@ -708,12 +708,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         414
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:get(id:string)",
       "kind": "uses_type",
       "position": [
@@ -734,12 +734,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         447
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:put(item:Item)",
       "kind": "uses_type",
       "position": [
@@ -752,7 +752,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/interface:Item/field:stock",
       "kind": "uses_type",
       "position": [
@@ -817,7 +817,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
       "kind": "method_call",
       "position": [
@@ -825,7 +825,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         887
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:toUpperCase"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:toUpperCase"
     },
     {
       "alias": "",
@@ -882,7 +882,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem/method:log()",
       "kind": "method_call",
       "position": [
@@ -890,7 +890,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1036
       ],
       "receiver_hint": "super",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:describe"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:describe"
     },
     {
       "alias": "",
@@ -916,12 +916,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1152
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Map"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Map"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
       "kind": "uses_type",
       "position": [
@@ -942,7 +942,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1164
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Map"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Map"
     },
     {
       "alias": "",
@@ -955,12 +955,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1211
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
       "kind": "uses_type",
       "position": [
@@ -973,7 +973,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
       "kind": "method_call",
       "position": [
@@ -981,7 +981,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1241
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:get"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
     },
     {
       "alias": "",
@@ -994,12 +994,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1292
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
       "kind": "uses_type",
       "position": [
@@ -1012,7 +1012,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
       "kind": "method_call",
       "position": [
@@ -1020,7 +1020,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1326
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:set"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:set"
     },
     {
       "alias": "",
@@ -1033,12 +1033,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1522
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Map"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Map"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
       "kind": "uses_type",
       "position": [
@@ -1051,7 +1051,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
       "kind": "uses_type",
       "position": [
@@ -1064,7 +1064,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
       "kind": "uses_type",
       "position": [
@@ -1085,12 +1085,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1741
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
@@ -1103,7 +1103,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
@@ -1129,7 +1129,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
@@ -1137,12 +1137,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         1888
       ],
       "receiver_hint": "this",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:advance"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:advance"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
@@ -1168,7 +1168,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
@@ -1176,12 +1176,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2006
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:put"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:put"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
@@ -1189,12 +1189,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2035
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:set"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:set"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
@@ -1202,12 +1202,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2054
       ],
       "receiver_hint": "out",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:push"
+      "to": "code+moniker://app/lang:ts/module:inventory/path:out/method:push"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
@@ -1215,7 +1215,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2144
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:info"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:info"
     },
     {
       "alias": "",
@@ -1228,12 +1228,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2233
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
+      "to": "code+moniker://app/sdk:ts/path:runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "uses_type",
       "position": [
@@ -1246,7 +1246,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "method_call",
       "position": [
@@ -1254,12 +1254,12 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2268
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:get"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "external",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "method_call",
       "position": [
@@ -1267,7 +1267,7 @@ input_file: crates/core/tests/fixtures/extractors/ts/inventory.ts
         2319
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:get"
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
     }
   ],
   "root": "code+moniker://app/lang:ts/module:inventory"

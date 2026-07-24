@@ -2011,7 +2011,8 @@ fn ref_text_projection_uses_reference_span() {
 		.unwrap();
 	let target = {
 		let mut b = MonikerBuilder::from_view(root.as_view());
-		b.segment(b"external_pkg", b"java");
+		b.segment(b"sdk", b"java");
+		b.segment(b"path", b"java");
 		b.segment(b"path", b"time");
 		b.segment(b"path", b"Instant");
 		b.build()
@@ -2058,7 +2059,8 @@ fn current_projection_compares_ref_to_ancestor_refs() {
 	};
 	let qualified = {
 		let mut b = MonikerBuilder::from_view(root.as_view());
-		b.segment(b"external_pkg", b"java");
+		b.segment(b"sdk", b"java");
+		b.segment(b"path", b"java");
 		b.segment(b"path", b"time");
 		b.segment(b"path", b"Instant");
 		b.build()
@@ -2114,7 +2116,8 @@ fn current_projection_rejects_unrelated_imports() {
 	};
 	let qualified = {
 		let mut b = MonikerBuilder::from_view(root.as_view());
-		b.segment(b"external_pkg", b"java");
+		b.segment(b"sdk", b"java");
+		b.segment(b"path", b"java");
 		b.segment(b"path", b"time");
 		b.segment(b"path", b"Instant");
 		b.build()
@@ -2166,7 +2169,8 @@ fn current_projection_tracks_immediate_ref_quantifier_parent() {
 		.unwrap();
 	let local_date = {
 		let mut b = MonikerBuilder::from_view(root.as_view());
-		b.segment(b"external_pkg", b"java");
+		b.segment(b"sdk", b"java");
+		b.segment(b"path", b"java");
 		b.segment(b"path", b"time");
 		b.segment(b"path", b"LocalDate");
 		b.build()
@@ -2181,7 +2185,8 @@ fn current_projection_tracks_immediate_ref_quantifier_parent() {
 	};
 	let qualified_instant = {
 		let mut b = MonikerBuilder::from_view(root.as_view());
-		b.segment(b"external_pkg", b"java");
+		b.segment(b"sdk", b"java");
+		b.segment(b"path", b"java");
 		b.segment(b"path", b"time");
 		b.segment(b"path", b"Instant");
 		b.build()

@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/extractors/python/payments.py
 ---
@@ -461,7 +460,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         151
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Awaitable"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Awaitable"
     },
     {
       "alias": "",
@@ -474,7 +473,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         151
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Callable"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Callable"
     },
     {
       "alias": "",
@@ -487,7 +486,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         151
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Mapping"
     },
     {
       "alias": "",
@@ -500,7 +499,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         151
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Sequence"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Sequence"
     },
     {
       "alias": "",
@@ -513,7 +512,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         192
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -526,7 +525,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         192
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:field"
     },
     {
       "alias": "",
@@ -539,7 +538,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         220
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+      "to": "code+moniker://app/sdk:python/path:decimal/function:Decimal"
     },
     {
       "alias": "",
@@ -552,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         245
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:enum/function:StrEnum"
+      "to": "code+moniker://app/sdk:python/path:enum/function:StrEnum"
     },
     {
       "alias": "",
@@ -565,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         295
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -578,7 +577,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         295
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:TypeAlias"
+      "to": "code+moniker://app/sdk:python/path:typing/function:TypeAlias"
     },
     {
       "alias": "",
@@ -591,7 +590,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         295
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:TypedDict"
+      "to": "code+moniker://app/sdk:python/path:typing/function:TypedDict"
     },
     {
       "alias": "",
@@ -604,7 +603,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         340
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Mapping"
     },
     {
       "alias": "",
@@ -617,7 +616,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         479
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:enum/function:StrEnum"
+      "to": "code+moniker://app/sdk:python/path:enum/function:StrEnum"
     },
     {
       "alias": "",
@@ -630,7 +629,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         493
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -643,7 +642,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         518
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -656,7 +655,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         585
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:TypedDict"
+      "to": "code+moniker://app/sdk:python/path:typing/function:TypedDict"
     },
     {
       "alias": "",
@@ -669,7 +668,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         607
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -682,7 +681,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         623
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -721,7 +720,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         664
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:dataclass"
     },
     {
       "alias": "",
@@ -734,7 +733,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         716
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -747,7 +746,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         741
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+      "to": "code+moniker://app/sdk:python/path:decimal/function:Decimal"
     },
     {
       "alias": "",
@@ -760,7 +759,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         732
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+      "to": "code+moniker://app/sdk:python/path:decimal/function:Decimal"
     },
     {
       "alias": "",
@@ -825,7 +824,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         820
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+      "to": "code+moniker://app/sdk:python/path:dataclasses/function:field"
     },
     {
       "alias": "",
@@ -838,7 +837,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         819
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:dict"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:dict"
     },
     {
       "alias": "",
@@ -851,7 +850,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         877
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+      "to": "code+moniker://app/sdk:python/path:typing/function:Protocol"
     },
     {
       "alias": "",
@@ -910,7 +909,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "",
@@ -923,7 +922,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         1068
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Callable"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Callable"
     },
     {
       "alias": "",
@@ -949,7 +948,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         1094
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Awaitable"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Awaitable"
     },
     {
       "alias": "",
@@ -1021,7 +1020,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         1398
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+      "to": "code+moniker://app/sdk:python/path:decimal/function:Decimal"
     },
     {
       "alias": "",
@@ -1034,7 +1033,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         1422
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Sequence"
+      "to": "code+moniker://app/sdk:python/path:collections/path:abc/function:Sequence"
     },
     {
       "alias": "",
@@ -1073,7 +1072,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
         1678
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:list"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:list"
     },
     {
       "alias": "",
@@ -1109,7 +1108,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+      "to": "code+moniker://app/sdk:python/path:decimal/function:Decimal"
     },
     {
       "alias": "order_id",
@@ -1119,7 +1118,7 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       "kind": "typed_as",
       "position": null,
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:builtins/path:str"
+      "to": "code+moniker://app/sdk:python/path:builtins/path:str"
     },
     {
       "alias": "payment",

@@ -11,20 +11,39 @@ and every reference (calls, uses_type, extends, imports…) is a fact linking
 two monikers. You navigate structure and relations instead of grepping text —
 and you get counts, not impressions.
 
-## Use the MCP surface
+## Prefer the MCP surface
 
 For agent exploration, the `code_moniker_*` MCP tools are the complete and
 canonical interface. They add deterministic output budgets, compact rendering,
 response-local aliases, pagination and safe follow-up calls around the typed
-query engine. Do not repeat an MCP exploration with `code-moniker query`, a
-daemon client, grep, or a script: that duplicates facts and consumes context.
+query engine. When the MCP surface is configured and available, do not repeat
+the same exploration with `code-moniker query`, a daemon client, grep, or a
+script: that duplicates facts and consumes context.
 
-If the MCP is wired but lacks a read-only capability, report a parity defect.
-Do not silently fall back to the daemon. Direct CLI/query commands remain
-developer and dogfood interfaces, documented in `references/query-dsl.md`.
+The MCP surface is optional. If it is not configured or unavailable in the
+current session, continue with the local `code-moniker` binary instead of
+blocking or reporting a parity defect. In particular, extractor work should
+use:
+
+```sh
+/Users/alexandreboyer/.cargo/bin/code-moniker extract . --path <file> --shape callable --limit 80
+```
+
+Always anchor `extract` on the workspace root (`.`) and narrow with `--path`;
+never anchor extraction directly on the file. The binary is also valid for
+`stats`, `check`, and `diff` dogfood workflows. Use `code-moniker query` only
+when an advanced structural question cannot be answered by those commands, and
+read `references/query-dsl.md` before composing its syntax.
+
+If the MCP is wired and responds but lacks a required read-only capability,
+report a parity defect. Do not silently fall back to the daemon.
 
 ## Quick start on an unknown repo
 
+0. If the MCP surface is unavailable, skip the MCP-only steps below. Start
+   with `code-moniker stats <path>`, then use anchored `extract . --path
+   <file>` calls to narrow the relevant symbols; use `check` for health and
+   rule evidence.
 1. Call `code_moniker_read uri:"workspace" expected_roots:["<current absolute
    workspace root>"] budget:"small"` for a bounded overview and a fail-closed
    workspace identity check. Stop immediately on `workspace_mismatch`. Stop if

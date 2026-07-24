@@ -1001,7 +1001,7 @@ fn resolve_type_path(
 			kinds::CONF_NAME_MATCH,
 		);
 	}
-	if is_external_import_root(head) || is_rust_builtin_external_root(head) {
+	if is_external_import_root(head) || is_rust_sdk_root(head) {
 		return (
 			external_target_from_vec(source, pieces),
 			kinds::CONF_EXTERNAL,
@@ -1231,7 +1231,7 @@ fn resolve_associated_type_target(
 					import.confidence,
 				));
 			}
-			if is_external_import_root(head) || is_rust_builtin_external_root(head) {
+			if is_external_import_root(head) || is_rust_sdk_root(head) {
 				return Some((
 					external_target_from_vec(function, type_pieces),
 					kinds::CONF_EXTERNAL,
@@ -1354,7 +1354,7 @@ fn import_leaf_is_external(env: &RefEnv<'_>, scope: &Moniker, leaf: &ImportLeaf)
 	let Some(head) = leaf.path.first() else {
 		return false;
 	};
-	(is_external_import_root(head) || is_rust_builtin_external_root(head))
+	(is_external_import_root(head) || is_rust_sdk_root(head))
 		&& !local_module_exists(env, scope, head)
 }
 
@@ -1612,14 +1612,15 @@ fn receiver_hint<'a>(receiver: Node<'a>, source: &'a [u8]) -> &'a [u8] {
 }
 
 fn external_target(scope: &Moniker, pieces: &[&[u8]]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
 	if let Some((head, rest)) = pieces.split_first() {
-		builder.segment(kinds::EXTERNAL_PKG, head);
+		let mut builder = external_root_builder(scope, head);
 		for piece in rest {
 			builder.segment(kinds::PATH, piece);
 		}
+		return builder.build();
 	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(scope.as_view().project());
 	builder.build()
 }
 
@@ -1629,9 +1630,7 @@ fn external_target_from_vec(scope: &Moniker, pieces: &[Vec<u8>]) -> Moniker {
 }
 
 fn external_crate_path(scope: &Moniker, root: &[u8], pieces: &[Vec<u8>]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, root);
+	let mut builder = external_root_builder(scope, root);
 	for piece in pieces {
 		builder.segment(kinds::PATH, piece);
 	}
@@ -1639,9 +1638,7 @@ fn external_crate_path(scope: &Moniker, root: &[u8], pieces: &[Vec<u8>]) -> Moni
 }
 
 fn external_crate_item(scope: &Moniker, root: &[u8], pieces: &[(&[u8], &[u8])]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, root);
+	let mut builder = external_root_builder(scope, root);
 	for (kind, name) in pieces {
 		builder.segment(kind, name);
 	}
@@ -1673,9 +1670,7 @@ fn rust_prelude_type(scope: &Moniker, name: &[u8]) -> Option<(Moniker, &'static 
 		b"Vec" => (b"vec".as_slice(), kinds::STRUCT),
 		_ => return None,
 	};
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"std");
+	let mut builder = external_root_builder(scope, b"std");
 	builder.segment(kinds::PATH, module);
 	builder.segment(kind, name);
 	Some((builder.build(), kinds::CONF_EXTERNAL))
@@ -1706,11 +1701,17 @@ fn enclosing_segment(scope: &Moniker, pred: impl Fn(&[u8]) -> bool) -> Option<Mo
 }
 
 fn external_root(target: &Moniker) -> Option<&[u8]> {
-	target
-		.as_view()
-		.segments()
-		.next()
-		.and_then(|segment| (segment.kind == kinds::EXTERNAL_PKG).then_some(segment.name))
+	let mut segments = target.as_view().segments();
+	let root = segments.next()?;
+	if root.kind == kinds::EXTERNAL_PKG {
+		return Some(root.name);
+	}
+	if root.kind == crate::lang::kinds::SDK && root.name == b"rs" {
+		return segments
+			.next()
+			.and_then(|segment| (segment.kind == kinds::PATH).then_some(segment.name));
+	}
+	None
 }
 
 fn resolve_derive_target(
@@ -1775,18 +1776,14 @@ fn rust_known_attribute(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 }
 
 fn external_std_trait(scope: &Moniker, module: &[u8], name: &[u8]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, b"std");
+	let mut builder = external_root_builder(scope, b"std");
 	builder.segment(kinds::PATH, module);
 	builder.segment(kinds::TRAIT, name);
 	builder.build()
 }
 
 fn external_attribute(scope: &Moniker, root: &[u8], name: &[u8]) -> Moniker {
-	let mut builder = MonikerBuilder::new();
-	builder.project(scope.as_view().project());
-	builder.segment(kinds::EXTERNAL_PKG, root);
+	let mut builder = external_root_builder(scope, root);
 	builder.segment(kinds::PATH, b"attributes");
 	builder.segment(kinds::FN, name);
 	builder.build()
@@ -1822,8 +1819,20 @@ fn is_primitive_type(name: &[u8]) -> bool {
 	)
 }
 
-fn is_rust_builtin_external_root(name: &[u8]) -> bool {
-	matches!(name, b"std" | b"core" | b"alloc")
+fn is_rust_sdk_root(name: &[u8]) -> bool {
+	matches!(name, b"std" | b"core" | b"alloc" | b"proc_macro" | b"test")
+}
+
+fn external_root_builder(scope: &Moniker, root: &[u8]) -> MonikerBuilder {
+	if is_rust_sdk_root(root) {
+		let mut builder = crate::lang::sdk::sdk_target_builder(scope.as_view().project(), b"rs");
+		builder.segment(kinds::PATH, root);
+		return builder;
+	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(scope.as_view().project());
+	builder.segment(kinds::EXTERNAL_PKG, root);
+	builder
 }
 
 fn rust_prelude_constructor(scope: &Moniker, name: &[u8]) -> Option<Moniker> {

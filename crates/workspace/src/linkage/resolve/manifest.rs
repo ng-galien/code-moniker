@@ -81,13 +81,16 @@ impl ManifestPolicy {
 
 	fn can_classify_as_declared_external(&self, query: &LinkageQuery<'_>) -> bool {
 		if let Some(import_root) = external_import_root(query) {
-			return self.source_builtin_external_root(query, import_root)
-				|| self.source_declares_import_root(query, import_root);
+			return self.source_declares_import_root(query, import_root);
 		}
 		if source_declares_language_package_target(self, query) {
 			return true;
 		}
 		language::proc_macro_annotation(query) && self.source_declares_dependencies(query)
+	}
+
+	pub(in crate::linkage) fn declares_external_target(&self, query: &LinkageQuery<'_>) -> bool {
+		self.can_classify_as_declared_external(query)
 	}
 
 	fn source_declares_dependencies(&self, query: &LinkageQuery<'_>) -> bool {
@@ -186,14 +189,6 @@ impl ManifestPolicy {
 		} else {
 			LinkPermission::Blocked
 		}
-	}
-
-	fn source_builtin_external_root(&self, query: &LinkageQuery<'_>, import_root: &str) -> bool {
-		query
-			.material
-			.files
-			.get(query.source_file)
-			.is_some_and(|file| language::builtin_external_root(file.lang, import_root))
 	}
 
 	fn index_files(&mut self, material: &CodeIndexMaterial) {
