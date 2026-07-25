@@ -10,6 +10,7 @@ import {
 } from "../daemon/model";
 import { GenerationCache } from "../daemon/cache";
 import { toFsPath } from "../daemon/paths";
+import { segmentName } from "../shared/identity";
 import { DaemonSession } from "../daemon/session";
 import { InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 
@@ -67,7 +68,9 @@ export class SymbolRepository {
 		};
 	}
 
-	private async identityRows(prefix: string): Promise<IdentitySegmentDto[]> {
+	// Shared with the explorer's chain collapsing so both features fill one
+	// children cache per generation.
+	async identityRows(prefix: string): Promise<IdentitySegmentDto[]> {
 		return this.cache.fetch(`identity:${prefix}`, async () => {
 			const response = await this.session.query({
 				op: "identity_children",
@@ -200,10 +203,7 @@ function defNode(row: IdentitySegmentDto): SymbolNode {
 function chainLabel(base: string, identity: string): string {
 	const relative =
 		base && identity.startsWith(`${base}/`) ? identity.slice(base.length + 1) : identity;
-	return relative
-		.split("/")
-		.map((segment) => segment.split(":")[1] ?? segment)
-		.join("/");
+	return relative.split("/").map(segmentName).join("/");
 }
 
 // Rebuilds the symbol outline from a flat list using interval nesting: a symbol's

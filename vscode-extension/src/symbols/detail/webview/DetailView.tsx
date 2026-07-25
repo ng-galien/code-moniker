@@ -1,5 +1,6 @@
 import type { SymbolDto } from "../../../daemon/model";
 import { CodeBlock } from "../../../webview-lib/CodeBlock";
+import { MemberRow } from "../../../webview-lib/MemberRow";
 import { parseCallableName } from "../../../webview-lib/parse";
 import { glyphClass, symbolGlyph } from "../../../webview-lib/symbolGlyph";
 import type { DetailDocument, DetailPayload } from "../panel";
@@ -90,20 +91,18 @@ function MembersSection({ members }: { members: SymbolDto[] }) {
 		<Section title={`Members (${members.length})`}>
 			<div className="members">
 				{members.map((member) => (
-					<button
+					<MemberRow
 						key={member.uri}
-						type="button"
-						className="member-row"
+						kind={member.kind}
+						name={member.name}
 						title={member.uri}
 						onClick={() => vscode.postMessage({ type: "showSymbol", uri: member.uri })}
 					>
-						<span className={glyphClass(member.kind)}>{symbolGlyph(member.kind)}</span>
-						<span className="member-name">{parseCallableName(member.name).base}</span>
 						<span className="member-kind">{member.kind}</span>
 						{member.visibility && member.visibility !== "default" && (
 							<span className="member-vis">{member.visibility}</span>
 						)}
-					</button>
+					</MemberRow>
 				))}
 			</div>
 		</Section>
