@@ -25,7 +25,7 @@ export function registerDaemonCommands(
 async function connect(session: DaemonSession, provider: DaemonListProvider): Promise<void> {
 	const ok = await vscode.window.withProgress(
 		{ location: { viewId: "codeMoniker.workspace" }, title: "Connecting to daemon…" },
-		() => session.connectOrStart(),
+		() => session.connectOrStart({ retryFault: true }),
 	);
 	provider.refresh();
 	if (!ok && session.lastError) {

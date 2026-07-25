@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { registerDaemonCommands } from "./commands";
 import { themeColor } from "../shared/appIcons";
 import { registryDir } from "./registry";
-import { DaemonSession, DaemonStatus } from "./session";
+import { DaemonSession } from "./session";
 import { DaemonListProvider } from "./tree";
 
 export interface DaemonContext {
@@ -22,19 +22,26 @@ export function registerDaemon(context: vscode.ExtensionContext): DaemonContext 
 
 	const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusItem.command = "codeMoniker.daemon.connect";
-	updateStatusItem(statusItem, session.status);
+	updateStatusItem(statusItem, session);
 	statusItem.show();
 
 	const watcher = watchRegistry(() => provider.refresh());
 
+	let notifiedFault: string | undefined;
 	context.subscriptions.push(
 		statusItem,
 		watcher,
 		session,
 		session.onDidChangeStatus((status) => {
-			updateStatusItem(statusItem, status);
+			updateStatusItem(statusItem, session);
 			provider.refresh();
 			void vscode.commands.executeCommand("setContext", "codeMoniker.daemonReady", status === "ready");
+			if (session.protocolFault !== notifiedFault) {
+				notifiedFault = session.protocolFault;
+				if (notifiedFault) {
+					void vscode.window.showErrorMessage(`Code Moniker: ${notifiedFault}`);
+				}
+			}
 		}),
 	);
 
@@ -51,8 +58,8 @@ function autoConnect(): boolean {
 	return vscode.workspace.getConfiguration("codeMoniker").get<boolean>("daemon.autoConnect", true);
 }
 
-function updateStatusItem(item: vscode.StatusBarItem, status: DaemonStatus): void {
-	switch (status) {
+function updateStatusItem(item: vscode.StatusBarItem, session: DaemonSession): void {
+	switch (session.status) {
 		case "ready":
 			item.text = "$(server-process) Moniker: ready";
 			item.tooltip = "Workspace daemon connected and indexed";
@@ -68,10 +75,18 @@ function updateStatusItem(item: vscode.StatusBarItem, status: DaemonStatus): voi
 			item.tooltip = "Connecting to the workspace daemon";
 			item.backgroundColor = undefined;
 			break;
+		// A protocol fault is an error the user must fix outside the editor,
+		// so it earns the stronger background and names itself.
 		case "error":
-			item.text = "$(warning) Moniker: error";
-			item.tooltip = "Daemon connection failed — click to retry";
-			item.backgroundColor = themeColor("statusBarItem.warningBackground");
+			item.text = session.protocolFault
+				? "$(warning) Moniker: version mismatch"
+				: "$(warning) Moniker: error";
+			item.tooltip = session.lastError
+				? `${session.lastError} — click to retry`
+				: "Daemon connection failed — click to retry";
+			item.backgroundColor = themeColor(
+				session.protocolFault ? "statusBarItem.errorBackground" : "statusBarItem.warningBackground",
+			);
 			break;
 		default:
 			item.text = "$(plug) Moniker: connect";

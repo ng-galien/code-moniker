@@ -67,6 +67,11 @@ export class DaemonSession implements vscode.Disposable {
 	status: DaemonStatus = "disconnected";
 	ready = false;
 	lastError?: string;
+	// Sticky installation fault: the extension and the installed CLI do not
+	// speak the same protocol. While set, connectOrStart fails fast instead of
+	// killing and relaunching daemons on every retry — only a deliberate user
+	// reconnect (after reinstalling one side) clears it.
+	protocolFault?: string;
 	endpoint?: string;
 	generation?: number;
 	capabilities?: CapabilitySet;
@@ -87,8 +92,18 @@ export class DaemonSession implements vscode.Disposable {
 		this.workspaceRoots = roots;
 	}
 
-	connectOrStart(): Promise<boolean> {
+	// retryFault is the deliberate-reconnect escape hatch: the fault is an
+	// installation state, so only a user gesture may retry past it.
+	connectOrStart(options?: { retryFault?: boolean }): Promise<boolean> {
 		if (this.disposed || this.shuttingDown) {
+			return Promise.resolve(false);
+		}
+		if (options?.retryFault) {
+			this.protocolFault = undefined;
+		}
+		if (this.protocolFault) {
+			this.lastError = this.protocolFault;
+			this.setStatus("error");
 			return Promise.resolve(false);
 		}
 		this.reconnectEnabled = true;
@@ -257,34 +272,16 @@ export class DaemonSession implements vscode.Disposable {
 			try {
 				link = await connectEntry(entry, this.roots);
 			} catch (error) {
-				this.ensureActive();
-				if (error instanceof DaemonRecycleRequestedError) {
-					await waitForDaemonExit(entry);
-				} else {
-					const current = findDaemonForRoots(this.roots);
-					const sameFreshClaim =
-						current?.pid === entry.pid &&
-						current.token === entry.token &&
-							daemonProcessAlive(current.pid) &&
-							daemonClaimFresh(current);
-					if (sameFreshClaim) {
-						throw new Error(
-							`registered daemon pid ${entry.pid} for ${entry.workspace_root} is alive but unavailable; stop that process before retrying: ${(error as Error).message}`,
-						);
+				if (error instanceof ProtocolMismatchError) {
+					// Only an outdated daemon is worth recycling — it likely
+					// predates a binary upgrade. A newer one serves other
+					// up-to-date clients, so relaunching cannot help.
+					if (!error.stale) {
+						throw error;
 					}
+					await recycleDaemon(entry);
 				}
-				forgetDaemonEntry(entry);
-				launched = await launchWorkspaceDaemon(this.roots);
-				this.ownedDaemon = launched;
-				entry = await waitForEntry(this.roots);
-				if (!entry) {
-					throw daemonRegistrationError("restarting after a stale registry entry");
-				}
-				this.noteOwnership(entry, launched);
-				this.ensureActive();
-				// Recycle once only. A second mismatch means the installed CLI and
-				// extension do not ship the same protocol and require reinstallation.
-				link = await connectEntry(entry, this.roots);
+				({ link, entry } = await this.relaunchAndReconnect(entry, error));
 			}
 			this.ensureActive();
 			const rpc = link.rpc;
@@ -303,6 +300,9 @@ export class DaemonSession implements vscode.Disposable {
 				this.setStatus("disconnected");
 				return false;
 			}
+			if (error instanceof ProtocolMismatchError) {
+				this.protocolFault = error.message;
+			}
 			this.lastError = (error as Error).message;
 			this.teardown();
 			this.setStatus("error");
@@ -314,6 +314,41 @@ export class DaemonSession implements vscode.Disposable {
 		if (this.disposed || this.shuttingDown) {
 			throw new Error("daemon session is shutting down");
 		}
+	}
+
+	// One recycle only: replace the failed daemon and reconnect once.
+	private async relaunchAndReconnect(
+		entry: DaemonRegistryEntry,
+		error: unknown,
+	): Promise<{ link: DaemonLink; entry: DaemonRegistryEntry }> {
+		this.ensureActive();
+		if (!(error instanceof ProtocolMismatchError)) {
+			const current = findDaemonForRoots(this.roots);
+			const sameFreshClaim =
+				current?.pid === entry.pid &&
+				current.token === entry.token &&
+					daemonProcessAlive(current.pid) &&
+					daemonClaimFresh(current);
+			if (sameFreshClaim) {
+				throw new Error(
+					`registered daemon pid ${entry.pid} for ${entry.workspace_root} is alive but unavailable; stop that process before retrying: ${(error as Error).message}`,
+				);
+			}
+		}
+		forgetDaemonEntry(entry);
+		const launched = await launchWorkspaceDaemon(this.roots);
+		this.ownedDaemon = launched;
+		const fresh = await waitForEntry(this.roots);
+		if (!fresh) {
+			throw daemonRegistrationError("restarting after a stale registry entry");
+		}
+		this.noteOwnership(fresh, launched);
+		this.ensureActive();
+		// A mismatch here means the relaunched daemon speaks the same protocol
+		// as before: the binaries genuinely disagree. It propagates as a fault,
+		// leaving the daemon up for CLI/MCP clients.
+		const link = await connectEntry(fresh, this.roots);
+		return { link, entry: fresh };
 	}
 
 	private noteOwnership(entry: DaemonRegistryEntry, launched: DetachedProcess | undefined): void {
@@ -430,25 +465,44 @@ interface DaemonLink {
 	capabilities: CapabilitySet;
 }
 
-class DaemonRecycleRequestedError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "DaemonRecycleRequestedError";
+// The wire shapes disagree. `stale` says which side is behind, which is the
+// only input to the retry policy — the policy itself lives at the call site.
+class ProtocolMismatchError extends Error {
+	readonly stale: boolean;
+
+	constructor(daemonProtocol: number) {
+		const stale = daemonProtocol < PROTOCOL_VERSION;
+		super(
+			stale
+				? `the workspace daemon speaks protocol ${daemonProtocol} but the extension expects ${PROTOCOL_VERSION}; the installed code-moniker CLI is outdated — update it (or point codeMoniker.binaryPath at a matching build), then reconnect`
+				: `the workspace daemon speaks protocol ${daemonProtocol}, newer than this extension's ${PROTOCOL_VERSION}; update the Code Moniker extension, then reconnect (the daemon was left running)`,
+		);
+		this.name = "ProtocolMismatchError";
+		this.stale = stale;
 	}
 }
 
-async function connectEntry(entry: DaemonRegistryEntry, expectedRoots: string[]): Promise<DaemonLink> {
+// Stops an outdated daemon so a relaunch from the current binaries can take
+// its registry claim.
+async function recycleDaemon(entry: DaemonRegistryEntry): Promise<void> {
+	try {
+		const rpc = await DaemonRpc.connect(entry.endpoint);
+		await rpc.shutdown();
+		rpc.close();
+	} catch {
+	}
+	await waitForDaemonExit(entry);
+}
+
+async function connectEntry(
+	entry: DaemonRegistryEntry,
+	expectedRoots: string[],
+): Promise<DaemonLink> {
 	const rpc = await DaemonRpc.connect(entry.endpoint);
 	const handshake = await rpc.handshake("vscode-extension");
 	if (handshake.protocol_version !== PROTOCOL_VERSION) {
-		try {
-			await rpc.shutdown();
-		} catch {
-		}
 		rpc.close();
-		throw new DaemonRecycleRequestedError(
-			`daemon protocol ${handshake.protocol_version} does not match extension protocol ${PROTOCOL_VERSION}; reinstall the Code Moniker CLI and extension so their protocol versions match`,
-		);
+		throw new ProtocolMismatchError(handshake.protocol_version);
 	}
 	if (!rootSetsMatch(handshake.workspace_roots, expectedRoots)) {
 		rpc.close();
