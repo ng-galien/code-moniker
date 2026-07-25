@@ -97,7 +97,8 @@ tmux capture-pane -t cm-mcp -p
 ## CI & Release
 
 - CI workflow: `.github/workflows/ci.yml` — fmt, clippy, lib tests, `cargo moniker-check`.
-- Release: `v*.*.*` tag → `.github/workflows/release.yml`; publish order `code-moniker-core`, `code-moniker-workspace`, `code-moniker-check`, `code-moniker`.
+- Release: `v*.*.*` tag → `.github/workflows/release.yml`; publish order `code-moniker-core`, `code-moniker-query`, `code-moniker-workspace`, `code-moniker-daemon-client`, `code-moniker-check`, `code-moniker-daemon`, `code-moniker`.
+- The release workflow publishes crates and the CLI binaries only. The VS Code extension is published separately with `vsce publish` from `vscode-extension/`.
 - After release: bump `[workspace.package]` version on `main`; no `-snapshot` suffix.
 
 ## Style
