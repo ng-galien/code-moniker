@@ -7,6 +7,7 @@ import { firstLine, rootOf, workspaceLabel } from "../shared/workspace";
 import { RuleFileNode, RuleNode, RuleTreeNode } from "./nodes";
 import { findRuleFiles, isFragmentFile, rulesEntrypoint } from "./repository";
 import { RuleFilesProvider } from "./tree";
+import { unwrapWorkspaceNode } from "../shared/treeNodes";
 
 export function registerRuleCommands(
 	context: vscode.ExtensionContext,
@@ -247,12 +248,6 @@ function ruleNode(node: unknown): RuleNode | undefined {
 	return isRuleNode(candidate) ? candidate : undefined;
 }
 
-function unwrapWorkspaceNode(node: unknown): unknown {
-	if (node && typeof node === "object" && "node" in node) {
-		return (node as { node?: unknown }).node;
-	}
-	return node;
-}
 
 function isRuleFileNode(node: unknown): node is RuleFileNode {
 	return Boolean(node && typeof node === "object" && (node as { kind?: unknown }).kind === "file");

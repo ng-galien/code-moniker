@@ -5,6 +5,7 @@ import { DaemonSession } from "../daemon/session";
 import { DetailWebview, SourceTarget } from "./detail/panel";
 import { SymbolTreeNode } from "./nodes";
 import { SymbolTreeProvider } from "./tree";
+import { unwrapWorkspaceNode } from "../shared/treeNodes";
 
 export function registerSymbolCommands(
 	context: vscode.ExtensionContext,
@@ -90,11 +91,4 @@ function normalizeTarget(arg: SymbolTreeNode | SourceTarget): SourceTarget | und
 		return targetArg;
 	}
 	return undefined;
-}
-
-function unwrapWorkspaceNode(arg: unknown): unknown {
-	if (arg && typeof arg === "object" && "node" in arg) {
-		return (arg as { node?: unknown }).node;
-	}
-	return arg;
 }

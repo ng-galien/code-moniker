@@ -6,7 +6,9 @@ import { RuleFileNode } from "./nodes";
 import { ParsedRuleFile, parseRuleFile } from "./parse";
 import { rootOf } from "../shared/workspace";
 
-export const RULE_GLOB = "**/{.code-moniker.toml,*.fragment.toml}";
+// The project rules file, named once for every feature that looks for it.
+export const RULES_FILE_NAME = ".code-moniker.toml";
+export const RULE_GLOB = `**/{${RULES_FILE_NAME},*.fragment.toml}`;
 export const RULE_GLOB_EXCLUDE = "**/node_modules/**";
 
 export async function findRuleFiles(): Promise<RuleFileNode[]> {
@@ -34,7 +36,7 @@ export function rulesEntrypoint(uri: vscode.Uri, label: string): RulesEntrypoint
 	const root = rootOf(uri);
 	let current = path.dirname(uri.fsPath);
 	while (isSameOrInside(current, root)) {
-		const candidate = path.join(current, ".code-moniker.toml");
+		const candidate = path.join(current, RULES_FILE_NAME);
 		if (existsSync(candidate)) {
 			return { ok: true, uri: vscode.Uri.file(candidate) };
 		}
@@ -48,7 +50,7 @@ export function rulesEntrypoint(uri: vscode.Uri, label: string): RulesEntrypoint
 		ok: false,
 		error:
 			`${label} is a rule fragment. ` +
-			"Fragments are loaded through a parent .code-moniker.toml; none was found in this workspace.",
+			`Fragments are loaded through a parent ${RULES_FILE_NAME}; none was found in this workspace.`,
 	};
 }
 

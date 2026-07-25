@@ -4,6 +4,7 @@ import { DaemonNode } from "./nodes";
 import { DaemonRpc } from "./rpc";
 import { DaemonListProvider } from "./tree";
 import { DaemonSession } from "./session";
+import { unwrapWorkspaceNode } from "../shared/treeNodes";
 
 export function registerDaemonCommands(
 	context: vscode.ExtensionContext,
@@ -65,9 +66,7 @@ async function openWorkspace(node?: DaemonNode): Promise<void> {
 }
 
 function daemonNode(node: unknown): DaemonNode | undefined {
-	const candidate = node && typeof node === "object" && "node" in node
-		? (node as { node?: unknown }).node
-		: node;
+	const candidate = unwrapWorkspaceNode(node);
 	return isDaemonNode(candidate) ? candidate : undefined;
 }
 

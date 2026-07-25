@@ -3,21 +3,18 @@ import * as vscode from "vscode";
 import { registerCatalogCommands } from "./commands";
 import { CatalogNode } from "./nodes";
 import { CatalogRepository } from "./repository";
+import { watchAndRefresh } from "../shared/watch";
 import { CatalogProvider } from "./tree";
 
 export function registerCatalog(context: vscode.ExtensionContext): void {
 	const repository = new CatalogRepository();
 	const provider = new CatalogProvider(repository, context.extensionUri);
-	const watcher = vscode.workspace.createFileSystemWatcher("**/*.cm.md");
 	const treeView = vscode.window.createTreeView("codeMoniker.catalog", {
 		treeDataProvider: provider,
 		showCollapseAll: true,
 	});
 	context.subscriptions.push(
-		watcher,
-		watcher.onDidChange(() => provider.refresh()),
-		watcher.onDidCreate(() => provider.refresh()),
-		watcher.onDidDelete(() => provider.refresh()),
+		...watchAndRefresh("**/*.cm.md", () => provider.refresh()),
 		treeView,
 		vscode.window.onDidChangeActiveNotebookEditor((editor) =>
 			revealActiveCatalogEditor(provider, treeView, editor?.notebook.uri),
