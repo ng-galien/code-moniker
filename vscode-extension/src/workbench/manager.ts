@@ -9,10 +9,13 @@ import { DetailWebview } from "../symbols/detail/panel";
 import { SymbolTreeProvider } from "../symbols/tree";
 import { ViewsProvider } from "../views/tree";
 import { renderWorkspaceNode } from "./render";
-import { WorkspaceTreeProvider } from "./workspaceTree";
+import { WorkspaceNode, WorkspaceTreeProvider } from "./workspaceTree";
 
 export interface WorkspaceFeature {
 	tree: WorkspaceTreeProvider;
+	// Current tree selection, for commands whose menu contribution carries no
+	// argument (the explorer's view/title entry point).
+	selection: () => WorkspaceNode | undefined;
 }
 
 export interface WorkspaceInputs {
@@ -89,5 +92,5 @@ export function registerWorkspace(
 		}),
 	);
 
-	return { tree: provider };
+	return { tree: provider, selection: () => treeView.selection[0] };
 }

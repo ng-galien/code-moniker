@@ -1,9 +1,11 @@
 import type { IdentityGraphEdge } from "../../daemon/model";
+import { segmentName } from "../../shared/identity";
 import { postFocus } from "./actions";
-import { segmentName } from "./graph/model";
 
-// Facts of a selected rolled-up edge, floating over the canvas so selection
-// never reflows the graph: endpoints, relation kinds, volume, dive shortcuts.
+// Facts of a selected rolled-up edge, floating in a fixed corner over the
+// canvas: endpoints, relation kinds, volume, dive shortcuts. A fixed corner
+// beats anchoring at the click — an anchored panel overflows the canvas and
+// sits on top of the graph it describes. Selection never reflows the graph.
 export function EdgePanel({
 	edge,
 	onClose,

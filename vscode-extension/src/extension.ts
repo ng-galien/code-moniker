@@ -45,7 +45,6 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 	const views = registerViews(context, daemon.session);
 	const rules = registerRulesDaemon(context, daemon.session, symbols);
 	const changes = registerChanges(context, daemon.session);
-	const explorer = registerExplorer(context, daemon.session, symbols.repository);
 	const workspace = registerWorkspace(context, {
 		session: daemon.session,
 		daemons: daemon.provider,
@@ -56,6 +55,7 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		rules: rules.provider,
 		ruleFiles: ruleFiles.provider,
 	});
+	const explorer = registerExplorer(context, daemon.session, symbols.repository, workspace.selection);
 
 	return {
 		session: daemon.session,

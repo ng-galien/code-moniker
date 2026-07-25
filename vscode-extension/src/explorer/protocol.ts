@@ -4,10 +4,29 @@ import type { HighlightedSourceSnippet } from "../symbols/detail/highlight";
 // Message contract between the explorer panel (extension host) and its
 // webview. Types only — this module is imported from both sides of the
 // bridge, so it must stay free of vscode and DOM value imports.
+
+// What a container node holds, so its card shows the contents instead of
+// forcing a dive: the flattened single-child path the dive would traverse,
+// a preview of the members found there, and how many exist in total.
+export interface MemberPreview {
+	identity: string;
+	name: string;
+	kind: string;
+}
+
+export interface ContainerOutline {
+	chain: string[];
+	members: MemberPreview[];
+	hidden: number;
+}
+
+export type ScopeOutline = Record<string, ContainerOutline>;
+
 export interface ScopePayload {
 	graph: IdentityGraphResult;
 	canBack: boolean;
 	canForward: boolean;
+	outline: ScopeOutline;
 }
 
 export interface ScopeMessage {

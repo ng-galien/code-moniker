@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { DaemonSession } from "../daemon/session";
 import { SymbolDto } from "../daemon/model";
 import { SymbolRepository } from "../symbols/repository";
+import { WorkspaceNode } from "../workbench/workspaceTree";
 import { ExplorerPanel } from "./panel";
 import { ExplorerRepository } from "./repository";
 
@@ -15,22 +16,22 @@ export function registerExplorer(
 	context: vscode.ExtensionContext,
 	session: DaemonSession,
 	symbols: SymbolRepository,
+	selection: () => WorkspaceNode | undefined,
 ): ExplorerFeature {
-	const repository = new ExplorerRepository(session);
+	const repository = new ExplorerRepository(session, symbols);
 	const panel = new ExplorerPanel(context.extensionUri, repository);
 
 	context.subscriptions.push(
 		panel,
+		// Invoked with a tree/symbol argument from context menus, and with
+		// none from the view/title toolbar: then the current tree selection
+		// decides, falling back to the workspace root.
 		vscode.commands.registerCommand("codeMoniker.explorer.focus", async (arg?: unknown) => {
 			if (!(await ensureGraphCapable(session))) {
 				return;
 			}
-			const focus = focusFromArgument(arg);
-			if (focus !== undefined) {
-				void panel.focus(focus);
-			} else {
-				void promptFocus(panel);
-			}
+			const focus = focusFromArgument(arg) ?? focusFromArgument(selection()) ?? "";
+			void panel.focus(focus);
 		}),
 		vscode.commands.registerCommand("codeMoniker.explorer.focusAtCursor", () =>
 			focusAtCursor(session, symbols, panel),
@@ -162,12 +163,3 @@ function tightestSymbolAt(nodes: unknown[], line: number): string | undefined {
 	return best?.uri;
 }
 
-async function promptFocus(panel: ExplorerPanel): Promise<void> {
-	const focus = await vscode.window.showInputBox({
-		title: "Graph Explorer focus",
-		prompt: "Symbol URI or workspace-relative file path",
-	});
-	if (focus) {
-		void panel.focus(focus);
-	}
-}

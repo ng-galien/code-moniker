@@ -288,6 +288,11 @@
 		"menus": {
 			"view/title": [
 				{
+					"command": "codeMoniker.explorer.focus",
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@0"
+				},
+				{
 					"command": "codeMoniker.refreshRuleFiles",
 					"when": "view == codeMoniker.workspace",
 					"group": "navigation@5"

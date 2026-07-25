@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-// HTML shell for the graph explorer webview; the triptych is rendered
+// HTML shell for the graph explorer webview; the view is rendered
 // client-side from posted messages.
 export function renderExplorerHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 	const nonce = makeNonce();

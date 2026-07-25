@@ -8,7 +8,7 @@ run from that directory. Human-facing reference lives in
 
 - `src/daemon/`: session (connect-or-start, consistency, capabilities), WebSocket RPC, registry reader, `generated.ts` (regenerated from the daemon JSON schema — never hand-edited).
 - `src/symbols/`: identity tree (Symbols section) + detail webview host (`detail/panel.ts`, `detail/webview/`).
-- `src/explorer/`: Graph Explorer — scoped exploration webview (host `panel.ts`/`manager.ts`/`repository.ts`, React app under `webview/`).
+- `src/explorer/`: Graph Explorer — scoped exploration webview (host `panel.ts`/`manager.ts`/`repository.ts`, React app under `webview/`). `src/shared/identity.ts` owns identity-path parsing for both sides of the bridge and for the symbol tree. Node boxes are declared to ELK before render, so a card taller than its declared box overlaps the rank below: the card geometry lives in `explorer.css` as `--cm-card-*` custom properties, read once by `cardMetrics()` — change the CSS, not a TS constant.
 - `src/webview-lib/`: shared React pieces (`CodeBlock` + `code.css`, `parse.ts`, `symbolGlyph.ts`). Shared components own their styles here — duplicated CSS *will* diverge.
 - `src/workbench/`: unified workspace tree wrapping the feature providers.
 - `media/`: committed webview bundles (esbuild output). `test/`: integration harness and suites.
@@ -166,11 +166,16 @@ call("moniker_query", [{
 Two hard-won rules:
 
 - **Separate protocol compatibility from capabilities.** `protocol_version`
-  guards the wire shape and must match exactly. The extension recycles a
-  mismatched daemon once; a second mismatch is an installation error and must
-  not start a restart loop. Capabilities guard verb availability: a long-running
-  daemon can predate a query verb while reporting the same package version
-  string, so the extension still gates the explorer with
+  guards the wire shape and must match exactly. Mismatch handling is
+  direction-aware: an *older* daemon is recycled once (it likely predates a
+  binary upgrade); a *newer* daemon is left running (it serves up-to-date CLI/
+  MCP clients and relaunching cannot help). A second mismatch — or any
+  newer-daemon mismatch — is an installation error: the session enters a
+  sticky `protocolFault` state where `connectOrStart` fails fast, so nothing
+  restarts daemons in a loop. Only the explicit reconnect command clears the
+  fault. Capabilities guard verb availability: a long-running daemon can
+  predate a query verb while reporting the same package version string, so
+  the extension still gates the explorer with
   `session.supportsQuery("identity.graph")`.
 - **Suspect other workspaces' daemons.** Every open project (fixtures,
   sibling repos) registers its own daemon. A stale one elsewhere reproduces
@@ -180,6 +185,15 @@ Two hard-won rules:
 
 - Never certify UI behavior without a webview ack or a screenshot; a green
   compile proves nothing about clicks or layout.
+- Screenshot the harness *after* the async chain settles: the explorer waits
+  for the graph, its container outlines and the ELK pass before the canvas
+  has nodes, and a capture taken earlier shows an empty canvas that is not a
+  bug. Container outlines ride in the `scope` message precisely because they
+  decide card heights — shipping them later would run ELK twice.
+- A node card must show what it contains. Making the user dive to discover a
+  class's members is the failure the scoped graph exists to avoid.
+- Overlays anchor to a fixed corner of the canvas, never to the click point:
+  an anchored panel overflows the viewport and covers what it describes.
 - One data shape per rendering surface, unwrapped in one place.
 - Shared components own their styles (`src/webview-lib/code.css` imported by
   `CodeBlock.tsx`): duplicated CSS *will* diverge.

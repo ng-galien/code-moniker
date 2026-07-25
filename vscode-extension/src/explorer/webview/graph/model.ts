@@ -4,11 +4,22 @@ import type {
 	IdentitySegmentDto,
 	SymbolDto,
 } from "../../../daemon/model";
+import type { ContainerOutline, ScopeOutline } from "../../protocol";
 
 // Relation hierarchy on the scoped canvas: calls always draw; instantiates
 // and type usages hide behind toggles; whatever a rolled-up edge carries, it
 // stays visible as long as one of its kinds is enabled.
 export const CALL_KINDS = new Set(["calls", "method_call"]);
+
+// Shared so a node without an outline yet keeps a stable identity across
+// re-renders instead of invalidating the layout memo every time.
+const NO_OUTLINE: ContainerOutline = { chain: [], members: [], hidden: 0 };
+
+// One formula for the canvas edge key, shared by the layout request, the
+// rendered edge and the click lookup.
+export function edgeId(edge: IdentityGraphEdge): string {
+	return `${edge.source}->${edge.target}`;
+}
 
 export interface ScopeFilters {
 	instantiates: boolean;
@@ -37,6 +48,9 @@ export interface ScopeNodeModel {
 	id: string;
 	def?: GraphNodeModel;
 	row: IdentitySegmentDto;
+	// What the container holds: the flattened single-child path a dive would
+	// traverse, and the members waiting at the landing.
+	outline: ContainerOutline;
 	callsIn: number;
 	callsOut: number;
 }
@@ -44,10 +58,15 @@ export interface ScopeNodeModel {
 export interface ScopeGraphModel {
 	nodes: ScopeNodeModel[];
 	edges: IdentityGraphEdge[];
+	byId: Map<string, IdentityGraphEdge>;
 	hiddenEdges: number;
 }
 
-export function buildScopeGraph(graph: IdentityGraphResult, filters: ScopeFilters): ScopeGraphModel {
+export function buildScopeGraph(
+	graph: IdentityGraphResult,
+	filters: ScopeFilters,
+	outline: ScopeOutline,
+): ScopeGraphModel {
 	const edges = graph.edges.filter((edge) => edgeVisible(edge, filters));
 	const inbound = new Map<string, number>();
 	const outbound = new Map<string, number>();
@@ -68,12 +87,15 @@ export function buildScopeGraph(graph: IdentityGraphResult, filters: ScopeFilter
 					callsOut,
 				}
 			: undefined;
-		return { id: row.identity, def, row, callsIn, callsOut };
+		return {
+			id: row.identity,
+			def,
+			row,
+			outline: outline[row.identity] ?? NO_OUTLINE,
+			callsIn,
+			callsOut,
+		};
 	});
-	return { nodes, edges, hiddenEdges: graph.edges.length - edges.length };
-}
-
-export function segmentName(identity: string): string {
-	const segment = identity.split("/").pop() ?? identity;
-	return segment.split(":")[1] ?? segment;
+	const byId = new Map(edges.map((edge) => [edgeId(edge), edge]));
+	return { nodes, edges, byId, hiddenEdges: graph.edges.length - edges.length };
 }

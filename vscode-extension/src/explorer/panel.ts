@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 
+import { IdentityGraphResult } from "../daemon/model";
 import { highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
+import { parentPrefix, segmentName } from "../shared/identity";
 import {
 	ExplorerMessage,
 	InsetAck,
@@ -9,6 +11,7 @@ import {
 	ScopeAck,
 	ScopeErrorMessage,
 	ScopeMessage,
+	ScopeOutline,
 	ScopePayload,
 } from "./protocol";
 import { ExplorerRepository } from "./repository";
@@ -17,6 +20,9 @@ import { ExplorerRepository } from "./repository";
 // identity prefix. Nodes are the scope's children, edges are rolled-up
 // references, ports cross the boundary. Diving pushes a deeper prefix;
 // history supports walking back and forward.
+
+const MEMBER_PREVIEW = 6;
+
 export class ExplorerPanel implements vscode.Disposable {
 	private panel?: vscode.WebviewPanel;
 	private history: string[] = [];
@@ -103,33 +109,70 @@ export class ExplorerPanel implements vscode.Disposable {
 		token: number,
 		prefix: string,
 	): Promise<void> {
-		let graph = await this.repository.scopeGraph(prefix);
+		// Single-child chains carry no information: dive through them (cheap
+		// children walk) so one gesture lands on the first real branching
+		// point, then pay for exactly one graph rollup.
+		const landing = await this.repository.collapsedChain(prefix);
 		if (token !== this.seq || this.panel !== panel) {
 			return;
 		}
-		// A leaf scope (a plain function) has nothing to draw: climb to the
-		// parent level so the leaf appears as a node among its siblings.
-		if (graph && graph.nodes.length === 0 && graph.prefix.includes("/")) {
-			const parent = graph.prefix.slice(0, graph.prefix.lastIndexOf("/"));
-			this.history[this.index] = parent;
-			graph = await this.repository.scopeGraph(parent);
-			if (token !== this.seq || this.panel !== panel) {
-				return;
-			}
+		// A leaf scope (a plain function) has nothing to draw: focus the parent
+		// so the leaf appears as a node among its siblings. The chain walk
+		// already listed the landing, so the empty case costs no rollup.
+		const target =
+			landing.children.length === 0 && landing.identity.includes("/")
+				? parentPrefix(landing.identity)
+				: landing.identity;
+		this.history[this.index] = target;
+		const graph = await this.repository.scopeGraph(target);
+		if (token !== this.seq || this.panel !== panel) {
+			return;
 		}
 		if (!graph) {
 			throw new Error(
 				"the daemon returned no scope graph — reconnect or refresh the workspace daemon",
 			);
 		}
+		// Outlines decide how tall each card is, so the webview needs them in
+		// the same message: laying out first and resizing after would run ELK
+		// twice and remount the canvas.
+		const outline = await this.outlineFor(graph);
+		if (token !== this.seq || this.panel !== panel) {
+			return;
+		}
 		panel.title = scopeTitle(graph.prefix);
 		const payload: ScopePayload = {
 			graph,
 			canBack: this.index > 0,
 			canForward: this.index < this.history.length - 1,
+			outline,
 		};
 		this.lastMessage = { type: "scope", payload };
 		void panel.webview.postMessage(this.lastMessage);
+	}
+
+	// What each container holds, so its card shows its members instead of
+	// making the user dive to find out: the flattened single-child path plus
+	// a preview of the members at the landing. One concurrent round-trip —
+	// the listings are cached per generation and shared with the symbol tree.
+	private async outlineFor(graph: IdentityGraphResult): Promise<ScopeOutline> {
+		const outline: ScopeOutline = {};
+		const containers = graph.nodes.filter((node) => !node.symbol && node.has_children);
+		await Promise.all(
+			containers.map(async (node) => {
+				const chain = await this.repository.collapsedChain(node.identity);
+				outline[node.identity] = {
+					chain: chain.names,
+					members: chain.children.slice(0, MEMBER_PREVIEW).map((child) => ({
+						identity: child.identity,
+						name: child.name,
+						kind: child.symbol?.kind ?? child.kind,
+					})),
+					hidden: Math.max(0, chain.children.length - MEMBER_PREVIEW),
+				};
+			}),
+		);
+		return outline;
 	}
 
 	private ensurePanel(): vscode.WebviewPanel {
@@ -146,6 +189,10 @@ export class ExplorerPanel implements vscode.Disposable {
 				localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")],
 			},
 		);
+		panel.iconPath = {
+			light: vscode.Uri.joinPath(this.extensionUri, "icons", "graph-light.svg"),
+			dark: vscode.Uri.joinPath(this.extensionUri, "icons", "graph-dark.svg"),
+		};
 		panel.webview.html = renderExplorerHtml(panel.webview, this.extensionUri);
 		panel.onDidDispose(() => {
 			this.panel = undefined;
@@ -205,9 +252,5 @@ export class ExplorerPanel implements vscode.Disposable {
 }
 
 function scopeTitle(prefix: string): string {
-	if (!prefix) {
-		return "Graph Explorer";
-	}
-	const segment = prefix.split("/").pop() ?? prefix;
-	return segment.split(":")[1] ?? segment;
+	return prefix ? segmentName(prefix) : "Graph Explorer";
 }

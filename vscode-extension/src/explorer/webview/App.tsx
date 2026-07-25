@@ -1,18 +1,19 @@
-import { useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 
 import type { IdentityGraphEdge } from "../../daemon/model";
 import type { InsetMessage, ScopePayload } from "../protocol";
+import { ancestors, parentPrefix, segmentName } from "../../shared/identity";
 import { postFocus, postInspect } from "./actions";
 import { CodeInset, type InsetState } from "./CodeInset";
-import { DepthBar } from "./DepthBar";
 import { EdgePanel } from "./EdgePanel";
 import { ScopeCanvas } from "./ScopeCanvas";
-import { segmentName, type ScopeFilters } from "./graph/model";
+import type { ScopeFilters } from "./graph/model";
 import { vscode } from "./vscodeApi";
 
-// Scoped exploration of the identity graph: depth ladder on the left, the
-// current level's rolled-up graph on the canvas, edge facts on demand.
-// Keyboard: Backspace climbs to the parent scope, Alt+←/→ walk history.
+// Scoped exploration of the identity graph: clickable breadcrumb in the
+// toolbar, the current level's rolled-up graph on the canvas, edge facts in
+// a corner panel. Keyboard: Backspace climbs to the parent scope, Alt+←/→
+// walk history. Double-click on the background climbs too.
 export function App() {
 	const [scope, setScope] = useState<ScopePayload | null>(null);
 	const [filters, setFilters] = useState<ScopeFilters>({ instantiates: false, types: false });
@@ -55,13 +56,19 @@ export function App() {
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
+	// Keyed on the prefix, not the scope object: an outline update replaces
+	// the scope without moving it, and must not re-bind the key listener.
+	const prefix = scope?.graph.prefix;
+	const climb = useCallback(() => {
+		if (prefix) {
+			postFocus(parentPrefix(prefix));
+		}
+	}, [prefix]);
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Backspace" && scope) {
-				const prefix = scope.graph.prefix;
-				if (prefix) {
-					postFocus(prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) : "");
-				}
+			if (event.key === "Backspace") {
+				climb();
 			} else if (event.altKey && event.key === "ArrowLeft") {
 				vscode.postMessage({ type: "back" });
 			} else if (event.altKey && event.key === "ArrowRight") {
@@ -70,7 +77,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [scope]);
+	}, [climb]);
 
 	if (error) {
 		return (
@@ -90,8 +97,7 @@ export function App() {
 	if (!scope) {
 		return (
 			<div className="empty">
-				Open a scope from the Symbols tree (right-click → Open in Graph Explorer) or place the
-				cursor in code and run “Focus Symbol at Cursor”.
+				Select a scope in the Code Moniker view, then use the graph button in its toolbar.
 			</div>
 		);
 	}
@@ -117,10 +123,7 @@ export function App() {
 				>
 					→
 				</button>
-				<span className="focus-label">{graph.prefix ? segmentName(graph.prefix) : "workspace"}</span>
-				<span className="scope-facts">
-					{graph.nodes.length} nodes · {graph.edges.length} edges
-				</span>
+				<Breadcrumb prefix={graph.prefix} />
 				<span className="filter-group" role="group" aria-label="Relations">
 					<span className="filterchip fixed" title="Calls always draw">
 						calls
@@ -142,33 +145,65 @@ export function App() {
 						types
 					</button>
 				</span>
+				<span
+					className="scope-facts"
+					title={`${graph.nodes.length} nodes · ${graph.edges.length} rolled-up edges`}
+				>
+					{graph.nodes.length} ▪ {graph.edges.length}
+				</span>
 				{graph.unlinked.unresolved > 0 && (
 					<span
 						className="unresolved"
 						title={`References the index could not resolve (external: ${graph.unlinked.external} · manifest-blocked: ${graph.unlinked.manifest_blocked})`}
 					>
-						{graph.unlinked.unresolved} unresolved
+						▲ {graph.unlinked.unresolved}
 					</span>
 				)}
 			</div>
-			<div className="scope-layout">
-				<DepthBar prefix={graph.prefix} />
-				<div className="canvas-zone">
-					<ScopeCanvas
-						graph={graph}
-						filters={filters}
-						onSelectEdge={setSelectedEdge}
-						onInspect={(uri) => {
-							setInset({ uri, symbol: null, source: null, loading: true });
-							postInspect(uri);
-						}}
-					/>
-					{selectedEdge && (
-						<EdgePanel edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
-					)}
-					{inset && <CodeInset inset={inset} onClose={() => setInset(null)} />}
-				</div>
+			<div className="canvas-zone">
+				<ScopeCanvas
+					graph={graph}
+					filters={filters}
+					outline={scope.outline}
+					onSelectEdge={setSelectedEdge}
+					onClimb={climb}
+					onInspect={(uri) => {
+						setInset({ uri, symbol: null, source: null, loading: true });
+						postInspect(uri);
+					}}
+				/>
+				{selectedEdge && <EdgePanel edge={selectedEdge} onClose={() => setSelectedEdge(null)} />}
+				{inset && <CodeInset inset={inset} onClose={() => setInset(null)} />}
 			</div>
 		</>
+	);
+}
+
+// The breadcrumb is the depth control: one clickable step per ancestor, the
+// current scope highlighted. It replaces the old vertical depth rail. The
+// separator is its own element so the current step's highlight wraps the
+// name alone, not the chevron before it.
+function Breadcrumb({ prefix }: { prefix: string }) {
+	const steps = ["", ...ancestors(prefix)];
+	return (
+		<nav className="breadcrumb" aria-label="Scope path">
+			{steps.map((identity, index) => {
+				const current = index === steps.length - 1;
+				return (
+					<Fragment key={identity}>
+						{index > 0 && <span className="crumb-sep">›</span>}
+						<button
+							type="button"
+							className={current ? "crumb-btn current" : "crumb-btn"}
+							disabled={current}
+							title={identity || "Workspace root"}
+							onClick={() => postFocus(identity)}
+						>
+							{identity ? segmentName(identity) : "workspace"}
+						</button>
+					</Fragment>
+				);
+			})}
+		</nav>
 	);
 }
