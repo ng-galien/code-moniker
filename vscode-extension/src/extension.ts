@@ -10,6 +10,8 @@ import { registerRulesDaemon } from "./rules-daemon/manager";
 import { RulesProvider } from "./rules-daemon/tree";
 import { ViolationModel } from "./rules-daemon/decorations";
 import { registerScenario } from "./scenario/manager";
+import { registerSetup } from "./setup/manager";
+import { SetupProvider } from "./setup/tree";
 import { registerSymbols } from "./symbols/manager";
 import { DetailWebview } from "./symbols/detail/panel";
 import { SymbolTreeProvider } from "./symbols/tree";
@@ -29,6 +31,7 @@ export interface CodeMonikerApi {
 	changes: ChangesProvider;
 	violations: ViolationModel;
 	workspace: WorkspaceTreeProvider;
+	setup: SetupProvider;
 	explorer: ExplorerFeature;
 }
 
@@ -45,8 +48,10 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 	const views = registerViews(context, daemon.session);
 	const rules = registerRulesDaemon(context, daemon.session, symbols);
 	const changes = registerChanges(context, daemon.session);
+	const setup = registerSetup(context);
 	const workspace = registerWorkspace(context, {
 		session: daemon.session,
+		setup: setup.provider,
 		daemons: daemon.provider,
 		symbols: symbols.tree,
 		views: views.provider,
@@ -66,6 +71,7 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		changes: changes.provider,
 		violations: rules.model,
 		workspace: workspace.tree,
+		setup: setup.provider,
 		explorer,
 	};
 }

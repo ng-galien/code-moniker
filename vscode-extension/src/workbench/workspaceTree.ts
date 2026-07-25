@@ -8,6 +8,8 @@ import { RuleTreeNode } from "../rules/nodes";
 import { RuleFilesProvider } from "../rules/tree";
 import { RulesTreeNode } from "../rules-daemon/nodes";
 import { RulesProvider } from "../rules-daemon/tree";
+import { SetupTreeNode } from "../setup/nodes";
+import { SetupProvider } from "../setup/tree";
 import { workspaceSectionIcon } from "../shared/appIcons";
 import { SymbolTreeNode } from "../symbols/nodes";
 import { SymbolTreeProvider } from "../symbols/tree";
@@ -15,12 +17,17 @@ import { ViewTreeNode } from "../views/nodes";
 import { ViewsProvider } from "../views/tree";
 import { workspaceNodeId } from "./nodeIds";
 
-type SectionId = "daemon" | "symbols" | "views" | "changes" | "check" | "ruleFiles";
+type SectionId = "setup" | "daemon" | "symbols" | "views" | "changes" | "check" | "ruleFiles";
 
 interface SectionNode {
 	kind: "section";
 	id: SectionId;
 	label: string;
+}
+
+export interface WorkspaceSetupNode {
+	kind: "setup";
+	node: SetupTreeNode;
 }
 
 export interface WorkspaceDaemonNode {
@@ -55,6 +62,7 @@ export interface WorkspaceRuleFileNode {
 
 export type WorkspaceNode =
 	| SectionNode
+	| WorkspaceSetupNode
 	| WorkspaceDaemonNode
 	| WorkspaceSymbolNode
 	| WorkspaceViewNode
@@ -71,6 +79,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 	private pendingRefresh?: NodeJS.Timeout;
 
 	constructor(
+		private readonly setup: SetupProvider,
 		private readonly daemons: DaemonListProvider,
 		private readonly symbols: SymbolTreeProvider,
 		private readonly views: ViewsProvider,
@@ -79,6 +88,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 		private readonly ruleFiles: RuleFilesProvider,
 	) {
 		this.subscriptions.push(
+			this.setup.onDidChangeTreeData(() => this.refresh()),
 			this.daemons.onDidChangeTreeData(() => this.refresh()),
 			this.symbols.onDidChangeTreeData(() => this.refresh()),
 			this.views.onDidChangeTreeData(() => this.refresh()),
@@ -109,6 +119,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 			return this.sectionChildren(node.id);
 		}
 		switch (node.kind) {
+			case "setup":
+				return wrapSetup(await this.setup.getChildren(node.node));
 			case "daemon":
 				return wrapDaemons(await this.daemons.getChildren(node.node));
 			case "symbols":
@@ -146,6 +158,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 			return sectionItem(node);
 		}
 		switch (node.kind) {
+			case "setup":
+				return this.setup.getTreeItem(node.node);
 			case "daemon":
 				return this.daemons.getTreeItem(node.node);
 			case "symbols":
@@ -163,6 +177,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 
 	private async sectionChildren(id: SectionId): Promise<WorkspaceNode[]> {
 		switch (id) {
+			case "setup":
+				return wrapSetup(await this.setup.getChildren());
 			case "daemon":
 				return wrapDaemons(await this.daemons.getChildren());
 			case "symbols":
@@ -181,6 +197,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 
 function sections(): SectionNode[] {
 	return [
+		{ kind: "section", id: "setup", label: "Setup" },
 		{ kind: "section", id: "daemon", label: "Daemon" },
 		{ kind: "section", id: "symbols", label: "Symbols" },
 		{ kind: "section", id: "views", label: "Views" },
@@ -190,11 +207,25 @@ function sections(): SectionNode[] {
 	];
 }
 
+// Only the two sections that answer "is this workspace working" open by
+// themselves. The content sections can each be thousands of rows, and opening
+// all of them at once buries the answer the user came for.
+const OPEN_SECTIONS = new Set<SectionId>(["setup", "daemon"]);
+
 function sectionItem(node: SectionNode): vscode.TreeItem {
-	const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
+	const item = new vscode.TreeItem(
+		node.label,
+		OPEN_SECTIONS.has(node.id)
+			? vscode.TreeItemCollapsibleState.Expanded
+			: vscode.TreeItemCollapsibleState.Collapsed,
+	);
 	item.contextValue = `cmWorkspace.${node.id}`;
 	item.iconPath = workspaceSectionIcon(node.id);
 	return item;
+}
+
+function wrapSetup(nodes: SetupTreeNode[]): WorkspaceSetupNode[] {
+	return nodes.map((node) => ({ kind: "setup", node }));
 }
 
 function wrapDaemons(nodes: DaemonNode[]): WorkspaceDaemonNode[] {

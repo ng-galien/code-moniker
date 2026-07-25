@@ -1,5 +1,6 @@
 import { ChangeTreeNode } from "../changes/nodes";
 import { RulesTreeNode } from "../rules-daemon/nodes";
+import { SetupTreeNode } from "../setup/nodes";
 import { SymbolTreeNode } from "../symbols/nodes";
 import { ViewTreeNode } from "../views/nodes";
 import { WorkspaceNode } from "./workspaceTree";
@@ -12,6 +13,8 @@ export function workspaceNodeId(node: WorkspaceNode): string | undefined {
 	switch (node.kind) {
 		case "section":
 			return `section:${node.id}`;
+		case "setup":
+			return setupNodeId(node.node);
 		case "daemon":
 			return `daemon:${node.node.entry.endpoint}`;
 		case "symbols":
@@ -24,6 +27,19 @@ export function workspaceNodeId(node: WorkspaceNode): string | undefined {
 			return rulesNodeId(node.node);
 		case "ruleFiles":
 			return undefined;
+	}
+}
+
+function setupNodeId(node: SetupTreeNode): string {
+	switch (node.kind) {
+		case "cli":
+			return "setup:cli";
+		case "rules":
+			return "setup:rules";
+		case "agent":
+			return `setup:agent:${node.integration.client}`;
+		case "component":
+			return `setup:component:${node.client}:${node.component.component}`;
 	}
 }
 

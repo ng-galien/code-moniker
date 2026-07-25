@@ -24,3 +24,9 @@ export function rootOf(uri: vscode.Uri, fallbackRoot?: string): string {
 export function firstLine(text: string): string {
 	return text.split("\n")[0];
 }
+
+// The folder features fall back to when no document decides the root. The
+// extension host's cwd is not a project directory, so it is a last resort.
+export function primaryWorkspaceRoot(): string {
+	return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+}

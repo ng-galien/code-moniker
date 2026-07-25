@@ -283,10 +283,51 @@
 				"title": "Run Check",
 				"category": "Code Moniker",
 				"icon": "$(play)"
+			},
+			{
+				"command": "codeMoniker.setup.refresh",
+				"title": "Refresh Setup",
+				"category": "Code Moniker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "codeMoniker.setup.initRules",
+				"title": "Initialize Rules File",
+				"category": "Code Moniker",
+				"icon": "$(new-file)"
+			},
+			{
+				"command": "codeMoniker.setup.installAgent",
+				"title": "Install Agent Integration",
+				"category": "Code Moniker",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "codeMoniker.setup.updateAgent",
+				"title": "Update Agent Integration",
+				"category": "Code Moniker",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "codeMoniker.setup.doctorAgent",
+				"title": "Diagnose Agent Integration",
+				"category": "Code Moniker",
+				"icon": "$(stethoscope)"
+			},
+			{
+				"command": "codeMoniker.setup.uninstallAgent",
+				"title": "Remove Agent Integration",
+				"category": "Code Moniker",
+				"icon": "$(trash)"
 			}
 		],
 		"menus": {
 			"view/title": [
+				{
+					"command": "codeMoniker.setup.refresh",
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@1"
+				},
 				{
 					"command": "codeMoniker.explorer.focus",
 					"when": "view == codeMoniker.workspace",
@@ -438,6 +479,46 @@
 					"command": "codeMoniker.explorer.focus",
 					"when": "view == codeMoniker.workspace && viewItem == cmSymbol",
 					"group": "navigation@1"
+				},
+				{
+					"command": "codeMoniker.setup.initRules",
+					"when": "view == codeMoniker.workspace && viewItem == cmSetupRulesMissing",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.setup.installAgent",
+					"when": "view == codeMoniker.workspace && viewItem == cmSetupAgentMissing",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.setup.installAgent",
+					"when": "view == codeMoniker.workspace && viewItem =~ /^cmSetupAgent(Missing|Broken)$/",
+					"group": "1_cm@1"
+				},
+				{
+					"command": "codeMoniker.setup.doctorAgent",
+					"when": "view == codeMoniker.workspace && viewItem == cmSetupAgentBroken",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.setup.updateAgent",
+					"when": "view == codeMoniker.workspace && viewItem == cmSetupAgentInstalled",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.setup.updateAgent",
+					"when": "view == codeMoniker.workspace && viewItem == cmSetupAgentInstalled",
+					"group": "1_cm@2"
+				},
+				{
+					"command": "codeMoniker.setup.doctorAgent",
+					"when": "view == codeMoniker.workspace && viewItem =~ /^cmSetupAgent(Installed|Broken)$/",
+					"group": "1_cm@3"
+				},
+				{
+					"command": "codeMoniker.setup.uninstallAgent",
+					"when": "view == codeMoniker.workspace && viewItem =~ /^cmSetupAgent(Installed|Broken)$/",
+					"group": "1_cm@4"
 				}
 			]
 		},

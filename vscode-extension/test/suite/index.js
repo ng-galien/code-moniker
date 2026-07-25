@@ -8,6 +8,7 @@ const { testDaemonView } = require("./daemon.test");
 const { testExplorer } = require("./explorer.test");
 const { testSymbolTree } = require("./symbols.test");
 const { testRulesDaemon } = require("./rules-daemon.test");
+const { testSetupSection } = require("./setup.test");
 const { getApi, delay, codeMonikerExtension } = require("./helpers");
 
 const NOTEBOOK_TYPE = "code-moniker-scenario";
@@ -46,6 +47,7 @@ async function run() {
 	await runLearnRulesCell(learnEditor);
 
 	// Daemon-backed navigation features (acceptance / end-to-end).
+	await testSetupSection();
 	await testDaemonView();
 	await testSymbolTree();
 	await testExplorer();

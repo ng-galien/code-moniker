@@ -2,9 +2,21 @@ import * as vscode from "vscode";
 
 export type CheckStatus = "error" | "pass" | "warning";
 
-export type WorkspaceSection = "daemon" | "symbols" | "views" | "changes" | "check" | "ruleFiles";
+export type WorkspaceSection =
+	| "setup"
+	| "daemon"
+	| "symbols"
+	| "views"
+	| "changes"
+	| "check"
+	| "ruleFiles";
 
 export type CatalogGroup = "builtin" | "learn" | "language" | "rules";
+
+// How a Setup row reads at a glance: configured, something the CLI tracks but
+// can no longer find, not installed yet (a neutral state, not a warning), or
+// unreachable.
+export type SetupStatus = "ok" | "missing" | "absent" | "error";
 
 function themed(id: string, color?: string): vscode.ThemeIcon {
 	return color
@@ -51,6 +63,8 @@ export function daemonIcon(
 
 export function workspaceSectionIcon(id: WorkspaceSection): vscode.ThemeIcon {
 	switch (id) {
+		case "setup":
+			return themed("gear", "charts.yellow");
 		case "daemon":
 			return themed("server-process", "charts.blue");
 		case "symbols":
@@ -63,6 +77,32 @@ export function workspaceSectionIcon(id: WorkspaceSection): vscode.ThemeIcon {
 			return themed("checklist", "charts.orange");
 		case "ruleFiles":
 			return themed("files", "charts.blue");
+	}
+}
+
+export function setupStatusIcon(status: SetupStatus): vscode.ThemeIcon {
+	switch (status) {
+		case "ok":
+			return themed("check", "charts.green");
+		case "missing":
+			return themed("warning", "charts.yellow");
+		case "error":
+			return themed("error", "charts.red");
+		case "absent":
+			return themed("circle-outline");
+	}
+}
+
+export function setupComponentIcon(component: string): vscode.ThemeIcon {
+	switch (component) {
+		case "mcp":
+			return themed("plug", "charts.blue");
+		case "skill":
+			return themed("book", "charts.purple");
+		case "hooks":
+			return themed("zap", "charts.orange");
+		default:
+			return themed("gear");
 	}
 }
 

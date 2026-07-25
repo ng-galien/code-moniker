@@ -8,6 +8,12 @@ run from that directory. Human-facing reference lives in
 
 - `src/daemon/`: session (connect-or-start, consistency, capabilities), WebSocket RPC, registry reader, `generated.ts` (regenerated from the daemon JSON schema — never hand-edited).
 - `src/symbols/`: identity tree (Symbols section) + detail webview host (`detail/panel.ts`, `detail/webview/`).
+- `src/setup/`: Setup section of the workspace tree — what a freshly opened
+  folder is missing (CLI, `.code-moniker.toml`, per-client agent integrations)
+  and the commands that fix each row. The CLI owns the truth: the state comes
+  from `code-moniker agent status`, never from guessing at files. Adding a
+  module that calls the CLI facade means extending `$setup_source` in
+  `vscode-extension/.code-moniker.toml` — the boundary rule is an allowlist.
 - `src/explorer/`: Graph Explorer — scoped exploration webview (host `panel.ts`/`manager.ts`/`repository.ts`, React app under `webview/`). `src/shared/identity.ts` owns identity-path parsing for both sides of the bridge and for the symbol tree. Node boxes are declared to ELK before render, so a card taller than its declared box overlaps the rank below: the card geometry lives in `explorer.css` as `--cm-card-*` custom properties, read once by `cardMetrics()` — change the CSS, not a TS constant.
 - `src/webview-lib/`: shared React pieces (`CodeBlock` + `code.css`, `parse.ts`, `symbolGlyph.ts`). Shared components own their styles here — duplicated CSS *will* diverge.
 - `src/workbench/`: unified workspace tree wrapping the feature providers.

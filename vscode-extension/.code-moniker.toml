@@ -38,6 +38,10 @@ controller_source = "source ~ '**/dir:src/dir:scenario/module:controller/**'"
 rules_commands_source = "source ~ '**/dir:src/dir:rules/module:commands/**'"
 rules_repository_source = "source ~ '**/dir:src/dir:rules/module:repository/**'"
 catalog_packs_source = "source ~ '**/dir:src/dir:catalog/module:packs/**'"
+setup_source = """
+  source ~ '**/dir:src/dir:setup/module:commands/**'
+  OR source ~ '**/dir:src/dir:setup/module:repository/**'
+"""
 tree_provider_source = """
   source ~ '**/dir:src/dir:rules/module:tree/**'
   OR source ~ '**/dir:src/dir:catalog/module:tree/**'
@@ -133,8 +137,9 @@ expr      = """
   AND (kind = 'imports_symbol' OR kind = 'imports_module')
   AND $cli_facade_target
   => $controller_source OR $rules_commands_source OR $catalog_packs_source OR $daemon_session_source
+     OR $setup_source
 """
-message   = "Only notebook execution, Rule Files commands, and catalog pack loading may call the CLI facade."
+message   = "Only notebook execution, Rule Files commands, catalog pack loading, and Setup may call the CLI facade."
 rationale = """
 Providers and registrars should be presentation/cabling code. Running code-moniker belongs to
 explicit command or kernel boundaries so future UI evolution does not duplicate CLI behavior.

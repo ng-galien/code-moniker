@@ -5,6 +5,7 @@ import { DaemonSession } from "../daemon/session";
 import { DaemonListProvider } from "../daemon/tree";
 import { RuleFilesProvider } from "../rules/tree";
 import { RulesProvider } from "../rules-daemon/tree";
+import { SetupProvider } from "../setup/tree";
 import { DetailWebview } from "../symbols/detail/panel";
 import { SymbolTreeProvider } from "../symbols/tree";
 import { ViewsProvider } from "../views/tree";
@@ -20,6 +21,7 @@ export interface WorkspaceFeature {
 
 export interface WorkspaceInputs {
 	session: DaemonSession;
+	setup: SetupProvider;
 	daemons: DaemonListProvider;
 	symbols: SymbolTreeProvider;
 	views: ViewsProvider;
@@ -34,6 +36,7 @@ export function registerWorkspace(
 	inputs: WorkspaceInputs,
 ): WorkspaceFeature {
 	const provider = new WorkspaceTreeProvider(
+		inputs.setup,
 		inputs.daemons,
 		inputs.symbols,
 		inputs.views,
