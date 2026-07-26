@@ -9,10 +9,12 @@ use serde_json::{Map, Value, json};
 
 use crate::args::{
 	AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
-	AgentUninstallArgs, CodexHarnessArgs,
+	AgentUninstallArgs, HookInstallArgs,
 };
-use crate::fs_write::write_atomic;
-use crate::{Exit, harness};
+use crate::{Exit, hooks};
+
+mod physical_config;
+mod physical_skill;
 
 const STATE_SCHEMA: u32 = 1;
 const SKILL_NAME: &str = "code-moniker";
@@ -47,6 +49,10 @@ struct InstallState {
 	client: String,
 	root: String,
 	components: BTreeMap<String, ComponentState>,
+	#[serde(skip)]
+	persisted_contents: Option<Vec<u8>>,
+	#[serde(skip)]
+	persisted_mode: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -66,6 +72,14 @@ struct ComponentState {
 	check_scope: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	max_violations: Option<usize>,
+	#[serde(default)]
+	config_created: bool,
+	#[serde(default)]
+	config_parent_created: bool,
+	#[serde(default)]
+	hook_directory_created: bool,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	config_checksum: Option<String>,
 }
 
 struct InstallContext {
@@ -116,6 +130,7 @@ pub fn run<W1: Write, W2: Write>(
 		AgentCommand::Status(args) => status(args, stdout).map(|_| true),
 		AgentCommand::Doctor(args) => doctor(args, stdout),
 		AgentCommand::Uninstall(args) => uninstall(args, stdout),
+		AgentCommand::ToolFiles(args) => hooks::write_tool_files(args, stdout).map(|_| true),
 	};
 	match result {
 		Ok(true) => Exit::Match,
@@ -141,39 +156,39 @@ fn install<W: Write>(
 	}
 
 	let state_path = state_path(&context, args.client);
-	let mut state = read_state(&state_path)?.unwrap_or_else(|| InstallState {
+	let _state_lock =
+		crate::fs_nofollow::lock_exclusive(&context.home, &state_lock_path(&state_path))?;
+	let mut state = read_state(&context.home, &state_path)?.unwrap_or_else(|| InstallState {
 		schema: STATE_SCHEMA,
 		version: env!("CARGO_PKG_VERSION").to_string(),
 		client: client_name(args.client).to_string(),
 		root: context.root.display().to_string(),
 		components: BTreeMap::new(),
+		persisted_contents: None,
+		persisted_mode: None,
 	});
 	validate_state_identity(&state, &context, args.client)?;
 
 	if components.contains(&AgentComponent::Skill) {
 		let installed = install_skill(&context, args.client, &state)?;
-		let previous_owner = installed.previous_owner.clone();
-		state
-			.components
-			.insert("skill".to_string(), installed.component);
-		persist_state(&state_path, &mut state)?;
-		if let Some(previous_owner) = previous_owner {
-			release_previous_skill_owner(
-				&previous_owner,
-				state
-					.components
-					.get("skill")
-					.context("installed skill disappeared from integration state")?,
-			)?;
-		}
+		persist_installed_skill(
+			&context.home,
+			&state_path,
+			&mut state,
+			installed.component,
+			installed.skill_rollback,
+		)?;
 		writeln!(stdout, "skill: {}", installed.message)?;
 	}
 	if components.contains(&AgentComponent::Mcp) {
 		let installed = install_mcp(&context, args.client, &state)?;
-		state
-			.components
-			.insert("mcp".to_string(), installed.component);
-		persist_state(&state_path, &mut state)?;
+		persist_installed_mcp(
+			&context.home,
+			&state_path,
+			&mut state,
+			installed.component,
+			installed.config_rollback,
+		)?;
 		writeln!(stdout, "mcp: {}", installed.message)?;
 	}
 	if components.contains(&AgentComponent::Hooks) {
@@ -192,30 +207,26 @@ fn install<W: Write>(
 			.get("hooks")
 			.filter(|component| component.owned)
 			.map(|component| Path::new(&component.path));
-		let harness_args = CodexHarnessArgs {
+		let hook_args = HookInstallArgs {
 			root: context.root.to_path_buf(),
 			rules: hook_policy.rules.to_path_buf(),
 			profile: hook_policy.profile.clone(),
 			scope: hook_policy.check_scope.to_path_buf(),
 			max_violations: hook_policy.max_violations,
 		};
+		let mut hook_output = Vec::new();
 		let installed =
-			harness::install_for_agent(&harness_args, args.client, managed_path, stdout)?;
-		state.components.insert(
-			"hooks".to_string(),
-			ComponentState {
-				scope: "project".to_string(),
-				path: installed.path.display().to_string(),
-				checksum: checksum_bytes(&installed.fingerprint),
-				owned: installed.owned,
-				version: env!("CARGO_PKG_VERSION").to_string(),
-				profile: hook_policy.profile,
-				rules: Some(hook_policy.rules.display().to_string()),
-				check_scope: Some(hook_policy.check_scope.display().to_string()),
-				max_violations: Some(hook_policy.max_violations),
-			},
-		);
-		persist_state(&state_path, &mut state)?;
+			hooks::install_for_agent(&hook_args, args.client, managed_path, &mut hook_output)?;
+		let component = hook_component(&installed, hook_policy, state.components.get("hooks"));
+		persist_installed_hook(
+			&context.home,
+			&state_path,
+			&mut state,
+			component,
+			installed.rollback,
+		)?;
+		stdout.write_all(&hook_output)?;
+		write_hook_activation_note(stdout, args.client, true)?;
 	}
 
 	writeln!(
@@ -225,6 +236,34 @@ fn install<W: Write>(
 		env!("CARGO_PKG_VERSION")
 	)?;
 	Ok(true)
+}
+
+fn hook_component(
+	installed: &hooks::AgentHookInstallation,
+	policy: HookPolicy,
+	previous: Option<&ComponentState>,
+) -> ComponentState {
+	let retains_config_ownership = previous.is_some_and(|component| {
+		component.config_created
+			&& component.config_checksum.as_deref() == installed.previous_config_checksum.as_deref()
+	});
+	ComponentState {
+		scope: "project".to_string(),
+		path: installed.path.display().to_string(),
+		checksum: checksum_bytes(&installed.fingerprint),
+		owned: installed.owned,
+		version: env!("CARGO_PKG_VERSION").to_string(),
+		profile: policy.profile,
+		rules: Some(policy.rules.display().to_string()),
+		check_scope: Some(policy.check_scope.display().to_string()),
+		max_violations: Some(policy.max_violations),
+		config_created: retains_config_ownership || installed.config_created,
+		config_parent_created: previous.is_some_and(|component| component.config_parent_created)
+			|| installed.config_parent_created,
+		hook_directory_created: previous.is_some_and(|component| component.hook_directory_created)
+			|| installed.hook_directory_created,
+		config_checksum: installed.config_checksum.clone(),
+	}
 }
 
 fn resolved_install_components(requested: &[AgentComponent]) -> BTreeSet<AgentComponent> {
@@ -238,10 +277,89 @@ fn resolved_install_components(requested: &[AgentComponent]) -> BTreeSet<AgentCo
 	components
 }
 
+fn persist_installed_hook(
+	home: &Path,
+	state_path: &Path,
+	state: &mut InstallState,
+	component: ComponentState,
+	rollback: Option<hooks::AgentHookRollback>,
+) -> anyhow::Result<()> {
+	let previous = state.components.insert("hooks".to_string(), component);
+	if let Err(error) = persist_state(home, state_path, state) {
+		if let Some(previous) = previous {
+			state.components.insert("hooks".to_string(), previous);
+		} else {
+			state.components.remove("hooks");
+		}
+		if let Some(rollback) = rollback
+			&& let Err(rollback_error) = hooks::rollback_agent_hook(&rollback)
+		{
+			bail!(
+				"{error:#}; additionally failed to roll back the hook installation: {rollback_error:#}"
+			);
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
+fn persist_installed_skill(
+	home: &Path,
+	state_path: &Path,
+	state: &mut InstallState,
+	component: ComponentState,
+	rollback: Option<physical_skill::Mutation>,
+) -> anyhow::Result<()> {
+	let previous = state.components.insert("skill".to_string(), component);
+	if let Err(error) = persist_state(home, state_path, state) {
+		if let Some(previous) = previous {
+			state.components.insert("skill".to_string(), previous);
+		} else {
+			state.components.remove("skill");
+		}
+		if let Some(rollback) = &rollback
+			&& let Err(rollback_error) = physical_skill::rollback(home, rollback)
+		{
+			bail!(
+				"{error:#}; additionally failed to roll back the skill installation: {rollback_error:#}"
+			);
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
+fn persist_installed_mcp(
+	home: &Path,
+	state_path: &Path,
+	state: &mut InstallState,
+	component: ComponentState,
+	rollback: Option<physical_config::Mutation>,
+) -> anyhow::Result<()> {
+	let previous = state.components.insert("mcp".to_string(), component);
+	if let Err(error) = persist_state(home, state_path, state) {
+		if let Some(previous) = previous {
+			state.components.insert("mcp".to_string(), previous);
+		} else {
+			state.components.remove("mcp");
+		}
+		if let Some(rollback) = &rollback
+			&& let Err(rollback_error) = physical_config::rollback(rollback)
+		{
+			bail!(
+				"{error:#}; additionally failed to roll back the MCP configuration: {rollback_error:#}"
+			);
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
 fn status<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let context = install_context(&args.root)?;
 	let path = state_path(&context, args.client);
-	let Some(state) = read_state(&path)? else {
+	let _state_lock = crate::fs_nofollow::lock_exclusive(&context.home, &state_lock_path(&path))?;
+	let Some(state) = read_state(&context.home, &path)? else {
 		writeln!(
 			stdout,
 			"No managed {} integration for `{}`.",
@@ -256,7 +374,7 @@ fn status<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<(
 		"client  component  scope    state      version  location"
 	)?;
 	for (name, component) in &state.components {
-		let current = component_status(name, component, args.client);
+		let current = component_status(&context.home, &context.root, name, component, args.client);
 		writeln!(
 			stdout,
 			"{:<7} {:<10} {:<8} {:<10} {:<8} {}",
@@ -274,7 +392,8 @@ fn status<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<(
 fn doctor<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<bool> {
 	let context = install_context(&args.root)?;
 	let path = state_path(&context, args.client);
-	let Some(state) = read_state(&path)? else {
+	let _state_lock = crate::fs_nofollow::lock_exclusive(&context.home, &state_lock_path(&path))?;
+	let Some(state) = read_state(&context.home, &path)? else {
 		writeln!(
 			stdout,
 			"problem: no managed {} integration for `{}`",
@@ -294,9 +413,13 @@ fn doctor<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<b
 	let mut problems = Vec::new();
 	let mut reinstall = BTreeSet::new();
 	let mut forget_external = BTreeSet::new();
+	let mut hooks_coherent = false;
 	for (name, component) in &state.components {
-		let status = component_status(name, component, args.client);
-		let status_problem = status != "installed" && status != "linked" && status != "external";
+		let status = component_status(&context.home, &context.root, name, component, args.client);
+		let status_problem = status != "installed" && status != "external";
+		if name == "hooks" && !status_problem {
+			hooks_coherent = true;
+		}
 		let version_problem = component.version != env!("CARGO_PKG_VERSION");
 		if status_problem {
 			problems.push(format!("{name} is {status} at {}", component.path));
@@ -318,6 +441,7 @@ fn doctor<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<b
 			}
 		}
 	}
+	write_hook_activation_note(stdout, args.client, hooks_coherent)?;
 
 	if problems.is_empty() {
 		writeln!(
@@ -352,6 +476,20 @@ fn doctor<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<b
 		)?;
 	}
 	Ok(false)
+}
+
+fn write_hook_activation_note<W: Write>(
+	stdout: &mut W,
+	client: AgentClient,
+	hooks_installed: bool,
+) -> anyhow::Result<()> {
+	if client == AgentClient::Codex && hooks_installed {
+		writeln!(
+			stdout,
+			"action: approve this project hook in Codex app Settings; CLI status and doctor cannot observe app approval"
+		)?;
+	}
+	Ok(())
 }
 
 fn write_component_repair<W: Write>(
@@ -396,10 +534,17 @@ fn shell_arg(value: &str) -> String {
 	format!("'{}'", value.replace('\'', r#"'\''"#))
 }
 
+enum ComponentRollback {
+	Hook(hooks::AgentHookRollback),
+	Mcp(physical_config::Mutation),
+	Skill(physical_skill::Mutation),
+}
+
 fn uninstall<W: Write>(args: &AgentUninstallArgs, stdout: &mut W) -> anyhow::Result<bool> {
 	let context = install_context(&args.root)?;
 	let path = state_path(&context, args.client);
-	let Some(mut state) = read_state(&path)? else {
+	let _state_lock = crate::fs_nofollow::lock_exclusive(&context.home, &state_lock_path(&path))?;
+	let Some(mut state) = read_state(&context.home, &path)? else {
 		writeln!(
 			stdout,
 			"No managed {} integration for `{}`.",
@@ -426,8 +571,8 @@ fn uninstall<W: Write>(args: &AgentUninstallArgs, stdout: &mut W) -> anyhow::Res
 		if !component.owned {
 			continue;
 		}
-		let status = component_status(name, component, args.client);
-		if status != "installed" && status != "linked" && status != "external" {
+		let status = component_status(&context.home, &context.root, name, component, args.client);
+		if status != "installed" && status != "external" {
 			bail!(
 				"refusing to remove {name}: managed content is {status} at `{}`",
 				component.path
@@ -440,49 +585,119 @@ fn uninstall<W: Write>(args: &AgentUninstallArgs, stdout: &mut W) -> anyhow::Res
 			state.components.get(name).cloned().with_context(|| {
 				format!("component `{name}` disappeared after uninstall preflight")
 			})?;
-		if component.owned {
+		let mut rollback = None;
+		let message = if component.owned {
 			match name.as_str() {
 				"skill" => {
-					if transfer_shared_skill_ownership(args.client, &path, &component)? {
-						writeln!(stdout, "skill: retained shared component")?;
+					if shared_skill_is_referenced(&context.home, args.client, &path, &component)? {
+						"skill: retained shared component".to_string()
 					} else {
-						uninstall_skill(Path::new(&component.path))?;
-						writeln!(stdout, "{name}: removed managed component")?;
+						rollback = Some(ComponentRollback::Skill(uninstall_skill(
+							&context.home,
+							Path::new(&component.path),
+						)?));
+						format!("{name}: removed managed component")
 					}
 				}
 				"mcp" => {
-					uninstall_mcp(Path::new(&component.path), args.client)?;
-					writeln!(stdout, "{name}: removed managed component")?;
+					rollback = Some(ComponentRollback::Mcp(uninstall_mcp(
+						&context.root,
+						Path::new(&component.path),
+						args.client,
+						&component,
+					)?));
+					format!("{name}: removed managed component")
 				}
 				"hooks" => {
-					harness::uninstall_for_agent(
-						&context.root,
-						args.client,
-						Path::new(&component.path),
-					)?;
-					writeln!(stdout, "{name}: removed managed component")?;
+					let expected_fingerprint =
+						hooks::agent_hook_fingerprint(args.client, Path::new(&component.path))?;
+					if checksum_bytes(&expected_fingerprint) != component.checksum {
+						bail!(
+							"refusing to remove hooks: managed content changed after uninstall preflight at `{}`",
+							component.path
+						);
+					}
+					rollback = Some(ComponentRollback::Hook(
+						hooks::uninstall_for_agent_with_policy(
+							&context.root,
+							args.client,
+							Path::new(&component.path),
+							&expected_fingerprint,
+							hooks::AgentHookRemovalPolicy {
+								config_created: component.config_created,
+								config_parent_created: component.config_parent_created,
+								hook_directory_created: component.hook_directory_created,
+								config_checksum: component.config_checksum.as_deref(),
+							},
+						)?,
+					));
+					format!("{name}: removed managed component")
 				}
 				_ => bail!("unknown managed component `{name}`"),
 			}
 		} else {
-			writeln!(stdout, "{name}: retained pre-existing external component")?;
-		}
-		state.components.remove(name);
-		if state.components.is_empty() {
-			fs::remove_file(&path)
-				.with_context(|| format!("cannot remove `{}`", path.display()))?;
-			remove_empty_parents(path.parent(), context.home.join(".code-moniker"));
-		} else {
-			persist_state(&path, &mut state)?;
-		}
+			format!("{name}: retained pre-existing external component")
+		};
+		persist_removed_component(&path, &context.home, &mut state, name, component, rollback)?;
+		writeln!(stdout, "{message}")?;
 	}
 	Ok(true)
+}
+
+fn persist_removed_component(
+	state_path: &Path,
+	home: &Path,
+	state: &mut InstallState,
+	name: &str,
+	component: ComponentState,
+	rollback: Option<ComponentRollback>,
+) -> anyhow::Result<()> {
+	state.components.remove(name);
+	let persist_result = if state.components.is_empty() {
+		(|| -> anyhow::Result<()> {
+			let contents = state.persisted_contents.as_deref().with_context(|| {
+				format!(
+					"agent state `{}` has no persisted snapshot",
+					state_path.display()
+				)
+			})?;
+			crate::fs_nofollow::remove_if_unchanged(
+				home,
+				state_path,
+				contents,
+				state.persisted_mode,
+			)?;
+			Ok(())
+		})()
+		.map(|()| {
+			state.persisted_contents = None;
+			state.persisted_mode = None;
+			remove_empty_parents(state_path.parent(), home.join(".code-moniker"));
+		})
+	} else {
+		persist_state(home, state_path, state)
+	};
+	if let Err(error) = persist_result {
+		state.components.insert(name.to_string(), component);
+		let rollback_result = match rollback {
+			Some(ComponentRollback::Hook(rollback)) => hooks::rollback_agent_hook(&rollback),
+			Some(ComponentRollback::Mcp(rollback)) => physical_config::rollback(&rollback),
+			Some(ComponentRollback::Skill(rollback)) => physical_skill::rollback(home, &rollback),
+			None => Ok(()),
+		};
+		if let Err(rollback_error) = rollback_result {
+			bail!("{error:#}; additionally failed to roll back removal: {rollback_error:#}");
+		}
+		return Err(error);
+	}
+	Ok(())
 }
 
 struct InstalledComponent {
 	component: ComponentState,
 	message: String,
-	previous_owner: Option<PathBuf>,
+	config_rollback: Option<physical_config::Mutation>,
+	skill_rollback: Option<physical_skill::Mutation>,
 }
 
 fn install_skill(
@@ -491,7 +706,11 @@ fn install_skill(
 	state: &InstallState,
 ) -> anyhow::Result<InstalledComponent> {
 	let path = user_skill_path(&context.home, client);
+	physical_skill::ensure_parent(&context.home, &path)?;
 	let existing = fs::symlink_metadata(&path).is_ok();
+	let is_symlink = fs::symlink_metadata(&path)
+		.map(|metadata| metadata.file_type().is_symlink())
+		.unwrap_or(false);
 	let managed_here = state
 		.components
 		.get("skill")
@@ -500,70 +719,46 @@ fn install_skill(
 	let shared_owner = if managed_here {
 		None
 	} else {
-		find_owned_skill_state(&current_state_path, client, &path)?
+		find_owned_skill_state(&context.home, &current_state_path, client, &path)?
 	};
 	let managed = managed_here || shared_owner.is_some();
-	let matched_before = skill_matches(&path);
-	let claim_shared_ownership = shared_owner.is_some() && !matched_before;
-	if path.exists() && !managed && !matched_before {
+	let matched_before = physical_skill::matches(&context.home, &path);
+	if is_symlink {
+		bail!(
+			"refusing linked skill `{}`; remove it before installing a physical skill",
+			path.display()
+		);
+	}
+	if existing && !managed && !matched_before {
 		bail!(
 			"refusing to replace unmanaged skill `{}`; move it aside or remove it explicitly",
 			path.display()
 		);
 	}
-	if fs::symlink_metadata(&path)
-		.map(|metadata| metadata.file_type().is_symlink())
-		.unwrap_or(false)
-	{
-		if !skill_matches(&path) {
-			bail!(
-				"linked skill `{}` does not match the embedded {} assets",
-				path.display(),
-				env!("CARGO_PKG_VERSION")
-			);
-		}
-		return Ok(InstalledComponent {
-			component: ComponentState {
-				scope: "user".to_string(),
-				path: path.display().to_string(),
-				checksum: skill_checksum(),
-				owned: false,
-				version: env!("CARGO_PKG_VERSION").to_string(),
-				profile: None,
-				rules: None,
-				check_scope: None,
-				max_violations: None,
-			},
-			message: format!("linked development skill retained at {}", path.display()),
-			previous_owner: None,
-		});
-	}
-
-	for (relative, contents) in SKILL_FILES {
-		write_atomic(&path.join(relative), contents.as_bytes())?;
-	}
+	let skill_rollback = physical_skill::write_assets(&context.home, &path)?;
 	Ok(InstalledComponent {
 		component: ComponentState {
 			scope: "user".to_string(),
 			path: path.display().to_string(),
 			checksum: skill_checksum(),
-			owned: managed_here || !existing || claim_shared_ownership,
+			owned: managed_here || !existing || shared_owner.is_some(),
 			version: env!("CARGO_PKG_VERSION").to_string(),
 			profile: None,
 			rules: None,
 			check_scope: None,
 			max_violations: None,
+			config_created: false,
+			config_parent_created: false,
+			hook_directory_created: false,
+			config_checksum: None,
 		},
 		message: format!(
 			"installed {} embedded files at {}",
 			SKILL_FILES.len(),
 			path.display()
 		),
-		previous_owner: if claim_shared_ownership {
-			shared_owner
-		} else {
-			None
-		},
+		config_rollback: None,
+		skill_rollback: Some(skill_rollback),
 	})
 }
 
@@ -586,13 +781,49 @@ fn install_mcp(
 		.components
 		.get("mcp")
 		.is_some_and(|component| component.owned);
-	let owned = match client {
-		AgentClient::Codex => install_codex_mcp(&config_path, &command, &args, managed)?,
-		AgentClient::Claude | AgentClient::Gemini => {
-			install_json_mcp(&config_path, &command, &args, managed, client)?
+	let (owned, config_rollback, observed_config) = match client {
+		AgentClient::Codex => {
+			install_codex_mcp(&context.root, &config_path, &command, &args, managed)?
+		}
+		AgentClient::Claude | AgentClient::Gemini => install_json_mcp(
+			&context.root,
+			&config_path,
+			&command,
+			&args,
+			managed,
+			client,
+		)?,
+	};
+	let committed_config = config_rollback
+		.as_ref()
+		.and_then(physical_config::Mutation::committed_contents)
+		.or(observed_config.as_deref());
+	let checksum = match committed_config
+		.with_context(|| format!("MCP configuration `{}` is missing", config_path.display()))
+		.and_then(|contents| mcp_entry_checksum_contents(contents, &config_path, client))
+	{
+		Ok(checksum) => checksum,
+		Err(error) => {
+			if let Some(config_rollback) = &config_rollback
+				&& let Err(rollback_error) = physical_config::rollback(config_rollback)
+			{
+				bail!(
+					"{error:#}; additionally failed to roll back the MCP configuration: {rollback_error:#}"
+				);
+			}
+			return Err(error);
 		}
 	};
-	let checksum = mcp_entry_checksum(&config_path, client)?;
+	let observed_config_checksum = observed_config.as_deref().map(checksum_bytes);
+	let committed_config_checksum = match &config_rollback {
+		Some(mutation) => mutation.committed_contents().map(checksum_bytes),
+		None => observed_config_checksum.clone(),
+	};
+	let previous_mcp = state.components.get("mcp");
+	let retains_config_ownership = previous_mcp.is_some_and(|component| {
+		component.config_created
+			&& component.config_checksum.as_deref() == observed_config_checksum.as_deref()
+	});
 	Ok(InstalledComponent {
 		component: ComponentState {
 			scope: "project".to_string(),
@@ -604,41 +835,58 @@ fn install_mcp(
 			rules: None,
 			check_scope: None,
 			max_violations: None,
+			config_created: retains_config_ownership
+				|| config_rollback
+					.as_ref()
+					.is_some_and(physical_config::Mutation::created_file),
+			config_parent_created: previous_mcp
+				.is_some_and(|component| component.config_parent_created)
+				|| config_rollback
+					.as_ref()
+					.is_some_and(physical_config::Mutation::created_parent),
+			hook_directory_created: false,
+			config_checksum: committed_config_checksum,
 		},
 		message: format!(
 			"registered project-owned stdio server in {}",
 			config_path.display()
 		),
-		previous_owner: None,
+		config_rollback,
+		skill_rollback: None,
 	})
 }
 
-fn uninstall_skill(path: &Path) -> anyhow::Result<()> {
+fn uninstall_skill(home: &Path, path: &Path) -> anyhow::Result<physical_skill::Mutation> {
 	if fs::symlink_metadata(path)
 		.map(|metadata| metadata.file_type().is_symlink())
 		.unwrap_or(false)
 	{
-		fs::remove_file(path)
-			.with_context(|| format!("cannot remove linked skill `{}`", path.display()))?;
-		return Ok(());
+		bail!("refusing to remove linked skill `{}`", path.display());
 	}
-	for (relative, _) in SKILL_FILES.iter().rev() {
-		let file = path.join(relative);
-		if file.exists() {
-			fs::remove_file(&file)
-				.with_context(|| format!("cannot remove `{}`", file.display()))?;
-		}
-	}
-	let _ = fs::remove_dir(path.join("references"));
-	let _ = fs::remove_dir(path);
-	Ok(())
+	physical_skill::remove(home, path)
 }
 
-fn uninstall_mcp(path: &Path, client: AgentClient) -> anyhow::Result<()> {
-	match client {
+fn uninstall_mcp(
+	root: &Path,
+	path: &Path,
+	client: AgentClient,
+	component: &ComponentState,
+) -> anyhow::Result<physical_config::Mutation> {
+	let snapshot = physical_config::snapshot(root, path)?;
+	let current_checksum = snapshot.contents().map(checksum_bytes);
+	if component.config_created
+		&& current_checksum.is_some()
+		&& current_checksum == component.config_checksum
+	{
+		return physical_config::remove(snapshot, component.config_parent_created);
+	}
+	let contents = match client {
 		AgentClient::Codex => {
-			let mut config = fs::read_to_string(path)
-				.with_context(|| format!("cannot read `{}`", path.display()))?
+			let contents = snapshot
+				.contents()
+				.with_context(|| format!("MCP configuration `{}` is missing", path.display()))?;
+			let mut config = std::str::from_utf8(contents)
+				.with_context(|| format!("`{}` is not valid UTF-8", path.display()))?
 				.parse::<toml::Value>()
 				.with_context(|| format!("invalid TOML in `{}`", path.display()))?;
 			if let Some(servers) = config
@@ -647,36 +895,40 @@ fn uninstall_mcp(path: &Path, client: AgentClient) -> anyhow::Result<()> {
 			{
 				servers.remove(SKILL_NAME);
 			}
-			write_atomic(path, toml::to_string_pretty(&config)?.as_bytes())
+			toml::to_string_pretty(&config)?.into_bytes()
 		}
 		AgentClient::Claude | AgentClient::Gemini => {
-			let mut config = read_json_object(path)?;
+			let mut config = read_json_object_contents(snapshot.contents(), path)?;
 			if let Some(servers) = config.get_mut("mcpServers").and_then(Value::as_object_mut) {
 				servers.remove(SKILL_NAME);
 			}
-			write_json_atomic(path, &Value::Object(config))
+			serde_json::to_vec_pretty(&Value::Object(config))?
 		}
-	}
+	};
+	physical_config::write(snapshot, &contents)
 }
 
 fn install_codex_mcp(
+	root: &Path,
 	path: &Path,
 	command: &str,
 	args: &[String],
 	managed: bool,
-) -> anyhow::Result<bool> {
-	let mut config = if path.exists() {
-		fs::read_to_string(path)
-			.with_context(|| format!("cannot read `{}`", path.display()))?
+) -> anyhow::Result<(bool, Option<physical_config::Mutation>, Option<Vec<u8>>)> {
+	let snapshot = physical_config::snapshot(root, path)?;
+	let observed_config = snapshot.contents().map(ToOwned::to_owned);
+	let mut config = if let Some(contents) = snapshot.contents() {
+		std::str::from_utf8(contents)
+			.with_context(|| format!("`{}` is not valid UTF-8", path.display()))?
 			.parse::<toml::Value>()
 			.with_context(|| format!("invalid TOML in `{}`", path.display()))?
 	} else {
 		toml::Value::Table(toml::map::Map::new())
 	};
-	let root = config
+	let config_root = config
 		.as_table_mut()
 		.context("Codex configuration root must be a TOML table")?;
-	let servers = root
+	let servers = config_root
 		.entry("mcp_servers")
 		.or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
 		.as_table_mut()
@@ -709,19 +961,26 @@ fn install_codex_mcp(
 		);
 	}
 	let owned = managed || existing.is_none();
+	if existing == Some(&expected) {
+		return Ok((owned, None, observed_config));
+	}
 	servers.insert(SKILL_NAME.to_string(), expected);
-	write_atomic(path, toml::to_string_pretty(&config)?.as_bytes())?;
-	Ok(owned)
+	let contents = toml::to_string_pretty(&config)?;
+	let mutation = physical_config::write(snapshot, contents.as_bytes())?;
+	Ok((owned, Some(mutation), observed_config))
 }
 
 fn install_json_mcp(
+	root: &Path,
 	path: &Path,
 	command: &str,
 	args: &[String],
 	managed: bool,
 	client: AgentClient,
-) -> anyhow::Result<bool> {
-	let mut config = read_json_object(path)?;
+) -> anyhow::Result<(bool, Option<physical_config::Mutation>, Option<Vec<u8>>)> {
+	let snapshot = physical_config::snapshot(root, path)?;
+	let observed_config = snapshot.contents().map(ToOwned::to_owned);
+	let mut config = read_json_object_contents(snapshot.contents(), path)?;
 	let servers = config
 		.entry("mcpServers".to_string())
 		.or_insert_with(|| Value::Object(Map::new()))
@@ -752,49 +1011,46 @@ fn install_json_mcp(
 		);
 	}
 	let owned = managed || existing.is_none();
+	if existing == Some(&expected) {
+		return Ok((owned, None, observed_config));
+	}
 	servers.insert(SKILL_NAME.to_string(), expected);
-	write_json_atomic(path, &Value::Object(config))?;
-	Ok(owned)
+	let contents = serde_json::to_vec_pretty(&Value::Object(config))?;
+	let mutation = physical_config::write(snapshot, &contents)?;
+	Ok((owned, Some(mutation), observed_config))
 }
 
-fn read_json_object(path: &Path) -> anyhow::Result<Map<String, Value>> {
-	if !path.exists() {
+#[cfg(test)]
+fn read_json_object(root: &Path, path: &Path) -> anyhow::Result<Map<String, Value>> {
+	let contents = physical_config::read(root, path)?;
+	read_json_object_contents(contents.as_deref(), path)
+}
+
+fn read_json_object_contents(
+	contents: Option<&[u8]>,
+	path: &Path,
+) -> anyhow::Result<Map<String, Value>> {
+	let Some(contents) = contents else {
 		return Ok(Map::new());
-	}
-	let value: Value = serde_json::from_slice(
-		&fs::read(path).with_context(|| format!("cannot read `{}`", path.display()))?,
-	)
-	.with_context(|| format!("invalid JSON in `{}`", path.display()))?;
+	};
+	let value: Value = serde_json::from_slice(contents)
+		.with_context(|| format!("invalid JSON in `{}`", path.display()))?;
 	value
 		.as_object()
 		.cloned()
 		.with_context(|| format!("`{}` must contain a JSON object", path.display()))
 }
 
-fn component_status(name: &str, component: &ComponentState, client: AgentClient) -> &'static str {
+fn component_status(
+	home: &Path,
+	root: &Path,
+	name: &str,
+	component: &ComponentState,
+	client: AgentClient,
+) -> &'static str {
 	let path = Path::new(&component.path);
-	if !path.exists() {
-		return "missing";
-	}
-	if name == "skill" {
-		if fs::symlink_metadata(path)
-			.map(|metadata| metadata.file_type().is_symlink())
-			.unwrap_or(false)
-			&& skill_matches(path)
-		{
-			return "linked";
-		}
-		if skill_matches(path) {
-			return if component.owned {
-				"installed"
-			} else {
-				"external"
-			};
-		}
-		return "stale";
-	}
 	if name == "hooks" {
-		return match harness::agent_hook_fingerprint(client, path) {
+		return match hooks::agent_hook_fingerprint(client, path) {
 			Ok(fingerprint) if checksum_bytes(&fingerprint) == component.checksum => {
 				if component.owned {
 					"installed"
@@ -803,25 +1059,59 @@ fn component_status(name: &str, component: &ComponentState, client: AgentClient)
 				}
 			}
 			Ok(_) => "stale",
-			Err(_) => "stale",
+			Err(_) => match hooks::agent_hook_is_missing(client, path) {
+				Ok(true) => "missing",
+				Ok(false) | Err(_) => "stale",
+			},
 		};
 	}
+	if name == "skill" {
+		match physical_skill::exists(home, path) {
+			Err(_) => return "stale",
+			Ok(false) => return "missing",
+			Ok(true) => {}
+		}
+		if physical_skill::matches(home, path) {
+			return if component.owned {
+				"installed"
+			} else {
+				"external"
+			};
+		}
+		return "stale";
+	}
 	if name == "mcp" {
-		return match mcp_entry_checksum(path, client) {
+		return match mcp_entry_checksum(root, path, client) {
 			Ok(checksum) if checksum == component.checksum && component.owned => "installed",
 			Ok(checksum) if checksum == component.checksum => "external",
 			Ok(_) => "stale",
-			Err(_) => "missing",
+			Err(_) => match crate::fs_nofollow::exists(root, path) {
+				Ok(false) => "missing",
+				Ok(true) | Err(_) => "stale",
+			},
 		};
+	}
+	if !path.exists() {
+		return "missing";
 	}
 	"unknown"
 }
 
-fn mcp_entry_checksum(path: &Path, client: AgentClient) -> anyhow::Result<String> {
+fn mcp_entry_checksum(root: &Path, path: &Path, client: AgentClient) -> anyhow::Result<String> {
+	let contents = physical_config::read(root, path)?
+		.with_context(|| format!("MCP configuration `{}` is missing", path.display()))?;
+	mcp_entry_checksum_contents(&contents, path, client)
+}
+
+fn mcp_entry_checksum_contents(
+	contents: &[u8],
+	path: &Path,
+	client: AgentClient,
+) -> anyhow::Result<String> {
 	match client {
 		AgentClient::Codex => {
-			let config = fs::read_to_string(path)
-				.with_context(|| format!("cannot read `{}`", path.display()))?
+			let config = std::str::from_utf8(contents)
+				.with_context(|| format!("`{}` is not valid UTF-8", path.display()))?
 				.parse::<toml::Value>()
 				.with_context(|| format!("invalid TOML in `{}`", path.display()))?;
 			let entry = config
@@ -832,7 +1122,7 @@ fn mcp_entry_checksum(path: &Path, client: AgentClient) -> anyhow::Result<String
 			Ok(checksum_bytes(toml::to_string(entry)?.as_bytes()))
 		}
 		AgentClient::Claude | AgentClient::Gemini => {
-			let config = read_json_object(path)?;
+			let config = read_json_object_contents(Some(contents), path)?;
 			let entry = config
 				.get("mcpServers")
 				.and_then(Value::as_object)
@@ -841,14 +1131,6 @@ fn mcp_entry_checksum(path: &Path, client: AgentClient) -> anyhow::Result<String
 			Ok(checksum_bytes(&serde_json::to_vec(entry)?))
 		}
 	}
-}
-
-fn skill_matches(path: &Path) -> bool {
-	SKILL_FILES.iter().all(|(relative, contents)| {
-		fs::read(path.join(relative))
-			.map(|actual| actual == contents.as_bytes())
-			.unwrap_or(false)
-	})
 }
 
 fn skill_checksum() -> String {
@@ -891,7 +1173,9 @@ fn install_context(root: &Path) -> anyhow::Result<InstallContext> {
 		.map(PathBuf::from)
 		.context(
 			"neither CODE_MONIKER_AGENT_HOME nor HOME is set; cannot resolve the user integration directory",
-		)?;
+		)?
+		.canonicalize()
+		.context("cannot resolve the user integration directory to a physical path")?;
 	let binary =
 		std::env::current_exe().context("cannot resolve the current code-moniker executable")?;
 	Ok(InstallContext { home, binary, root })
@@ -921,6 +1205,10 @@ fn state_path(context: &InstallContext, client: AgentClient) -> PathBuf {
 		.join(".code-moniker/agent")
 		.join(client_name(client))
 		.join(format!("{root_hash}.json"))
+}
+
+fn state_lock_path(state_path: &Path) -> PathBuf {
+	state_path.with_file_name(".lock")
 }
 
 fn client_name(client: AgentClient) -> &'static str {
@@ -956,20 +1244,36 @@ fn validate_state_identity(
 	Ok(())
 }
 
-fn read_state(path: &Path) -> anyhow::Result<Option<InstallState>> {
-	if !path.exists() {
+fn read_state(home: &Path, path: &Path) -> anyhow::Result<Option<InstallState>> {
+	let Some(contents) = crate::fs_nofollow::read(home, path)? else {
 		return Ok(None);
-	}
-	let state = serde_json::from_slice(
-		&fs::read(path).with_context(|| format!("cannot read `{}`", path.display()))?,
-	)
-	.with_context(|| format!("invalid agent integration state `{}`", path.display()))?;
+	};
+	let mode = crate::fs_nofollow::mode(home, path)?;
+	let mut state: InstallState = serde_json::from_slice(&contents)
+		.with_context(|| format!("invalid agent integration state `{}`", path.display()))?;
+	state.persisted_contents = Some(contents);
+	state.persisted_mode = mode;
 	Ok(Some(state))
 }
 
-fn persist_state(path: &Path, state: &mut InstallState) -> anyhow::Result<()> {
+fn persist_state(home: &Path, path: &Path, state: &mut InstallState) -> anyhow::Result<()> {
 	state.version = env!("CARGO_PKG_VERSION").to_string();
-	write_json_atomic(path, &serde_json::to_value(state)?)
+	let contents = serde_json::to_vec_pretty(state)?;
+	let parent = path
+		.parent()
+		.with_context(|| format!("agent state `{}` has no parent", path.display()))?;
+	crate::fs_nofollow::ensure_dir(home, parent)?;
+	crate::fs_nofollow::write_if_unchanged(
+		home,
+		path,
+		state.persisted_contents.as_deref(),
+		state.persisted_mode,
+		&contents,
+		Some(state.persisted_mode.unwrap_or(0o600)),
+	)?;
+	state.persisted_contents = Some(contents);
+	state.persisted_mode = Some(state.persisted_mode.unwrap_or(0o600));
+	Ok(())
 }
 
 fn display_component_version(version: &str) -> &str {
@@ -981,6 +1285,7 @@ fn display_component_version(version: &str) -> &str {
 }
 
 fn find_owned_skill_state(
+	home: &Path,
 	current_state_path: &Path,
 	client: AgentClient,
 	skill_path: &Path,
@@ -1003,7 +1308,7 @@ fn find_owned_skill_state(
 		{
 			continue;
 		}
-		let Some(other) = read_state(&candidate_path)? else {
+		let Some(other) = read_state(home, &candidate_path)? else {
 			continue;
 		};
 		let owns_skill = other.client == client_name(client)
@@ -1017,27 +1322,8 @@ fn find_owned_skill_state(
 	Ok(None)
 }
 
-fn release_previous_skill_owner(
-	owner_state_path: &Path,
-	current_component: &ComponentState,
-) -> anyhow::Result<()> {
-	let mut state = read_state(owner_state_path)?.with_context(|| {
-		format!(
-			"skill owner state `{}` disappeared",
-			owner_state_path.display()
-		)
-	})?;
-	let skill = state
-		.components
-		.get_mut("skill")
-		.context("previous skill owner no longer tracks the skill")?;
-	skill.owned = false;
-	skill.checksum = current_component.checksum.clone();
-	skill.version = current_component.version.clone();
-	persist_state(owner_state_path, &mut state)
-}
-
-fn transfer_shared_skill_ownership(
+fn shared_skill_is_referenced(
+	home: &Path,
 	client: AgentClient,
 	current_state_path: &Path,
 	component: &ComponentState,
@@ -1060,29 +1346,21 @@ fn transfer_shared_skill_ownership(
 		{
 			continue;
 		}
-		let Some(mut other) = read_state(&candidate_path)? else {
+		let Some(other) = read_state(home, &candidate_path)? else {
 			continue;
 		};
 		if other.client != client_name(client) {
 			continue;
 		}
-		let Some(other_skill) = other.components.get_mut("skill") else {
+		let Some(other_skill) = other.components.get("skill") else {
 			continue;
 		};
 		if other_skill.path != component.path {
 			continue;
 		}
-		other_skill.owned = true;
-		other_skill.checksum = component.checksum.clone();
-		other_skill.version = component.version.clone();
-		persist_state(&candidate_path, &mut other)?;
 		return Ok(true);
 	}
 	Ok(false)
-}
-
-fn write_json_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
-	write_atomic(path, &serde_json::to_vec_pretty(value)?)
 }
 
 fn remove_empty_parents(mut current: Option<&Path>, stop: PathBuf) {
@@ -1101,6 +1379,11 @@ mod tests {
 	use tempfile::tempdir;
 
 	use crate::Cli;
+
+	fn write_test_file(path: &Path, contents: &[u8]) {
+		fs::create_dir_all(path.parent().unwrap()).unwrap();
+		fs::write(path, contents).unwrap();
+	}
 
 	#[test]
 	fn embedded_skill_matches_canonical_agent_source() {
@@ -1146,6 +1429,7 @@ mod tests {
 		)
 		.unwrap();
 		install_json_mcp(
+			dir.path(),
 			&path,
 			"/bin/code-moniker",
 			&["mcp".to_string(), "/project".to_string()],
@@ -1163,6 +1447,62 @@ mod tests {
 	}
 
 	#[test]
+	fn matching_external_mcp_configuration_is_not_rewritten() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join(".mcp.json");
+		let original = br#"{
+  "mcpServers": {
+    "code-moniker": { "type": "stdio", "command": "/bin/code-moniker", "args": ["mcp", "/project"], "env": {} }
+  }
+}
+"#;
+		fs::write(&path, original).unwrap();
+
+		let (owned, mutation, observed) = install_json_mcp(
+			dir.path(),
+			&path,
+			"/bin/code-moniker",
+			&["mcp".to_string(), "/project".to_string()],
+			false,
+			AgentClient::Claude,
+		)
+		.unwrap();
+
+		assert!(!owned);
+		assert!(mutation.is_none());
+		assert_eq!(observed.as_deref(), Some(original.as_slice()));
+		assert_eq!(fs::read(path).unwrap(), original);
+	}
+
+	#[test]
+	fn mcp_install_refuses_a_change_after_its_parsed_snapshot() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join(".mcp.json");
+		fs::write(&path, br#"{"before":true}"#).unwrap();
+		let path_for_race = path.clone();
+		physical_config::BEFORE_WRITE.with(|hook| {
+			*hook.borrow_mut() = Some(Box::new(move |_| {
+				fs::write(&path_for_race, br#"{"concurrent":true}"#).unwrap();
+			}));
+		});
+
+		let error = install_json_mcp(
+			dir.path(),
+			&path,
+			"/bin/code-moniker",
+			&["mcp".to_string(), "/project".to_string()],
+			false,
+			AgentClient::Claude,
+		)
+		.err()
+		.unwrap()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(fs::read_to_string(path).unwrap(), r#"{"concurrent":true}"#);
+	}
+
+	#[test]
 	fn codex_mcp_install_refuses_to_claim_an_unmanaged_entry() {
 		let dir = tempdir().unwrap();
 		let path = dir.path().join("config.toml");
@@ -1174,6 +1514,7 @@ command = "other"
 		)
 		.unwrap();
 		let error = install_codex_mcp(
+			dir.path(),
 			&path,
 			"/bin/code-moniker",
 			&["mcp".to_string(), "/project".to_string()],
@@ -1181,6 +1522,57 @@ command = "other"
 		)
 		.unwrap_err();
 		assert!(error.to_string().contains("refusing to replace unmanaged"));
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn mcp_install_rejects_linked_config_without_touching_the_target() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let external = dir.path().join("external.json");
+		fs::write(&external, r#"{"external":true}"#).unwrap();
+		symlink(&external, dir.path().join(".mcp.json")).unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+
+		let error = install_mcp(&context, AgentClient::Claude, &InstallState::default())
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(
+			fs::read_to_string(external).unwrap(),
+			r#"{"external":true}"#
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn mcp_install_rejects_linked_parent_without_writing_outside_the_repo() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let external = dir.path().join("external");
+		fs::create_dir(&external).unwrap();
+		symlink(&external, dir.path().join(".codex")).unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+
+		let error = install_mcp(&context, AgentClient::Codex, &InstallState::default())
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(!error.is_empty());
+		assert!(!external.join("config.toml").exists());
 	}
 
 	#[test]
@@ -1194,7 +1586,7 @@ command = "other"
 		let first = install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
 		assert!(first.message.contains("installed 5 embedded files"));
 		let skill = user_skill_path(&context.home, AgentClient::Codex);
-		assert!(skill_matches(&skill));
+		assert!(physical_skill::matches(&context.home, &skill));
 
 		let mut managed = InstallState::default();
 		managed
@@ -1202,7 +1594,7 @@ command = "other"
 			.insert("skill".to_string(), first.component);
 		let second = install_skill(&context, AgentClient::Codex, &managed).unwrap();
 		assert!(second.message.contains("installed 5 embedded files"));
-		assert!(skill_matches(&skill));
+		assert!(physical_skill::matches(&context.home, &skill));
 	}
 
 	#[test]
@@ -1216,7 +1608,13 @@ command = "other"
 		let installed =
 			install_mcp(&context, AgentClient::Codex, &InstallState::default()).unwrap();
 		assert_eq!(
-			component_status("mcp", &installed.component, AgentClient::Codex),
+			component_status(
+				&context.home,
+				&context.root,
+				"mcp",
+				&installed.component,
+				AgentClient::Codex,
+			),
 			"installed"
 		);
 		let config: toml::Value = fs::read_to_string(&installed.component.path)
@@ -1242,11 +1640,21 @@ command = "other"
 		let installed =
 			install_mcp(&context, AgentClient::Gemini, &InstallState::default()).unwrap();
 		let path = Path::new(&installed.component.path);
-		let mut config = read_json_object(path).unwrap();
+		let mut config = read_json_object(&context.root, path).unwrap();
 		config["mcpServers"]["code-moniker"]["timeout"] = json!(1);
-		write_json_atomic(path, &Value::Object(config)).unwrap();
+		physical_config::write(
+			physical_config::snapshot(&context.root, path).unwrap(),
+			&serde_json::to_vec_pretty(&Value::Object(config)).unwrap(),
+		)
+		.unwrap();
 		assert_eq!(
-			component_status("mcp", &installed.component, AgentClient::Gemini),
+			component_status(
+				&context.home,
+				&context.root,
+				"mcp",
+				&installed.component,
+				AgentClient::Gemini,
+			),
 			"stale"
 		);
 	}
@@ -1265,20 +1673,26 @@ command = "other"
 		let adopted = install_mcp(&context, AgentClient::Codex, &InstallState::default()).unwrap();
 		assert!(!adopted.component.owned);
 		assert_eq!(
-			component_status("mcp", &adopted.component, AgentClient::Codex),
+			component_status(
+				&context.home,
+				&context.root,
+				"mcp",
+				&adopted.component,
+				AgentClient::Codex,
+			),
 			"external"
 		);
 	}
 
 	#[cfg(unix)]
 	#[test]
-	fn matching_pre_existing_skill_symlink_remains_external() {
+	fn matching_pre_existing_skill_symlink_is_rejected_unchanged() {
 		use std::os::unix::fs::symlink;
 
 		let dir = tempdir().unwrap();
 		let source = dir.path().join("source");
 		for (relative, contents) in SKILL_FILES {
-			write_atomic(&source.join(relative), contents.as_bytes()).unwrap();
+			write_test_file(&source.join(relative), contents.as_bytes());
 		}
 		let context = InstallContext {
 			home: dir.path().join("home"),
@@ -1289,13 +1703,273 @@ command = "other"
 		fs::create_dir_all(skill.parent().unwrap()).unwrap();
 		symlink(&source, &skill).unwrap();
 
-		let adopted =
-			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
-		assert!(!adopted.component.owned);
-		assert_eq!(
-			component_status("skill", &adopted.component, AgentClient::Codex),
-			"linked"
+		let error = match install_skill(&context, AgentClient::Codex, &InstallState::default()) {
+			Ok(_) => panic!("linked skill was accepted"),
+			Err(error) => error.to_string(),
+		};
+		assert!(error.contains("refusing linked skill"));
+		assert!(
+			fs::symlink_metadata(&skill)
+				.unwrap()
+				.file_type()
+				.is_symlink()
 		);
+		assert!(source.join("SKILL.md").exists());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn linked_skill_parent_is_rejected_without_writing_its_target() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let linked_target = dir.path().join("linked-skills");
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let skills = user_skill_path(&context.home, AgentClient::Codex)
+			.parent()
+			.unwrap()
+			.to_path_buf();
+		fs::create_dir_all(skills.parent().unwrap()).unwrap();
+		fs::create_dir_all(&linked_target).unwrap();
+		fs::write(linked_target.join("sentinel"), "unchanged").unwrap();
+		symlink(&linked_target, &skills).unwrap();
+
+		let error = install_skill(&context, AgentClient::Codex, &InstallState::default())
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(error.contains("refusing non-physical directory component"));
+		assert!(
+			fs::symlink_metadata(&skills)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+		assert_eq!(
+			fs::read_to_string(linked_target.join("sentinel")).unwrap(),
+			"unchanged"
+		);
+		assert!(!linked_target.join(SKILL_NAME).exists());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn linked_skill_parent_drift_is_stale_before_uninstall() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = Path::new(&installed.component.path);
+		let skills = skill.parent().unwrap();
+		let moved_skills = dir.path().join("moved-skills");
+		fs::rename(skills, &moved_skills).unwrap();
+		symlink(&moved_skills, skills).unwrap();
+
+		assert!(moved_skills.join(SKILL_NAME).join("SKILL.md").exists());
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&installed.component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		assert!(moved_skills.join(SKILL_NAME).join("SKILL.md").exists());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn linked_skill_asset_is_rejected_without_writing_its_target() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = Path::new(&installed.component.path);
+		let external = dir.path().join("external-skill.md");
+		fs::write(&external, "do not overwrite").unwrap();
+		fs::remove_file(skill.join("SKILL.md")).unwrap();
+		symlink(&external, skill.join("SKILL.md")).unwrap();
+		let mut state = InstallState::default();
+		state
+			.components
+			.insert("skill".to_string(), installed.component.clone());
+
+		let error = install_skill(&context, AgentClient::Codex, &state)
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(error.contains("refusing linked skill asset"));
+		assert_eq!(fs::read_to_string(&external).unwrap(), "do not overwrite");
+		assert!(
+			fs::symlink_metadata(skill.join("SKILL.md"))
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&installed.component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn matching_skill_symlink_is_reported_stale() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let source = dir.path().join("source");
+		for (relative, contents) in SKILL_FILES {
+			write_test_file(&source.join(relative), contents.as_bytes());
+		}
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = Path::new(&installed.component.path);
+		fs::remove_dir_all(skill).unwrap();
+		symlink(&source, skill).unwrap();
+
+		assert_eq!(
+			fs::read_to_string(skill.join("SKILL.md")).unwrap(),
+			SKILL_FILES[0].1
+		);
+		assert!(!physical_skill::matches(&context.home, skill));
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&installed.component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn dangling_managed_skill_symlink_is_stale_not_missing() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = Path::new(&installed.component.path);
+		fs::remove_dir_all(skill).unwrap();
+		symlink(dir.path().join("missing-skill"), skill).unwrap();
+
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&installed.component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn non_matching_skill_symlink_is_rejected_unchanged() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let source = dir.path().join("source");
+		fs::create_dir_all(&source).unwrap();
+		fs::write(source.join("SKILL.md"), "external").unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let skill = user_skill_path(&context.home, AgentClient::Codex);
+		fs::create_dir_all(skill.parent().unwrap()).unwrap();
+		symlink(&source, &skill).unwrap();
+
+		let error = install_skill(&context, AgentClient::Codex, &InstallState::default())
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(error.contains("refusing linked skill"));
+		assert!(
+			fs::symlink_metadata(&skill)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+		assert_eq!(
+			fs::read_to_string(source.join("SKILL.md")).unwrap(),
+			"external"
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn dangling_skill_symlink_is_rejected_unchanged() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let missing = dir.path().join("missing");
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let skill = user_skill_path(&context.home, AgentClient::Codex);
+		fs::create_dir_all(skill.parent().unwrap()).unwrap();
+		symlink(&missing, &skill).unwrap();
+
+		let error = install_skill(&context, AgentClient::Codex, &InstallState::default())
+			.err()
+			.unwrap()
+			.to_string();
+
+		assert!(error.contains("refusing linked skill"));
+		assert!(
+			fs::symlink_metadata(&skill)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+		assert!(!missing.exists());
 	}
 
 	#[test]
@@ -1310,7 +1984,7 @@ command = "other"
 			install_skill(&context, AgentClient::Claude, &InstallState::default()).unwrap();
 		let path = Path::new(&installed.component.path);
 		fs::write(path.join("user-note.md"), "keep").unwrap();
-		uninstall_skill(path).unwrap();
+		uninstall_skill(&context.home, path).unwrap();
 		assert_eq!(
 			fs::read_to_string(path.join("user-note.md")).unwrap(),
 			"keep"
@@ -1321,21 +1995,26 @@ command = "other"
 	#[test]
 	fn uninstall_mcp_preserves_unrelated_json_configuration() {
 		let dir = tempdir().unwrap();
-		let path = dir.path().join(".mcp.json");
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let path = context.root.join(".mcp.json");
 		fs::write(
 			&path,
 			r#"{"permissions":{"allow":["Read"]},"mcpServers":{"other":{"command":"other"}}}"#,
 		)
 		.unwrap();
-		install_json_mcp(
+		let installed =
+			install_mcp(&context, AgentClient::Claude, &InstallState::default()).unwrap();
+		uninstall_mcp(
+			&context.root,
 			&path,
-			"/bin/code-moniker",
-			&["mcp".to_string(), "/project".to_string()],
-			false,
 			AgentClient::Claude,
+			&installed.component,
 		)
 		.unwrap();
-		uninstall_mcp(&path, AgentClient::Claude).unwrap();
 		let config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
 		assert_eq!(config["permissions"]["allow"][0], "Read");
 		assert_eq!(config["mcpServers"]["other"]["command"], "other");
@@ -1343,11 +2022,602 @@ command = "other"
 	}
 
 	#[test]
-	fn shared_user_skill_transfers_ownership_between_project_states() {
+	fn uninstall_mcp_removes_a_fresh_configuration_and_parent() {
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_mcp(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let config_path = PathBuf::from(&installed.component.path);
+		assert!(installed.component.config_created);
+		assert!(installed.component.config_parent_created);
+
+		uninstall_mcp(
+			&context.root,
+			&config_path,
+			AgentClient::Codex,
+			&installed.component,
+		)
+		.unwrap();
+
+		assert!(!config_path.exists());
+		assert!(!context.root.join(".codex").exists());
+	}
+
+	#[test]
+	fn mcp_reinstall_invalidates_full_file_ownership_after_a_foreign_addition() {
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().to_path_buf(),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let first = install_mcp(&context, AgentClient::Gemini, &InstallState::default()).unwrap();
+		assert!(first.component.config_created);
+		let config_path = PathBuf::from(&first.component.path);
+		let mut config = read_json_object(&context.root, &config_path).unwrap();
+		config.insert("foreign".to_string(), Value::Bool(true));
+		fs::write(
+			&config_path,
+			serde_json::to_vec_pretty(&Value::Object(config)).unwrap(),
+		)
+		.unwrap();
+		let state = InstallState {
+			components: BTreeMap::from([("mcp".to_string(), first.component)]),
+			..InstallState::default()
+		};
+
+		let second = install_mcp(&context, AgentClient::Gemini, &state).unwrap();
+		assert!(!second.component.config_created);
+		uninstall_mcp(
+			&context.root,
+			&config_path,
+			AgentClient::Gemini,
+			&second.component,
+		)
+		.unwrap();
+
+		let remaining = read_json_object(&context.root, &config_path).unwrap();
+		assert_eq!(remaining.get("foreign"), Some(&Value::Bool(true)));
+		assert!(remaining.get("mcpServers").is_none_or(Value::is_object));
+	}
+
+	#[test]
+	fn hook_install_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		fs::write(
+			dir.path().join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let args = HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let installed =
+			hooks::install_for_agent(&args, AgentClient::Codex, None, &mut Vec::new()).unwrap();
+		let hook_path = installed.path.clone();
+		let component = ComponentState {
+			scope: "project".to_string(),
+			path: hook_path.display().to_string(),
+			checksum: checksum_bytes(&installed.fingerprint),
+			owned: installed.owned,
+			version: env!("CARGO_PKG_VERSION").to_string(),
+			profile: None,
+			rules: Some(".code-moniker.toml".to_string()),
+			check_scope: Some(".".to_string()),
+			max_violations: Some(10),
+			config_created: false,
+			config_parent_created: false,
+			hook_directory_created: false,
+			config_checksum: None,
+		};
+		let mut state = InstallState::default();
+		let state_parent = dir.path().join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_installed_hook(
+			dir.path(),
+			&state_parent.join("state.json"),
+			&mut state,
+			component,
+			installed.rollback,
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert!(!hook_path.exists());
+		assert!(!dir.path().join(".codex/hooks.json").exists());
+		assert!(!dir.path().join(".codex").exists());
+		assert!(!state.components.contains_key("hooks"));
+	}
+
+	#[test]
+	fn fresh_hook_uninstall_removes_owned_files_and_directories() {
+		let dir = tempdir().unwrap();
+		fs::write(
+			dir.path().join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let args = HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let installed =
+			hooks::install_for_agent(&args, AgentClient::Codex, None, &mut Vec::new()).unwrap();
+
+		hooks::uninstall_for_agent_with_policy(
+			dir.path(),
+			AgentClient::Codex,
+			&installed.path,
+			&installed.fingerprint,
+			hooks::AgentHookRemovalPolicy {
+				config_created: installed.config_created,
+				config_parent_created: installed.config_parent_created,
+				hook_directory_created: installed.hook_directory_created,
+				config_checksum: installed.config_checksum.as_deref(),
+			},
+		)
+		.unwrap();
+
+		assert!(!installed.path.exists());
+		assert!(!dir.path().join(".codex/hooks.json").exists());
+		assert!(!dir.path().join(".codex").exists());
+	}
+
+	#[test]
+	fn hook_reinstall_invalidates_full_file_ownership_after_a_foreign_addition() {
+		let dir = tempdir().unwrap();
+		fs::write(
+			dir.path().join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let args = HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let first =
+			hooks::install_for_agent(&args, AgentClient::Gemini, None, &mut Vec::new()).unwrap();
+		let first_component = hook_component(
+			&first,
+			HookPolicy::from_args(&AgentInstallArgs {
+				client: AgentClient::Gemini,
+				components: vec![AgentComponent::Hooks],
+				root: dir.path().to_path_buf(),
+				rules: ".code-moniker.toml".into(),
+				profile: None,
+				check_scope: ".".into(),
+				max_violations: 10,
+			}),
+			None,
+		);
+		let config_path = dir.path().join(".gemini/settings.json");
+		let mut config = read_json_object(dir.path(), &config_path).unwrap();
+		config.insert("foreign".to_string(), Value::Bool(true));
+		fs::write(
+			&config_path,
+			serde_json::to_vec_pretty(&Value::Object(config)).unwrap(),
+		)
+		.unwrap();
+		let second = hooks::install_for_agent(
+			&args,
+			AgentClient::Gemini,
+			Some(Path::new(&first_component.path)),
+			&mut Vec::new(),
+		)
+		.unwrap();
+		let second_component = hook_component(
+			&second,
+			HookPolicy::from_args(&AgentInstallArgs {
+				client: AgentClient::Gemini,
+				components: vec![AgentComponent::Hooks],
+				root: dir.path().to_path_buf(),
+				rules: ".code-moniker.toml".into(),
+				profile: None,
+				check_scope: ".".into(),
+				max_violations: 10,
+			}),
+			Some(&first_component),
+		);
+		assert!(!second_component.config_created);
+		let fingerprint =
+			hooks::agent_hook_fingerprint(AgentClient::Gemini, Path::new(&second_component.path))
+				.unwrap();
+		hooks::uninstall_for_agent_with_policy(
+			dir.path(),
+			AgentClient::Gemini,
+			Path::new(&second_component.path),
+			&fingerprint,
+			hooks::AgentHookRemovalPolicy {
+				config_created: second_component.config_created,
+				config_parent_created: second_component.config_parent_created,
+				hook_directory_created: second_component.hook_directory_created,
+				config_checksum: second_component.config_checksum.as_deref(),
+			},
+		)
+		.unwrap();
+
+		let remaining = read_json_object(dir.path(), &config_path).unwrap();
+		assert_eq!(remaining.get("foreign"), Some(&Value::Bool(true)));
+	}
+
+	#[test]
+	fn skill_install_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let context = InstallContext {
+			home: home.clone(),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill_path = PathBuf::from(&installed.component.path);
+		let mut state = InstallState::default();
+		let state_parent = home.join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_installed_skill(
+			&home,
+			&state_parent.join("state.json"),
+			&mut state,
+			installed.component,
+			installed.skill_rollback,
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert!(!skill_path.exists());
+		assert!(!state.components.contains_key("skill"));
+	}
+
+	#[test]
+	fn mcp_install_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let context = InstallContext {
+			home: home.clone(),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_mcp(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let config_path = PathBuf::from(&installed.component.path);
+		let mut state = InstallState::default();
+		let state_parent = home.join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_installed_mcp(
+			&home,
+			&state_parent.join("state.json"),
+			&mut state,
+			installed.component,
+			installed.config_rollback,
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert!(!config_path.exists());
+		assert!(!state.components.contains_key("mcp"));
+	}
+
+	#[test]
+	fn skill_write_rolls_back_assets_changed_before_a_later_failure() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let skill = home.join(".codex/skills/code-moniker");
+		for (relative, _) in SKILL_FILES {
+			write_test_file(&skill.join(relative), b"previous");
+		}
+		let failing_asset = skill.join("references/diagnose.md");
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| {
+			let failing_asset = failing_asset.clone();
+			*hook.borrow_mut() = Some(Box::new(move |path| {
+				if path == failing_asset {
+					fs::remove_file(path).unwrap();
+					fs::create_dir(path).unwrap();
+				}
+			}));
+		});
+
+		let error = physical_skill::write_assets(&home, &skill)
+			.err()
+			.unwrap()
+			.to_string();
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| *hook.borrow_mut() = None);
+
+		assert!(!error.is_empty());
+		assert_eq!(fs::read(skill.join("SKILL.md")).unwrap(), b"previous");
+		assert!(failing_asset.is_dir());
+		assert_eq!(
+			fs::read(skill.join("references/explore.md")).unwrap(),
+			b"previous"
+		);
+	}
+
+	#[test]
+	fn skill_rollback_refuses_an_asset_changed_after_its_cas() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let skill = home.join(".codex/skills/code-moniker");
+		let first_asset = skill.join(SKILL_FILES[0].0);
+		let second_asset = skill.join(SKILL_FILES[1].0);
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| {
+			let first_asset = first_asset.clone();
+			let second_asset = second_asset.clone();
+			*hook.borrow_mut() = Some(Box::new(move |path| {
+				if path == second_asset {
+					fs::write(&first_asset, "concurrent").unwrap();
+				}
+			}));
+		});
+
+		let mutation = physical_skill::write_assets(&home, &skill).unwrap();
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| *hook.borrow_mut() = None);
+		let error = physical_skill::rollback(&home, &mutation)
+			.unwrap_err()
+			.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(fs::read_to_string(first_asset).unwrap(), "concurrent");
+	}
+
+	#[test]
+	fn skill_remove_restores_assets_removed_before_a_later_conflict() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let skill = home.join(".codex/skills/code-moniker");
+		physical_skill::write_assets(&home, &skill).unwrap();
+		let conflicting_asset = skill.join("references/mcp.md");
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| {
+			let conflicting_asset = conflicting_asset.clone();
+			*hook.borrow_mut() = Some(Box::new(move |path| {
+				if path == conflicting_asset {
+					fs::write(path, "concurrent").unwrap();
+				}
+			}));
+		});
+
+		let error = physical_skill::remove(&home, &skill)
+			.err()
+			.unwrap()
+			.to_string();
+		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| *hook.borrow_mut() = None);
+
+		assert!(!error.is_empty());
+		assert_eq!(
+			fs::read_to_string(&conflicting_asset).unwrap(),
+			"concurrent"
+		);
+		for (relative, contents) in SKILL_FILES {
+			if *relative != "references/mcp.md" {
+				assert_eq!(fs::read_to_string(skill.join(relative)).unwrap(), *contents);
+			}
+		}
+	}
+
+	#[test]
+	fn hook_uninstall_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		fs::write(
+			dir.path().join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let args = HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let installed =
+			hooks::install_for_agent(&args, AgentClient::Claude, None, &mut Vec::new()).unwrap();
+		let hook_before = fs::read(&installed.path).unwrap();
+		let config_path = dir.path().join(".claude/settings.json");
+		let config_before = fs::read(&config_path).unwrap();
+		let component = ComponentState {
+			scope: "project".to_string(),
+			path: installed.path.display().to_string(),
+			checksum: checksum_bytes(&installed.fingerprint),
+			owned: installed.owned,
+			version: env!("CARGO_PKG_VERSION").to_string(),
+			profile: None,
+			rules: Some(".code-moniker.toml".to_string()),
+			check_scope: Some(".".to_string()),
+			max_violations: Some(10),
+			config_created: installed.config_created,
+			config_parent_created: installed.config_parent_created,
+			hook_directory_created: installed.hook_directory_created,
+			config_checksum: installed.config_checksum.clone(),
+		};
+		let rollback = hooks::uninstall_for_agent_with_policy(
+			dir.path(),
+			AgentClient::Claude,
+			&installed.path,
+			&installed.fingerprint,
+			hooks::AgentHookRemovalPolicy {
+				config_created: component.config_created,
+				config_parent_created: component.config_parent_created,
+				hook_directory_created: component.hook_directory_created,
+				config_checksum: component.config_checksum.as_deref(),
+			},
+		)
+		.unwrap();
+		let mut state = InstallState {
+			components: BTreeMap::from([
+				("hooks".to_string(), component.clone()),
+				(
+					"dummy".to_string(),
+					ComponentState {
+						scope: "project".to_string(),
+						path: "dummy".to_string(),
+						checksum: String::new(),
+						owned: false,
+						version: String::new(),
+						profile: None,
+						rules: None,
+						check_scope: None,
+						max_violations: None,
+						config_created: false,
+						config_parent_created: false,
+						hook_directory_created: false,
+						config_checksum: None,
+					},
+				),
+			]),
+			..InstallState::default()
+		};
+		let state_parent = dir.path().join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_removed_component(
+			&state_parent.join("state.json"),
+			dir.path(),
+			&mut state,
+			"hooks",
+			component,
+			Some(ComponentRollback::Hook(rollback)),
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(fs::read(&installed.path).unwrap(), hook_before);
+		assert_eq!(fs::read(&config_path).unwrap(), config_before);
+		assert!(state.components.contains_key("hooks"));
+	}
+
+	#[test]
+	fn skill_uninstall_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let context = InstallContext {
+			home: home.clone(),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let component = installed.component;
+		let skill_path = PathBuf::from(&component.path);
+		let rollback = uninstall_skill(&home, &skill_path).unwrap();
+		assert!(!skill_path.exists());
+		let mut state = InstallState {
+			components: BTreeMap::from([
+				("skill".to_string(), component.clone()),
+				(
+					"dummy".to_string(),
+					ComponentState {
+						scope: "project".to_string(),
+						path: "dummy".to_string(),
+						checksum: String::new(),
+						owned: false,
+						version: String::new(),
+						profile: None,
+						rules: None,
+						check_scope: None,
+						max_violations: None,
+						config_created: false,
+						config_parent_created: false,
+						hook_directory_created: false,
+						config_checksum: None,
+					},
+				),
+			]),
+			..InstallState::default()
+		};
+		let state_parent = home.join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_removed_component(
+			&state_parent.join("state.json"),
+			&home,
+			&mut state,
+			"skill",
+			component,
+			Some(ComponentRollback::Skill(rollback)),
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert!(physical_skill::matches(&home, &skill_path));
+		assert!(state.components.contains_key("skill"));
+	}
+
+	#[test]
+	fn mcp_uninstall_is_rolled_back_when_state_persistence_fails() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let context = InstallContext {
+			home: home.clone(),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let installed =
+			install_mcp(&context, AgentClient::Claude, &InstallState::default()).unwrap();
+		let component = installed.component;
+		let config_path = PathBuf::from(&component.path);
+		let rollback =
+			uninstall_mcp(&context.root, &config_path, AgentClient::Claude, &component).unwrap();
+		let mut state = InstallState::default();
+		state
+			.components
+			.insert("mcp".to_string(), component.clone());
+		let state_parent = home.join("state-parent");
+		fs::write(&state_parent, "not a directory").unwrap();
+
+		let error = persist_removed_component(
+			&state_parent.join("state.json"),
+			&home,
+			&mut state,
+			"mcp",
+			component.clone(),
+			Some(ComponentRollback::Mcp(rollback)),
+		)
+		.unwrap_err()
+		.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(
+			component_status(&home, &context.root, "mcp", &component, AgentClient::Claude,),
+			"installed"
+		);
+		assert!(state.components.contains_key("mcp"));
+	}
+
+	#[test]
+	fn shared_user_skill_uses_independent_state_references() {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let root_a = dir.path().join("project-a");
 		let root_b = dir.path().join("project-b");
+		fs::create_dir_all(&home).unwrap();
 		fs::create_dir_all(&root_a).unwrap();
 		fs::create_dir_all(&root_b).unwrap();
 		let context_a = InstallContext {
@@ -1371,87 +2641,69 @@ command = "other"
 			client: "codex".to_string(),
 			root: context_a.root.display().to_string(),
 			components: BTreeMap::from([("skill".to_string(), first_component)]),
+			persisted_contents: None,
+			persisted_mode: None,
 		};
 		let state_a_path = state_path(&context_a, AgentClient::Codex);
-		persist_state(&state_a_path, &mut state_a).unwrap();
+		persist_state(&context_a.home, &state_a_path, &mut state_a).unwrap();
 
 		let second =
 			install_skill(&context_b, AgentClient::Codex, &InstallState::default()).unwrap();
-		assert!(!second.component.owned);
+		assert!(second.component.owned);
 		let mut state_b = InstallState {
 			schema: STATE_SCHEMA,
 			version: String::new(),
 			client: "codex".to_string(),
 			root: context_b.root.display().to_string(),
 			components: BTreeMap::from([("skill".to_string(), second.component)]),
+			persisted_contents: None,
+			persisted_mode: None,
 		};
 		let state_b_path = state_path(&context_b, AgentClient::Codex);
-		persist_state(&state_b_path, &mut state_b).unwrap();
-
-		let skill_path = Path::new(&state_a.components["skill"].path);
-		fs::write(skill_path.join("SKILL.md"), "old version").unwrap();
-		let updated = install_skill(&context_b, AgentClient::Codex, &state_b).unwrap();
-		assert!(updated.component.owned);
-		assert_eq!(
-			updated.previous_owner.as_deref(),
-			Some(state_a_path.as_path())
-		);
-		state_b
-			.components
-			.insert("skill".to_string(), updated.component);
-		persist_state(&state_b_path, &mut state_b).unwrap();
-		release_previous_skill_owner(
-			updated.previous_owner.as_ref().unwrap(),
-			&state_b.components["skill"],
-		)
-		.unwrap();
-		assert!(skill_matches(skill_path));
-		assert!(!read_state(&state_a_path).unwrap().unwrap().components["skill"].owned);
+		persist_state(&context_b.home, &state_b_path, &mut state_b).unwrap();
 
 		let component_b = state_b.components.get("skill").unwrap();
 		assert!(
-			transfer_shared_skill_ownership(AgentClient::Codex, &state_b_path, component_b)
-				.unwrap()
+			shared_skill_is_referenced(
+				&context_b.home,
+				AgentClient::Codex,
+				&state_b_path,
+				component_b,
+			)
+			.unwrap()
 		);
 		assert!(Path::new(&component_b.path).exists());
-		let transferred = read_state(&state_a_path).unwrap().unwrap();
-		assert!(transferred.components["skill"].owned);
-
-		fs::remove_file(&state_b_path).unwrap();
-		let component_a = &transferred.components["skill"];
 		assert!(
-			!transfer_shared_skill_ownership(AgentClient::Codex, &state_a_path, component_a)
+			read_state(&context_a.home, &state_a_path)
 				.unwrap()
+				.unwrap()
+				.components["skill"]
+				.owned
 		);
-		uninstall_skill(Path::new(&component_a.path)).unwrap();
+
+		let state_b_contents = crate::fs_nofollow::read(&context_b.home, &state_b_path)
+			.unwrap()
+			.unwrap();
+		let state_b_mode = crate::fs_nofollow::mode(&context_b.home, &state_b_path).unwrap();
+		crate::fs_nofollow::remove_if_unchanged(
+			&context_b.home,
+			&state_b_path,
+			&state_b_contents,
+			state_b_mode,
+		)
+		.unwrap();
+		let component_a = &state_a.components["skill"];
+		assert!(
+			!shared_skill_is_referenced(
+				&context_a.home,
+				AgentClient::Codex,
+				&state_a_path,
+				component_a,
+			)
+			.unwrap()
+		);
+		uninstall_skill(&context_a.home, Path::new(&component_a.path)).unwrap();
 		assert!(!Path::new(&component_a.path).exists());
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn atomic_rewrite_preserves_permissions_and_symlinks() {
-		use std::os::unix::fs::{PermissionsExt, symlink};
-
-		let dir = tempdir().unwrap();
-		let target = dir.path().join("config-target.json");
-		fs::write(&target, b"old").unwrap();
-		fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
-		let link = dir.path().join("config.json");
-		symlink(&target, &link).unwrap();
-
-		write_atomic(&link, b"new").unwrap();
-
-		assert!(
-			fs::symlink_metadata(&link)
-				.unwrap()
-				.file_type()
-				.is_symlink()
-		);
-		assert_eq!(fs::read(&target).unwrap(), b"new");
-		assert_eq!(
-			fs::metadata(&target).unwrap().permissions().mode() & 0o777,
-			0o600
-		);
 	}
 
 	#[test]
@@ -1466,6 +2718,10 @@ command = "other"
 			rules: Some("config/agent.toml".to_string()),
 			check_scope: Some("src".to_string()),
 			max_violations: Some(7),
+			config_created: false,
+			config_parent_created: false,
+			hook_directory_created: false,
+			config_checksum: None,
 		};
 		let mut output = Vec::new();
 		write_component_repair(
@@ -1483,6 +2739,144 @@ command = "other"
 	}
 
 	#[test]
+	fn codex_hook_output_requires_explicit_app_approval() {
+		let mut output = Vec::new();
+		write_hook_activation_note(&mut output, AgentClient::Codex, true).unwrap();
+		assert_eq!(
+			String::from_utf8(output).unwrap(),
+			"action: approve this project hook in Codex app Settings; CLI status and doctor cannot observe app approval\n"
+		);
+
+		let mut other_output = Vec::new();
+		write_hook_activation_note(&mut other_output, AgentClient::Claude, true).unwrap();
+		write_hook_activation_note(&mut other_output, AgentClient::Codex, false).unwrap();
+		assert!(other_output.is_empty());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn dangling_hook_layout_is_stale_not_missing() {
+		use std::os::unix::fs::PermissionsExt;
+		use std::os::unix::fs::symlink;
+		let dir = tempdir().unwrap();
+		fs::write(
+			dir.path().join(".code-moniker.toml"),
+			"default_rules = true\n",
+		)
+		.unwrap();
+		let args = HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+		let installed =
+			hooks::install_for_agent(&args, AgentClient::Codex, None, &mut Vec::new()).unwrap();
+		let component = ComponentState {
+			scope: "project".to_string(),
+			path: installed.path.display().to_string(),
+			checksum: checksum_bytes(&installed.fingerprint),
+			owned: true,
+			version: env!("CARGO_PKG_VERSION").to_string(),
+			profile: None,
+			rules: Some(".code-moniker.toml".to_string()),
+			check_scope: Some(".".to_string()),
+			max_violations: Some(10),
+			config_created: false,
+			config_parent_created: false,
+			hook_directory_created: false,
+			config_checksum: None,
+		};
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().canonicalize().unwrap(),
+		};
+		let hook_path = PathBuf::from(&component.path);
+		let config_path = context.root.join(".codex/hooks.json");
+		let script = fs::read(&hook_path).unwrap();
+		let config = fs::read(&config_path).unwrap();
+		let hook_permissions = fs::metadata(&hook_path).unwrap().permissions();
+
+		fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o644)).unwrap();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"hooks",
+				&component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		fs::set_permissions(&hook_path, hook_permissions).unwrap();
+
+		fs::remove_file(&hook_path).unwrap();
+		symlink(context.root.join("missing-hook"), &hook_path).unwrap();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"hooks",
+				&component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		fs::remove_file(&hook_path).unwrap();
+		fs::write(&hook_path, &script).unwrap();
+
+		fs::remove_file(&config_path).unwrap();
+		symlink(context.root.join("missing-config"), &config_path).unwrap();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"hooks",
+				&component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		fs::remove_file(&config_path).unwrap();
+		fs::write(&config_path, &config).unwrap();
+
+		fs::remove_file(&hook_path).unwrap();
+		fs::remove_file(&config_path).unwrap();
+		symlink(context.root.join("missing-config"), &config_path).unwrap();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"hooks",
+				&component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		fs::remove_file(&config_path).unwrap();
+		fs::write(&config_path, &config).unwrap();
+		fs::write(&hook_path, &script).unwrap();
+
+		let hooks_dir = hook_path.parent().unwrap();
+		let moved_hooks = context.root.join("moved-hooks");
+		fs::rename(hooks_dir, &moved_hooks).unwrap();
+		symlink(context.root.join("missing-hooks"), hooks_dir).unwrap();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"hooks",
+				&component,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
+		assert!(moved_hooks.join(hook_path.file_name().unwrap()).exists());
+	}
+
+	#[test]
 	fn status_without_state_is_read_only() {
 		let dir = tempdir().unwrap();
 		let context = InstallContext {
@@ -1491,5 +2885,71 @@ command = "other"
 			root: dir.path().to_path_buf(),
 		};
 		assert!(!state_path(&context, AgentClient::Codex).exists());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn state_io_rejects_symlinks_without_touching_the_target() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let state_dir = home.join(".code-moniker/agent/codex");
+		fs::create_dir_all(&state_dir).unwrap();
+		let state_path = state_dir.join("state.json");
+		let external = dir.path().join("external.json");
+		fs::write(&external, br#"{"external":true}"#).unwrap();
+		symlink(&external, &state_path).unwrap();
+
+		assert!(read_state(&home, &state_path).is_err());
+		let mut state = InstallState::default();
+		assert!(persist_state(&home, &state_path, &mut state).is_err());
+		assert_eq!(fs::read(&external).unwrap(), br#"{"external":true}"#);
+	}
+
+	#[test]
+	fn state_persistence_refuses_a_change_after_the_initial_read() {
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		fs::create_dir(&home).unwrap();
+		let state_path = home.join("state.json");
+		let mut initial = InstallState {
+			schema: STATE_SCHEMA,
+			version: String::new(),
+			client: "codex".to_string(),
+			root: "/project".to_string(),
+			..InstallState::default()
+		};
+		persist_state(&home, &state_path, &mut initial).unwrap();
+		let mut loaded = read_state(&home, &state_path).unwrap().unwrap();
+		fs::write(&state_path, br#"{"concurrent":true}"#).unwrap();
+		loaded.version = "changed".to_string();
+
+		let error = persist_state(&home, &state_path, &mut loaded)
+			.unwrap_err()
+			.to_string();
+
+		assert!(!error.is_empty());
+		assert_eq!(
+			fs::read_to_string(state_path).unwrap(),
+			r#"{"concurrent":true}"#
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn state_read_rejects_fifo_without_blocking() {
+		use std::ffi::CString;
+		use std::os::unix::ffi::OsStrExt;
+
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let state_dir = home.join(".code-moniker/agent/codex");
+		fs::create_dir_all(&state_dir).unwrap();
+		let state_path = state_dir.join("state.json");
+		let raw = CString::new(state_path.as_os_str().as_bytes()).unwrap();
+		assert_eq!(unsafe { libc::mkfifo(raw.as_ptr(), 0o600) }, 0);
+
+		assert!(read_state(&home, &state_path).is_err());
 	}
 }

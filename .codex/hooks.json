@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "/Users/alexandreboyer/dev/projects/code-moniker/.codex/hooks/code-moniker-agent.sh codex",
+            "command": "sh -c 'root=\"${CODEX_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.codex/hooks/code-moniker-check.sh\"'",
             "type": "command"
           }
         ],

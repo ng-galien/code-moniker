@@ -57,7 +57,7 @@ flowchart LR
 
   subgraph Uses["Uses"]
     I["Inspection<br/>tree, json, tsv"]
-    R["Architecture rules<br/>hooks, CI, agent harnesses"]
+    R["Architecture rules<br/>agent hooks and CI"]
     N["Interactive navigation<br/>TUI, MCP, daemon query"]
   end
 
@@ -147,7 +147,7 @@ the actual change instead of revalidating invariants the repository
 already knows. The same contract applies to humans, agents, hooks, and
 CI.
 
-See [Agent harness](docs/cli/agent-harness.md) for Codex, Claude Code,
+See [Agent integration and hooks](docs/cli/agent.md) for Codex, Claude Code,
 and Gemini CLI hooks.
 
 ## How extraction works
@@ -232,12 +232,10 @@ code-moniker agent update --client codex
 code-moniker agent uninstall --client codex
 ```
 
-`code-moniker harness codex|claude|gemini` remains available as the
-compatibility command for installing hooks only. New installations can use
-`agent install --components hooks`, which records the component for later
+`agent install --components hooks` records the generated hook for later
 diagnosis, update, and safe removal. See
-[Agent integration, harness, hooks, and CI](docs/cli/agent-harness.md) for the
-component matrix and exact ownership behavior.
+[Agent integration, hooks, and CI](docs/cli/agent.md) for the component
+matrix and exact ownership behavior.
 
 Or install the latest `main` with the terminal UI:
 
@@ -388,7 +386,7 @@ Start with the page that matches the task:
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
 | Use the VS Code workbench extension | [VS Code extension](docs/vscode-extension.md) |
-| Wire checks into agent hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
+| Wire checks into agent hooks or CI | [Agent integration and hooks](docs/cli/agent.md) |
 | Run or query resident workspaces | [Daemon](docs/daemon.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
 | Build or contribute | [Contributing](CONTRIBUTING.md) |

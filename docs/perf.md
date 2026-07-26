@@ -7,17 +7,47 @@ macOS 26.2, arm64.
 
 ## Single file — agent hook latency
 
-`code-moniker check <root> --file <file>` is what generated live harnesses
-run after each edit. It keeps project-mode moniker anchors but skips the
-full tree walk. Cost is dominated by process startup, not by the extractor.
-When a tool touches several source files, the harness repeats `--file`; when
-it touches no supported source file, it exits without running a broad scan.
+`code-moniker check <root> --file <file>` is what generated agent hooks run
+after each edit. It keeps project-mode moniker anchors but skips the full tree
+extraction of every project file. When a tool touches several source files,
+the hook repeats `--file`; when it touches no supported source file, it exits
+without running a broad scan.
 
-| File                                      | Bytes  | Time   |
-|-------------------------------------------|--------|--------|
-| `crates/cli/src/check/eval.rs`            | 62 KB  | 14 ms  |
-| `crates/core/src/lang/ts/sdk_pipeline/discover.rs` | 67 KB  | 6 ms   |
-| `crates/core/src/core/moniker/mod.rs`     | 3 KB   | 4 ms   |
+The table below measures the scripts produced by the installed 0.5.0 binary
+on this repository on 2026-07-26. Each row is 40 warm-cache runs after five
+warmups. The repository has 659 supported source files and 89 effective Rust
+rules.
+
+| Installed hook payload | Mean | p50 | p95 |
+| --- | ---: | ---: | ---: |
+| Codex, no touched source file | 23.1 ms | 20.7 ms | 31.0 ms |
+| Codex, `crates/cli/src/mcp/tools/mod.rs` | 216.8 ms | 215.4 ms | 225.0 ms |
+| Codex, `crates/cli/src/args.rs` | 267.5 ms | 267.9 ms | 276.0 ms |
+| Claude, `crates/cli/src/args.rs` | 273.5 ms | 272.4 ms | 287.7 ms |
+
+The generated shell wrapper is not the bottleneck. A direct project-mode
+check of `args.rs` averages 249.2 ms, versus 267.5 ms through the Codex hook.
+Relevant probes on the same binary are:
+
+| Probe | Mean |
+| --- | ---: |
+| Extract `args.rs` directly with `stats` | 17.8 ms |
+| Load and compile the project rules with `rules show` | 70.0 ms |
+| Check `args.rs` as a standalone file | 95.1 ms |
+| Check `args.rs` in project mode with `--file` | 249.2 ms |
+
+Project-mode lazy evaluation now builds a cheap file-root moniker catalogue
+and extracts only descendant candidates requested by a reached rule. It does
+not extract the complete repository. The remaining project-mode delta is
+still material: catalogue discovery, candidate selection/extraction, and the
+89-rule evaluation add roughly 154 ms over the standalone-file probe for
+`args.rs`.
+
+The descendant extraction path does use Rayon. On
+`crates/cli/src/mcp/tools/mod.rs`, fixing the Rayon pool to 1, 2, 4, and 8
+threads produced respectively 265.4, 234.2, 207.0, and 206.9 ms. The work
+scales through four threads and then saturates on this corpus. This rules out
+a missing parallel iterator as the current bottleneck.
 
 ## Project scan
 
@@ -169,8 +199,14 @@ feature or Instruments/heaptrack rather than guessing from record counts.
 
 - `check crates/` is fast enough to gate every commit and every CI
   job up to several thousand source files in well under a second.
-- Filtered per-file mode in a `PostToolUse` hook adds <15 ms of latency to
-  an agent edit cycle.
+- A no-file hook callback costs about 23 ms. A project-mode file check on this
+  repository currently costs 217-274 ms through the installed Codex/Claude
+  scripts. This is correct and bounded, but it is not yet a sub-100-ms edit
+  loop.
+- Direct extraction of the edited Rust file is only about 18 ms. The next
+  performance work should target repeated rule/config discovery and the lazy
+  project catalogue/candidate path, not the generated shell script and not
+  Rayon enablement.
 - Large generated or multi-language repositories are a different tier:
   full-root scans can take several seconds. Scope hooks to changed files
   or active modules, and reserve full-root checks for explicit review/CI

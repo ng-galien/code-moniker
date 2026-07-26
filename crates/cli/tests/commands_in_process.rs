@@ -1063,7 +1063,7 @@ fn check_project_descendants_domain_resolves_cross_file_defs_lazily() {
 }
 
 #[test]
-fn check_project_file_filter_descendants_still_use_project_wide_lazy_defs() {
+fn check_project_file_filter_descendants_load_only_symbolic_resource_files() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	write_under(dir.path(), "src/tools/mod.rs", "mod read;\nmod symbols;\n");
 	write_under(dir.path(), "src/tools/read.rs", "fn same_helper() {}\n");

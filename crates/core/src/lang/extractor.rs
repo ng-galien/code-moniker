@@ -42,6 +42,10 @@ pub trait LangExtractor {
 
 	const ALLOWED_VISIBILITIES: &'static [&'static str];
 
+	fn file_root(_uri: &str, _anchor: &Moniker) -> Option<Moniker> {
+		None
+	}
+
 	fn extract(
 		uri: &str,
 		source: &str,

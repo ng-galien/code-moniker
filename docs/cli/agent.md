@@ -1,4 +1,4 @@
-# Agent integration, harness, hooks, and CI
+# Agent integration, hooks, and CI
 
 `code-moniker check` is a normal command-line gate:
 
@@ -14,9 +14,9 @@ Claude Code `PostToolUse`, Gemini CLI `AfterTool`, Git pre-commit, or CI.
 For command behavior and rule syntax, see [`check`](check.md) and the
 [Rule DSL](check-dsl.md).
 
-## Harness filtering model
+## Hook filtering model
 
-Generated live harnesses are edit-time filters, not full project scans.
+Generated hooks are edit-time filters, not full project scans.
 After each matched write tool call, the hook:
 
 1. reads the tool payload from `stdin`;
@@ -79,7 +79,7 @@ code-moniker agent uninstall --client codex
 | Command | Behavior |
 | ------- | -------- |
 | `install` | Installs the explicit components, or the defaults supported by this binary. |
-| `status` | Lists the tracked components and whether each is installed, linked, external, stale, or missing. |
+| `status` | Lists the tracked components and whether each is installed, external, stale, or missing. |
 | `doctor` | Checks component contents and binary-version coherence; exits non-zero when repair is needed. |
 | `update` | Refreshes selected components from the current binary. With no `--components`, it uses the same capability-based defaults as `install`; hooks remain opt-in. Updating hooks reuses their recorded rules file, profile, scope, and violation limit. |
 | `uninstall` | Removes selected managed components, or all tracked components when none are selected. |
@@ -103,20 +103,51 @@ The concrete targets are:
 The installer records component ownership per canonical project root and
 client under `~/.code-moniker/agent/`. This state lets lifecycle commands
 distinguish content created by Code Moniker from matching configuration that
-already existed. The user-scoped skill is shared by projects using the same
-client. Any tracked project can update that shared skill; ownership follows
-the updater and transfers again to another tracked project before the shared
-skill can be removed.
+already existed. Lifecycle commands hold a client-scoped filesystem lock from
+the state read through the last component mutation and state write, so two
+concurrent commands cannot both succeed from the same stale state. The
+user-scoped skill is shared by projects using the same client. Any tracked
+project can update that shared skill. Each project keeps an independent
+reference to the same physical installation; uninstall retains it while
+another tracked project still references it and removes it with the last
+managed reference.
 
 `uninstall` removes only components recorded as managed and refuses to remove
 an owned asset or configuration entry that has drifted since installation.
 External components can always be forgotten without modifying their content.
+When an install originally created a complete client configuration file,
+uninstall removes that file only while its full checksum still matches the
+exact content committed by Code Moniker. A later foreign setting invalidates
+that whole-file ownership on the next install or update; uninstall then
+removes only the Code Moniker registration and preserves the foreign content.
+Directories created by the installer are removed only when they are still
+empty.
 Hook coherence covers both the generated script and its exact client
 registration, while component versions are tracked independently so a partial
 update remains visible to `doctor`. Pass
 `--components skill`, `mcp`, or `hooks` to remove only one component.
-An already matching skill or MCP entry discovered during installation is
-recorded as external and retained by `uninstall`.
+An already matching physical skill or MCP entry discovered during installation
+is recorded as external and retained by `uninstall`. Any skill symlink is
+rejected rather than followed, materialized, or overwritten.
+Symlinked parent directories or embedded skill assets are also rejected, so
+installation and `doctor` only accept a fully physical skill layout.
+
+Project hook installation follows the same physical-layout rule. Symlinked
+client directories, hook directories, generated scripts, or hook configuration
+files are rejected before any write. A later symlink drift makes the component
+stale and blocks managed uninstall rather than following the link.
+Project MCP configuration follows that rule as well: linked configuration
+files or linked parent directories are rejected without modifying their
+targets.
+On the published macOS and Linux builds, reads and mutations are anchored to
+the canonical project or home root with no-follow filesystem operations; a
+root replaced by a symlink is rejected as drift. Conditional writes use an
+atomic exchange (and conditional removes use an exclusive rename), verify the
+inode installed by the rename, and restore a physical file from the captured
+bytes and mode if a temporary name is substituted concurrently. A failed
+integration-state write rolls hook, MCP, and skill mutations back. Physical
+agent lifecycle operations fail closed on non-Unix platforms; those packages
+are not published.
 
 The skill adapts to the installed capabilities. It uses MCP tools when they are
 available, the local binary when MCP is absent, and treats hooks as write-time
@@ -151,28 +182,13 @@ code-moniker langs
 code-moniker agent doctor --client codex
 ```
 
-## Compatibility `harness` command
-
-`code-moniker harness codex|claude|gemini` has not been removed. It remains
-available for compatibility and installs hooks directly. The managed
-equivalent for new installations is:
-
-```sh
-code-moniker agent install --client codex --components hooks
-```
-
-Both forms select no profile by default. The `agent` form is preferred when
-the hook should participate in `status`, `doctor`, `update`, and `uninstall`.
-Changing the profile changes the managed hook identity: uninstall the hooks
-component before reinstalling it with a different `--profile`.
-
 ## Use cases
 
 | Need | Use case | Configs shown |
 | ---- | -------- | ------------- |
-| Give Codex a live check harness from project rules | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
-| Give Claude Code the same project-local check harness | [Install a Claude Code live harness](#install-a-claude-code-live-harness) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
-| Give Gemini CLI the same project-local check harness | [Install a Gemini CLI live harness](#install-a-gemini-cli-live-harness) | `.code-moniker.toml`, `.gemini/settings.json`, `.gemini/hooks/` |
+| Give Codex a live check hook from project rules | [Install a Codex live hook](#install-a-codex-live-hook) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
+| Give Claude Code the same project-local check hook | [Install a Claude Code live hook](#install-a-claude-code-live-hook) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
+| Give Gemini CLI the same project-local check hook | [Install a Gemini CLI live hook](#install-a-gemini-cli-live-hook) | `.code-moniker.toml`, `.gemini/settings.json`, `.gemini/hooks/` |
 | Stop the agent from adding prose comments inside Rust code | [Block prose comments inside code bodies](#block-prose-comments-inside-code-bodies) | `.code-moniker.toml`, `.claude/hooks/code-moniker-check.sh`, `.claude/settings.json` |
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
@@ -180,24 +196,23 @@ component before reinstalling it with a different `--profile`.
 | Check the whole tree before commit | [Gate commits on agent guardrail rules](#gate-commits-on-agent-guardrail-rules) | `.code-moniker.toml`, `cargo moniker-check`, `.githooks/pre-commit` |
 | Introduce rules in an existing repo without blocking everything | [Roll out rules in an existing repository](#roll-out-rules-in-an-existing-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
 
-### Install a Codex live harness
+### Install a Codex live hook
 
 Use this when Codex should run `code-moniker check` after local write-tool
-edits. With no extra flags, the harness uses the project root as the rule
+edits. With no extra flags, the hook uses the project root as the rule
 scope. The generated hook still filters each invocation to the files touched
 by the Codex tool payload:
 
 ```sh
-code-moniker harness codex .
+code-moniker agent install --client codex --components hooks .
 ```
 
 That writes:
 
 - `.codex/hooks/code-moniker-check.sh`
 - `.codex/hooks.json`
-- `.codex/code-moniker-performance.md`
 
-Use `--profile` and `--scope` when you want a narrower, fast edit-time
+Use `--profile` and `--check-scope` when you want a narrower, fast edit-time
 rule set:
 
 ```toml
@@ -208,10 +223,16 @@ enable = ["^architecture\\."]
 Install project-local Codex configuration:
 
 ```sh
-code-moniker harness codex . --profile agent --scope src --max-violations 10
+code-moniker agent install --client codex --components hooks . \
+  --profile agent --check-scope src --max-violations 10
 ```
 
-Generated harnesses pass one `--file` flag per touched source file and
+After installation, approve the project hook in Codex app Settings. This
+approval is app-local state that the CLI cannot inspect, so `agent status` and
+`agent doctor` report filesystem/configuration coherence but cannot confirm
+that the app has enabled the hook.
+
+Generated hooks pass one `--file` flag per touched source file and
 `--max-violations 10` by default. The `--file` filtering keeps the hook from
 rescanning the whole tree after every write tool call; `--max-violations`
 keeps prompt feedback bounded by showing the first 10 violations from the
@@ -223,7 +244,6 @@ When `--profile agent` is provided, the command verifies that
 
 - `.codex/hooks/code-moniker-agent.sh`
 - `.codex/hooks.json`
-- `.codex/code-moniker-performance.md`
 
 Recommended Codex hook entry for the default install:
 
@@ -256,16 +276,18 @@ emitted as a structured `decision: "block"` payload carrying the exact
 
 ```sh
 code-moniker check --rules ".code-moniker.toml" --format codex-hook --max-violations 10 "." --file "src/order.ts"
-# with --profile agent --scope src:
+# with --profile agent --check-scope src:
 code-moniker check --rules ".code-moniker.toml" --profile "agent" --format codex-hook --max-violations 10 "src" --file "src/order.ts"
 ```
 
-The generated script assumes `code-moniker` was installed with Cargo and
-calls `$HOME/.cargo/bin/code-moniker` directly.
+The generated script records the absolute path of the `code-moniker` binary
+that performed the installation. Re-run
+`agent update --client codex --components hooks` after replacing or moving
+that binary.
 
 The default matcher covers local write tools only. MCP servers and custom
 tools are outside the default guarantee boundary; add them explicitly only
-after measuring their payload shape and cost. This live harness catches
+after measuring their payload shape and cost. This live hook catches
 agent-local writes early, but it is not a substitute for pre-commit hooks
 or CI gates.
 
@@ -274,13 +296,14 @@ The generated script extracts touched files from Codex hook JSON by reading
 `*** Update File`, `*** Delete File`, and `*** Move to` patch headers.
 It also accepts JSON operation shapes that expose `operation.path`.
 Only the extracted touched files are passed as `--file`; if the payload does
-not expose a source file path, the hook stays silent and exits `0`.
+not expose a source file path, the hook stays silent and exits `0`. Malformed
+JSON is rejected instead of being treated as an empty file set.
 
 Measure hook overhead on the target repository before enabling it for a team.
 For a warm-cache edit hook, record at least the machine, scope, command, p50,
 and p95 latency.
 
-### Install a Claude Code live harness
+### Install a Claude Code live hook
 
 Use this when Claude Code should run the same project-local check without
 any global configuration writes. The generated script reads
@@ -288,12 +311,13 @@ any global configuration writes. The generated script reads
 passes each touched source file as `--file`.
 
 ```sh
-code-moniker harness claude .
+code-moniker agent install --client claude --components hooks .
 # or, for a named profile and narrower scope:
-code-moniker harness claude . --profile agent --scope src --max-violations 10
+code-moniker agent install --client claude --components hooks . \
+  --profile agent --check-scope src --max-violations 10
 ```
 
-Generated harnesses pass one `--file` flag per touched source file and
+Generated hooks pass one `--file` flag per touched source file and
 `--max-violations 10` by default. Use `--max-violations N` at install time
 when a project needs a smaller or larger edit-time feedback window.
 
@@ -301,14 +325,12 @@ Without `--profile`, the command installs a root check:
 
 - `.claude/hooks/code-moniker-check.sh`
 - `.claude/settings.json`
-- `.claude/code-moniker-performance.md`
 
 When `--profile agent` is provided, the command verifies that
 `[profiles.agent]` exists and names the hook from the profile:
 
 - `.claude/hooks/code-moniker-agent.sh`
 - `.claude/settings.json`
-- `.claude/code-moniker-performance.md`
 
 Recommended Claude Code hook entry for the default install:
 
@@ -351,14 +373,15 @@ fi
 exit "$status"
 ```
 
-The generated script assumes `code-moniker` was installed with Cargo and
-calls `$HOME/.cargo/bin/code-moniker` directly.
+The generated script calls the absolute `code-moniker` path recorded during
+installation. Re-run `agent update --client claude --components hooks` after
+replacing or moving that binary.
 
 `PostToolUse` runs after the edit is applied, so this is repair feedback
 for the agent, not a guarantee that the write never happened. Keep
 pre-commit and CI checks for repository guarantees.
 
-### Install a Gemini CLI live harness
+### Install a Gemini CLI live hook
 
 Use this when Gemini CLI should run the same project-local check after
 tool edits. The generated script reads `tool_input.file_path` from
@@ -366,12 +389,13 @@ tool edits. The generated script reads `tool_input.file_path` from
 file as `--file`.
 
 ```sh
-code-moniker harness gemini .
+code-moniker agent install --client gemini --components hooks .
 # or, for a named profile and narrower scope:
-code-moniker harness gemini . --profile agent --scope src --max-violations 10
+code-moniker agent install --client gemini --components hooks . \
+  --profile agent --check-scope src --max-violations 10
 ```
 
-Generated harnesses pass one `--file` flag per touched source file and
+Generated hooks pass one `--file` flag per touched source file and
 `--max-violations 10` by default. Gemini CLI project settings live in
 `.gemini/settings.json`, and the generated hook is registered under
 `hooks.AfterTool`.
@@ -380,14 +404,12 @@ Without `--profile`, the command installs a root check:
 
 - `.gemini/hooks/code-moniker-check.sh`
 - `.gemini/settings.json`
-- `.gemini/code-moniker-performance.md`
 
 When `--profile agent` is provided, the command verifies that
 `[profiles.agent]` exists and names the hook from the profile:
 
 - `.gemini/hooks/code-moniker-agent.sh`
 - `.gemini/settings.json`
-- `.gemini/code-moniker-performance.md`
 
 Recommended Gemini CLI hook entry for the default install:
 

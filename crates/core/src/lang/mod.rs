@@ -90,6 +90,19 @@ macro_rules! define_languages {
 			pub fn ignores_visibility(self) -> bool {
 				self.allowed_visibilities().is_empty()
 			}
+
+			pub fn file_root(
+				self,
+				uri: &str,
+				anchor: &$crate::core::moniker::Moniker,
+			) -> Option<$crate::core::moniker::Moniker> {
+				match self {
+					$(
+						$(#[$attr])*
+						Self::$variant => <$module as $crate::lang::LangExtractor>::file_root(uri, anchor),
+					)*
+				}
+			}
 		}
 
 		#[cfg(test)]

@@ -10,8 +10,8 @@ pub(crate) mod color;
 pub(crate) mod daemon;
 pub(crate) mod diff;
 pub(crate) mod extract;
-pub(crate) mod fs_write;
-pub(crate) mod harness;
+pub(crate) mod fs_nofollow;
+pub(crate) mod hooks;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
 #[cfg(feature = "mcp")]
@@ -50,12 +50,11 @@ pub use args::McpArgs;
 pub use args::UiArgs;
 pub use args::{
 	AgentArgs, AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
-	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice,
-	Command, DaemonArgs, DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs,
-	HarnessArgs, HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat,
-	ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs,
-	RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat,
-	ShapesArgs, StatsArgs, StatsFormat,
+	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, ColorChoice, Command, DaemonArgs,
+	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, HookInstallArgs,
+	LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode,
+	QueryArgs, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat,
+	RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat, ToolBackend, ToolFilesArgs,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate, RefMatch};
@@ -88,7 +87,6 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Rules(args) => rules::run(args, stdout, stderr),
 		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
 		Command::Query(args) => query::run(args, stdout, stderr),
-		Command::Harness(args) => harness::run(args, stdout, stderr),
 		Command::Agent(args) => agent::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
 		Command::Ui(args) => ui_command::run(args, stdout, stderr),

@@ -43,6 +43,7 @@ ignore    = { workspace = true }
 rayon     = { workspace = true }
 rustc-hash = { workspace = true }
 toml      = { workspace = true }
+libc      = { workspace = true }
 axum       = { workspace = true, optional = true }
 rmcp       = { workspace = true, optional = true }
 tokio      = { workspace = true, optional = true }
@@ -58,5 +59,4 @@ tempfile      = { workspace = true }
 
 [dev-dependencies]
 insta    = { workspace = true }
-libc     = { workspace = true }
 proptest = { workspace = true }

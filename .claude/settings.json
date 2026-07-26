@@ -4,22 +4,11 @@
       {
         "hooks": [
           {
-            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/code-moniker-agent.sh\" claude'",
+            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/code-moniker-check.sh\"'",
             "type": "command"
           }
         ],
         "matcher": "Edit|Write|MultiEdit"
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/no-symbol-grep.sh\"'"
-          }
-        ]
       }
     ]
   }

@@ -55,8 +55,32 @@ fn compute_module_moniker(anchor: &Moniker, uri: &str, package_pieces: &[&str]) 
 	builder.build()
 }
 
+pub(super) fn standard_path_module_moniker(anchor: &Moniker, uri: &str) -> Option<Moniker> {
+	let pieces = uri
+		.split(['/', '\\'])
+		.filter(|piece| !piece.is_empty() && *piece != ".")
+		.collect::<Vec<_>>();
+	let java_idx = pieces
+		.windows(3)
+		.position(|parts| parts[0] == "src" && parts[2] == "java")?
+		+ 2;
+	let (_, tail) = pieces.split_at(java_idx + 1);
+	let (file, package_pieces) = tail.split_last()?;
+	let class_name = file_stem(file);
+	if class_name.is_empty() {
+		return None;
+	}
+	let mut builder = MonikerBuilder::from_view(anchor.as_view());
+	builder.segment(crate::lang::kinds::LANG, b"java");
+	for piece in package_pieces {
+		builder.segment(kinds::PACKAGE, piece.as_bytes());
+	}
+	builder.segment(kinds::MODULE, class_name.as_bytes());
+	Some(builder.build())
+}
+
 fn file_stem(uri: &str) -> &str {
-	let after_slash = uri.rsplit('/').next().unwrap_or(uri);
+	let after_slash = uri.rsplit(['/', '\\']).next().unwrap_or(uri);
 	after_slash.strip_suffix(".java").unwrap_or(after_slash)
 }
 
@@ -74,4 +98,30 @@ fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'src str {
 		}
 	}
 	""
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn standard_path_module_moniker_accepts_windows_separators() {
+		let anchor = MonikerBuilder::new().project(b"app").build();
+		let posix =
+			standard_path_module_moniker(&anchor, "src/main/java/com/acme/java/util/Read.java")
+				.expect("standard Java path");
+		let windows_uri = r"src\main\java\com\acme\java\util\Read.java";
+		let windows =
+			standard_path_module_moniker(&anchor, windows_uri).expect("standard Windows Java path");
+		let graph = extract(
+			windows_uri,
+			"package com.acme.java.util; class Read {}",
+			&anchor,
+			true,
+			&Presets::default(),
+		);
+
+		assert_eq!(windows, posix);
+		assert_eq!(&windows, graph.root());
+	}
 }

@@ -43,8 +43,6 @@ pub enum Command {
 	Daemon(DaemonArgs),
 	#[command(about = "Send a human-readable query DSL request to a workspace daemon.")]
 	Query(QueryArgs),
-	#[command(about = "Install live agent harness configuration.")]
-	Harness(HarnessArgs),
 	#[command(about = "Install and diagnose Code Moniker agent integrations.")]
 	Agent(AgentArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
@@ -182,12 +180,6 @@ pub(crate) enum QueryConsistency {
 }
 
 #[derive(Debug, ClapArgs)]
-pub struct HarnessArgs {
-	#[command(subcommand)]
-	pub command: HarnessCommand,
-}
-
-#[derive(Debug, ClapArgs)]
 pub struct AgentArgs {
 	#[command(subcommand)]
 	pub command: AgentCommand,
@@ -195,6 +187,8 @@ pub struct AgentArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
+	#[command(hide = true)]
+	ToolFiles(ToolFilesArgs),
 	#[command(about = "Install or update agent integration components.")]
 	Install(AgentInstallArgs),
 	#[command(about = "Refresh managed agent integration components from this binary.")]
@@ -441,20 +435,8 @@ pub enum RulesLearnFormat {
 	Json,
 }
 
-#[derive(Debug, Subcommand)]
-pub enum HarnessCommand {
-	#[command(about = "Install a project-local Codex PostToolUse hook.")]
-	Codex(CodexHarnessArgs),
-	#[command(about = "Install a project-local Claude Code PostToolUse hook.")]
-	Claude(CodexHarnessArgs),
-	#[command(about = "Install a project-local Gemini CLI AfterTool hook.")]
-	Gemini(CodexHarnessArgs),
-	#[command(hide = true)]
-	ToolFiles(HarnessToolFilesArgs),
-}
-
 #[derive(Debug, ClapArgs)]
-pub struct CodexHarnessArgs {
+pub struct HookInstallArgs {
 	#[arg(value_name = "ROOT", default_value = ".")]
 	pub root: PathBuf,
 
@@ -469,7 +451,7 @@ pub struct CodexHarnessArgs {
 	#[arg(
 		long,
 		value_name = "NAME",
-		help = "optional profile that the live harness must run"
+		help = "optional profile the generated hook must run"
 	)]
 	pub profile: Option<String>,
 
@@ -485,22 +467,22 @@ pub struct CodexHarnessArgs {
 		long,
 		value_name = "N",
 		default_value_t = 10,
-		help = "maximum violations printed by the generated live harness check"
+		help = "maximum violations printed by the generated hook check"
 	)]
 	pub max_violations: usize,
 }
 
 #[derive(Debug, ClapArgs)]
-pub struct HarnessToolFilesArgs {
+pub struct ToolFilesArgs {
 	#[arg(value_enum)]
-	pub backend: HarnessToolBackend,
+	pub backend: ToolBackend,
 
 	#[arg(value_name = "HOOK_INPUT_JSON")]
 	pub input: PathBuf,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-pub enum HarnessToolBackend {
+pub enum ToolBackend {
 	Codex,
 	Claude,
 	Gemini,
@@ -1212,6 +1194,21 @@ mod tests {
 			parse(&[]).is_err(),
 			"empty argv must error — subcommand required"
 		);
+	}
+
+	#[test]
+	fn removed_legacy_subcommand_is_rejected() {
+		let error = parse(&[concat!("har", "ness"), "codex"]).unwrap_err();
+		assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+	}
+
+	#[test]
+	fn agent_help_hides_tool_files_callback() {
+		let error = parse(&["agent", "--help"]).unwrap_err();
+		assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+		let help = error.to_string();
+		assert!(!help.contains("tool-files"), "{help}");
+		assert!(help.contains("install"), "{help}");
 	}
 
 	#[test]

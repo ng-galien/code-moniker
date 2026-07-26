@@ -38,6 +38,7 @@ pub trait CheckWorkspace: Sync {
 		root: &Path,
 		files: &[PathBuf],
 	) -> anyhow::Result<environment::SourceFileSet>;
+	fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet>;
 	fn exists(&self, path: &Path) -> bool;
 }
 
@@ -66,6 +67,10 @@ impl CheckWorkspace for FsCheckWorkspace {
 		} else {
 			environment::discover_source_files(root, files, None)
 		}
+	}
+
+	fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet> {
+		environment::discover_source_catalog(root, None)
 	}
 
 	fn exists(&self, path: &Path) -> bool {
@@ -112,10 +117,6 @@ impl MemoryCheckWorkspace {
 	pub fn root(&self) -> &Path {
 		&self.root
 	}
-
-	fn rel_path(&self, path: &Path) -> PathBuf {
-		normalize_relative(path.strip_prefix(&self.root).unwrap_or(path).to_path_buf())
-	}
 }
 
 impl CheckWorkspace for MemoryCheckWorkspace {
@@ -124,7 +125,7 @@ impl CheckWorkspace for MemoryCheckWorkspace {
 	}
 
 	fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
-		let rel = self.rel_path(path);
+		let rel = memory_rel_path(&self.root, path);
 		self.files
 			.get(&rel)
 			.map(|file| file.body.clone())
@@ -144,10 +145,18 @@ impl CheckWorkspace for MemoryCheckWorkspace {
 		})
 	}
 
+	fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet> {
+		self.source_set(root, &[])
+	}
+
 	fn exists(&self, path: &Path) -> bool {
-		let rel = self.rel_path(path);
+		let rel = memory_rel_path(&self.root, path);
 		self.files.contains_key(&rel)
 	}
+}
+
+fn memory_rel_path(root: &Path, path: &Path) -> PathBuf {
+	normalize_relative(path.strip_prefix(root).unwrap_or(path).to_path_buf())
 }
 
 impl MemoryCheckWorkspace {
@@ -186,6 +195,11 @@ fn memory_source_files(
 			rel_path: rel_path.clone(),
 			anchor: rel_path.clone(),
 			lang: file.lang,
+			root_moniker: environment::source_root_moniker(
+				file.lang,
+				rel_path,
+				&environment::ExtractContext::default(),
+			),
 			retired: false,
 		})
 		.collect()
@@ -226,7 +240,7 @@ impl DefaultRulesSelection {
 	}
 }
 
-/// Ruleset construction contract shared by CLI, MCP, views, and harnesses.
+/// Ruleset construction contract shared by CLI, MCP, views, and agent integrations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuleSetRequest {
 	pub rules: Option<PathBuf>,
@@ -723,7 +737,8 @@ pub fn check_project_workspace(
 	let source_set = workspace.source_set(root, &[])?;
 	let requirements = FileRequirementResolver::new(
 		root.to_path_buf(),
-		Some(filtered_source_set(&source_set, cfg)),
+		filtered_source_set(&source_set, cfg),
+		&cfg.exclude.uris,
 		workspace,
 	);
 	check_source_set(
@@ -755,20 +770,24 @@ pub fn check_project_files_workspace(
 	workspace: &dyn CheckWorkspace,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	let source_set = workspace.source_set(root, files)?;
-	let resolver_source_set = workspace.source_set(root, &[])?;
-	let requirements = FileRequirementResolver::new(
-		root.to_path_buf(),
-		Some(filtered_source_set(&resolver_source_set, cfg)),
-		workspace,
-	);
-	check_source_set(
+	let requirements =
+		FileRequirementResolver::new(root.to_path_buf(), None, &cfg.exclude.uris, workspace);
+	let (reports, mut errors) = check_source_set(
 		&source_set,
 		cfg,
 		scheme,
 		report,
 		Some(&requirements),
 		workspace,
-	)
+	)?;
+	if let Some(error) = requirements.source_catalog_error() {
+		errors.push(FileError {
+			path: root.to_path_buf(),
+			error: error.to_string(),
+		});
+		errors.sort_by(|a, b| a.path.cmp(&b.path));
+	}
+	Ok((reports, errors))
 }
 
 fn filtered_source_set(
@@ -776,6 +795,13 @@ fn filtered_source_set(
 	cfg: &check::Config,
 ) -> environment::SourceFileSet {
 	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
+	filter_source_set(source_set, &excludes)
+}
+
+fn filter_source_set(
+	source_set: &environment::SourceFileSet,
+	excludes: &check::UriExclusionMatcher,
+) -> environment::SourceFileSet {
 	environment::SourceFileSet {
 		roots: source_set.roots.clone(),
 		files: source_set
@@ -845,21 +871,30 @@ fn check_source_set(
 
 struct FileRequirementResolver<'a> {
 	root: PathBuf,
-	source_set: Option<environment::SourceFileSet>,
-	workspace_defs: OnceLock<Vec<DefRecord>>,
+	source_set: OnceLock<Result<environment::SourceFileSet, String>>,
+	file_defs: OnceLock<Vec<OnceLock<Vec<DefRecord>>>>,
+	excludes: check::UriExclusionMatcher,
 	workspace: &'a dyn CheckWorkspace,
 }
 
 impl<'a> FileRequirementResolver<'a> {
 	fn new(
 		root: PathBuf,
-		source_set: Option<environment::SourceFileSet>,
+		source_set: impl Into<Option<environment::SourceFileSet>>,
+		exclude_uris: &[String],
 		workspace: &'a dyn CheckWorkspace,
 	) -> Self {
+		let source_set_cell = OnceLock::new();
+		if let Some(source_set) = source_set.into() {
+			source_set_cell
+				.set(Ok(source_set))
+				.unwrap_or_else(|_| unreachable!("new source catalog cell"));
+		}
 		Self {
 			root,
-			source_set,
-			workspace_defs: OnceLock::new(),
+			source_set: source_set_cell,
+			file_defs: OnceLock::new(),
+			excludes: check::UriExclusionMatcher::new(exclude_uris),
 			workspace,
 		}
 	}
@@ -900,41 +935,94 @@ impl check::RequirementResolver for FileRequirementResolver<'_> {
 	}
 
 	fn descendant_defs<'a>(&'a self, owner: &DefRecord, inner: &Domain) -> Vec<&'a DefRecord> {
-		self.workspace_defs()
+		use rayon::prelude::*;
+
+		let Ok(source_set) = self.source_set() else {
+			return Vec::new();
+		};
+		let file_defs = self.file_defs(source_set.files.len());
+		let candidate_indexes = source_set
+			.files
 			.iter()
-			.filter(|def| {
-				def.moniker != owner.moniker
-					&& owner.moniker.is_ancestor_of(&def.moniker)
-					&& lazy_domain_matches(inner, def)
+			.enumerate()
+			.filter_map(|(idx, file)| {
+				file.root_moniker
+					.as_ref()
+					.is_some_and(|root| {
+						root != &owner.moniker && owner.moniker.is_ancestor_of(root)
+					})
+					.then_some(idx)
 			})
+			.collect::<Vec<_>>();
+		candidate_indexes.par_iter().for_each(|idx| {
+			file_defs[*idx].get_or_init(|| {
+				collect_file_defs(&source_set.files[*idx], source_set, self.workspace)
+			});
+		});
+		candidate_indexes
+			.into_iter()
+			.flat_map(|idx| {
+				file_defs[idx]
+					.get()
+					.into_iter()
+					.flat_map(|defs| defs.iter())
+			})
+			.filter(|def| owner.moniker.is_ancestor_of(&def.moniker))
+			.filter(|def| lazy_domain_matches(inner, def))
 			.collect()
 	}
 }
 
 impl FileRequirementResolver<'_> {
-	fn workspace_defs(&self) -> &[DefRecord] {
-		self.workspace_defs
-			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref(), self.workspace))
+	fn file_defs(&self, file_count: usize) -> &[OnceLock<Vec<DefRecord>>] {
+		self.file_defs
+			.get_or_init(|| (0..file_count).map(|_| OnceLock::new()).collect())
+			.as_slice()
+	}
+
+	fn source_set(&self) -> Result<&environment::SourceFileSet, &str> {
+		match self.source_set.get_or_init(|| {
+			self.workspace
+				.source_catalog(&self.root)
+				.map(|source_set| filter_source_set(&source_set, &self.excludes))
+				.map_err(|error| {
+					format!(
+						"cannot build lazy source catalog for `{}`: {error:#}",
+						self.root.display()
+					)
+				})
+		}) {
+			Ok(source_set) => Ok(source_set),
+			Err(error) => Err(error),
+		}
+	}
+
+	fn source_catalog_error(&self) -> Option<&str> {
+		self.source_set
+			.get()
+			.and_then(|result| result.as_ref().err())
+			.map(String::as_str)
 	}
 }
 
-fn collect_workspace_defs(
-	source_set: Option<&environment::SourceFileSet>,
+fn collect_file_defs(
+	file: &environment::SourceFile,
+	source_set: &environment::SourceFileSet,
 	workspace: &dyn CheckWorkspace,
 ) -> Vec<DefRecord> {
-	let Some(source_set) = source_set else {
+	let Ok(source) = workspace.read_to_string(&file.path) else {
 		return Vec::new();
 	};
-	let mut defs = Vec::new();
-	for file in &source_set.files {
-		let Ok(source) = workspace.read_to_string(&file.path) else {
-			continue;
-		};
-		let ctx = &source_set.roots[file.source].ctx;
-		let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
-		defs.extend(graph.defs().cloned());
+	let ctx = &source_set.roots[file.source].ctx;
+	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
+	if file
+		.root_moniker
+		.as_ref()
+		.is_none_or(|catalog_root| catalog_root != graph.root())
+	{
+		return Vec::new();
 	}
-	defs
+	graph.defs().cloned().collect()
 }
 
 fn normalize_relative(path: PathBuf) -> PathBuf {
@@ -1060,4 +1148,176 @@ fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
 			.then_with(|| a.rule_id.cmp(&b.rule_id))
 	});
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::sync::Mutex;
+	use std::sync::atomic::{AtomicUsize, Ordering};
+
+	struct RecordingWorkspace {
+		inner: MemoryCheckWorkspace,
+		reads: Mutex<Vec<PathBuf>>,
+		catalog_calls: AtomicUsize,
+		fail_catalog: bool,
+	}
+
+	impl RecordingWorkspace {
+		fn new(inner: MemoryCheckWorkspace) -> Self {
+			Self {
+				inner,
+				reads: Mutex::new(Vec::new()),
+				catalog_calls: AtomicUsize::new(0),
+				fail_catalog: false,
+			}
+		}
+
+		fn with_catalog_error(mut self) -> Self {
+			self.fail_catalog = true;
+			self
+		}
+
+		fn reads(&self) -> Vec<PathBuf> {
+			self.reads.lock().expect("read log").clone()
+		}
+	}
+
+	impl CheckWorkspace for RecordingWorkspace {
+		fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+			self.inner.is_dir(path)
+		}
+
+		fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+			self.reads
+				.lock()
+				.expect("read log")
+				.push(path.to_path_buf());
+			self.inner.read_to_string(path)
+		}
+
+		fn source_set(
+			&self,
+			root: &Path,
+			files: &[PathBuf],
+		) -> anyhow::Result<environment::SourceFileSet> {
+			self.inner.source_set(root, files)
+		}
+
+		fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet> {
+			self.catalog_calls.fetch_add(1, Ordering::Relaxed);
+			if self.fail_catalog {
+				anyhow::bail!("catalog unavailable");
+			}
+			self.inner.source_catalog(root)
+		}
+
+		fn exists(&self, path: &Path) -> bool {
+			self.inner.exists(path)
+		}
+	}
+
+	#[test]
+	fn descendant_catalog_reads_only_candidate_roots_once() {
+		let root = Path::new("/project");
+		let workspace = RecordingWorkspace::new(
+			MemoryCheckWorkspace::new(root)
+				.with_file("src/tools/mod.rs", "mod read; mod symbols;", Lang::Rs)
+				.with_file("src/tools/read.rs", "fn same_helper() {}", Lang::Rs)
+				.with_file("src/tools/symbols.rs", "fn same_helper() {}", Lang::Rs)
+				.with_file("src/unrelated.rs", "fn same_helper() {}", Lang::Rs),
+		);
+		let catalog = workspace.source_catalog(root).expect("source catalog");
+		let resolver = FileRequirementResolver::new(root.to_path_buf(), catalog, &[], &workspace);
+		let graph = environment::extract_source_with(
+			Lang::Rs,
+			"mod read; mod symbols;",
+			Path::new("src/tools/mod.rs"),
+			&environment::ExtractContext::default(),
+		);
+		let owner = graph.defs().next().expect("module root");
+		let domain = Domain::Children("fn".to_string());
+
+		let first = check::RequirementResolver::descendant_defs(&resolver, owner, &domain);
+		assert_eq!(first.len(), 2);
+		let second = check::RequirementResolver::descendant_defs(&resolver, owner, &domain);
+		assert_eq!(second.len(), 2);
+
+		let reads = workspace.reads();
+		assert_eq!(
+			reads,
+			vec![
+				root.join("src/tools/read.rs"),
+				root.join("src/tools/symbols.rs")
+			]
+		);
+		assert!(!reads.contains(&root.join("src/unrelated.rs")));
+		assert!(!reads.contains(&root.join("src/tools/mod.rs")));
+	}
+
+	#[test]
+	fn false_lazy_rule_does_not_build_the_source_catalog() {
+		let root = Path::new("/project");
+		let workspace = RecordingWorkspace::new(
+			MemoryCheckWorkspace::new(root)
+				.with_file("src/lib.rs", "pub fn ready() {}", Lang::Rs)
+				.with_file("src/tools/mod.rs", "mod read;", Lang::Rs)
+				.with_file("src/tools/read.rs", "fn helper() {}", Lang::Rs),
+		);
+		let rules = RuleSetRequest::new(None, "code+moniker://")
+			.with_default_rules(DefaultRulesSelection::Disabled)
+			.with_inline_rules(vec![
+				r#"
+				[[rust.module.where]]
+				id = "tools-descendants"
+				expr = "uri ~ '**/dir:src/module:tools' => count(descendants(fn)) = 0"
+				message = "tools descendants"
+				"#
+				.to_string(),
+			]);
+		let request = CheckRequest::new(root, rules).with_files(vec![PathBuf::from("src/lib.rs")]);
+
+		let run = request
+			.run_with_workspace(&workspace)
+			.expect("filtered check");
+
+		assert_eq!(run.reports.len(), 1);
+		assert!(run.reports[0].violations.is_empty());
+		assert_eq!(workspace.catalog_calls.load(Ordering::Relaxed), 0);
+		assert_eq!(workspace.reads(), vec![root.join("src/lib.rs")]);
+	}
+
+	#[test]
+	fn reached_lazy_rule_reports_source_catalog_errors() {
+		let root = Path::new("/project");
+		let workspace = RecordingWorkspace::new(MemoryCheckWorkspace::new(root).with_file(
+			"src/tools/mod.rs",
+			"pub fn ready() {}",
+			Lang::Rs,
+		))
+		.with_catalog_error();
+		let rules = RuleSetRequest::new(None, "code+moniker://")
+			.with_default_rules(DefaultRulesSelection::Disabled)
+			.with_inline_rules(vec![
+				r#"
+				[[rust.module.where]]
+				id = "tools-descendants"
+				expr = "uri ~ '**/dir:src/module:tools' => count(descendants(fn)) = 0"
+				message = "tools descendants"
+				"#
+				.to_string(),
+			]);
+		let request =
+			CheckRequest::new(root, rules).with_files(vec![PathBuf::from("src/tools/mod.rs")]);
+
+		let run = request
+			.run_with_workspace(&workspace)
+			.expect("filtered check");
+
+		assert!(run.any_error());
+		assert_eq!(run.errors.len(), 1);
+		assert_eq!(run.errors[0].path, root);
+		assert!(run.errors[0].error.contains("catalog unavailable"));
+		assert_eq!(workspace.catalog_calls.load(Ordering::Relaxed), 1);
+	}
 }

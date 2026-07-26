@@ -19,6 +19,21 @@ impl GitignoreStack {
 		Self { layers }
 	}
 
+	pub fn for_path(root: &Path, path: &Path) -> Self {
+		let mut layers = Vec::new();
+		push_layer(root, &mut layers);
+		let parent = path.parent().unwrap_or(path);
+		if let Ok(relative) = parent.strip_prefix(root) {
+			let mut directory = root.to_path_buf();
+			for component in relative.components() {
+				directory.push(component.as_os_str());
+				push_layer(&directory, &mut layers);
+			}
+		}
+		layers.sort_by_key(|layer| std::cmp::Reverse(layer.path().components().count()));
+		Self { layers }
+	}
+
 	pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
 		for layer in &self.layers {
 			if !path.starts_with(layer.path()) {
@@ -35,20 +50,26 @@ impl GitignoreStack {
 }
 
 fn collect_layers(dir: &Path, out: &mut Vec<Gitignore>) {
-	let mut builder = GitignoreBuilder::new(dir);
-	let mut has_rules = false;
+	push_layer(dir, out);
 	if let Ok(entries) = std::fs::read_dir(dir) {
 		for entry in entries.flatten() {
 			let path = entry.path();
 			let name = path.file_name().and_then(|n| n.to_str());
-			if path.is_dir() {
-				if !name.is_some_and(is_ignored_dir_name) {
-					collect_layers(&path, out);
-				}
-			} else if matches!(name, Some(".gitignore") | Some(".ignore")) {
-				let _ = builder.add(&path);
-				has_rules = true;
+			if path.is_dir() && !name.is_some_and(is_ignored_dir_name) {
+				collect_layers(&path, out);
 			}
+		}
+	}
+}
+
+fn push_layer(dir: &Path, out: &mut Vec<Gitignore>) {
+	let mut builder = GitignoreBuilder::new(dir);
+	let mut has_rules = false;
+	for name in [".gitignore", ".ignore"] {
+		let path = dir.join(name);
+		if path.is_file() {
+			let _ = builder.add(&path);
+			has_rules = true;
 		}
 	}
 	if has_rules {
@@ -98,5 +119,22 @@ mod tests {
 
 		assert!(rules.is_ignored(&root.join("top.rs"), false));
 		assert!(!rules.is_ignored(&root.join("keep/lib.rs"), false));
+	}
+
+	#[test]
+	fn path_stack_loads_only_the_candidate_ancestor_chain() {
+		let temp = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).expect("temp workspace");
+		let root = temp.path();
+		std::fs::write(root.join(".gitignore"), "*.rs\n").expect("root gitignore");
+		std::fs::create_dir_all(root.join("keep/deep")).expect("candidate dirs");
+		std::fs::write(root.join("keep/.gitignore"), "!*.rs\n").expect("nested gitignore");
+		std::fs::create_dir_all(root.join("unrelated")).expect("unrelated dir");
+		std::fs::write(root.join("unrelated/.ignore"), "*.txt\n").expect("unrelated ignore");
+
+		let candidate = root.join("keep/deep/lib.rs");
+		let rules = GitignoreStack::for_path(root, &candidate);
+
+		assert!(!rules.is_ignored(&candidate, false));
+		assert_eq!(rules.layers.len(), 2);
 	}
 }

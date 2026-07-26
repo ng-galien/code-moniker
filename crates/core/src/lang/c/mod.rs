@@ -76,6 +76,10 @@ impl crate::lang::LangExtractor for Lang {
 	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "module"];
 
+	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
+		Some(sdk_pipeline::compute_module_moniker(anchor, uri))
+	}
+
 	fn extract(
 		uri: &str,
 		source: &str,

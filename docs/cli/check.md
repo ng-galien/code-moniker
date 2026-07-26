@@ -11,9 +11,6 @@ code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
 code-moniker rules learn [TOPIC] [--format text|json]
 code-moniker rules eval --rules <PATH> --lang <TAG> [--profile <NAME>] [--default-rules on|off] [--format text|json] [FILE]
-code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
-code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
-code-moniker harness gemini [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker agent install --client <codex|claude|gemini> [ROOT] --components hooks [--profile <NAME>] [--check-scope <PATH>] [--max-violations <N>]
 ```
 
@@ -28,11 +25,8 @@ selected unless `--profile` is passed explicitly. By default, hooks check `.`
 with the root `.code-moniker.toml`; use `--profile` and `--check-scope` for a
 narrower edit-time rule set.
 
-The compatibility commands `code-moniker harness codex`,
-`code-moniker harness claude`, and `code-moniker harness gemini` remain
-available. They install hooks directly and use the legacy `--scope` option.
-See [Agent integration, harness, hooks, and CI](agent-harness.md) for the
-complete installation lifecycle.
+See [Agent integration, hooks, and CI](agent.md) for the complete installation
+lifecycle.
 
 ## Mental model
 
@@ -70,8 +64,8 @@ code-moniker check . --file src/order.ts --file src/invoice.ts
 ```
 
 `--file` is a directory-scan filter, not a replacement for `<PATH>`.
-This is the mode generated live harnesses use after Codex, Claude Code, or
-Gemini write tools. The command loads rules exactly like a normal project
+This is the mode generated agent hooks use after Codex, Claude Code, or Gemini
+write tools. The command loads rules exactly like a normal project
 check on `<PATH>`, including profile handling and project/source-set
 heuristics, but it only extracts and evaluates supported source files named
 by `--file` that still exist under the checked directory. Multiple touched
@@ -81,8 +75,8 @@ Rules that use `require(...)` may lazily inspect the concrete target file
 derived from the current symbol, but `--file` does not become a full
 workspace scan.
 
-For example, a harness installed with `--scope src --profile architecture`
-runs the equivalent of:
+For example, a hook installed with
+`--check-scope src --profile architecture` runs the equivalent of:
 
 ```sh
 code-moniker check --profile architecture src --file src/order.ts
@@ -153,7 +147,7 @@ code-moniker check src/ --profile architecture --max-violations 10
 `--max-violations` keeps the summary and failed-rule counts complete, but
 prints only violations from the largest failed rule group. Within that
 group, entries are ordered by path and line, then the first `N` are shown.
-Generated agent harnesses pass `--max-violations 10` by default so edit
+Generated agent hooks pass `--max-violations 10` by default so edit
 feedback stays small enough for an agent prompt.
 
 Exit codes:
@@ -783,11 +777,12 @@ So:
 
 `disable` wins when a rule id matches both lists.
 
-Profiles are selected only by the command line or by a generated harness:
+Profiles are selected only by the command line or by a generated hook:
 
 ```sh
 code-moniker check . --profile agent-edit
-code-moniker harness claude . --profile agent-edit --scope src
+code-moniker agent install --client claude --components hooks . \
+  --profile agent-edit --check-scope src
 ```
 
 Defining `[profiles.agent-edit]` in TOML does not activate it by itself.
@@ -1031,4 +1026,4 @@ code-moniker check src/ --format json --report \
 
 - Inspect graphs with [`extract`](extract.md).
 - Write exact expressions with the [Rule DSL](check-dsl.md).
-- Wire `check` into hooks or CI with the [agent harness](agent-harness.md).
+- Wire `check` into hooks or CI with [agent integration and hooks](agent.md).

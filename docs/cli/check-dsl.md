@@ -259,11 +259,14 @@ to override.
   direct child defs whose kind maps to the canonical shape.
   `descendants(D)` walks strict descendant defs matching a kind or shape
   domain, which lets combinators such as `pairs(descendants(fn))` reason across
-  nested scopes. In project checks, descendant domains may ask the existing lazy
-  resolver for matching defs outside the current file graph. `segment` means
-  moniker segments. `out_refs` and `in_refs` mean refs whose source or target is
-  the current def. In ref scope, `source.out_refs` and `source.in_refs` inspect
-  refs attached to the current ref source def; `source.ancestors.out_refs` and
+  nested scopes. In project checks, descendant domains first filter the
+  lightweight file-root moniker catalog, then lazily extract only files whose
+  root is a strict descendant of the current owner. Languages return no
+  cross-file candidates when their SDK cannot establish a file-root identity;
+  there is no project-wide extraction fallback. `segment` means moniker
+  segments. `out_refs` and `in_refs` mean refs whose source or target is the
+  current def. In ref scope, `source.out_refs` and `source.in_refs` inspect refs
+  attached to the current ref source def; `source.ancestors.out_refs` and
   `source.ancestors.in_refs` inspect refs attached to ancestor defs of that
   source. Aggregates, domain-value expressions, and collection projections use
   item domains; `pairs(D)` is only valid for `count`, `any`, `all`, and `none`.

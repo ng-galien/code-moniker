@@ -11,14 +11,15 @@
 - `crates/cli`: `code-moniker` binary — CLI, check rendering, TUI/MCP.
 - `vscode-extension/`: VS Code extension (React webviews, daemon-backed trees).
 - `docs/`: reference documentation for humans.
-- `agents/`: canonical agent layer — see Agent Layer below.
+- `agents/`: shared operational maps and skills — see Agent Layer below.
 - `samples/`, `scripts/dogfood/`, `proptest-regressions/`, `bug/`, `evolutions/`: executable knowledge, dogfood tooling, regressions, reproducers, ideas.
 - Prefer executable knowledge: `.code-moniker.toml`, fragments, samples, tests.
 
 ## Agent Layer
 
-- `agents/` is the single source of truth: `maps/` (operational maps), `skills/`, `hooks/`.
-- `.claude/` and `.codex/` are projections: tool-specific wiring plus symlinks into `agents/`. Never edit through the symlinks' duplicates — there are none to edit.
+- `agents/` is the source of truth for shared `maps/` and `skills/`.
+- `.claude/` and `.codex/` are independent, regular client configuration directories. Never symlink them into `agents/`.
+- Project hook scripts and registrations are generated in the selected client's directory by `code-moniker agent install --components hooks`; do not maintain hand-written copies under `agents/`.
 - `docs/` is human reference; operational agent knowledge belongs in `agents/maps/`.
 - Maps: `agents/maps/rust-server.md` (build latency, TUI verification/architecture, boundaries, MCP probes, daemon debugging), `agents/maps/vscode-extension.md` (cartography, ship routine, UI verification harnesses).
 

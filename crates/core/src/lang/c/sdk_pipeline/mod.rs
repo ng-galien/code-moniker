@@ -44,7 +44,7 @@ pub fn extract(
 
 // `.c` files drop their extension; headers keep `.h` in the module name so a
 // pair like server.c / server.h never collides on one moniker.
-fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = uri.strip_suffix(".c").unwrap_or(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"c");

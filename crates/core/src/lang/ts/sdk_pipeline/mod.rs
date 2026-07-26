@@ -13,6 +13,10 @@ use discover::TsDiscover;
 use super::kinds;
 use super::{Presets, parse_with_uri};
 
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
+	canonicalize::compute_module_moniker(anchor, uri)
+}
+
 pub fn extract(
 	uri: &str,
 	source: &str,
@@ -20,7 +24,7 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	let module = canonicalize::compute_module_moniker(anchor, uri);
+	let module = compute_module_moniker(anchor, uri);
 	let tree = parse_with_uri(source, uri);
 	let discovered_parts = TsDiscover::run(
 		module.clone(),

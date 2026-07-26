@@ -28,6 +28,13 @@ pub fn discover_source_files(
 	crate::sources::discover_files(root, files, project)
 }
 
+pub fn discover_source_catalog(
+	root: &Path,
+	project: Option<String>,
+) -> anyhow::Result<SourceFileSet> {
+	crate::sources::discover_catalog(root, project)
+}
+
 pub fn language_for_path(path: &Path) -> anyhow::Result<Lang> {
 	Ok(crate::lang::path_to_lang(path)?)
 }
@@ -67,6 +74,10 @@ pub fn extract_source_with(
 	ctx: &ExtractContext,
 ) -> CodeGraph {
 	crate::extract::extract_with(lang, source, path, ctx)
+}
+
+pub fn source_root_moniker(lang: Lang, path: &Path, ctx: &ExtractContext) -> Option<Moniker> {
+	crate::extract::source_root(lang, path, ctx)
 }
 
 pub fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {

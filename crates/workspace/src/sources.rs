@@ -34,12 +34,14 @@ pub struct SourceFile {
 	pub rel_path: PathBuf,
 	pub anchor: PathBuf,
 	pub lang: code_moniker_core::lang::Lang,
+	pub root_moniker: Option<code_moniker_core::core::moniker::Moniker>,
 	pub retired: bool,
 }
 
 struct SourceScope {
 	source: usize,
 	root_is_dir: bool,
+	c_header_provenance_loaded: bool,
 	root: SourceRoot,
 }
 
@@ -70,8 +72,26 @@ pub fn discover_cancellable(
 	project: Option<String>,
 	cancellation: &WorkspaceCancellation,
 ) -> anyhow::Result<SourceSet> {
+	discover_cancellable_with_context(paths, project, cancellation, true)
+}
+
+pub fn discover_catalog(root: &Path, project: Option<String>) -> anyhow::Result<SourceSet> {
+	discover_cancellable_with_context(
+		&[root.to_path_buf()],
+		project,
+		&WorkspaceCancellation::default(),
+		false,
+	)
+}
+
+fn discover_cancellable_with_context(
+	paths: &[PathBuf],
+	project: Option<String>,
+	cancellation: &WorkspaceCancellation,
+	load_c_context: bool,
+) -> anyhow::Result<SourceSet> {
 	ensure_not_cancelled(cancellation)?;
-	let scopes = discover_scopes(paths, project)?;
+	let scopes = discover_scopes(paths, project, load_c_context)?;
 	let multi = scopes.len() > 1;
 	let mut files = Vec::new();
 	for scope in &scopes {
@@ -121,7 +141,10 @@ pub fn discover_files(
 			root.display()
 		));
 	}
-	let scopes = discover_scopes(&[root.to_path_buf()], project)?;
+	let needs_c_context = files
+		.iter()
+		.any(|file| path_to_lang(file).ok() == Some(code_moniker_core::lang::Lang::C));
+	let scopes = discover_scopes(&[root.to_path_buf()], project, needs_c_context)?;
 	let Some(scope) = scopes.first() else {
 		return Err(anyhow::anyhow!(
 			"discover_scopes returned no scope for {}",
@@ -129,7 +152,6 @@ pub fn discover_files(
 		));
 	};
 	let abs_root = normalize_absolute(&scope.root.path)?;
-	let ignore_rules = GitignoreStack::for_root(&abs_root);
 	let mut source_files = Vec::new();
 	let mut seen = HashSet::new();
 	for file in files {
@@ -141,6 +163,7 @@ pub fn discover_files(
 			if seen.contains(&abs_path) {
 				break;
 			}
+			let ignore_rules = GitignoreStack::for_path(&abs_root, &abs_path);
 			if ignore_rules.is_ignored(&abs_path, false) {
 				continue;
 			}
@@ -163,7 +186,11 @@ pub fn discover_files(
 	})
 }
 
-fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result<Vec<SourceScope>> {
+fn discover_scopes(
+	paths: &[PathBuf],
+	project: Option<String>,
+	load_c_context: bool,
+) -> anyhow::Result<Vec<SourceScope>> {
 	if paths.is_empty() {
 		return Err(anyhow::anyhow!("at least one source path is required"));
 	}
@@ -184,13 +211,18 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 		let label = labels[source_idx].clone();
 		let source_project = project.clone();
 		let mut ts = tsconfig::load(&root);
-		let c = CBuildContext::load(&root);
+		let c = if load_c_context {
+			CBuildContext::load(&root)
+		} else {
+			CBuildContext::default()
+		};
 		if multi {
 			prefix_ts_aliases(&mut ts, &label);
 		}
 		scopes.push(SourceScope {
 			source: source_idx,
 			root_is_dir,
+			c_header_provenance_loaded: load_c_context,
 			root: SourceRoot {
 				input: path.clone(),
 				path: root,
@@ -240,19 +272,32 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 	} else {
 		abs.clone()
 	};
+	let root_moniker = extract::source_root(lang, &anchor, &root.ctx);
 	Some(SourceFile {
 		source,
 		path: abs,
 		rel_path,
 		anchor,
 		lang,
+		root_moniker,
 		retired: false,
 	})
 }
 
 fn scope_accepts_file(scope: &SourceScope, walked: &WalkedFile) -> bool {
-	walked.lang != code_moniker_core::lang::Lang::C
-		|| scope.root.ctx.c.should_index_as_c(&walked.path)
+	if walked.lang != code_moniker_core::lang::Lang::C {
+		return true;
+	}
+	if walked
+		.path
+		.extension()
+		.and_then(|extension| extension.to_str())
+		.is_some_and(|extension| extension.eq_ignore_ascii_case("h"))
+		&& !scope.c_header_provenance_loaded
+	{
+		return false;
+	}
+	scope.root.ctx.c.should_index_as_c(&walked.path)
 }
 
 fn canonical_root_path(root: &Path) -> Option<PathBuf> {
@@ -277,6 +322,7 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 	} else {
 		walked.path.clone()
 	};
+	let root_moniker = extract::source_root(walked.lang, &anchor, &scope.root.ctx);
 	SourceFile {
 		source: scope.source,
 		path: walked.path,
@@ -284,6 +330,7 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 		anchor,
 		retired: false,
 		lang: walked.lang,
+		root_moniker,
 	}
 }
 
@@ -501,6 +548,72 @@ mod tests {
 			!set.files
 				.iter()
 				.any(|file| file.rel_path == Path::new("generated/model.pb.h"))
+		);
+	}
+
+	#[test]
+	fn catalog_keeps_c_translation_units_without_guessing_header_language() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"generated/model.pb.cc",
+			"#include \"model.pb.h\"\n",
+		);
+		write(
+			tmp.path(),
+			"generated/model.pb.h",
+			"namespace generated {}\n",
+		);
+		write(tmp.path(), "src/main.c", "int main(void) { return 0; }\n");
+		write(tmp.path(), "include/api.h", "int api(void);\n");
+
+		let set = discover_catalog(tmp.path(), None).unwrap();
+
+		assert_eq!(
+			set.files
+				.iter()
+				.map(|file| file.rel_path.as_path())
+				.collect::<Vec<_>>(),
+			vec![Path::new("src/main.c")]
+		);
+	}
+
+	#[test]
+	fn explicit_c_headers_use_loaded_build_provenance() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"generated/model.pb.cc",
+			"#include \"model.pb.h\"\n",
+		);
+		write(
+			tmp.path(),
+			"generated/model.pb.h",
+			"namespace generated {}\n",
+		);
+		write(
+			tmp.path(),
+			"src/main.c",
+			"#include \"../include/api.h\"\nint main(void) { return api(); }\n",
+		);
+		write(tmp.path(), "include/api.h", "int api(void);\n");
+
+		let set = discover_files(
+			tmp.path(),
+			&[
+				PathBuf::from("include/api.h"),
+				PathBuf::from("generated/model.pb.h"),
+			],
+			None,
+		)
+		.unwrap();
+
+		assert_eq!(
+			set.files
+				.iter()
+				.map(|file| file.rel_path.as_path())
+				.collect::<Vec<_>>(),
+			vec![Path::new("include/api.h")]
 		);
 	}
 

@@ -37,7 +37,7 @@ pub fn extract(
 		.unwrap_or_else(|err| panic!("Go SDK graph emission failed: {err}"))
 }
 
-fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = uri.strip_suffix(".go").unwrap_or(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"go");
