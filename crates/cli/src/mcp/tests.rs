@@ -292,6 +292,51 @@ fn refresh_tool_requests_daemon_refresh_and_reports_generation() {
 }
 
 #[test]
+fn query_batch_keeps_partial_results_when_one_expression_fails() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+
+	let moniker = app_symbol_moniker(&context);
+	let detail = format!("symbol.detail uri:\"{moniker}\"");
+	let batch = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"queries": [detail, "identity.graph prefix:\"lang:nope\""]}),
+		)
+		.expect("a failing batch expression must not abort the batch");
+
+	assert!(batch.text.contains("result: 1"), "{}", batch.text);
+	assert!(
+		batch.text.contains("operation: symbol.detail"),
+		"the healthy result must survive: {}",
+		batch.text
+	);
+	assert!(
+		batch.text.contains("result: 2") && batch.text.contains("prefix_not_found"),
+		"the failing expression must report inline: {}",
+		batch.text
+	);
+	assert!(
+		batch.text.contains("completeness: partial (1 error(s))"),
+		"{}",
+		batch.text
+	);
+
+	let single = registry.call(
+		&context,
+		"code_moniker_query",
+		&json!({"query": "identity.graph prefix:\"lang:nope\""}),
+	);
+	assert!(
+		single.is_err(),
+		"a single failing query keeps the hard error contract"
+	);
+}
+
+#[test]
 fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");

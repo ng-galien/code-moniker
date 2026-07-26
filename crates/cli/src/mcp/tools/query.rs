@@ -75,40 +75,33 @@ fn execute_query(context: &McpContext, arguments: &Value) -> Result<ToolResult, 
 	let mut outputs = Vec::with_capacity(expressions.len());
 	let mut generation = None;
 	let mut partial = false;
+	let mut errors = 0usize;
 	for (index, expression) in expressions.iter().enumerate() {
-		let request = parse_query(expression).map_err(ToolError::failed)?;
-		let capability = request.query.capability();
-		let projection = query_projection(&request.query).to_vec();
-		let spec = query_capability_spec(capability)
-			.ok_or_else(|| ToolError::failed(format!("query `{capability}` is not registered")))?;
-		if !spec.read_only {
-			return Err(ToolError::failed(format!(
-				"query `{capability}` is not declared read-only; use its dedicated MCP tool"
-			)));
-		}
-		let response = context.query(request).map_err(ToolError::failed)?;
-		if let Some(observed) = response.generation {
-			ensure_generation(&mut generation, observed).map_err(ToolError::failed)?;
-		}
-		partial |= response.next_cursor.is_some();
-		let body = if compact {
-			format_query_response_projected(&response, &projection)
-		} else {
-			serde_json::to_string_pretty(&response).map_err(ToolError::failed)?
-		};
-		if expressions.len() == 1 {
-			outputs.push(format!("operation: {capability}\n\n{body}"));
-		} else {
-			outputs.push(format!(
-				"result: {}\noperation: {capability}\n\n{body}",
-				index + 1
-			));
+		match run_expression(context, expression, compact, &mut generation) {
+			Ok((capability, body, has_cursor)) => {
+				partial |= has_cursor;
+				if expressions.len() == 1 {
+					outputs.push(format!("operation: {capability}\n\n{body}"));
+				} else {
+					outputs.push(format!(
+						"result: {}\noperation: {capability}\n\n{body}",
+						index + 1
+					));
+				}
+			}
+			Err(error) if expressions.len() == 1 => return Err(ToolError::failed(error)),
+			Err(error) => {
+				errors += 1;
+				outputs.push(format!("result: {}\nerror: {error:#}", index + 1));
+			}
 		}
 	}
-	let completeness = if partial {
-		"partial (cursor available)"
+	let completeness = if errors > 0 {
+		format!("partial ({errors} error(s))")
+	} else if partial {
+		"partial (cursor available)".to_string()
 	} else {
-		"full"
+		"full".to_string()
 	};
 	let operation = if expressions.len() == 1 {
 		"query"
@@ -124,6 +117,33 @@ fn execute_query(context: &McpContext, arguments: &Value) -> Result<ToolResult, 
 		text: apply_response_aliases(output, compact, candidates.iter().map(String::as_str)),
 		is_error: false,
 	})
+}
+
+fn run_expression(
+	context: &McpContext,
+	expression: &str,
+	compact: bool,
+	generation: &mut Option<WorkspaceGeneration>,
+) -> anyhow::Result<(&'static str, String, bool)> {
+	let request = parse_query(expression)?;
+	let capability = request.query.capability();
+	let projection = query_projection(&request.query).to_vec();
+	let spec = query_capability_spec(capability)
+		.ok_or_else(|| anyhow::anyhow!("query `{capability}` is not registered"))?;
+	if !spec.read_only {
+		anyhow::bail!("query `{capability}` is not declared read-only; use its dedicated MCP tool");
+	}
+	let response = context.query(request)?;
+	if let Some(observed) = response.generation {
+		ensure_generation(generation, observed)?;
+	}
+	let has_cursor = response.next_cursor.is_some();
+	let body = if compact {
+		format_query_response_projected(&response, &projection)
+	} else {
+		serde_json::to_string_pretty(&response)?
+	};
+	Ok((capability, body, has_cursor))
 }
 
 fn query_expressions(arguments: &Value) -> anyhow::Result<Vec<&str>> {
