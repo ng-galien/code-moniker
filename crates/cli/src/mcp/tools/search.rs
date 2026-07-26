@@ -12,6 +12,11 @@ use crate::mcp::context::McpContext;
 
 const DEFAULT_CONTEXT_LINES: usize = 0;
 const MAX_CONTEXT_LINES: usize = 20;
+const ZERO_HIT_HINT: &str = concat!(
+	"  hint: search scores symbol names, not natural language; ",
+	"retry with an identifier-shaped token ",
+	"or use code_moniker_symbols name:\"<regex>\"\n"
+);
 
 pub(super) struct SearchTool;
 
@@ -228,6 +233,7 @@ fn render_search_lmnav(scheme: &str, request: &SearchRequest, rows: &[SearchRow<
 	output.push_str("results:\n");
 	if rows.is_empty() {
 		output.push_str("  <empty>\n");
+		output.push_str(ZERO_HIT_HINT);
 	} else {
 		for row in rows.iter().take(end).skip(start) {
 			render_search_row(&mut output, row);
@@ -275,6 +281,9 @@ fn render_daemon_search_lmnav(
 	output.push_str("results:\n");
 	if rows.is_empty() {
 		output.push_str("  <empty>\n");
+		if total == 0 {
+			output.push_str(ZERO_HIT_HINT);
+		}
 	} else {
 		for row in rows {
 			render_daemon_search_row(&mut output, row);
@@ -290,6 +299,30 @@ fn render_daemon_search_lmnav(
 		append_search_next_call(&mut output, request, 50, None);
 	}
 	output
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn zero_hit_search_explains_name_scoring() {
+		let request = SearchRequest::from_arguments(&serde_json::json!({
+			"query": "run check command"
+		}))
+		.expect("search request");
+
+		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0);
+
+		assert!(
+			rendered.contains("hint: search scores symbol names"),
+			"a zero-hit search must explain name scoring, got:\n{rendered}"
+		);
+		assert!(
+			rendered.contains("code_moniker_symbols"),
+			"the hint must route to the regex tool, got:\n{rendered}"
+		);
+	}
 }
 
 fn render_daemon_search_row(output: &mut String, row: &SymbolDto) {
