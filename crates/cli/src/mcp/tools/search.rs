@@ -1,8 +1,7 @@
 use code_moniker_query::{Query, QueryResult, SymbolDto, SymbolSearchQuery};
-use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::common::{compact_argument, line_range_suffix, symbol_line_suffix};
+use super::common::{compact_argument, line_range_suffix};
 use super::scope::{
 	Paging, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
 	append_call_number_arg, append_call_string_arg,
@@ -162,14 +161,6 @@ impl SearchRequest {
 	}
 }
 
-struct SearchRow<'a> {
-	symbol: &'a SymbolRecord,
-	source: &'a SourceFileRecord,
-	score: u32,
-	reason: String,
-	code_lines: Vec<(usize, String)>,
-}
-
 fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Result<String> {
 	let response = context.query_refreshed(
 		Query::SymbolSearch(SymbolSearchQuery {
@@ -206,49 +197,6 @@ fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Resu
 		&result.rows,
 		result.total,
 	))
-}
-
-fn render_search_lmnav(scheme: &str, request: &SearchRequest, rows: &[SearchRow<'_>]) -> String {
-	let (start, end, next) = request.paging.window(rows);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {scheme}workspace/search\n"));
-	if let Some(next) = next {
-		output.push_str(&format!(
-			"completeness: partial (hits {start}-{end} of {}, next cursor {next})\n",
-			rows.len()
-		));
-	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str(&format!("hits: {}\n", rows.len()));
-	output.push_str(&format!("limit: {}\n", request.paging.limit));
-	output.push('\n');
-	output.push_str("scope:\n");
-	for line in request.scope.describe() {
-		output.push_str(&line);
-		output.push('\n');
-	}
-	output.push_str(&format!("  query: {}\n", request.query));
-	output.push('\n');
-	output.push_str("results:\n");
-	if rows.is_empty() {
-		output.push_str("  <empty>\n");
-		output.push_str(ZERO_HIT_HINT);
-	} else {
-		for row in rows.iter().take(end).skip(start) {
-			render_search_row(&mut output, row);
-		}
-	}
-	if next.is_some() || !request.compact {
-		output.push_str("\nnext:\n");
-	}
-	if let Some(next) = next {
-		append_search_next_call(&mut output, request, request.paging.limit, Some(next));
-	}
-	if !request.compact {
-		append_search_next_call(&mut output, request, 50, None);
-	}
-	output
 }
 
 fn render_daemon_search_lmnav(
@@ -296,7 +244,7 @@ fn render_daemon_search_lmnav(
 		append_daemon_search_next_call(&mut output, request, request.paging.limit, next);
 	}
 	if !request.compact {
-		append_search_next_call(&mut output, request, 50, None);
+		append_search_next_call(&mut output, request, 50);
 	}
 	output
 }
@@ -369,31 +317,7 @@ fn append_daemon_search_next_call(
 	output.push('\n');
 }
 
-fn render_search_row(output: &mut String, row: &SearchRow<'_>) {
-	output.push_str(&format!(
-		"  - {} {} {}{}\n",
-		row.symbol.kind,
-		row.symbol.name,
-		row.source.rel_path,
-		symbol_line_suffix(row.symbol)
-	));
-	output.push_str(&format!("    score: {}\n", row.score));
-	output.push_str(&format!("    reason: {}\n", row.reason));
-	output.push_str(&format!("    uri: {}\n", row.symbol.identity));
-	if !row.code_lines.is_empty() {
-		output.push_str("    code:\n");
-		for (line_number, line) in &row.code_lines {
-			output.push_str(&format!("      {line_number:>4} | {line}\n"));
-		}
-	}
-}
-
-fn append_search_next_call(
-	output: &mut String,
-	request: &SearchRequest,
-	limit: usize,
-	cursor: Option<usize>,
-) {
+fn append_search_next_call(output: &mut String, request: &SearchRequest, limit: usize) {
 	output.push_str("  - code_moniker_search");
 	append_call_string_arg(output, "query", &request.query);
 	request.scope.append_call_args(output);
@@ -402,9 +326,6 @@ fn append_search_next_call(
 		append_call_number_arg(output, "context_lines", request.context_lines);
 	}
 	append_call_number_arg(output, "limit", limit);
-	if let Some(cursor) = cursor {
-		append_call_number_arg(output, "cursor", cursor);
-	}
 	if !request.compact {
 		append_call_bool_arg(output, "compact", false);
 	}
