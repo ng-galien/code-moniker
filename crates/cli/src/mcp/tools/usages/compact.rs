@@ -245,11 +245,17 @@ fn render_compact_usage_group(
 fn usage_class(row: &UsageDto, type_target: bool) -> UsageClass {
 	if is_technical_usage(&row.kind, type_target) {
 		UsageClass::Technical
-	} else if is_test_file(&row.file) {
+	} else if is_test_file(&row.file) || is_test_context(&row.context) {
 		UsageClass::Test
 	} else {
 		UsageClass::Production
 	}
+}
+
+fn is_test_context(context: &str) -> bool {
+	context
+		.split('/')
+		.any(|segment| segment.starts_with("test:") || segment == "module:tests")
 }
 
 fn is_technical_usage(kind: &str, type_target: bool) -> bool {
@@ -373,7 +379,9 @@ fn render_usage_source_snippet(output: &mut String, snippet: &UsageSourceSnippet
 
 #[cfg(test)]
 mod tests {
-	use super::{confined_source_path, is_technical_usage, is_test_file};
+	use code_moniker_query::{UsageDirection, UsageDto};
+
+	use super::{UsageClass, confined_source_path, is_technical_usage, is_test_file, usage_class};
 
 	#[test]
 	fn technical_usage_filter_preserves_type_semantics_for_type_targets() {
@@ -394,6 +402,33 @@ mod tests {
 		assert!(is_test_file("src/__tests__/button.ts"));
 		assert!(is_test_file("crates/cli/src/mcp/tests.rs"));
 		assert!(!is_test_file("src/contest/Statistics.java"));
+	}
+
+	#[test]
+	fn inline_cfg_test_context_classifies_as_test() {
+		let row = |context: &str| UsageDto {
+			root: String::new(),
+			direction: UsageDirection::Incoming,
+			reference: String::new(),
+			kind: "method_call".to_string(),
+			actor: "caller()".to_string(),
+			context: context.to_string(),
+			endpoint: String::new(),
+			file: "crates/check/src/check/command.rs".to_string(),
+			prefix: "crates".to_string(),
+			location: String::new(),
+			line_range: None,
+			via: None,
+		};
+
+		let inline_test = row(concat!(
+			"code+moniker://./lang:rs/dir:crates/module:command/module:tests",
+			"/test:false_lazy_rule_does_not_build_the_source_catalog()"
+		));
+		assert_eq!(usage_class(&inline_test, false), UsageClass::Test);
+
+		let production = row("code+moniker://./lang:rs/dir:crates/module:command/fn:run()");
+		assert_eq!(usage_class(&production, false), UsageClass::Production);
 	}
 
 	#[test]
