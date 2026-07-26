@@ -1091,6 +1091,30 @@ fn require_known_identity_prefix(
 	))
 }
 
+fn directory_or_unknown_focus_error(snapshot: &WorkspaceSnapshot, focus: &str) -> QueryError {
+	let dir_prefix = format!("{}/", focus.trim_end_matches('/'));
+	let is_directory = snapshot
+		.index
+		.sources
+		.iter()
+		.any(|source| source.rel_path.starts_with(&dir_prefix));
+	if is_directory {
+		return QueryError::new(
+			"focus_is_directory",
+			format!(
+				"focus `{focus}` is a directory; the unit graph takes a symbol URI or a \
+				 file path - for scope-level coupling use identity.graph (list valid \
+				 heads with identity.children prefix:\"\"), or pick a file via \
+				 symbol.search path:\"{focus}/**\""
+			),
+		);
+	}
+	QueryError::new(
+		"focus_not_found",
+		format!("no symbol or file matches focus `{focus}`"),
+	)
+}
+
 fn identity_prefix_exists(snapshot: &WorkspaceSnapshot, prefix: &str) -> bool {
 	snapshot
 		.index
@@ -1557,12 +1581,7 @@ fn resolve_unit_boundary(
 		.sources
 		.iter()
 		.find(|source| source.rel_path == focus)
-		.ok_or_else(|| {
-			QueryError::new(
-				"focus_not_found",
-				format!("no symbol or file matches focus `{focus}`"),
-			)
-		})?;
+		.ok_or_else(|| directory_or_unknown_focus_error(snapshot, focus))?;
 	Ok((
 		UnitBoundary::File {
 			source: source.id,
@@ -4736,6 +4755,46 @@ mod tests {
 			})
 			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
 		assert_eq!(port.count, 2, "{port:?}");
+	}
+
+	#[test]
+	fn symbol_graph_routes_directory_focus_to_identity_graph() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub fn entry() {}\n").expect("write lib");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolGraph(code_moniker_query::SymbolGraphQuery {
+				workspace: None,
+				focus: "src".to_string(),
+				direction: code_moniker_query::UsageDirection::Both,
+				relation: Vec::new(),
+				min_count: 1,
+				include_internal: true,
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Error(error) = response else {
+			panic!("a directory focus must fail with routing guidance, got {response:?}");
+		};
+		assert_eq!(error.code, "focus_is_directory", "{error:?}");
+		assert!(
+			error.message.contains("identity.graph"),
+			"the error must route to the scope graph, got {error:?}"
+		);
 	}
 
 	#[test]
