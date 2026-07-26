@@ -6,4 +6,4 @@ export * from "./generated";
 
 export type LineRange = [number, number];
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;

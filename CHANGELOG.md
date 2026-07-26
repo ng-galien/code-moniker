@@ -11,6 +11,29 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Changed
+
+- **Daemon protocol 3 → 4.** Two existing verbs changed observable
+  behavior: `identity.graph` / `identity.children` now fail with
+  `prefix_not_found` (listing the valid root heads) instead of
+  answering an unknown prefix with a silent empty scope, and
+  `symbol.graph` reports a directory focus as `focus_is_directory`
+  with routing guidance instead of a bare `focus_not_found`. The wire
+  shape is unchanged; the bump makes every client recycle
+  protocol-mismatched resident daemons once, so stale daemons built
+  from older binaries stop serving outdated resolution semantics
+  silently.
+- **Resolution accuracy (agent audit follow-up,
+  `evolutions/agent-dogfood-audit-2026-07-26.md`).** Rust: sibling
+  modules are no longer classified as external crates,
+  `super::`/`self::`/`crate::` calls anchor on their real module, and
+  `pub use` façade aliases stop rivaling the definitions they
+  re-export (candidate ambiguity −37% on this repository). TypeScript:
+  `export *` barrels forward references and `@types/X` declares the
+  runtime import root (vscode-extension explained 75.7% → 83.0%). The
+  resolution audit counts bindings to missing symbols as
+  `unresolved/dangling_binding` instead of unique.
+
 ### Added
 
 - **Semantic diff (`code-moniker diff`)** — git changes reported as
