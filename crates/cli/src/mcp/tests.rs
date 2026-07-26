@@ -1211,7 +1211,11 @@ fn diff_tool_reports_symbol_level_change_facts() {
 		"{}",
 		result.text
 	);
-	assert!(result.text.contains("moved fn assist()"), "{}", result.text);
+	assert!(
+		result.text.contains("moved fn") && result.text.contains("fn:assist()"),
+		"symbol facts must carry the side identity: {}",
+		result.text
+	);
 	assert!(result.text.contains("[certain]"), "{}", result.text);
 }
 
@@ -1499,8 +1503,7 @@ fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::P
 	.expect("write fragment view");
 }
 
-#[test]
-fn symbols_tool_filters_and_pages_symbols() {
+fn app_symbols_fixture() -> (Vec<SourceFileRecord>, Vec<SymbolRecord>, SymbolScopeFilter) {
 	let source_id = SourceId::at(1);
 	let sources = vec![SourceFileRecord {
 		id: source_id.clone(),
@@ -1567,6 +1570,42 @@ fn symbols_tool_filters_and_pages_symbols() {
 		"name": "^r"
 	}))
 	.unwrap();
+	(sources, symbols, scope)
+}
+
+#[test]
+fn symbols_tool_verbose_mode_keeps_canonical_uris_and_next_calls() {
+	let (sources, symbols, scope) = app_symbols_fixture();
+	let verbose = render_symbols_lmnav_mode(
+		"code+moniker://",
+		"workspace",
+		&scope,
+		Paging {
+			cursor: 0,
+			generation: None,
+			limit: 1,
+		},
+		SymbolIndexView {
+			sources: &sources,
+			symbols: &symbols,
+			references: &[],
+		},
+		(SymbolAction::List, false),
+	);
+	assert!(!verbose.starts_with("aliases:\n"), "{verbose}");
+	assert!(
+		verbose.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
+		"{verbose}"
+	);
+	assert!(verbose.contains("limit=50"), "{verbose}");
+	assert!(verbose.contains("compact=false"), "{verbose}");
+	assert!(verbose.contains("usages: code_moniker_usages"), "{verbose}");
+	assert!(verbose.contains("code_moniker_read"), "{verbose}");
+}
+
+#[test]
+fn symbols_tool_filters_and_pages_symbols() {
+	let (sources, symbols, scope) = app_symbols_fixture();
 	let text = render_symbols_lmnav(
 		"code+moniker://",
 		"workspace",
@@ -1594,32 +1633,6 @@ fn symbols_tool_filters_and_pages_symbols() {
 	assert!(text.contains("name=\"^r\""), "{text}");
 	assert!(text.contains("cursor=1"), "{text}");
 	assert!(!text.contains("code_moniker_read"), "{text}");
-
-	let verbose = render_symbols_lmnav_mode(
-		"code+moniker://",
-		"workspace",
-		&scope,
-		Paging {
-			cursor: 0,
-			generation: None,
-			limit: 1,
-		},
-		SymbolIndexView {
-			sources: &sources,
-			symbols: &symbols,
-			references: &[],
-		},
-		(SymbolAction::List, false),
-	);
-	assert!(!verbose.starts_with("aliases:\n"), "{verbose}");
-	assert!(
-		verbose.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
-		"{verbose}"
-	);
-	assert!(verbose.contains("limit=50"), "{verbose}");
-	assert!(verbose.contains("compact=false"), "{verbose}");
-	assert!(verbose.contains("usages: code_moniker_usages"), "{verbose}");
-	assert!(verbose.contains("code_moniker_read"), "{verbose}");
 }
 
 #[test]

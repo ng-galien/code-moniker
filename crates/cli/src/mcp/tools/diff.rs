@@ -137,7 +137,7 @@ fn render_symbols(out: &mut String, result: &ChangeReviewResult, max_items: usiz
 		let _ = writeln!(
 			out,
 			"  {} {} {} [{}]",
-			change.kind, side.kind, side.name, change.confidence
+			change.kind, side.kind, side.identity, change.confidence
 		);
 	}
 	if result.symbol_changes.len() > max_items {
@@ -145,6 +145,63 @@ fn render_symbols(out: &mut String, result: &ChangeReviewResult, max_items: usiz
 			out,
 			"  truncated: +{} symbol fact(s)",
 			result.symbol_changes.len() - max_items
+		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use code_moniker_query::{ChangeReviewSide, ChangeReviewSymbol};
+
+	use super::*;
+
+	fn added_method(identity: &str) -> ChangeReviewSymbol {
+		ChangeReviewSymbol {
+			kind: "added".to_string(),
+			confidence: "certain".to_string(),
+			body_changed: false,
+			signature_changed: false,
+			visibility_changed: false,
+			header_changed: false,
+			file_moved: false,
+			old: None,
+			new: Some(ChangeReviewSide {
+				identity: identity.to_string(),
+				file: "crates/check/src/check/command.rs".to_string(),
+				kind: "method".to_string(),
+				name: "source_catalog(root:&Path)".to_string(),
+				visibility: "private".to_string(),
+				lines: None,
+			}),
+		}
+	}
+
+	#[test]
+	fn symbol_facts_carry_their_identity() {
+		let result = ChangeReviewResult {
+			scope: "HEAD..worktree".to_string(),
+			summary: Default::default(),
+			files: Vec::new(),
+			symbol_changes: vec![
+				added_method(
+					"module:command/struct:FsCheckWorkspace/method:source_catalog(root:&Path)",
+				),
+				added_method(
+					"module:command/struct:MemoryCheckWorkspace/method:source_catalog(root:&Path)",
+				),
+			],
+			ref_changes: Vec::new(),
+			diagnostics: Vec::new(),
+		};
+		let mut out = String::new();
+		render_symbols(&mut out, &result, 10);
+		assert!(
+			out.contains("struct:FsCheckWorkspace/method:source_catalog"),
+			"each symbol fact must carry its identity, got:\n{out}"
+		);
+		assert!(
+			out.contains("struct:MemoryCheckWorkspace/method:source_catalog"),
+			"same-name facts must stay distinguishable, got:\n{out}"
 		);
 	}
 }
