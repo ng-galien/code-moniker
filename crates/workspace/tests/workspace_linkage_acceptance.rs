@@ -489,6 +489,19 @@ fn rust_facade_wildcard_reexports_forward_crate_references() {
 }
 
 #[test]
+fn rust_facade_reexport_does_not_rival_the_canonical_definition() {
+	let snapshot = load_workspace("projects/rust/facade-alias");
+
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"uses_type",
+		"module:consumer/fn:build(_run:&CheckRun)",
+		"CheckRun",
+		"module:command/struct:CheckRun",
+	);
+}
+
+#[test]
 fn rust_qualified_calls_resolve_through_module_reexports() {
 	let snapshot = load_workspace("projects/rust/reexport-qualified");
 

@@ -83,6 +83,11 @@ impl<'a> ReferenceResolver<'a> {
 		policies: &LinkagePolicies<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let global_targets = self.global.resolve(query, policies.candidates);
+		let global_targets = prefer_definitions_over_reexport_aliases(
+			self.material,
+			policies.candidates,
+			global_targets,
+		);
 		let global_targets = confirm_name_match_targets(policies.candidates, query, global_targets);
 		let global_decision = policies.manifests.evaluate_global_targets(
 			query,
@@ -101,6 +106,40 @@ impl<'a> ReferenceResolver<'a> {
 			site.reference,
 			global_resolution_evidence(query),
 		)
+	}
+}
+
+// A rust `pub use` façade indexes a path alias that rivals the definition
+// it re-exports in global name binding; a mixed set keeps the concrete
+// definitions only. Scoped to rust candidates: python reuses the path kind
+// for ordinary module-level bindings, which are legitimate definitions.
+fn prefer_definitions_over_reexport_aliases(
+	material: &CodeIndexMaterial,
+	catalog: &CandidateCatalog,
+	targets: SymbolSet,
+) -> SymbolSet {
+	if targets.len() < 2 {
+		return targets;
+	}
+	let mut concrete = SymbolSet::new();
+	for symbol in targets.iter() {
+		let is_alias = catalog.candidate(symbol).is_some_and(|candidate| {
+			candidate
+				.last_segment
+				.is_some_and(|segment| segment.kind == code_moniker_core::lang::kinds::PATH)
+				&& material
+					.files
+					.get(candidate.source_file)
+					.is_some_and(|file| file.lang == Lang::Rs)
+		});
+		if !is_alias {
+			concrete.insert(symbol);
+		}
+	}
+	if concrete.is_empty() || concrete.len() == targets.len() {
+		targets
+	} else {
+		concrete
 	}
 }
 
