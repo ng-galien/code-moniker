@@ -166,12 +166,12 @@ fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<Tool
 		anyhow::bail!("unexpected symbol graph response");
 	};
 	Ok(ToolResult {
-		text: render_graph(&result, request.max_items),
+		text: render_graph(&result, request.max_items, request.direction),
 		is_error: false,
 	})
 }
 
-fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
+fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDirection) -> String {
 	let mut out = String::new();
 	match &result.focus {
 		SymbolGraphFocus::Symbol { symbol } => {
@@ -214,8 +214,12 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
 			.join(" · ");
 		let _ = writeln!(out, "unresolved by reason: {reasons}");
 	}
-	render_neighbors(&mut out, "callers", &result.callers, max_items);
-	render_neighbors(&mut out, "callees", &result.callees, max_items);
+	if direction != UsageDirection::Outgoing {
+		render_neighbors(&mut out, "callers", &result.callers, max_items);
+	}
+	if direction != UsageDirection::Incoming {
+		render_neighbors(&mut out, "callees", &result.callees, max_items);
+	}
 	out
 }
 
@@ -249,11 +253,36 @@ mod tests {
 			},
 		};
 
-		let rendered = render_graph(&result, 10);
+		let rendered = render_graph(&result, 10, UsageDirection::Both);
 
 		assert!(rendered.contains(
 			"unlinked refs: external 1 (sdk 1 · dependency 0 · injected 0 · unknown 0) · candidate 2 · dynamic 3 · manifest-blocked 4 · unresolved 5"
 		));
+	}
+
+	#[test]
+	fn graph_render_omits_sections_filtered_by_direction() {
+		let result = SymbolGraphResult {
+			focus: SymbolGraphFocus::File {
+				path: "src/sample.py".to_string(),
+			},
+			members: Vec::new(),
+			internal_edges: Vec::new(),
+			callers: Vec::new(),
+			callees: Vec::new(),
+			unlinked: UnlinkedRefsDto::default(),
+		};
+
+		let rendered = render_graph(&result, 10, UsageDirection::Outgoing);
+
+		assert!(
+			!rendered.contains("callers:"),
+			"a caller section cleared by direction=outgoing must not render as a fact, got:\n{rendered}"
+		);
+		assert!(
+			rendered.contains("callees: 0"),
+			"the requested direction must still render, got:\n{rendered}"
+		);
 	}
 }
 
