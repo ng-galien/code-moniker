@@ -105,7 +105,13 @@ struct AuditLookups<'a> {
 	unresolved: HashMap<crate::snapshot::ReferenceId, &'static str>,
 	blocked: HashMap<crate::snapshot::ReferenceId, &'static str>,
 	external: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin>,
-	resolved: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ResolutionEvidence>,
+	resolved: HashMap<
+		crate::snapshot::ReferenceId,
+		(
+			crate::snapshot::ResolutionEvidence,
+			crate::snapshot::SymbolId,
+		),
+	>,
 	candidates: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::CandidateReference>,
 	dynamic: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::DynamicReference>,
 }
@@ -185,10 +191,16 @@ fn external_references(
 
 fn resolved_evidence(
 	edges: &[crate::snapshot::LinkageEdge],
-) -> HashMap<crate::snapshot::ReferenceId, crate::snapshot::ResolutionEvidence> {
+) -> HashMap<
+	crate::snapshot::ReferenceId,
+	(
+		crate::snapshot::ResolutionEvidence,
+		crate::snapshot::SymbolId,
+	),
+> {
 	edges
 		.iter()
-		.map(|edge| (edge.reference, edge.evidence))
+		.map(|edge| (edge.reference, (edge.evidence, edge.target)))
 		.collect()
 }
 
@@ -344,7 +356,17 @@ fn classify_reference(
 	reference: &ReferenceRecord,
 	totals: &mut AuditTotals,
 ) -> Option<AuditClassification> {
-	if let Some(evidence) = lookups.resolved.get(&reference.id) {
+	if let Some((evidence, target)) = lookups.resolved.get(&reference.id) {
+		if !lookups.symbol_identities.contains_key(target) {
+			totals.unresolved += 1;
+			return Some(AuditClassification {
+				status: "unresolved",
+				reason: "dangling_binding",
+				evidence: "linkage",
+				scope: "unknown",
+				candidate_targets: Vec::new(),
+			});
+		}
 		if *evidence != crate::snapshot::ResolutionEvidence::NameMatch {
 			totals.unique += 1;
 			return None;
@@ -664,6 +686,86 @@ mod tests {
 		SourceFileRecord, SourceId, SymbolId, SymbolRecord, UnresolvedReason, UnresolvedReference,
 		WorkspaceSnapshot, WorkspaceTimings,
 	};
+
+	#[test]
+	fn dangling_resolved_binding_is_counted_unresolved_not_unique() {
+		let generation = ResourceGeneration::new(1);
+		let source = SourceId::at(0);
+		let source_symbol = SymbolId::at(0, 0);
+		let missing_target = SymbolId::at(9, 9);
+		let mut source_record = SymbolRecord::new(source_symbol, source, "run", "function");
+		source_record.identity =
+			Arc::from("code+moniker://./lang:python/module:sample/function:run");
+		let reference = ReferenceRecord::new(
+			ReferenceId::at(0, 0),
+			source,
+			source_symbol,
+			"code+moniker://./lang:python/module:sample/method:work",
+			"method_call",
+			Some((10, 10)),
+		);
+		let resolved = vec![LinkageEdge::new(ReferenceId::at(0, 0), missing_target)];
+		let linkage = LinkageSnapshot {
+			generation,
+			index_generation: generation,
+			resolved_refs: 1,
+			candidate_refs: 0,
+			external_refs: 0,
+			dynamic_refs: 0,
+			blocked_refs: 0,
+			manifest_blocked_refs: 0,
+			unresolved_refs: 0,
+			ambiguous_refs: 0,
+			read_index: LinkageReadIndexHandle::from_edges(&resolved),
+			resolved,
+			candidates: Vec::new(),
+			external: Vec::new(),
+			dynamic: Vec::new(),
+			blocked: Vec::new(),
+			manifest_blocked: Vec::new(),
+			unresolved: Vec::new(),
+		};
+		let mut index = CodeIndex::with_references(
+			generation,
+			generation,
+			vec![source_record],
+			vec![reference],
+		);
+		index.sources.push(SourceFileRecord {
+			id: source,
+			uri: "file://sample.py".to_string(),
+			source_root: 0,
+			path: "sample.py".to_string(),
+			rel_path: "src/sample.py".to_string(),
+			anchor: "sample.py".to_string(),
+			language: "python".to_string(),
+			text: (0..20).map(|_| "value.work()\n").collect(),
+		});
+		let snapshot = WorkspaceSnapshot {
+			generation,
+			catalog: SourceCatalog::new(generation, Vec::new()),
+			index,
+			linkage,
+			changes: ChangeOverlay::new(generation, generation, generation, Vec::new()),
+			timings: WorkspaceTimings::default(),
+		};
+
+		let audit = resolution_audit(&snapshot, "lang:python", AuditOptions::default());
+
+		assert_eq!(
+			audit.totals.unique, 0,
+			"a binding to a symbol absent from the index must not count unique"
+		);
+		assert_eq!(audit.totals.unresolved, 1, "{:?}", audit.totals);
+		assert!(
+			audit
+				.clusters
+				.iter()
+				.any(|cluster| cluster.pattern.reason == "dangling_binding"),
+			"the dangling binding must cluster under its own reason: {:?}",
+			audit.clusters
+		);
+	}
 
 	#[test]
 	fn totals_partition_unique_candidate_external_dynamic_blocked_and_unresolved() {
