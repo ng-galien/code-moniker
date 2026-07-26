@@ -1,0 +1,8 @@
+{
+	"name": "types-manifest",
+	"version": "0.1.0",
+	"devDependencies": {
+		"@types/vscode": "^1.90.0",
+		"@types/babel__core": "^7.20.0"
+	}
+}

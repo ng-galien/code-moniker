@@ -72,8 +72,17 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PackageJsonError> {
 	Ok(out)
 }
 
+// A DefinitelyTyped package types the runtime package it shadows:
+// @types/vscode declares the `vscode` import root and the scoped mangling
+// @types/babel__core declares `@babel/core`.
 pub(crate) fn ts_import_root(name: &str) -> String {
-	name.to_string()
+	let Some(types) = name.strip_prefix("@types/") else {
+		return name.to_string();
+	};
+	match types.split_once("__") {
+		Some((scope, package)) => format!("@{scope}/{package}"),
+		None => types.to_string(),
+	}
 }
 
 pub fn package_moniker(project: &[u8], import_root: &str) -> Moniker {
@@ -194,6 +203,29 @@ fn extract_version(spec: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn types_package_declares_the_runtime_import_root() {
+		let json = r#"{
+			"name": "demo",
+			"version": "0.1.0",
+			"devDependencies": {
+				"@types/vscode": "^1.90.0",
+				"@types/babel__core": "^7.20.0"
+			}
+		}"#;
+		let deps = parse(json).unwrap();
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "@types/vscode" && d.import_root == "vscode"),
+			"@types/vscode must declare the vscode import root: {deps:#?}"
+		);
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "@types/babel__core" && d.import_root == "@babel/core"),
+			"DefinitelyTyped scoped mangling must unfold: {deps:#?}"
+		);
+	}
 
 	#[test]
 	fn parse_minimal_package() {

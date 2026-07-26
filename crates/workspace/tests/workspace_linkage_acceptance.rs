@@ -862,6 +862,18 @@ fn ts_namespace_import_calls_resolve_to_module_functions() {
 }
 
 #[test]
+fn ts_types_package_declares_the_runtime_dependency() {
+	let snapshot = load_workspace("projects/ts/types-manifest");
+
+	assert_external_origin(
+		&snapshot,
+		"reads",
+		"external_pkg:vscode",
+		ExternalReferenceOrigin::Dependency,
+	);
+}
+
+#[test]
 fn ts_manifest_undeclared_package_imports_are_not_external() {
 	let snapshot = load_workspace("projects/ts/undeclared-manifest");
 
