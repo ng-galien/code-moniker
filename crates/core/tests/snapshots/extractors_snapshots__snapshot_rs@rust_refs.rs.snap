@@ -248,7 +248,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "parent": "code+moniker://app/lang:rs/module:rust_refs",
       "position": [
         1033,
-        1142
+        1141
       ],
       "signature": "",
       "visibility": "private"
@@ -261,7 +261,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "parent": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()",
       "position": [
         1052,
-        1113
+        1112
       ],
       "signature": "",
       "visibility": ""
@@ -522,8 +522,8 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()",
       "kind": "calls",
       "position": [
-        1115,
-        1139
+        1114,
+        1138
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
