@@ -11,6 +11,16 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-26
+
+Resolution and agent-contract hardening driven by a full agent
+dogfood audit replayed as a counter-audit: rust explained coverage
+becomes a trustworthy 98.4% (phantom external crates eliminated,
+façade aliases no longer rival definitions, dangling bindings
+surfaced), the vscode extension's TypeScript climbs from 75.7% to
+83.0% explained, and every silent-empty agent surface now fails
+loudly with routing guidance. Daemon protocol 3 → 4.
+
 ### Changed
 
 - **Daemon protocol 3 → 4.** Two existing verbs changed observable
@@ -33,6 +43,19 @@ in `0.y.z`.
   runtime import root (vscode-extension explained 75.7% → 83.0%). The
   resolution audit counts bindings to missing symbols as
   `unresolved/dangling_binding` instead of unique.
+
+### Fixed
+
+- **Agent surfaces fail loudly and read truthfully.** MCP graph omits
+  direction-filtered sections instead of rendering `callers: 0` as a
+  fact; zero-hit search explains name scoring; the query batch keeps
+  partial results with inline errors; the in-process MCP runtime waits
+  bounded for the initial index instead of failing the first calls;
+  usages classify inline `#[cfg(test)]` callers as test; change.context
+  joins internal edges to member names; diff symbol facts carry the
+  side identity so same-name facts stay distinguishable.
+
+## [0.5.0] - 2026-07-25
 
 ### Added
 
