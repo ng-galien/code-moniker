@@ -2434,13 +2434,29 @@ fn format_context_graph(out: &mut String, graph: &SymbolGraphResult) {
 		}
 	}
 	if !graph.internal_edges.is_empty() {
+		let member_labels: BTreeMap<&str, String> = graph
+			.members
+			.iter()
+			.map(|member| {
+				(
+					member.id.as_str(),
+					format!("{} {}", member.kind, member.name),
+				)
+			})
+			.collect();
+		let endpoint_label = |endpoint: &str| {
+			member_labels
+				.get(endpoint)
+				.cloned()
+				.unwrap_or_else(|| endpoint.to_string())
+		};
 		let _ = writeln!(out, "internal_edges:");
 		for edge in &graph.internal_edges {
 			let _ = writeln!(
 				out,
 				"- {} -> {} x{} [{}]",
-				edge.source,
-				edge.target,
+				endpoint_label(&edge.source),
+				endpoint_label(&edge.target),
 				edge.count,
 				edge.kinds.join(",")
 			);
@@ -3440,6 +3456,62 @@ mod tests {
 		};
 		let formatted = format_query_response(&response);
 		assert!(formatted.contains("next_cursor: 7:40"));
+	}
+
+	#[test]
+	fn context_graph_internal_edges_join_member_names() {
+		let member = |id: &str, name: &str| SymbolDto {
+			root: String::new(),
+			uri: format!("code+moniker://./module:m/fn:{name}"),
+			id: id.to_string(),
+			name: name.to_string(),
+			kind: "fn".to_string(),
+			visibility: "pub".to_string(),
+			signature: String::new(),
+			file: "src/lib.rs".to_string(),
+			language: "rs".to_string(),
+			line_range: None,
+			navigable: true,
+			score: None,
+			match_reason: None,
+			source: None,
+		};
+		let graph = SymbolGraphResult {
+			focus: SymbolGraphFocus::File {
+				path: "src/lib.rs".to_string(),
+			},
+			members: vec![
+				member("symbol:40:2", "alpha()"),
+				member("symbol:40:7", "beta()"),
+			],
+			internal_edges: vec![
+				SymbolGraphEdge {
+					source: "symbol:40:2".to_string(),
+					target: "symbol:40:7".to_string(),
+					kinds: vec!["calls".to_string()],
+					count: 2,
+				},
+				SymbolGraphEdge {
+					source: "symbol:40:2".to_string(),
+					target: "symbol:99:9".to_string(),
+					kinds: vec!["reads".to_string()],
+					count: 1,
+				},
+			],
+			callers: Vec::new(),
+			callees: Vec::new(),
+			unlinked: UnlinkedRefsDto::default(),
+		};
+		let mut out = String::new();
+		format_context_graph(&mut out, &graph);
+		assert!(
+			out.contains("- fn alpha() -> fn beta() x2 [calls]"),
+			"internal edges must join member names, got:\n{out}"
+		);
+		assert!(
+			out.contains("- fn alpha() -> symbol:99:9 x1 [reads]"),
+			"unknown endpoints must keep the raw id, got:\n{out}"
+		);
 	}
 }
 
