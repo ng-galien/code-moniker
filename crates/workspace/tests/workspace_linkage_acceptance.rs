@@ -831,6 +831,19 @@ fn ts_external_receiver_origin_is_scoped_to_the_call_site_manifest() {
 }
 
 #[test]
+fn ts_barrel_reexport_forwards_type_references() {
+	let snapshot = load_workspace("projects/ts/barrel");
+
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"uses_type",
+		"module:consumer/function:update(review:ChangeReviewResult)",
+		"ChangeReviewResult",
+		"module:generated/interface:ChangeReviewResult",
+	);
+}
+
+#[test]
 fn ts_namespace_import_calls_resolve_to_module_functions() {
 	let snapshot = load_workspace("projects/ts/namespace-import");
 

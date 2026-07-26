@@ -13,6 +13,7 @@ use crate::source::CodeIndexMaterial;
 #[derive(Default)]
 pub(in crate::linkage) struct CrateForwards {
 	by_root: FxHashMap<Vec<u8>, Vec<u8>>,
+	by_barrel: FxHashMap<Moniker, Moniker>,
 }
 
 impl CrateForwards {
@@ -20,25 +21,46 @@ impl CrateForwards {
 		material: &CodeIndexMaterial,
 		manifests: &ManifestPolicy,
 	) -> Self {
-		let mut by_root = FxHashMap::default();
+		let mut forwards = Self::default();
 		for (file_idx, file) in material.files.iter().enumerate() {
 			for ref_idx in 0..file.graph.ref_count() {
-				let reference = file.graph.ref_at(ref_idx);
-				if reference.kind != kinds::REEXPORTS {
-					continue;
-				}
-				let Some(target) = bare_external_root(&reference.target) else {
-					continue;
-				};
-				for root in source_package_roots(manifests, file_idx) {
-					by_root.entry(root).or_insert_with(|| target.to_vec());
-				}
+				forwards.record_reexport(manifests, file_idx, &file.graph, ref_idx);
 			}
 		}
-		Self { by_root }
+		forwards
+	}
+
+	fn record_reexport(
+		&mut self,
+		manifests: &ManifestPolicy,
+		file_idx: usize,
+		graph: &code_moniker_core::core::code_graph::CodeGraph,
+		ref_idx: usize,
+	) {
+		let reference = graph.ref_at(ref_idx);
+		if reference.kind != kinds::REEXPORTS {
+			return;
+		}
+		if let Some(target) = bare_external_root(&reference.target) {
+			for root in source_package_roots(manifests, file_idx) {
+				self.by_root.entry(root).or_insert_with(|| target.to_vec());
+			}
+			return;
+		}
+		let Some(barrel) = wildcard_barrel(graph.def_at(reference.source), reference) else {
+			return;
+		};
+		self.by_barrel
+			.entry(barrel)
+			.or_insert_with(|| reference.target.clone());
 	}
 
 	pub(in crate::linkage) fn rewrite(&self, target: &Moniker) -> Option<Moniker> {
+		self.rewrite_external_root(target)
+			.or_else(|| self.rewrite_barrel_member(target))
+	}
+
+	fn rewrite_external_root(&self, target: &Moniker) -> Option<Moniker> {
 		let view = target.as_view();
 		let mut segments = view.segments();
 		let head = segments.next()?;
@@ -54,6 +76,37 @@ impl CrateForwards {
 		}
 		Some(builder.build())
 	}
+
+	fn rewrite_barrel_member(&self, target: &Moniker) -> Option<Moniker> {
+		let parent = target.parent()?;
+		let forwarded = self.by_barrel.get(&parent)?;
+		let last = target.as_view().segments().last()?;
+		let mut builder = MonikerBuilder::from_view(forwarded.as_view());
+		builder.segment(last.kind, last.name);
+		Some(builder.build())
+	}
+}
+
+// An `export * from "./inner"` records a module-to-module reexport: the
+// barrel module's own members are aliases for the inner module's surface.
+fn wildcard_barrel(
+	source: &code_moniker_core::core::code_graph::DefRecord,
+	reference: &code_moniker_core::core::code_graph::RefRecord,
+) -> Option<Moniker> {
+	let source_is_module = source
+		.moniker
+		.as_view()
+		.segments()
+		.last()
+		.is_some_and(|segment| segment.kind == kinds::MODULE);
+	let target_is_module = reference
+		.target
+		.as_view()
+		.segments()
+		.last()
+		.is_some_and(|segment| segment.kind == kinds::MODULE);
+	(source_is_module && target_is_module && source.moniker != reference.target)
+		.then(|| source.moniker.clone())
 }
 
 fn bare_external_root(target: &Moniker) -> Option<&[u8]> {
