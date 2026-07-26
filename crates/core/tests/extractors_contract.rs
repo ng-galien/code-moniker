@@ -437,6 +437,41 @@ fn rust_pub_use_from_declared_crate_module_targets_local_module() {
 }
 
 #[test]
+fn rust_declared_module_call_targets_local_module() {
+	let source = "pub(crate) mod check;\npub fn run() { check::run(); }\n";
+	let graph = lang::rs::Lang::extract(
+		"crates/cli/src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let calls: Vec<_> = graph
+		.refs()
+		.filter(|reference| reference.kind == b"calls")
+		.map(|reference| {
+			(
+				render(&reference.target),
+				String::from_utf8_lossy(&reference.confidence).to_string(),
+			)
+		})
+		.collect();
+
+	assert!(
+		calls.iter().any(|(target, confidence)| target
+			== "code+moniker://app/lang:rs/dir:crates/dir:cli/dir:src/module:check/fn:run"
+			&& confidence == "name_match"),
+		"a call into a locally declared module must anchor on that module, not an external crate: {calls:#?}"
+	);
+	assert!(
+		calls
+			.iter()
+			.all(|(target, _)| !target.contains("external_pkg:check")),
+		"sibling modules must never be classified as external crates: {calls:#?}"
+	);
+}
+
+#[test]
 fn rust_pub_crate_type_is_not_public_visibility() {
 	let source = "pub(crate) struct Internal;\npub struct Boundary;\n";
 	let graph = lang::rs::Lang::extract(

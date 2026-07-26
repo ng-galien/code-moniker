@@ -66,3 +66,15 @@ kind = "calls"
 from = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()"
 to = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
 confidence = "name_match"
+
+[[defs]]
+label = "dispatcher"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()"
+
+[[refs]]
+label = "sibling module call anchors on the lexical module"
+kind = "calls"
+from = "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()"
+to = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
+confidence = "name_match"

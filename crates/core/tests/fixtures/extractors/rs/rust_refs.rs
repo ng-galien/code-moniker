@@ -38,3 +38,9 @@ mod nested {
 	// cm: def nested sibling
 	pub fn nested_sibling() {}
 }
+
+// cm: def dispatcher
+fn dispatcher() {
+	// cm: ref sibling module call anchors on the lexical module
+	nested::nested_sibling();
+}

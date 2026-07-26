@@ -1196,6 +1196,14 @@ fn resolve_path_call_target(
 			},
 		);
 	}
+	if let Some(base) = local_module_call_base(env, function, head) {
+		let mut builder = MonikerBuilder::from_view(base.as_view());
+		append_module_path(&mut builder, &type_pieces[1..]);
+		return (
+			extend_segment(&builder.build(), kinds::FN, call_name),
+			kinds::CONF_NAME_MATCH,
+		);
+	}
 	if is_external_import_root(head) {
 		return (
 			external_target_from_vec(function, pieces),
@@ -1206,6 +1214,19 @@ fn resolve_path_call_target(
 		extend_segment(&enclosing_module(function), kinds::FN, call_name),
 		kinds::CONF_UNRESOLVED,
 	)
+}
+
+fn local_module_call_base(env: &RefEnv<'_>, function: &Moniker, head: &[u8]) -> Option<Moniker> {
+	let module = enclosing_module(function);
+	if let Some(declared) = declared_module_target(env, &module, head) {
+		return Some(declared);
+	}
+	let file_module = local_module_target(&module, &[head.to_vec()]);
+	let lexical_module = extend_segment(&module, kinds::MODULE, head);
+	env.defs
+		.iter()
+		.find(|def| def.moniker == file_module || def.moniker == lexical_module)
+		.map(|def| def.moniker.clone())
 }
 
 fn crate_relative_module(function: &Moniker, qualifier: &[u8]) -> Option<Moniker> {

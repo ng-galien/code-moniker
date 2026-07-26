@@ -226,6 +226,45 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/comment:1011",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        1011,
+        1032
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        1033,
+        1142
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()/comment:1052",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()",
+      "position": [
+        1052,
+        1113
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
@@ -472,6 +511,19 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "position": [
         925,
         947
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()",
+      "kind": "calls",
+      "position": [
+        1115,
+        1139
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
