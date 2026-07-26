@@ -20,3 +20,21 @@ fn local_project_call() {
 	// cm: ref missing project function remains unresolved
 	missing_project_function();
 }
+
+// cm: def parent helper
+fn parent_helper() {}
+
+mod nested {
+	// cm: def nested caller
+	pub fn nested_caller() {
+		// cm: ref super call anchors on the parent module
+		super::parent_helper();
+		// cm: ref crate call anchors on the crate root
+		crate::parent_helper();
+		// cm: ref self call stays in the nested module
+		self::nested_sibling();
+	}
+
+	// cm: def nested sibling
+	pub fn nested_sibling() {}
+}

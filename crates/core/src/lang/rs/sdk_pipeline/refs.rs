@@ -1170,6 +1170,14 @@ fn resolve_path_call_target(
 	let Some(head) = pieces.first() else {
 		return (function.clone(), kinds::CONF_UNRESOLVED);
 	};
+	if type_pieces.len() == 1 {
+		if let Some(module) = crate_relative_module(function, head) {
+			return (
+				extend_segment(&module, kinds::FN, call_name),
+				kinds::CONF_NAME_MATCH,
+			);
+		}
+	}
 	if let Some(import) = direct_imported_symbol(env, function, head) {
 		return (
 			append_path_segments(import.target.clone(), &pieces[1..]),
@@ -1198,6 +1206,18 @@ fn resolve_path_call_target(
 		extend_segment(&enclosing_module(function), kinds::FN, call_name),
 		kinds::CONF_UNRESOLVED,
 	)
+}
+
+fn crate_relative_module(function: &Moniker, qualifier: &[u8]) -> Option<Moniker> {
+	match qualifier {
+		b"crate" => Some(local_crate_path_target(function, &[])),
+		b"self" => Some(enclosing_module(function)),
+		b"super" => Some(
+			rust_parent_module(&enclosing_module(function))
+				.unwrap_or_else(|| enclosing_module(function)),
+		),
+		_ => None,
+	}
 }
 
 fn resolve_associated_type_target(

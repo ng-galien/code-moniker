@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
 ---
@@ -95,6 +96,136 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/comment:605",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        605,
+        629
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:parent_helper()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        630,
+        651
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "module",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        653,
+        1009
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/comment:667",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested",
+      "position": [
+        667,
+        691
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested",
+      "position": [
+        693,
+        951
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()/comment:720",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "position": [
+        720,
+        770
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()/comment:799",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "position": [
+        799,
+        846
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()/comment:875",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "position": [
+        875,
+        922
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/comment:954",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested",
+      "position": [
+        954,
+        979
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/module:nested",
+      "position": [
+        981,
+        1007
+      ],
+      "signature": "",
+      "visibility": "public"
     }
   ],
   "refs": [
@@ -305,6 +436,45 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/fn:missing_project_function"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "kind": "calls",
+      "position": [
+        773,
+        795
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/fn:parent_helper"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "kind": "calls",
+      "position": [
+        849,
+        871
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/fn:parent_helper"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()",
+      "kind": "calls",
+      "position": [
+        925,
+        947
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
     }
   ],
   "root": "code+moniker://app/lang:rs/module:rust_refs"

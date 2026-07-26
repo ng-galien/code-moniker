@@ -30,3 +30,39 @@ kind = "calls"
 from = "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()"
 to = "code+moniker://app/lang:rs/module:rust_refs/fn:missing_project_function"
 confidence = "unresolved"
+
+[[defs]]
+label = "parent helper"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/fn:parent_helper()"
+
+[[defs]]
+label = "nested caller"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()"
+
+[[defs]]
+label = "nested sibling"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling()"
+
+[[refs]]
+label = "super call anchors on the parent module"
+kind = "calls"
+from = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()"
+to = "code+moniker://app/lang:rs/module:rust_refs/fn:parent_helper"
+confidence = "name_match"
+
+[[refs]]
+label = "crate call anchors on the crate root"
+kind = "calls"
+from = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()"
+to = "code+moniker://app/lang:rs/fn:parent_helper"
+confidence = "name_match"
+
+[[refs]]
+label = "self call stays in the nested module"
+kind = "calls"
+from = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_caller()"
+to = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
+confidence = "name_match"
