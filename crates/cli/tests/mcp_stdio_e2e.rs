@@ -123,6 +123,7 @@ fn spawn_stdio_read(root: &std::path::Path) -> std::process::Child {
 		.args(["mcp"])
 		.arg(&root)
 		.args(["--transport", "stdio"])
+		.env("CODE_MONIKER_MCP_LOADING_TIMEOUT_MS", "300")
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped())
