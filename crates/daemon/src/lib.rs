@@ -1050,14 +1050,57 @@ fn identity_children_response(
 ) -> Result<QueryResponse, QueryError> {
 	let _ = selected_roots(roots, query.workspace.as_deref())?;
 	let prefix = identity_path(query.prefix.trim_matches('/')).trim_matches('/');
+	let children = identity_segments(snapshot, roots, prefix);
+	if children.is_empty() {
+		require_known_identity_prefix(snapshot, roots, prefix)?;
+	}
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::IdentityChildren(IdentityChildrenResult {
 			prefix: prefix.to_string(),
-			children: identity_segments(snapshot, roots, prefix),
+			children,
 		}),
 		next_cursor: None,
 	})
+}
+
+fn require_known_identity_prefix(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	prefix: &str,
+) -> Result<(), QueryError> {
+	if prefix.is_empty() || identity_prefix_exists(snapshot, prefix) {
+		return Ok(());
+	}
+	let heads = identity_segments(snapshot, roots, "")
+		.into_iter()
+		.map(|segment| segment.segment)
+		.take(8)
+		.collect::<Vec<_>>();
+	let guidance = if heads.is_empty() {
+		"the workspace has no indexed symbols".to_string()
+	} else {
+		format!(
+			"a prefix is a head sequence of canonical identity segments; valid heads: {}",
+			heads.join(", ")
+		)
+	};
+	Err(QueryError::new(
+		"prefix_not_found",
+		format!("no symbol identity starts with `{prefix}`; {guidance}"),
+	))
+}
+
+fn identity_prefix_exists(snapshot: &WorkspaceSnapshot, prefix: &str) -> bool {
+	snapshot
+		.index
+		.symbols
+		.iter()
+		.filter(|symbol| symbol.navigable)
+		.any(|symbol| {
+			let identity = identity_path(symbol.identity.as_ref());
+			identity == prefix || identity_rest(identity, prefix).is_some()
+		})
 }
 
 fn identity_segments(
@@ -1114,6 +1157,9 @@ fn identity_graph_response(
 		.trim_matches('/')
 		.to_string();
 	let nodes = identity_segments(snapshot, roots, &prefix);
+	if nodes.is_empty() {
+		require_known_identity_prefix(snapshot, roots, &prefix)?;
+	}
 	let symbols_view = WorkspaceView::new(snapshot).symbols();
 	let mut edges: BTreeMap<(String, String), (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut ports_in: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
@@ -4690,6 +4736,51 @@ mod tests {
 			})
 			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
 		assert_eq!(port.count, 2, "{port:?}");
+	}
+
+	#[test]
+	fn identity_graph_rejects_unknown_prefix_with_valid_heads() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub fn entry() {}\n").expect("write lib");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let mut graph = |prefix: &str| {
+			daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+					workspace: None,
+					prefix: prefix.to_string(),
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page::default(),
+			})))
+		};
+
+		let response = graph("dir:src");
+		let ProtocolResponse::Error(error) = response else {
+			panic!("a prefix matching no identity must fail loudly, got {response:?}");
+		};
+		assert_eq!(error.code, "prefix_not_found", "{error:?}");
+		assert!(
+			error.message.contains("lang:rs"),
+			"the error must list valid heads, got {error:?}"
+		);
+
+		let response = graph("lang:rs/dir:src/module:lib/fn:entry()");
+		assert!(
+			matches!(response, ProtocolResponse::Query(_)),
+			"an exact leaf identity is a valid scope, got {response:?}"
+		);
 	}
 
 	#[test]

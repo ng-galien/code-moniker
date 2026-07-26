@@ -322,11 +322,22 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		described.text
 	);
 
+	let bad_prefix = registry.call(
+		&context,
+		"code_moniker_query",
+		&json!({"query": "identity.graph prefix:\"lang:java\" limit:10"}),
+	);
+	let error = bad_prefix.expect_err("a prefix matching no identity must fail loudly");
+	assert!(
+		error.to_string().contains("prefix_not_found") && error.to_string().contains("srcset:main"),
+		"{error}"
+	);
+
 	let graph = registry
 		.call(
 			&context,
 			"code_moniker_query",
-			&json!({"query": "identity.graph prefix:\"lang:java\" limit:10"}),
+			&json!({"query": "identity.graph prefix:\"srcset:main\" limit:10"}),
 		)
 		.expect("identity graph");
 	assert!(!graph.is_error);
