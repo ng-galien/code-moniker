@@ -70,6 +70,8 @@ RETURNS int
 LANGUAGE sql
 AS $$ SELECT 1 $$;
 
+-- Quoted mixed case is intentional: the linkage scenario verifies SQL identifier case semantics.
+-- code-moniker: ignore[sql.function.name-snakecase]
 CREATE FUNCTION public."MixedCase"()
 RETURNS int
 LANGUAGE sql
