@@ -95,6 +95,32 @@ fn scan_baseline(c: &mut Criterion) {
 			.len(),
 		naive_repository_violations(&snapshot.index)
 	);
+	let group_cfg = RuleSetRequest::new(None, "code+moniker://")
+		.with_default_rules(DefaultRulesSelection::Disabled)
+		.with_inline_rules(vec![
+			r#"
+			[[workspace.group.where]]
+			id = "unique-type-name"
+			members = "shape = 'type'"
+			group_by = ["lang", "segment('dir')", "name"]
+			expr = "count(member) <= 1"
+			"#
+			.to_string(),
+		])
+		.load_config()
+		.expect("workspace group benchmark config");
+	let compiled_groups =
+		compile_workspace_rules(&group_cfg, "code+moniker://").expect("workspace group plan");
+	let group_evaluation =
+		evaluate_workspace_rules(&snapshot.index.inventory, &compiled_groups, false);
+	assert_eq!(
+		group_evaluation
+			.groups
+			.iter()
+			.filter(|group| !group.passed)
+			.count(),
+		naive_name_collisions(&snapshot.index)
+	);
 	let mut group = c.benchmark_group("workspace_rules_baseline");
 	group.bench_function("placement_full_scan", |b| {
 		b.iter(|| {
@@ -113,6 +139,15 @@ fn scan_baseline(c: &mut Criterion) {
 			std::hint::black_box(evaluate_workspace_rules(
 				std::hint::black_box(&snapshot.index.inventory),
 				std::hint::black_box(&compiled),
+				false,
+			))
+		});
+	});
+	group.bench_function("grouping_bitmap_plan", |b| {
+		b.iter(|| {
+			std::hint::black_box(evaluate_workspace_rules(
+				std::hint::black_box(&snapshot.index.inventory),
+				std::hint::black_box(&compiled_groups),
 				false,
 			))
 		});

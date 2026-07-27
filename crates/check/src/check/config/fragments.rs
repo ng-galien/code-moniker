@@ -8,8 +8,8 @@ use serde::Deserialize;
 use code_moniker_core::lang::Lang;
 
 use super::{
-	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry, WorkspaceRules,
-	config_section,
+	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry,
+	WorkspaceGroupRuleEntry, WorkspaceRules, config_section,
 };
 
 const FRAGMENT_FILE_NAME: &str = "code-moniker.fragment.toml";
@@ -342,12 +342,24 @@ fn rewrite_local_alias_refs(
 fn rewrite_rule_alias_refs(cfg: &mut Config, local_aliases: &HashSet<String>, namespace: &str) {
 	rewrite_rules(&mut cfg.refs.rules, local_aliases, namespace);
 	rewrite_rules(&mut cfg.workspace.symbol.rules, local_aliases, namespace);
+	rewrite_group_rules(&mut cfg.workspace.group.rules, local_aliases, namespace);
 	for rules in cfg.shape.values_mut() {
 		rewrite_rules(&mut rules.rules, local_aliases, namespace);
 	}
 	rewrite_lang_rule_alias_refs(&mut cfg.default, local_aliases, namespace);
 	for lang in Lang::ALL {
 		rewrite_lang_rule_alias_refs(cfg.for_lang_mut(*lang), local_aliases, namespace);
+	}
+}
+
+fn rewrite_group_rules(
+	rules: &mut [WorkspaceGroupRuleEntry],
+	local_aliases: &HashSet<String>,
+	namespace: &str,
+) {
+	for rule in rules {
+		rule.members = rewrite_local_alias_refs(&rule.members, local_aliases, namespace);
+		rule.expr = rewrite_local_alias_refs(&rule.expr, local_aliases, namespace);
 	}
 }
 
@@ -426,6 +438,12 @@ fn namespace_rule_ids(cfg: &mut Config, path: &Path, fragment: &str) -> Result<(
 		path,
 		fragment,
 	)?;
+	namespace_group_rules(
+		&mut cfg.workspace.group.rules,
+		"workspace.group",
+		path,
+		fragment,
+	)?;
 	for (shape, rules) in &mut cfg.shape {
 		namespace_rules(&mut rules.rules, &format!("shape.{shape}"), path, fragment)?;
 	}
@@ -437,6 +455,26 @@ fn namespace_rule_ids(cfg: &mut Config, path: &Path, fragment: &str) -> Result<(
 			path,
 			fragment,
 		)?;
+	}
+	Ok(())
+}
+
+fn namespace_group_rules(
+	rules: &mut [WorkspaceGroupRuleEntry],
+	at: &str,
+	path: &Path,
+	fragment: &str,
+) -> Result<(), ConfigError> {
+	for rule in rules {
+		let Some(local_id) = rule.id.as_deref() else {
+			return Err(ConfigError::FragmentRuleMissingId {
+				path: path.display().to_string(),
+				fragment: fragment.to_string(),
+				at: at.to_string(),
+			});
+		};
+		validate_rule_id(path, fragment, local_id)?;
+		rule.id = Some(format!("{fragment}.{local_id}"));
 	}
 	Ok(())
 }
@@ -487,7 +525,8 @@ fn namespace_rules(
 }
 
 fn count_rules(cfg: &Config) -> usize {
-	let mut count = cfg.refs.rules.len() + cfg.workspace.symbol.rules.len();
+	let mut count =
+		cfg.refs.rules.len() + cfg.workspace.symbol.rules.len() + cfg.workspace.group.rules.len();
 	count += cfg
 		.shape
 		.values()
@@ -549,9 +588,12 @@ fn validate_alias_references(
 	fragment: &FragmentFile,
 	aliases: &HashMap<String, String>,
 ) -> Result<(), ConfigError> {
-	for_each_rule_key(&fragment.config, |rule_id, rule| {
+	for_each_rule_key(&fragment.config, |rule_id, expressions| {
 		let at = format!("{}:{rule_id}", fragment.path.display());
-		super::substitute_aliases(&rule.expr, aliases, &at).map(|_| ())
+		for expression in expressions {
+			super::substitute_aliases(expression, aliases, &at)?;
+		}
+		Ok(())
 	})
 }
 
@@ -564,7 +606,7 @@ impl RuleIndex {
 		let mut index = Self {
 			origins: HashMap::new(),
 		};
-		let _ = for_each_rule_key(cfg, |rule_id, _rule| {
+		let _ = for_each_rule_key(cfg, |rule_id, _expressions| {
 			index
 				.origins
 				.entry(rule_id)
@@ -575,7 +617,7 @@ impl RuleIndex {
 	}
 
 	fn insert_config(&mut self, cfg: &Config, origin: &str) -> Result<(), ConfigError> {
-		for_each_rule_key(cfg, |rule_id, _rule| {
+		for_each_rule_key(cfg, |rule_id, _expressions| {
 			if let Some(existing) = self.origins.get(&rule_id) {
 				return Err(ConfigError::FragmentRuleCollision {
 					rule_id,
@@ -591,10 +633,11 @@ impl RuleIndex {
 
 fn for_each_rule_key(
 	cfg: &Config,
-	mut visit: impl FnMut(String, &RuleEntry) -> Result<(), ConfigError>,
+	mut visit: impl FnMut(String, &[&str]) -> Result<(), ConfigError>,
 ) -> Result<(), ConfigError> {
 	for_each_rule_list("refs", &cfg.refs.rules, &mut visit)?;
 	for_each_rule_list("workspace.symbol", &cfg.workspace.symbol.rules, &mut visit)?;
+	for_each_group_rule_list("workspace.group", &cfg.workspace.group.rules, &mut visit)?;
 	for (shape, rules) in &cfg.shape {
 		for_each_rule_list(&format!("shape.{shape}"), &rules.rules, &mut visit)?;
 	}
@@ -607,7 +650,7 @@ fn for_each_rule_key(
 
 fn collect_rule_keys(cfg: &Config) -> Vec<String> {
 	let mut out = Vec::new();
-	let _ = for_each_rule_key(cfg, |rule_id, _rule| {
+	let _ = for_each_rule_key(cfg, |rule_id, _expressions| {
 		out.push(rule_id);
 		Ok(())
 	});
@@ -618,7 +661,7 @@ fn collect_rule_keys(cfg: &Config) -> Vec<String> {
 fn for_each_lang_rule_key(
 	section: &str,
 	rules: &LangRules,
-	visit: &mut impl FnMut(String, &RuleEntry) -> Result<(), ConfigError>,
+	visit: &mut impl FnMut(String, &[&str]) -> Result<(), ConfigError>,
 ) -> Result<(), ConfigError> {
 	for (shape, kind_rules) in &rules.shape {
 		for_each_rule_list(
@@ -636,11 +679,27 @@ fn for_each_lang_rule_key(
 fn for_each_rule_list(
 	prefix: &str,
 	rules: &[RuleEntry],
-	visit: &mut impl FnMut(String, &RuleEntry) -> Result<(), ConfigError>,
+	visit: &mut impl FnMut(String, &[&str]) -> Result<(), ConfigError>,
 ) -> Result<(), ConfigError> {
 	for rule in rules {
 		if let Some(id) = &rule.id {
-			visit(format!("{prefix}.{id}"), rule)?;
+			visit(format!("{prefix}.{id}"), &[rule.expr.as_str()])?;
+		}
+	}
+	Ok(())
+}
+
+fn for_each_group_rule_list(
+	prefix: &str,
+	rules: &[WorkspaceGroupRuleEntry],
+	visit: &mut impl FnMut(String, &[&str]) -> Result<(), ConfigError>,
+) -> Result<(), ConfigError> {
+	for rule in rules {
+		if let Some(id) = &rule.id {
+			visit(
+				format!("{prefix}.{id}"),
+				&[rule.members.as_str(), rule.expr.as_str()],
+			)?;
 		}
 	}
 	Ok(())

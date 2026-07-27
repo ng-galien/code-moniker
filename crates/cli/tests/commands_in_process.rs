@@ -784,6 +784,12 @@ fn rules_show_explains_workspace_inventory_plan() {
 		[[workspace.symbol.where]]
 		id = "repositories-under-infra"
 		expr = "(shape = 'type' AND name =~ Repository$) => uri ~ '**/dir:infra/**'"
+
+		[[workspace.group.where]]
+		id = "unique-types"
+		members = "shape = 'type'"
+		group_by = ["lang", "name"]
+		expr = "count(member) <= 1"
 		"#,
 	)
 	.unwrap();
@@ -801,20 +807,39 @@ fn rules_show_explains_workspace_inventory_plan() {
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
-	let rule = json["langs"]
+	let rules = json["langs"]
 		.as_array()
 		.expect("langs")
 		.iter()
 		.find(|lang| lang["lang"] == "workspace")
 		.and_then(|lang| lang["rules"].as_array())
-		.and_then(|rules| rules.first())
-		.expect("workspace rule");
+		.expect("workspace rules");
+	let rule = rules
+		.iter()
+		.find(|rule| rule["subject"] == "symbol")
+		.expect("workspace symbol rule");
 	assert_eq!(rule["root"], "workspace");
 	assert_eq!(rule["subject"], "symbol");
 	assert_eq!(rule["plan"], "t1_inventory");
 	assert_eq!(
 		rule["capabilities"],
 		serde_json::json!(["name.regex", "shape.exact", "uri.path"])
+	);
+	let group = rules
+		.iter()
+		.find(|rule| rule["subject"] == "group")
+		.expect("workspace group rule");
+	assert_eq!(group["root"], "workspace");
+	assert_eq!(group["plan"], "t1_inventory");
+	assert_eq!(group["group_by"], serde_json::json!(["lang", "name"]));
+	assert_eq!(
+		group["capabilities"],
+		serde_json::json!([
+			"group.count",
+			"group_by.lang",
+			"group_by.name",
+			"shape.exact"
+		])
 	);
 }
 

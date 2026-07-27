@@ -4075,6 +4075,7 @@ mod helpers {
 			subject: spec.subject,
 			plan: spec.plan,
 			capabilities: spec.capabilities,
+			group_by: spec.group_by,
 			domain: spec.domain,
 			kind: spec.kind,
 			expr: spec.expr,

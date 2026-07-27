@@ -90,7 +90,7 @@ fn collect_diagnostics(
 		diagnostics.extend(
 			violations
 				.into_iter()
-				.map(|violation| diagnostic_from_violation(violation, &symbol_by_identity)),
+				.map(|violation| diagnostic_from_violation(violation, None, &symbol_by_identity)),
 		);
 	}
 	let workspace_rules =
@@ -111,23 +111,53 @@ fn collect_diagnostics(
 		&workspace_rules,
 		false,
 	);
-	let mut workspace_by_source = std::collections::BTreeMap::<usize, Vec<check::Violation>>::new();
+	let mut workspace_by_source = std::collections::BTreeMap::<
+		usize,
+		Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
+	>::new();
 	for violation in workspace_evaluation.violations {
 		workspace_by_source
 			.entry(violation.source.file())
 			.or_default()
-			.push(violation.violation);
+			.push(violation);
 	}
-	for (source, violations) in workspace_by_source {
+	for (source, workspace_violations) in workspace_by_source {
 		let Some(file) = material.files.get(source) else {
 			continue;
 		};
-		let violations = check::apply_suppressions(&file.graph, &file.source, violations);
-		diagnostics.extend(
-			violations
+		let primary_symbols = workspace_violations
+			.iter()
+			.filter_map(|workspace_violation| {
+				Some((
+					(
+						workspace_violation.violation.rule_id.clone(),
+						workspace_violation.violation.moniker.clone(),
+					),
+					workspace_violation.symbol?,
+				))
+			})
+			.collect::<std::collections::BTreeMap<_, _>>();
+		let (suppressible, violations): (Vec<_>, Vec<_>) = workspace_violations
+			.into_iter()
+			.partition(|violation| violation.source_suppression);
+		let mut violations = violations
+			.into_iter()
+			.map(|violation| violation.violation)
+			.collect::<Vec<_>>();
+		violations.extend(check::apply_suppressions(
+			&file.graph,
+			&file.source,
+			suppressible
 				.into_iter()
-				.map(|violation| diagnostic_from_violation(violation, &symbol_by_identity)),
-		);
+				.map(|violation| violation.violation)
+				.collect(),
+		));
+		diagnostics.extend(violations.into_iter().map(|violation| {
+			let primary = primary_symbols
+				.get(&(violation.rule_id.clone(), violation.moniker.clone()))
+				.copied();
+			diagnostic_from_violation(violation, primary, &symbol_by_identity)
+		}));
 	}
 	Ok(diagnostics)
 }
@@ -140,12 +170,13 @@ fn load_config(options: &WorkspaceCheckRunnerOptions) -> anyhow::Result<check::C
 
 fn diagnostic_from_violation(
 	violation: check::Violation,
+	primary: Option<SymbolId>,
 	symbol_by_identity: &std::collections::BTreeMap<String, SymbolId>,
 ) -> WorkspaceRuleDiagnostic {
 	WorkspaceRuleDiagnostic::new(
 		violation.rule_id,
 		violation.severity,
-		symbol_by_identity.get(&violation.moniker).cloned(),
+		primary.or_else(|| symbol_by_identity.get(&violation.moniker).copied()),
 		violation.message,
 	)
 }

@@ -801,7 +801,7 @@ pub fn check_project_files_workspace(
 			workspace_rules: false,
 		},
 	)?;
-	if !cfg.workspace.symbol.rules.is_empty() {
+	if !cfg.workspace.symbol.rules.is_empty() || !cfg.workspace.group.rules.is_empty() {
 		errors.push(FileError {
 			path: root.to_path_buf(),
 			error: "workspace rules were not run: a file-scoped check does not provide a complete symbol inventory"
@@ -982,19 +982,38 @@ fn merge_workspace_violations(
 	checked: &mut [CheckedSourceFile],
 	violations: Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
 ) -> BTreeMap<String, usize> {
-	let mut by_source = BTreeMap::<usize, Vec<check::Violation>>::new();
+	let mut by_source =
+		BTreeMap::<usize, Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>>::new();
 	for workspace_violation in violations {
 		by_source
 			.entry(workspace_violation.source.file())
 			.or_default()
-			.push(workspace_violation.violation);
+			.push(workspace_violation);
 	}
 	let mut kept_by_rule = BTreeMap::new();
-	for (file_idx, violations) in by_source {
+	for (file_idx, workspace_violations) in by_source {
 		let Some(checked) = checked.get_mut(file_idx) else {
 			continue;
 		};
-		let violations = check::apply_suppressions(&checked.graph, &checked.source, violations);
+		let (suppressible, fixed): (
+			Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
+			Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
+		) = workspace_violations
+			.into_iter()
+			.partition(|violation| violation.source_suppression);
+		let mut suppressible = check::apply_suppressions(
+			&checked.graph,
+			&checked.source,
+			suppressible
+				.into_iter()
+				.map(|violation| violation.violation)
+				.collect(),
+		);
+		let mut violations = fixed
+			.into_iter()
+			.map(|violation| violation.violation)
+			.collect::<Vec<_>>();
+		violations.append(&mut suppressible);
 		for violation in &violations {
 			*kept_by_rule
 				.entry(violation.rule_id.to_owned())

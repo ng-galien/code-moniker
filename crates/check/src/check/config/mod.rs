@@ -97,8 +97,41 @@ pub struct RefsRules {
 pub struct WorkspaceRules {
 	#[serde(default)]
 	pub symbol: KindRules,
+	#[serde(default)]
+	pub group: WorkspaceGroupRules,
 	#[serde(default, rename = "source_group")]
 	pub source_groups: Vec<toml::Value>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceGroupRules {
+	#[serde(default, rename = "where")]
+	pub rules: Vec<WorkspaceGroupRuleEntry>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceGroupRuleEntry {
+	#[serde(default)]
+	pub id: Option<String>,
+	pub members: String,
+	pub group_by: Vec<String>,
+	pub expr: String,
+	#[serde(default)]
+	pub severity: RuleSeverity,
+	#[serde(default)]
+	pub message: Option<String>,
+	#[serde(default)]
+	pub rationale: Option<String>,
+	#[serde(default)]
+	pub suppress: Vec<WorkspaceGroupSuppression>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceGroupSuppression {
+	pub values: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -182,6 +215,8 @@ pub enum ConfigError {
 	},
 	#[error("workspace rule `{at}` requires unsupported capability `{capability}`")]
 	UnsupportedWorkspaceExpr { at: String, capability: String },
+	#[error("invalid workspace group rule `{at}`: {message}")]
+	InvalidWorkspaceGroup { at: String, message: String },
 	#[error("unknown kind `{kind}` under `[{section}.{kind}]` (allowed: {allowed})")]
 	UnknownKind {
 		section: String,
@@ -455,6 +490,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	base.views.extend(ov.views);
 	merge_refs(&mut base.refs, ov.refs);
 	merge_kind(&mut base.workspace.symbol, ov.workspace.symbol);
+	merge_group(&mut base.workspace.group, ov.workspace.group);
 	base.workspace
 		.source_groups
 		.extend(ov.workspace.source_groups);
@@ -468,6 +504,19 @@ fn merge_into(base: &mut Config, ov: Config) {
 	merge_lang(&mut base.c, ov.c);
 	merge_lang(&mut base.cs, ov.cs);
 	merge_lang(&mut base.sql, ov.sql);
+}
+
+fn merge_group(base: &mut WorkspaceGroupRules, ov: WorkspaceGroupRules) {
+	for ov_rule in ov.rules {
+		match ov_rule.id.as_deref().and_then(|id| {
+			base.rules
+				.iter()
+				.position(|rule| rule.id.as_deref() == Some(id))
+		}) {
+			Some(index) => base.rules[index] = ov_rule,
+			None => base.rules.push(ov_rule),
+		}
+	}
 }
 
 fn merge_refs(base: &mut RefsRules, ov: RefsRules) {
@@ -648,6 +697,20 @@ fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	if cfg.workspace.symbol.require_doc_comment.is_some() {
 		return Err(ConfigError::WorkspaceRequireDocUnsupported);
 	}
+	for (index, rule) in cfg.workspace.group.rules.iter().enumerate() {
+		let Some(id) = rule.id.as_deref() else {
+			return Err(ConfigError::InvalidWorkspaceGroup {
+				at: format!("workspace.group.where_{index}"),
+				message: "`id` is required because it is part of the stable ScopeKey".to_string(),
+			});
+		};
+		if !is_stable_group_rule_id(id) {
+			return Err(ConfigError::InvalidWorkspaceGroup {
+				at: format!("workspace.group.{id}"),
+				message: "`id` may contain only ASCII letters, digits, `_` and `-`".to_string(),
+			});
+		}
+	}
 	validate_shape_section(&cfg.shape, "shape", None)?;
 	if !cfg.default.shape.is_empty() {
 		return Err(ConfigError::DefaultShapeUnsupported);
@@ -670,6 +733,13 @@ fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 		)?;
 	}
 	Ok(())
+}
+
+fn is_stable_group_rule_id(id: &str) -> bool {
+	!id.is_empty()
+		&& id
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
 fn validate_shape_section(
@@ -842,12 +912,7 @@ impl Config {
 		let enable = compile_patterns(&profile.enable, name, "enable")?;
 		let disable = compile_patterns(&profile.disable, name, "disable")?;
 		filter_rules(&mut self.refs.rules, "refs", &enable, &disable);
-		filter_rules(
-			&mut self.workspace.symbol.rules,
-			"workspace.symbol",
-			&enable,
-			&disable,
-		);
+		filter_workspace_rules(&mut self.workspace, &enable, &disable);
 		filter_shape_map(&mut self.shape, "shape", &enable, &disable);
 		filter_lang(&mut self.default, "default", &enable, &disable);
 		for lang in Lang::ALL {
@@ -888,6 +953,12 @@ impl Config {
 }
 
 impl RuleEntry {
+	pub(crate) fn fallback_id(&self, idx: usize) -> String {
+		self.id.clone().unwrap_or_else(|| format!("where_{idx}"))
+	}
+}
+
+impl WorkspaceGroupRuleEntry {
 	pub(crate) fn fallback_id(&self, idx: usize) -> String {
 		self.id.clone().unwrap_or_else(|| format!("where_{idx}"))
 	}
@@ -944,10 +1015,48 @@ fn filter_rules(rules: &mut Vec<RuleEntry>, prefix: &str, enable: &[Regex], disa
 	});
 }
 
+fn filter_workspace_rules(workspace: &mut WorkspaceRules, enable: &[Regex], disable: &[Regex]) {
+	filter_rules(
+		&mut workspace.symbol.rules,
+		"workspace.symbol",
+		enable,
+		disable,
+	);
+	filter_group_rules(
+		&mut workspace.group.rules,
+		"workspace.group",
+		enable,
+		disable,
+	);
+}
+
+fn filter_group_rules(
+	rules: &mut Vec<WorkspaceGroupRuleEntry>,
+	prefix: &str,
+	enable: &[Regex],
+	disable: &[Regex],
+) {
+	if rules.is_empty() || (enable.is_empty() && disable.is_empty()) {
+		return;
+	}
+	let mut index = 0;
+	rules.retain(|rule| {
+		let full = format!("{prefix}.{}", rule.fallback_id(index));
+		index += 1;
+		(enable.is_empty() || enable.iter().any(|regex| regex.is_match(&full)))
+			&& !disable.iter().any(|regex| regex.is_match(&full))
+	});
+}
+
 fn collect_rule_keys(cfg: &Config) -> HashSet<String> {
 	let mut out = HashSet::new();
 	collect_rule_list_keys("refs", &cfg.refs.rules, &mut out);
 	collect_rule_list_keys("workspace.symbol", &cfg.workspace.symbol.rules, &mut out);
+	for rule in &cfg.workspace.group.rules {
+		if let Some(id) = &rule.id {
+			out.insert(format!("workspace.group.{id}"));
+		}
+	}
 	for (shape, rules) in &cfg.shape {
 		collect_rule_list_keys(&format!("shape.{shape}"), &rules.rules, &mut out);
 	}
@@ -1055,6 +1164,52 @@ mod tests {
 			cfg.workspace.symbol.rules[0].id.as_deref(),
 			Some("repositories-under-infra")
 		);
+	}
+
+	#[test]
+	fn parses_and_profiles_workspace_group_rules() {
+		let mut cfg = parse(
+			r#"
+			[profiles.groups]
+			enable = ["^workspace\\.group\\."]
+
+			[[workspace.symbol.where]]
+			id = "symbol-rule"
+			expr = "name = 'Invoice'"
+
+			[[workspace.group.where]]
+			id = "unique-type"
+			members = "shape = 'type'"
+			group_by = ["lang", "segment('package')", "name"]
+			expr = "count(member) <= 1"
+			suppress = [{ values = ["java", "com.acme.legacy", "Legacy"] }]
+			"#,
+		)
+		.expect("workspace group rule parses");
+		assert_eq!(cfg.workspace.group.rules.len(), 1);
+		assert_eq!(cfg.workspace.group.rules[0].group_by.len(), 3);
+		cfg.apply_profile("groups").expect("group profile");
+		assert!(cfg.workspace.symbol.rules.is_empty());
+		assert_eq!(
+			cfg.workspace.group.rules[0].id.as_deref(),
+			Some("unique-type")
+		);
+	}
+
+	#[test]
+	fn workspace_group_requires_an_explicit_stable_id() {
+		let result = parse(
+			r#"
+			[[workspace.group.where]]
+			members = "shape = 'type'"
+			group_by = ["lang", "name"]
+			expr = "count(member) <= 1"
+			"#,
+		);
+		assert!(matches!(
+			result,
+			Err(ConfigError::InvalidWorkspaceGroup { .. })
+		));
 	}
 
 	#[test]
@@ -1553,6 +1708,41 @@ mod tests {
 			specs[0].rule_id,
 			"workspace.symbol.architecture.repositories-under-infra"
 		);
+		assert_eq!(cfg.fragments[0].active_rules, 1);
+	}
+
+	#[test]
+	fn workspace_group_fragment_rewrites_aliases_and_keeps_namespace() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"architecture",
+			r#"
+			fragment = "architecture"
+
+			[aliases]
+			types = "shape = 'type'"
+
+			[[workspace.group.where]]
+			id = "unique-types"
+			members = "$types"
+			group_by = ["lang", "name"]
+			expr = "count(member) <= 1"
+			"#,
+		);
+		let cfg = load_with_overrides(Some(&root)).expect("group fragment loads");
+		let compiled =
+			crate::check::workspace_eval::compile_workspace_rules(&cfg, "code+moniker://")
+				.expect("group fragment compiles");
+		let specs = compiled.specs();
+		assert_eq!(specs.len(), 1);
+		assert_eq!(
+			specs[0].rule_id,
+			"workspace.group.architecture.unique-types"
+		);
+		assert!(specs[0].expanded_expr.contains("shape = 'type'"));
 		assert_eq!(cfg.fragments[0].active_rules, 1);
 	}
 

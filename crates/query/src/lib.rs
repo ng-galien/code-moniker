@@ -1674,6 +1674,8 @@ pub struct RuleDto {
 	pub subject: String,
 	pub plan: String,
 	pub capabilities: Vec<String>,
+	#[serde(default)]
+	pub group_by: Vec<String>,
 	pub domain: String,
 	pub kind: Option<String>,
 	pub expr: String,

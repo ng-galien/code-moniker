@@ -21,8 +21,8 @@ pub use check::eval::{
 pub use check::exclude::UriExclusionMatcher;
 pub use check::suppress::apply as apply_suppressions;
 pub use check::workspace_eval::{
-	CompiledWorkspaceRules, WorkspaceEvaluation, WorkspaceSymbolViolation, compile_workspace_rules,
-	evaluate_workspace_rules,
+	CompiledWorkspaceRules, ScopeKey, WorkspaceEvaluation, WorkspaceGroupResult,
+	WorkspaceSymbolViolation, compile_workspace_rules, evaluate_workspace_rules,
 };
 
 pub use check::workspace;

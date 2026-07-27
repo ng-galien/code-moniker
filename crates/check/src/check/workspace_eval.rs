@@ -1,3 +1,5 @@
+mod group;
+
 use std::collections::BTreeSet;
 
 use code_moniker_workspace::snapshot::{SourceId, SymbolInventoryIndex, SymbolSet};
@@ -7,6 +9,8 @@ use crate::check::config::{Config, ConfigError, RuleEntry};
 use crate::check::eval::{CompiledRuleSpec, RuleReport, Violation};
 use crate::check::expr::{self, Atom, Lhs, LhsExpr, Node, Op, Rhs};
 use crate::check::path::{self, Step};
+
+pub use group::{ScopeKey, WorkspaceGroupResult};
 
 #[derive(Debug)]
 struct CompiledWorkspaceSymbolRule {
@@ -23,15 +27,17 @@ struct CompiledWorkspaceSymbolRule {
 #[derive(Debug, Default)]
 pub struct CompiledWorkspaceRules {
 	symbol: Vec<CompiledWorkspaceSymbolRule>,
+	group: Vec<group::CompiledWorkspaceGroupRule>,
 }
 
 impl CompiledWorkspaceRules {
 	pub fn is_empty(&self) -> bool {
-		self.symbol.is_empty()
+		self.symbol.is_empty() && self.group.is_empty()
 	}
 
 	pub fn specs(&self) -> Vec<CompiledRuleSpec> {
-		self.symbol
+		let mut specs = self
+			.symbol
 			.iter()
 			.map(|rule| CompiledRuleSpec {
 				rule_id: rule.rule_id.to_owned(),
@@ -41,6 +47,7 @@ impl CompiledWorkspaceRules {
 				subject: "symbol".to_string(),
 				plan: "t1_inventory".to_string(),
 				capabilities: rule.capabilities.to_vec(),
+				group_by: Vec::new(),
 				domain: "workspace symbols".to_string(),
 				kind: None,
 				expr: rule.raw_expr.to_owned(),
@@ -49,18 +56,23 @@ impl CompiledWorkspaceRules {
 				rationale: rule.rationale.to_owned(),
 				require_doc_comment: None,
 			})
-			.collect()
+			.collect();
+		group::append_group_specs(self, &mut specs);
+		specs
 	}
 }
 
 pub struct WorkspaceSymbolViolation {
 	pub source: SourceId,
+	pub symbol: Option<code_moniker_workspace::snapshot::SymbolId>,
+	pub source_suppression: bool,
 	pub violation: Violation,
 }
 
 #[derive(Default)]
 pub struct WorkspaceEvaluation {
 	pub violations: Vec<WorkspaceSymbolViolation>,
+	pub groups: Vec<WorkspaceGroupResult>,
 	pub reports: Vec<RuleReport>,
 }
 
@@ -76,7 +88,8 @@ pub fn compile_workspace_rules(
 		let at = format!("workspace.symbol.{id}");
 		symbol.push(compile_symbol_rule(entry, at, scheme, &allowed, &aliases)?);
 	}
-	Ok(CompiledWorkspaceRules { symbol })
+	let group = group::compile_groups(cfg, scheme, &allowed, &aliases)?;
+	Ok(CompiledWorkspaceRules { symbol, group })
 }
 
 fn compile_symbol_rule(
@@ -228,6 +241,8 @@ pub fn evaluate_workspace_rules_in(
 			});
 			evaluation.violations.push(WorkspaceSymbolViolation {
 				source: record.source,
+				symbol: Some(record.id),
+				source_suppression: true,
 				violation: Violation {
 					rule_id: rule.rule_id.clone(),
 					severity: rule.severity,
@@ -243,6 +258,14 @@ pub fn evaluate_workspace_rules_in(
 			});
 		}
 	}
+	group::evaluate_groups(
+		inventory,
+		universe,
+		compiled,
+		report,
+		&mut atom_cache,
+		&mut evaluation,
+	);
 	evaluation
 }
 
