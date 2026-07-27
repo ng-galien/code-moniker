@@ -37,11 +37,18 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 			.get("version")
 			.and_then(|v| v.as_str())
 			.map(str::to_string);
+		let import_root = value
+			.get("lib")
+			.and_then(|v| v.as_table())
+			.and_then(|lib| lib.get("name"))
+			.and_then(|v| v.as_str())
+			.map(str::to_string)
+			.unwrap_or_else(|| rust_import_root(name));
 		out.push(Dep {
 			name: name.to_string(),
 			version,
 			dep_kind: "package".to_string(),
-			import_root: rust_import_root(name),
+			import_root,
 			path: None,
 		});
 	}
@@ -184,6 +191,29 @@ mod tests {
 				version: Some("0.1.0".into()),
 				dep_kind: "package".into(),
 				import_root: "demo".into(),
+				path: None,
+			}]
+		);
+	}
+
+	#[test]
+	fn parse_custom_library_name_as_same_package_import_root() {
+		let toml = r#"
+            [package]
+            name = "demo-cli"
+            version = "0.1.0"
+
+            [lib]
+            name = "demo_runtime"
+		"#;
+		let deps = parse(toml).unwrap();
+		assert_eq!(
+			deps,
+			vec![Dep {
+				name: "demo-cli".into(),
+				version: Some("0.1.0".into()),
+				dep_kind: "package".into(),
+				import_root: "demo_runtime".into(),
 				path: None,
 			}]
 		);

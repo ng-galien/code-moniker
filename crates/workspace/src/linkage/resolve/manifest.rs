@@ -27,6 +27,13 @@ struct ManifestEntry {
 	manifest: Manifest,
 	packages: FxHashSet<String>,
 	deps: FxHashSet<String>,
+	rust_lib: Option<RustLibTarget>,
+}
+
+#[derive(Clone, Debug)]
+struct RustLibTarget {
+	import_root: String,
+	path: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,9 +70,7 @@ impl ManifestPolicy {
 			let Some(candidate) = catalog.candidate(symbol) else {
 				continue;
 			};
-			let Some(permission) =
-				candidate_permission(self, query, &declared, candidate.source_file)
-			else {
+			let Some(permission) = candidate_permission(self, query, &declared, &candidate) else {
 				continue;
 			};
 			match permission {
@@ -256,16 +261,27 @@ fn candidate_permission(
 	policy: &ManifestPolicy,
 	query: &LinkageQuery<'_>,
 	declared: &impl Fn(usize) -> Option<LinkPermission>,
-	target_file: usize,
+	candidate: &crate::linkage::catalog::LinkageCandidate<'_>,
 ) -> Option<LinkPermission> {
 	if let Some(import_root) = external_import_root(query)
-		&& !c_libc_symbol_may_be_overridden(query, import_root)
-		&& !policy.target_file_declares_import_root(query.material, target_file, import_root)
+		&& let Some(target_entry) = policy.entry_for_file(candidate.source_file)
+		&& let Some(lib) = &target_entry.rust_lib
+		&& lib.import_root == import_root
+		&& !language::rust_external_crate_target_matches_def(query, candidate, &lib.path)
 	{
 		return None;
 	}
-	Some(declared(target_file).unwrap_or_else(|| {
-		policy.source_can_link_to_file(query.material, query.source_file, target_file)
+	if let Some(import_root) = external_import_root(query)
+		&& !c_libc_symbol_may_be_overridden(query, import_root)
+		&& !policy.target_file_declares_import_root(
+			query.material,
+			candidate.source_file,
+			import_root,
+		) {
+		return None;
+	}
+	Some(declared(candidate.source_file).unwrap_or_else(|| {
+		policy.source_can_link_to_file(query.material, query.source_file, candidate.source_file)
 	}))
 }
 
@@ -357,9 +373,17 @@ fn manifest_entry(root: &SourceRoot, manifest_path: &Path) -> Option<ManifestEnt
 		manifest,
 		packages: FxHashSet::default(),
 		deps: FxHashSet::default(),
+		rust_lib: None,
 	};
 	for dep in deps {
 		if matches!(dep.dep_kind.as_str(), "package" | "workspace_member") {
+			if manifest == Manifest::Cargo && dep.dep_kind == "package" {
+				let lib_path = cargo_lib_path(&content, manifest_path);
+				entry.rust_lib = Some(RustLibTarget {
+					import_root: dep.import_root.clone(),
+					path: lib_path,
+				});
+			}
 			entry
 				.packages
 				.insert(package_id(manifest, &dep.import_root));
@@ -368,6 +392,25 @@ fn manifest_entry(root: &SourceRoot, manifest_path: &Path) -> Option<ManifestEnt
 		}
 	}
 	Some(entry)
+}
+
+fn cargo_lib_path(content: &str, manifest_path: &Path) -> PathBuf {
+	let relative = toml::from_str::<toml::Value>(content)
+		.ok()
+		.and_then(|value| {
+			value
+				.get("lib")
+				.and_then(|lib| lib.get("path"))
+				.and_then(|path| path.as_str())
+				.map(PathBuf::from)
+		})
+		.unwrap_or_else(|| PathBuf::from("src/lib.rs"));
+	absolute_path(
+		&manifest_path
+			.parent()
+			.unwrap_or_else(|| Path::new(""))
+			.join(relative),
+	)
 }
 
 #[derive(Default)]

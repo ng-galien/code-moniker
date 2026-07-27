@@ -1,0 +1,10 @@
+[package]
+name = "nested-bin-lib"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "nested_runtime"
+path = "runtime.rs"
+
+[workspace]

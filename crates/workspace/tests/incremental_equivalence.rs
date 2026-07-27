@@ -834,6 +834,61 @@ fn manifest_origin_refresh_matches_full_rebuild_across_sibling_projects() {
 	);
 }
 
+#[test]
+fn rust_custom_lib_name_refresh_matches_full_rebuild() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::create_dir_all(temp.path().join("src")).expect("src");
+	fs::write(
+		temp.path().join("Cargo.toml"),
+		"[package]\nname = \"demo-cli\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+	)
+	.expect("manifest");
+	fs::write(
+		temp.path().join("src/lib.rs"),
+		"pub fn run() -> &'static str { \"linked\" }\n",
+	)
+	.expect("library");
+	fs::write(
+		temp.path().join("src/main.rs"),
+		"fn main() { let _value = demo_cli::run(); }\n",
+	)
+	.expect("binary");
+	let mut session = IncrementalSession::open(temp.path());
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+
+	session.edit(
+		"Cargo.toml",
+		"[package]\nname = \"demo-cli\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\nname = \"demo_runtime\"\n",
+	);
+	let renamed = session.normal_form();
+	assert_eq!(renamed, full_build_normal_form(temp.path()));
+	assert!(
+		renamed
+			.resolved
+			.iter()
+			.all(|edge| !edge.contains("external_pkg:demo_cli/path:run")),
+		"[lib].name must retire the package-derived crate root",
+	);
+
+	session.edit(
+		"src/main.rs",
+		"fn main() { let _value = demo_runtime::run(); }\n",
+	);
+	let renamed_call = session.normal_form();
+	assert_eq!(
+		renamed_call,
+		full_build_normal_form(temp.path()),
+		"custom Rust lib names must resolve identically after incremental manifest and source refresh",
+	);
+	assert!(
+		renamed_call
+			.resolved
+			.iter()
+			.any(|edge| edge.contains("external_pkg:demo_runtime/path:run")),
+		"the renamed library crate root must resolve after incremental refresh",
+	);
+}
+
 const ALPHA_VARIANTS: &[&str] = &[
 	ALPHA_RS,
 	"pub fn shared() {}\n",

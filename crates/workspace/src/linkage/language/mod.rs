@@ -120,6 +120,14 @@ pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {
 	rust::proc_macro_annotation(query)
 }
 
+pub(super) fn rust_external_crate_target_matches_def(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+	lib_path: &std::path::Path,
+) -> bool {
+	rust::external_crate_target_matches_def(query, candidate, lib_path)
+}
+
 pub(super) struct SemanticContext<'a> {
 	pub(super) material: &'a CodeIndexMaterial,
 	pub(super) candidates: &'a CandidateCatalog,

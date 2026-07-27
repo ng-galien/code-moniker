@@ -68,6 +68,36 @@ fn rust_multiproject_links_public_cross_crate_symbols() {
 }
 
 #[test]
+fn rust_binary_links_its_same_package_library_crate() {
+	let snapshot = load_workspace("projects/rust/bin-lib-package");
+
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"external_pkg:bin_lib_runtime/path:run",
+		"module:runtime/fn:run()",
+	);
+	let invalid = find_reference(&snapshot, "calls", "external_pkg:bin_lib_package/path:run")
+		.expect("invalid package-name crate root should still be observable");
+	assert!(
+		linked_symbol_identities(&snapshot, invalid).is_empty(),
+		"[lib].name replaces the default package-derived Rust crate root"
+	);
+}
+
+#[test]
+fn rust_bin_lib_linkage_is_anchored_to_the_manifest_not_a_src_segment() {
+	let snapshot = load_workspace("projects/rust/nested-bin-lib");
+
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"external_pkg:nested_runtime/path:run",
+		"module:runtime/fn:run()",
+	);
+}
+
+#[test]
 fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
 	let snapshot = load_workspace("projects/cs/resolution");
 

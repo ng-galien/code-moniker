@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use code_moniker_core::core::moniker::Segment;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
@@ -15,6 +17,100 @@ impl LanguageLinkageStrategy for RustLanguageLinkageStrategy {
 			|| rust_path_target_matches_def(query, candidate)
 			|| rust_contextual_name_matches_def(query, candidate)
 	}
+}
+
+pub(super) fn external_crate_target_matches_def(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+	lib_path: &Path,
+) -> bool {
+	let Some(target_file) = query.material.files.get(candidate.source_file) else {
+		return false;
+	};
+	let target_path = absolute_path(&target_file.path);
+	let lib_path = absolute_path(lib_path);
+	let target = normalized_rust_segments(query.target_segments());
+	if target
+		.first()
+		.is_none_or(|segment| segment.kind != kinds::EXTERNAL_PKG)
+	{
+		return false;
+	}
+	let Some(lib_parent) = lib_path.parent() else {
+		return false;
+	};
+	let Ok(relative_file) = target_path.strip_prefix(lib_parent) else {
+		return false;
+	};
+	let mut file_modules = relative_file
+		.parent()
+		.into_iter()
+		.flat_map(|parent| parent.components())
+		.map(|component| component.as_os_str().to_string_lossy().into_owned())
+		.collect::<Vec<_>>();
+	let file_name = relative_file
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or_default();
+	let module_name = if file_name == "mod.rs" {
+		"mod"
+	} else {
+		relative_file
+			.file_stem()
+			.and_then(|name| name.to_str())
+			.unwrap_or_default()
+	};
+	if target_path != lib_path && file_name != "mod.rs" {
+		file_modules.push(module_name.to_string());
+	}
+	let segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
+	let Some(file_module) = segments.iter().position(|segment| {
+		segment.kind == kinds::MODULE && segment.name == module_name.as_bytes()
+	}) else {
+		return false;
+	};
+	let candidate_tail = normalized_rust_segments(segments.into_iter().skip(file_module + 1));
+	let target = &target[1..];
+	target.len() == file_modules.len() + candidate_tail.len()
+		&& !target.is_empty()
+		&& target
+			.iter()
+			.take(file_modules.len())
+			.zip(&file_modules)
+			.all(|(target, module)| {
+				rust_path_segment_matches(
+					*target,
+					NormalizedSegment {
+						kind: kinds::MODULE,
+						name: module.as_bytes(),
+					},
+				)
+			}) && target
+		.iter()
+		.skip(file_modules.len())
+		.zip(&candidate_tail)
+		.all(|(target, candidate)| rust_path_segment_matches(*target, *candidate))
+}
+
+fn absolute_path(path: &Path) -> std::path::PathBuf {
+	let path = if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		std::env::current_dir()
+			.map(|cwd| cwd.join(path))
+			.unwrap_or_else(|_| path.to_path_buf())
+	};
+	let mut out = std::path::PathBuf::new();
+	for component in path.components() {
+		match component {
+			std::path::Component::CurDir => {}
+			std::path::Component::ParentDir => {
+				out.pop();
+			}
+			_ => out.push(component.as_os_str()),
+		}
+	}
+	out
 }
 
 fn rust_path_target_matches_def(
