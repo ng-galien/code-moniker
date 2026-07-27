@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use code_moniker_core::core::moniker::Segment;
 use code_moniker_core::core::moniker::query::bare_callable_name;
+use code_moniker_core::core::moniker::{Moniker, MonikerBuilder, Segment};
 use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
@@ -12,6 +12,12 @@ pub(super) struct RustLanguageLinkageStrategy;
 
 impl LanguageLinkageStrategy for RustLanguageLinkageStrategy {
 	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+		if query
+			.target_first
+			.is_some_and(|segment| segment.kind == kinds::SDK)
+		{
+			return false;
+		}
 		candidate.moniker.bind_match(query.target)
 			|| query.target.bind_match(candidate.moniker)
 			|| rust_path_target_matches_def(query, candidate)
@@ -90,6 +96,30 @@ pub(super) fn external_crate_target_matches_def(
 		.skip(file_modules.len())
 		.zip(&candidate_tail)
 		.all(|(target, candidate)| rust_path_segment_matches(*target, *candidate))
+}
+
+pub(super) fn sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
+	if query
+		.material
+		.files
+		.get(query.source_file)
+		.is_none_or(|file| file.lang != code_moniker_core::lang::Lang::Rs)
+		|| query.reference_kind.as_bytes() != kinds::METHOD_CALL
+		|| query.confidence != Some(confidence(kinds::CONF_NAME_MATCH))
+	{
+		return None;
+	}
+	let name = query.call_name?;
+	if !code_moniker_core::lang::rs::is_common_std_method(name) {
+		return None;
+	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(query.target.as_view().project());
+	builder.segment(kinds::SDK, b"rs");
+	builder.segment(kinds::PATH, b"std");
+	builder.segment(kinds::PATH, b"prelude");
+	builder.segment(kinds::METHOD, name.as_bytes());
+	Some(builder.build())
 }
 
 fn absolute_path(path: &Path) -> std::path::PathBuf {
@@ -232,11 +262,11 @@ fn can_use_contextual_name_match(query: &LinkageQuery<'_>) -> bool {
 }
 
 fn is_qualified_local_rust_call(query: &LinkageQuery<'_>) -> bool {
-	query.reference_kind.as_bytes() == kinds::CALLS
+	is_rust_call_ref(query.reference_kind.as_bytes())
 		&& query.target_segment_count > 1
 		&& query
 			.target_first
-			.is_some_and(|first| first.kind != kinds::EXTERNAL_PKG)
+			.is_some_and(|first| !matches!(first.kind, kinds::EXTERNAL_PKG | kinds::SDK))
 }
 
 fn rust_name_matches(

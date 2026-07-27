@@ -3,6 +3,7 @@ use std::sync::Arc;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
+use code_moniker_core::lang::Lang;
 use code_moniker_core::lang::kinds;
 use rustc_hash::FxHashMap;
 
@@ -25,6 +26,8 @@ struct CandidateFileShard {
 	file: Arc<IndexedSourceFile>,
 	by_location: Vec<Option<SymbolOrdinal>>,
 }
+
+type NameIndex = FxHashMap<Vec<u8>, SymbolSet>;
 
 pub(in crate::linkage) struct CandidateCatalog {
 	files: Vec<CandidateFileShard>,
@@ -63,16 +66,6 @@ impl CandidateCatalog {
 		&self.symbols
 	}
 
-	pub(in crate::linkage) fn candidate(
-		&self,
-		symbol: SymbolOrdinal,
-	) -> Option<LinkageCandidate<'_>> {
-		let (file_idx, def_idx) = self.locations.get(symbol.index()).copied().flatten()?;
-		let shard = self.files.get(file_idx as usize)?;
-		let def = shard.file.graph.def_at(def_idx as usize);
-		Some(candidate(file_idx as usize, def))
-	}
-
 	pub(in crate::linkage) fn indexes(&self) -> &CandidateIndexes {
 		&self.indexes
 	}
@@ -83,6 +76,16 @@ impl CandidateCatalog {
 	) -> Option<(SymbolOrdinal, LinkageCandidate<'_>)> {
 		let symbol = self.symbols.ordinal(id)?;
 		Some((symbol, self.candidate(symbol)?))
+	}
+
+	pub(in crate::linkage) fn candidate(
+		&self,
+		symbol: SymbolOrdinal,
+	) -> Option<LinkageCandidate<'_>> {
+		let (file_idx, def_idx) = self.locations.get(symbol.index()).copied().flatten()?;
+		let shard = self.files.get(file_idx as usize)?;
+		let def = shard.file.graph.def_at(def_idx as usize);
+		Some(candidate(file_idx as usize, def))
 	}
 
 	pub(in crate::linkage) fn query_keys_for_symbol(
@@ -109,8 +112,9 @@ impl CandidateCatalog {
 
 pub(in crate::linkage) struct CandidateIndexes {
 	by_moniker: FxHashMap<Moniker, SymbolOrdinal>,
-	by_name: FxHashMap<Vec<u8>, SymbolSet>,
-	by_source_name: FxHashMap<usize, FxHashMap<Vec<u8>, SymbolSet>>,
+	by_name: NameIndex,
+	by_language_name: FxHashMap<Lang, NameIndex>,
+	by_source_name: FxHashMap<usize, NameIndex>,
 }
 
 impl CandidateIndexes {
@@ -118,49 +122,47 @@ impl CandidateIndexes {
 		Self {
 			by_moniker: FxHashMap::default(),
 			by_name: FxHashMap::default(),
+			by_language_name: FxHashMap::default(),
 			by_source_name: FxHashMap::default(),
 		}
 	}
 
-	fn push_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'_>) {
+	fn push_candidate(
+		&mut self,
+		lang: Lang,
+		symbol: SymbolOrdinal,
+		candidate: &LinkageCandidate<'_>,
+	) {
 		self.by_moniker.insert(candidate.moniker.clone(), symbol);
 		for key in candidate_keys(candidate) {
-			self.by_name.entry(key.clone()).or_default().insert(symbol);
-			self.by_source_name
-				.entry(candidate.source_file)
-				.or_default()
-				.entry(key)
-				.or_default()
-				.insert(symbol);
+			insert_name(&mut self.by_name, &key, symbol);
+			insert_partitioned_name(&mut self.by_language_name, lang, &key, symbol);
+			insert_partitioned_name(
+				&mut self.by_source_name,
+				candidate.source_file,
+				&key,
+				symbol,
+			);
 		}
 	}
 
-	fn remove_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'_>) {
+	fn remove_candidate(
+		&mut self,
+		language: Lang,
+		ordinal: SymbolOrdinal,
+		entry: &LinkageCandidate<'_>,
+	) {
 		if self
 			.by_moniker
-			.get(candidate.moniker)
-			.is_some_and(|existing| *existing == symbol)
+			.get(entry.moniker)
+			.is_some_and(|existing| *existing == ordinal)
 		{
-			self.by_moniker.remove(candidate.moniker);
+			self.by_moniker.remove(entry.moniker);
 		}
-		for key in candidate_keys(candidate) {
-			if let Some(set) = self.by_name.get_mut(&key) {
-				set.remove(symbol);
-				if set.is_empty() {
-					self.by_name.remove(&key);
-				}
-			}
-			if let Some(source) = self.by_source_name.get_mut(&candidate.source_file) {
-				if let Some(set) = source.get_mut(&key) {
-					set.remove(symbol);
-					if set.is_empty() {
-						source.remove(&key);
-					}
-				}
-				if source.is_empty() {
-					self.by_source_name.remove(&candidate.source_file);
-				}
-			}
+		for key in candidate_keys(entry) {
+			remove_name(&mut self.by_name, &key, ordinal);
+			remove_partitioned_name(&mut self.by_language_name, language, &key, ordinal);
+			remove_partitioned_name(&mut self.by_source_name, entry.source_file, &key, ordinal);
 		}
 	}
 
@@ -181,12 +183,57 @@ impl CandidateIndexes {
 		self.by_name.get(key)
 	}
 
+	pub(in crate::linkage) fn symbols_by_language_key(
+		&self,
+		lang: Lang,
+		key: &[u8],
+	) -> Option<&SymbolSet> {
+		self.by_language_name.get(&lang)?.get(key)
+	}
+
 	pub(in crate::linkage) fn symbols_by_source_key(
 		&self,
 		source_file: usize,
 		key: &[u8],
 	) -> Option<&SymbolSet> {
 		self.by_source_name.get(&source_file)?.get(key)
+	}
+}
+
+fn insert_name(index: &mut NameIndex, key: &[u8], symbol: SymbolOrdinal) {
+	index.entry(key.to_vec()).or_default().insert(symbol);
+}
+
+fn remove_name(index: &mut NameIndex, key: &[u8], symbol: SymbolOrdinal) {
+	if let Some(set) = index.get_mut(key) {
+		set.remove(symbol);
+		if set.is_empty() {
+			index.remove(key);
+		}
+	}
+}
+
+fn insert_partitioned_name<K: Copy + Eq + std::hash::Hash>(
+	index: &mut FxHashMap<K, NameIndex>,
+	partition: K,
+	key: &[u8],
+	symbol: SymbolOrdinal,
+) {
+	insert_name(index.entry(partition).or_default(), key, symbol);
+}
+
+fn remove_partitioned_name<K: Copy + Eq + std::hash::Hash>(
+	index: &mut FxHashMap<K, NameIndex>,
+	partition: K,
+	key: &[u8],
+	symbol: SymbolOrdinal,
+) {
+	let Some(names) = index.get_mut(&partition) else {
+		return;
+	};
+	remove_name(names, key, symbol);
+	if names.is_empty() {
+		index.remove(&partition);
 	}
 }
 
@@ -246,7 +293,7 @@ fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut Cand
 		shard.by_location[def_idx] = Some(symbol);
 		catalog
 			.indexes
-			.push_candidate(symbol, &candidate(file_idx, def));
+			.push_candidate(file.lang, symbol, &candidate(file_idx, def));
 	}
 }
 
@@ -265,7 +312,7 @@ fn unindex_shard(
 		let def = shard.file.graph.def_at(def_idx);
 		catalog
 			.indexes
-			.remove_candidate(symbol, &candidate(file_idx, def));
+			.remove_candidate(shard.file.lang, symbol, &candidate(file_idx, def));
 	}
 	old_ordinals
 }

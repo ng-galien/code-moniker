@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use rustc_hash::FxHashSet;
-
 use crate::linkage::catalog::SymbolSet;
 use crate::linkage::catalog::{CandidateCatalog, LinkageQuery, SymbolOrdinal, query_keys};
 use crate::linkage::language;
@@ -63,8 +61,13 @@ fn local_indexes(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> Symbol
 
 fn global_indexes(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
 	let mut symbols = SymbolSet::new();
+	let Some(source) = query.material.files.get(query.source_file) else {
+		return symbols;
+	};
 	for key in query_keys(query) {
-		if let Some(candidate_indexes) = catalog.indexes().symbols_by_key(&key) {
+		if let Some(candidate_indexes) =
+			catalog.indexes().symbols_by_language_key(source.lang, &key)
+		{
 			for symbol in candidate_indexes.iter() {
 				let Some(candidate) = catalog.candidate(symbol) else {
 					continue;
@@ -100,7 +103,7 @@ struct CandidateSourceMatcher<'a, 'q> {
 	catalog: &'a CandidateCatalog,
 	query: &'q LinkageQuery<'q>,
 	source_files: &'q BTreeSet<usize>,
-	seen: FxHashSet<SymbolOrdinal>,
+	seen: SymbolSet,
 	found: bool,
 }
 
@@ -114,7 +117,7 @@ impl<'a, 'q> CandidateSourceMatcher<'a, 'q> {
 			catalog,
 			query,
 			source_files,
-			seen: FxHashSet::default(),
+			seen: SymbolSet::new(),
 			found: false,
 		}
 	}

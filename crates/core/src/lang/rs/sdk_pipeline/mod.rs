@@ -9,6 +9,7 @@ mod refs;
 mod syntax;
 
 use discover::RustDiscover;
+pub(super) use refs::is_common_std_method;
 
 use super::kinds;
 use super::{Presets, parse};

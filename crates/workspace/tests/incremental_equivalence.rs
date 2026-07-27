@@ -370,6 +370,75 @@ fn seed_sql_workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn cross_language_name_partition_changes_match_full_rebuild() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(
+		temp.path().join("caller.rs"),
+		"struct Caller;\nimpl Caller { fn call(&self) { self.foreignOnly(); } }\n",
+	)
+	.expect("Rust fixture");
+	fs::write(
+		temp.path().join("foreign.ts"),
+		"export class Foreign { foreignOnly(): void {} }\n",
+	)
+	.expect("TypeScript fixture");
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"foreign.ts",
+		"export class Foreign { renamedOnly(): void {} }\n",
+	);
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+	assert!(
+		session.snapshot.resolved.iter().all(|edge| {
+			let reference = session
+				.index
+				.references
+				.iter()
+				.find(|reference| reference.id == edge.reference)
+				.expect("resolved reference");
+			reference.call_name.as_deref() != Some("foreignOnly")
+		}),
+		"Rust calls must not resolve through a TypeScript name partition"
+	);
+}
+
+#[test]
+fn cross_file_rust_receiver_method_changes_match_full_rebuild() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	fs::write(
+		src.join("lib.rs"),
+		"mod receiver;\nuse receiver::Value;\nfn duplicate(value: &Value) -> Value { value.clone() }\n",
+	)
+	.expect("Rust caller fixture");
+	fs::write(src.join("receiver.rs"), "pub struct Value;\n").expect("Rust receiver fixture");
+	let mut session = IncrementalSession::open(temp.path());
+	let clone_reference = session
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == "method_call" && reference.call_name.as_deref() == Some("clone")
+		})
+		.expect("clone reference")
+		.id;
+	assert!(
+		session.snapshot.external.iter().any(|external| {
+			external.reference == clone_reference && external.target_identity.contains("sdk:rs")
+		}),
+		"an imported receiver without a workspace method should retain the SDK fallback"
+	);
+	session.edit(
+		"src/receiver.rs",
+		"pub struct Value;\nimpl Value { pub fn clone(&self) -> Self { Self } }\n",
+	);
+
+	assert_eq!(session.normal_form(), full_build_normal_form(temp.path()));
+}
+
+#[test]
 fn sql_default_arity_changes_match_full_rebuild() {
 	let temp = seed_sql_workspace(&[
 		(

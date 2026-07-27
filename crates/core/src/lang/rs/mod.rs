@@ -44,6 +44,10 @@ pub fn extract_sdk(
 	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
+pub fn is_common_std_method(name: &str) -> bool {
+	sdk_pipeline::is_common_std_method(name.as_bytes())
+}
+
 pub struct Lang;
 
 const DEF_KINDS: &[&str] = &[

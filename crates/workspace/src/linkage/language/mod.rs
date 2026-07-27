@@ -51,11 +51,13 @@ pub(super) fn matches_candidate(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
-	query
-		.material
-		.files
-		.get(query.source_file)
-		.is_some_and(|file| language_strategy(file.lang).matches(query, candidate))
+	let Some(source) = query.material.files.get(query.source_file) else {
+		return false;
+	};
+	let Some(target) = query.material.files.get(candidate.source_file) else {
+		return false;
+	};
+	source.lang == target.lang && language_strategy(source.lang).matches(query, candidate)
 }
 
 pub(super) fn c_include_matches_candidate(
@@ -126,6 +128,10 @@ pub(super) fn rust_external_crate_target_matches_def(
 	lib_path: &std::path::Path,
 ) -> bool {
 	rust::external_crate_target_matches_def(query, candidate, lib_path)
+}
+
+pub(super) fn rust_sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
+	rust::sdk_method_fallback(query)
 }
 
 pub(super) struct SemanticContext<'a> {

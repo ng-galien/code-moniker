@@ -98,6 +98,42 @@ fn rust_bin_lib_linkage_is_anchored_to_the_manifest_not_a_src_segment() {
 }
 
 #[test]
+fn global_name_matches_do_not_cross_language_boundaries() {
+	let snapshot = load_workspace("projects/mixed-language");
+	let source_identity = "module:caller/struct:Caller/method:call_language_homonyms()";
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+
+	for call_name in ["tsOnly", "javaOnly", "goOnly"] {
+		let reference = snapshot
+			.index
+			.references
+			.iter()
+			.find(|reference| {
+				reference.kind == "method_call"
+					&& reference.source_symbol == source.id
+					&& reference.call_name.as_deref() == Some(call_name)
+			})
+			.unwrap_or_else(|| panic!("missing `{call_name}` call from `{source_identity}`"));
+		assert!(
+			linked_symbol_identities(&snapshot, reference).is_empty(),
+			"`{call_name}` must not resolve to a definition from another language"
+		);
+		let unresolved = snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.find(|item| item.reference == reference.id)
+			.unwrap_or_else(|| panic!("`{call_name}` should remain explicitly unresolved"));
+		assert_eq!(unresolved.reason, UnresolvedReason::NoCandidate);
+	}
+}
+
+#[test]
 fn csharp_sdk_links_unique_methods_and_classifies_open_receivers() {
 	let snapshot = load_workspace("projects/cs/resolution");
 
@@ -501,6 +537,89 @@ fn rust_qualified_calls_do_not_match_unrelated_same_arity_callables() {
 		"matches",
 		2,
 		"module:check/module:path/fn:matches(pattern:&Pattern,m:&Moniker)",
+	);
+}
+
+#[test]
+fn rust_sdk_method_calls_do_not_match_workspace_receiver_homonyms() {
+	let snapshot = load_workspace("projects/rust/qualified-call-collision");
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| {
+			symbol
+				.identity
+				.contains("fn:clone_sdk_path(path:&std::path::PathBuf)")
+		})
+		.expect("clone_sdk_path symbol");
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.source_symbol == source.id
+				&& reference.kind == "method_call"
+				&& reference.call_name.as_deref() == Some("clone")
+		})
+		.expect("PathBuf clone reference");
+	assert!(
+		linked_symbol_identities(&snapshot, reference).is_empty(),
+		"`PathBuf::clone` must not resolve to `CloneCollision::clone`"
+	);
+	assert!(
+		snapshot.linkage.external.iter().any(|external| {
+			external.reference == reference.id && external.origin == ExternalReferenceOrigin::Sdk
+		}),
+		"`PathBuf::clone` should retain SDK provenance"
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"fn:clone_local(value:&CloneCollision)",
+		"method_call",
+		"clone",
+		0,
+		"struct:CloneCollision/method:clone()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"fn:clone_cross_file(value:&CrossFileClone)",
+		"method_call",
+		"clone",
+		0,
+		"module:cross_file/struct:CrossFileClone/method:clone()",
+	);
+	let derived_source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| {
+			symbol
+				.identity
+				.contains("fn:clone_cross_file_derived(value:&DerivedClone)")
+		})
+		.expect("clone_cross_file_derived symbol");
+	let derived_reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.source_symbol == derived_source.id
+				&& reference.kind == "method_call"
+				&& reference.call_name.as_deref() == Some("clone")
+		})
+		.expect("derived Clone reference");
+	assert!(
+		linked_symbol_identities(&snapshot, derived_reference).is_empty(),
+		"derived cross-file Clone must not resolve to a workspace homonym"
+	);
+	assert!(
+		snapshot.linkage.external.iter().any(|external| {
+			external.reference == derived_reference.id
+				&& external.origin == ExternalReferenceOrigin::Sdk
+				&& external.target_identity.contains("sdk:rs")
+		}),
+		"derived cross-file Clone should fall back to the Rust SDK"
 	);
 }
 

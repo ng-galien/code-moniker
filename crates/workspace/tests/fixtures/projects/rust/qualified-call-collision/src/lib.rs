@@ -1,3 +1,7 @@
+pub mod cross_file;
+
+use crate::cross_file::{CrossFileClone, DerivedClone};
+
 pub mod check {
 	pub mod path {
 		pub struct Pattern;
@@ -40,4 +44,28 @@ pub fn uses_qualified_path_matches(
 	m: &check::path::Moniker,
 ) -> bool {
 	crate::check::path::matches(pattern, m)
+}
+
+pub struct CloneCollision;
+
+impl CloneCollision {
+	pub fn clone(&self) -> Self {
+		Self
+	}
+}
+
+pub fn clone_sdk_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+	path.clone()
+}
+
+pub fn clone_local(value: &CloneCollision) -> CloneCollision {
+	value.clone()
+}
+
+pub fn clone_cross_file(value: &CrossFileClone) -> CrossFileClone {
+	value.clone()
+}
+
+pub fn clone_cross_file_derived(value: &DerivedClone) -> DerivedClone {
+	value.clone()
 }

@@ -904,7 +904,7 @@ fn receiver_type_target(
 	receiver: Node<'_>,
 	function: &Moniker,
 ) -> Option<Moniker> {
-	match receiver.kind() {
+	let owner = match receiver.kind() {
 		"identifier" => type_env
 			.resolve_local(node_slice(receiver, env.source))
 			.and_then(TypeExpr::receiver_owner)
@@ -912,6 +912,16 @@ fn receiver_type_target(
 		"call_expression" => infer_call_type_expr(env, type_env, receiver, function)
 			.and_then(|ty| ty.receiver_owner().cloned()),
 		_ => None,
+	}?;
+	if owner
+		.as_view()
+		.segments()
+		.last()
+		.is_some_and(|segment| segment.name == b"Self")
+	{
+		enclosing_type(function).or(Some(owner))
+	} else {
+		Some(owner)
 	}
 }
 
@@ -1318,8 +1328,17 @@ fn resolve_receiver_method_target(
 	if external_root(receiver_type).is_some() {
 		return (target, kinds::CONF_EXTERNAL);
 	}
-	if env.defs.iter().any(|def| def.moniker == target) {
-		return (target, kinds::CONF_RESOLVED);
+	let (resolved, confidence) = resolve_callable(env, receiver_type, kinds::METHOD, name);
+	if confidence == kinds::CONF_RESOLVED {
+		return (resolved, confidence);
+	}
+	if receiver_type
+		.as_view()
+		.segments()
+		.last()
+		.is_some_and(|segment| segment.kind == kinds::PATH)
+	{
+		return (target, kinds::CONF_NAME_MATCH);
 	}
 	if is_common_std_method(name) {
 		return (
@@ -1947,7 +1966,7 @@ fn common_std_method_target(scope: &Moniker, name: &[u8]) -> Moniker {
 	)
 }
 
-fn is_common_std_method(name: &[u8]) -> bool {
+pub(crate) fn is_common_std_method(name: &[u8]) -> bool {
 	is_common_iterator_method(name)
 		|| is_common_collection_method(name)
 		|| is_common_text_method(name)

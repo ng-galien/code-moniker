@@ -187,6 +187,14 @@ fn resolve_scopes(
 			return decision;
 		}
 	}
+	if let Some(target) = crate::linkage::language::rust_sdk_method_fallback(query) {
+		return ReferenceLinkageDecision::external_target(
+			ExternalOrigin::Sdk,
+			site.reference_idx,
+			site.reference.id,
+			target,
+		);
+	}
 	if sdk_tagged(query) {
 		return ReferenceLinkageDecision::external(
 			ExternalOrigin::Sdk,
