@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use code_moniker_check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
+use code_moniker_check::workspace::{
+	WorkspaceCheckRunner, WorkspaceCheckRunnerOptions, WorkspaceEvaluationMode,
+};
 use code_moniker_check::{CheckRequest, DefaultRulesSelection, RuleSetRequest};
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
@@ -155,4 +157,54 @@ fn one_shot_and_snapshot_runner_agree_on_workspace_symbol_rule() {
 			.name,
 		"BadRepository"
 	);
+}
+
+#[test]
+fn incremental_runner_keeps_excluded_symbols_out_of_rule_universe() {
+	let (fixture, rules) = workspace_fixture();
+	let cache = LocalResourceCache::default();
+	let mut registry = LocalWorkspaceRegistry::local_with_cache(
+		LocalWorkspaceOptions::new(vec![fixture.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let transition = registry
+		.commands()
+		.refresh(WorkspaceRequest::new("workspace-symbol-excluded-seed"));
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	let initial = registry.queries().snapshot().expect("initial snapshot");
+	let mut runner = WorkspaceCheckRunner::new(
+		WorkspaceCheckRunnerOptions::new(rules.clone(), None, SCHEME),
+		cache.clone(),
+	);
+	runner
+		.run_check(&initial.index, &initial.linkage)
+		.expect("seed workspace symbol evaluation");
+
+	let excluded = fixture
+		.path()
+		.join("generated/java/com/acme/domain/IgnoredRepository.java");
+	write(
+		fixture.path(),
+		"generated/java/com/acme/domain/IgnoredRepository.java",
+		"package com.acme.domain;\n\npublic class ChangedIgnoredRepository {}\n",
+	);
+	let transition = registry.commands().refresh_paths(
+		WorkspaceRequest::new("workspace-symbol-excluded-refresh"),
+		vec![excluded],
+	);
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	let changed = registry.queries().snapshot().expect("changed snapshot");
+	let incremental = runner
+		.run_check(&changed.index, &changed.linkage)
+		.expect("incremental excluded evaluation");
+	let mut cold =
+		WorkspaceCheckRunner::new(WorkspaceCheckRunnerOptions::new(rules, None, SCHEME), cache);
+	let expected = cold
+		.run_check(&changed.index, &changed.linkage)
+		.expect("cold excluded evaluation");
+	assert_eq!(
+		incremental.evaluation.mode,
+		WorkspaceEvaluationMode::Incremental
+	);
+	assert_eq!(incremental.diagnostics, expected.diagnostics);
 }

@@ -59,7 +59,32 @@ impl LocalResourceCache {
 	) {
 		let mut inner = self.lock_material();
 		inner.indexes.clear();
+		inner.index_diffs.clear();
 		inner.indexes.insert(generation.value(), Arc::new(material));
+	}
+
+	pub fn insert_index_diff(
+		&self,
+		generation: crate::snapshot::ResourceGeneration,
+		previous_generation: crate::snapshot::ResourceGeneration,
+		diff: crate::code::CodeIndexGraphDiff,
+	) {
+		self.lock_material()
+			.index_diffs
+			.insert(generation.value(), (previous_generation, Arc::new(diff)));
+	}
+
+	pub fn index_diff(
+		&self,
+		generation: crate::snapshot::ResourceGeneration,
+	) -> Option<(
+		crate::snapshot::ResourceGeneration,
+		Arc<crate::code::CodeIndexGraphDiff>,
+	)> {
+		self.lock_material()
+			.index_diffs
+			.get(&generation.value())
+			.cloned()
 	}
 
 	pub fn index_material(
@@ -77,6 +102,13 @@ struct LocalResourceMaterial {
 	next_generation: u64,
 	sources: BTreeMap<u64, SourceCatalogMaterial>,
 	indexes: BTreeMap<u64, Arc<CodeIndexMaterial>>,
+	index_diffs: BTreeMap<
+		u64,
+		(
+			crate::snapshot::ResourceGeneration,
+			Arc<crate::code::CodeIndexGraphDiff>,
+		),
+	>,
 }
 
 impl Default for LocalResourceMaterial {
@@ -85,6 +117,7 @@ impl Default for LocalResourceMaterial {
 			next_generation: 1,
 			sources: BTreeMap::new(),
 			indexes: BTreeMap::new(),
+			index_diffs: BTreeMap::new(),
 		}
 	}
 }

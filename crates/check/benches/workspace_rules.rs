@@ -3,14 +3,17 @@
 mod support;
 
 use std::collections::BTreeMap;
+use std::fs;
 
 use code_moniker_check::{
 	DefaultRulesSelection, RuleSetRequest, compile_workspace_rules, evaluate_workspace_rules,
+	workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions, WorkspaceEvaluationMode},
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
 	CodeIndex, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
 };
+use code_moniker_workspace::source::LocalResourceCache;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 const MODULES: usize = 120;
@@ -18,11 +21,16 @@ const SYMBOLS_PER_MODULE: usize = 40;
 
 fn indexed_workspace(
 	workspace: &support::SyntheticWorkspace,
-) -> (LocalWorkspaceRegistry, std::sync::Arc<WorkspaceSnapshot>) {
-	let mut registry = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
-		vec![workspace.root().to_path_buf()],
-		None,
-	));
+) -> (
+	LocalWorkspaceRegistry,
+	std::sync::Arc<WorkspaceSnapshot>,
+	LocalResourceCache,
+) {
+	let cache = LocalResourceCache::default();
+	let mut registry = LocalWorkspaceRegistry::local_with_cache(
+		LocalWorkspaceOptions::new(vec![workspace.root().to_path_buf()], None),
+		cache.clone(),
+	);
 	let transition = registry
 		.commands()
 		.refresh(WorkspaceRequest::new("workspace-rule-bench"));
@@ -31,7 +39,7 @@ fn indexed_workspace(
 		.queries()
 		.snapshot_arc()
 		.expect("workspace-rule benchmark snapshot");
-	(registry, snapshot)
+	(registry, snapshot, cache)
 }
 
 fn naive_repository_violations(index: &CodeIndex) -> usize {
@@ -72,7 +80,7 @@ fn naive_name_collisions(index: &CodeIndex) -> usize {
 
 fn scan_baseline(c: &mut Criterion) {
 	let workspace = support::generate(MODULES, SYMBOLS_PER_MODULE);
-	let (_registry, snapshot) = indexed_workspace(&workspace);
+	let (_registry, snapshot, _cache) = indexed_workspace(&workspace);
 	assert!(naive_repository_violations(&snapshot.index) > 0);
 	assert!(naive_name_collisions(&snapshot.index) > 0);
 	let cfg = RuleSetRequest::new(None, "code+moniker://")
@@ -157,7 +165,7 @@ fn scan_baseline(c: &mut Criterion) {
 
 fn refresh_baseline(c: &mut Criterion) {
 	let workspace = support::generate(MODULES, SYMBOLS_PER_MODULE);
-	let (mut registry, _) = indexed_workspace(&workspace);
+	let (mut registry, _, _) = indexed_workspace(&workspace);
 	let changed_module = workspace.changed_module();
 	let mut salt = 0usize;
 	let mut group = c.benchmark_group("workspace_rules_baseline");
@@ -184,6 +192,66 @@ fn refresh_baseline(c: &mut Criterion) {
 				.expect("refreshed workspace-rule snapshot");
 			std::hint::black_box(naive_repository_violations(&snapshot.index));
 			std::hint::black_box(naive_name_collisions(&snapshot.index));
+		});
+	});
+	group.finish();
+
+	let workspace = support::generate(MODULES, SYMBOLS_PER_MODULE);
+	let rules = workspace.root().join(".code-moniker.toml");
+	fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[workspace.symbol.where]]
+id = "repositories-under-infra"
+expr = "(shape = 'type' AND name =~ Repository$) => uri ~ '**/dir:infra/**'"
+
+[[workspace.group.where]]
+id = "unique-type-name"
+members = "shape = 'type'"
+group_by = ["lang", "segment('dir')", "name"]
+expr = "count(member) <= 1"
+"#,
+	)
+	.expect("incremental benchmark rules");
+	let (mut registry, initial, cache) = indexed_workspace(&workspace);
+	let mut runner = WorkspaceCheckRunner::new(
+		WorkspaceCheckRunnerOptions::new(rules, None, "code+moniker://"),
+		cache,
+	);
+	runner
+		.run_check(&initial.index, &initial.linkage)
+		.expect("seed incremental workspace-rule evaluation");
+	let changed_module = workspace.changed_module();
+	let mut salt = 0usize;
+	let mut group = c.benchmark_group("workspace_rules_incremental");
+	group.sample_size(20);
+	group.bench_function("refresh_then_incremental_rules", |b| {
+		b.iter(|| {
+			salt += 1;
+			workspace.rewrite_module(changed_module, salt);
+			let transition = registry.commands().refresh_paths(
+				WorkspaceRequest::new("workspace-rule-incremental-refresh"),
+				vec![
+					workspace
+						.root()
+						.join(format!("src/infra/m{changed_module}.rs")),
+				],
+			);
+			assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+			let snapshot = registry
+				.queries()
+				.snapshot()
+				.expect("incremental workspace-rule snapshot");
+			let diagnostics = runner
+				.run_check(&snapshot.index, &snapshot.linkage)
+				.expect("incremental workspace-rule evaluation");
+			assert_eq!(
+				diagnostics.evaluation.mode,
+				WorkspaceEvaluationMode::Incremental
+			);
+			std::hint::black_box(diagnostics);
 		});
 	});
 	group.finish();

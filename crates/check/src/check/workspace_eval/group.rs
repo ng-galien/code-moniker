@@ -485,6 +485,152 @@ fn member_summary(inventory: &SymbolInventoryIndex, members: &SymbolSet) -> Stri
 	)
 }
 
+pub(super) struct GroupIncrementalInput<'a> {
+	pub previous_inventory: &'a SymbolInventoryIndex,
+	pub current_inventory: &'a SymbolInventoryIndex,
+	pub previous_universe: &'a SymbolSet,
+	pub current_universe: &'a SymbolSet,
+	pub previous_dirty: &'a SymbolSet,
+	pub current_dirty: &'a SymbolSet,
+	pub compiled: &'a CompiledWorkspaceRules,
+	pub previous: &'a WorkspaceEvaluation,
+}
+
+pub(super) fn evaluate_groups_incremental(
+	input: GroupIncrementalInput<'_>,
+) -> (
+	Vec<WorkspaceGroupResult>,
+	Vec<WorkspaceSymbolViolation>,
+	usize,
+) {
+	let GroupIncrementalInput {
+		previous_inventory,
+		current_inventory,
+		previous_universe,
+		current_universe,
+		previous_dirty,
+		current_dirty,
+		compiled,
+		previous,
+	} = input;
+	let mut next_by_key = index_group_results(previous);
+	let mut affected = std::collections::BTreeSet::new();
+	let mut previous_cache = FxHashMap::default();
+	let mut current_cache = FxHashMap::default();
+	for rule in &compiled.group {
+		let previous_selected = eval_node(
+			&rule.members,
+			previous_inventory,
+			&previous_dirty.intersection(previous_universe),
+			&mut previous_cache,
+		);
+		let current_selected = eval_node(
+			&rule.members,
+			current_inventory,
+			&current_dirty.intersection(current_universe),
+			&mut current_cache,
+		);
+		let previous_changed = bucket_members(previous_inventory, rule, &previous_selected);
+		let current_changed = bucket_members(current_inventory, rule, &current_selected);
+		let keys = previous_changed
+			.keys()
+			.chain(current_changed.keys())
+			.cloned()
+			.collect::<std::collections::BTreeSet<_>>();
+		for key in keys {
+			affected.insert(key.canonical());
+			let mut members = next_by_key
+				.get(&key)
+				.map(|group| group.members.clone())
+				.unwrap_or_default();
+			members.remove_all(previous_dirty);
+			members.intersect_with(current_universe);
+			if let Some(changed) = current_changed.get(&key) {
+				members.union_with(changed);
+			}
+			if members.is_empty() {
+				next_by_key.remove(&key);
+				continue;
+			}
+			let passed = rule.predicate.passes(members.len());
+			let suppressed = !passed && rule.suppress.contains(&key.values);
+			next_by_key.insert(
+				key.clone(),
+				WorkspaceGroupResult {
+					key,
+					members,
+					passed,
+					suppressed,
+				},
+			);
+		}
+	}
+	let groups = next_by_key.into_values().collect::<Vec<_>>();
+	let violations = group_diagnostics(current_inventory, compiled, &groups);
+	(groups, violations, affected.len())
+}
+
+fn index_group_results(
+	evaluation: &WorkspaceEvaluation,
+) -> BTreeMap<ScopeKey, WorkspaceGroupResult> {
+	evaluation
+		.groups
+		.iter()
+		.cloned()
+		.map(|group| (group.key.clone(), group))
+		.collect()
+}
+
+fn bucket_members(
+	inventory: &SymbolInventoryIndex,
+	rule: &CompiledWorkspaceGroupRule,
+	selected: &SymbolSet,
+) -> BTreeMap<ScopeKey, SymbolSet> {
+	let mut buckets = BTreeMap::new();
+	for ordinal in selected.iter() {
+		let Some(record) = inventory.record(ordinal) else {
+			continue;
+		};
+		let key = ScopeKey {
+			rule_id: rule.rule_id.clone(),
+			values: rule
+				.group_by
+				.iter()
+				.map(|projection| projection.value(record))
+				.collect(),
+		};
+		buckets
+			.entry(key)
+			.or_insert_with(SymbolSet::new)
+			.insert(ordinal);
+	}
+	buckets
+}
+
+fn group_diagnostics(
+	inventory: &SymbolInventoryIndex,
+	compiled: &CompiledWorkspaceRules,
+	groups: &[WorkspaceGroupResult],
+) -> Vec<WorkspaceSymbolViolation> {
+	let rules = compiled
+		.group
+		.iter()
+		.map(|rule| (rule.rule_id.as_str(), rule))
+		.collect::<BTreeMap<_, _>>();
+	groups
+		.iter()
+		.filter(|group| !group.passed && !group.suppressed)
+		.filter_map(|group| {
+			group_violation(
+				inventory,
+				rules.get(group.key.rule_id.as_str()).copied()?,
+				&group.key,
+				&group.members,
+			)
+		})
+		.collect()
+}
+
 #[cfg(test)]
 mod tests {
 	use std::collections::BTreeSet;

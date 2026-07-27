@@ -270,7 +270,7 @@ fn refresh_local_code_index(
 	let semantic_index = semantic_timer.elapsed();
 	let generation = cache.next_generation();
 	let identity_scheme = material.identity.scheme().to_string();
-	cache.insert_index(generation, material);
+	cache_refreshed_index(cache, current, generation, material, &graph_diff);
 	let inventory = Arc::new(current.inventory.refresh(
 		generation,
 		&sources,
@@ -297,6 +297,17 @@ fn refresh_local_code_index(
 		changed_sources,
 		graph_diff,
 	})
+}
+
+fn cache_refreshed_index(
+	cache: &LocalResourceCache,
+	current: &CodeIndex,
+	generation: crate::snapshot::ResourceGeneration,
+	material: CodeIndexMaterial,
+	graph_diff: &CodeIndexGraphDiff,
+) {
+	cache.insert_index(generation, material);
+	cache.insert_index_diff(generation, current.generation, graph_diff.clone());
 }
 
 struct RetiredSlotRefresh<'a> {

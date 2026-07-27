@@ -59,6 +59,16 @@ pub fn cached_index_material(
 	cache.index_material(generation)
 }
 
+pub fn cached_index_diff(
+	cache: &ResourceCache,
+	generation: crate::snapshot::ResourceGeneration,
+) -> Option<(
+	crate::snapshot::ResourceGeneration,
+	Arc<crate::code::CodeIndexGraphDiff>,
+)> {
+	cache.index_diff(generation)
+}
+
 pub fn next_resource_generation(cache: &ResourceCache) -> crate::snapshot::ResourceGeneration {
 	cache.next_generation()
 }

@@ -1,6 +1,7 @@
 mod group;
+mod incremental;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_workspace::snapshot::{SourceId, SymbolInventoryIndex, SymbolSet};
 use rustc_hash::FxHashMap;
@@ -62,6 +63,7 @@ impl CompiledWorkspaceRules {
 	}
 }
 
+#[derive(Clone, Debug)]
 pub struct WorkspaceSymbolViolation {
 	pub source: SourceId,
 	pub symbol: Option<code_moniker_workspace::snapshot::SymbolId>,
@@ -69,12 +71,15 @@ pub struct WorkspaceSymbolViolation {
 	pub violation: Violation,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct WorkspaceEvaluation {
 	pub violations: Vec<WorkspaceSymbolViolation>,
+	pub violation_sets: BTreeMap<String, SymbolSet>,
 	pub groups: Vec<WorkspaceGroupResult>,
 	pub reports: Vec<RuleReport>,
 }
+
+pub(crate) use incremental::{WorkspaceIncrementalInput, evaluate_workspace_rules_incremental};
 
 pub fn compile_workspace_rules(
 	cfg: &Config,
@@ -204,6 +209,9 @@ pub fn evaluate_workspace_rules_in(
 	for rule in &compiled.symbol {
 		let truth = eval_node(&rule.root, inventory, universe, &mut atom_cache);
 		let violations = universe.difference(&truth);
+		evaluation
+			.violation_sets
+			.insert(rule.rule_id.clone(), violations.clone());
 		if report {
 			let antecedent_truth = match &rule.root {
 				Node::Implies(antecedent, _) => {
@@ -266,7 +274,17 @@ pub fn evaluate_workspace_rules_in(
 		&mut atom_cache,
 		&mut evaluation,
 	);
+	sort_workspace_violations(&mut evaluation.violations);
 	evaluation
+}
+
+fn sort_workspace_violations(violations: &mut [WorkspaceSymbolViolation]) {
+	violations.sort_by(|left, right| {
+		left.violation
+			.rule_id
+			.cmp(&right.violation.rule_id)
+			.then_with(|| left.violation.moniker.cmp(&right.violation.moniker))
+	});
 }
 
 fn rule_report(
