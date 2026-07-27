@@ -917,6 +917,11 @@ fn apply_workspace_rules(
 	if compiled.is_empty() {
 		return Ok(());
 	}
+	if compiled.has_linkage_rules() {
+		anyhow::bail!(
+			"workspace linkage rules were not run: one-shot check does not provide a LinkageSnapshot"
+		);
+	}
 	let generation = ResourceGeneration::new(0);
 	let sources = workspace_source_records(checked);
 	let symbols = workspace_symbol_records(checked, scheme);

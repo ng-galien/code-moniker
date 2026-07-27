@@ -1,14 +1,18 @@
 mod group;
 mod incremental;
+mod linkage;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use code_moniker_workspace::snapshot::{SourceId, SymbolInventoryIndex, SymbolSet};
+use code_moniker_workspace::snapshot::{
+	CodeIndex, LinkageSnapshot, ResourceGeneration, SourceId, SymbolInventoryIndex, SymbolSet,
+};
 use rustc_hash::FxHashMap;
+use thiserror::Error;
 
 use crate::check::config::{Config, ConfigError, RuleEntry};
 use crate::check::eval::{CompiledRuleSpec, RuleReport, Violation};
-use crate::check::expr::{self, Atom, Lhs, LhsExpr, Node, Op, Rhs};
+use crate::check::expr::{self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, Rhs};
 use crate::check::path::{self, Step};
 
 pub use group::{ScopeKey, WorkspaceGroupResult};
@@ -23,17 +27,40 @@ struct CompiledWorkspaceSymbolRule {
 	message: Option<String>,
 	rationale: Option<String>,
 	capabilities: Vec<String>,
+	plan: WorkspaceRulePlan,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkspaceRulePlan {
+	Inventory,
+	Linkage,
+}
+
+impl WorkspaceRulePlan {
+	fn as_str(self) -> &'static str {
+		match self {
+			Self::Inventory => "t1_inventory",
+			Self::Linkage => "t2_linkage",
+		}
+	}
 }
 
 #[derive(Debug, Default)]
 pub struct CompiledWorkspaceRules {
 	symbol: Vec<CompiledWorkspaceSymbolRule>,
 	group: Vec<group::CompiledWorkspaceGroupRule>,
+	min_linkage_coverage: usize,
 }
 
 impl CompiledWorkspaceRules {
 	pub fn is_empty(&self) -> bool {
 		self.symbol.is_empty() && self.group.is_empty()
+	}
+
+	pub fn has_linkage_rules(&self) -> bool {
+		self.symbol
+			.iter()
+			.any(|rule| rule.plan == WorkspaceRulePlan::Linkage)
 	}
 
 	pub fn specs(&self) -> Vec<CompiledRuleSpec> {
@@ -46,7 +73,7 @@ impl CompiledWorkspaceRules {
 				lang: "workspace".to_string(),
 				root: "workspace".to_string(),
 				subject: "symbol".to_string(),
-				plan: "t1_inventory".to_string(),
+				plan: rule.plan.as_str().to_string(),
 				capabilities: rule.capabilities.to_vec(),
 				group_by: Vec::new(),
 				domain: "workspace symbols".to_string(),
@@ -79,6 +106,25 @@ pub struct WorkspaceEvaluation {
 	pub reports: Vec<RuleReport>,
 }
 
+#[derive(Debug, Error, Eq, PartialEq)]
+#[error(
+	"linkage snapshot targets index generation {linkage_index_generation:?}, current index is {index_generation:?}"
+)]
+pub struct WorkspaceLinkageError {
+	index_generation: ResourceGeneration,
+	linkage_index_generation: ResourceGeneration,
+}
+
+impl WorkspaceLinkageError {
+	pub fn index_generation(&self) -> ResourceGeneration {
+		self.index_generation
+	}
+
+	pub fn linkage_index_generation(&self) -> ResourceGeneration {
+		self.linkage_index_generation
+	}
+}
+
 pub(crate) use incremental::{WorkspaceIncrementalInput, evaluate_workspace_rules_incremental};
 
 pub fn compile_workspace_rules(
@@ -94,7 +140,11 @@ pub fn compile_workspace_rules(
 		symbol.push(compile_symbol_rule(entry, at, scheme, &allowed, &aliases)?);
 	}
 	let group = group::compile_groups(cfg, scheme, &allowed, &aliases)?;
-	Ok(CompiledWorkspaceRules { symbol, group })
+	Ok(CompiledWorkspaceRules {
+		symbol,
+		group,
+		min_linkage_coverage: cfg.workspace.min_linkage_coverage.unwrap_or(100),
+	})
 }
 
 fn compile_symbol_rule(
@@ -111,7 +161,7 @@ fn compile_symbol_rule(
 			return Err(ConfigError::InvalidExpr { at, error });
 		}
 	};
-	let capabilities = classify_t1(&parsed.root, &at)?;
+	let (capabilities, plan) = classify_symbol_plan(&parsed.root, &at)?;
 	Ok(CompiledWorkspaceSymbolRule {
 		rule_id: at,
 		raw_expr: entry.expr.to_owned(),
@@ -121,32 +171,46 @@ fn compile_symbol_rule(
 		message: entry.message.to_owned(),
 		rationale: entry.rationale.to_owned(),
 		capabilities,
+		plan,
 	})
 }
 
-fn classify_t1(node: &Node, at: &str) -> Result<Vec<String>, ConfigError> {
+fn classify_symbol_plan(
+	node: &Node,
+	at: &str,
+) -> Result<(Vec<String>, WorkspaceRulePlan), ConfigError> {
 	let mut capabilities = BTreeSet::new();
-	collect_capabilities(node, at, &mut capabilities)?;
-	Ok(capabilities.into_iter().collect())
+	let mut plan = WorkspaceRulePlan::Inventory;
+	collect_capabilities(node, at, &mut capabilities, &mut plan)?;
+	Ok((capabilities.into_iter().collect(), plan))
+}
+
+fn classify_t1(node: &Node, at: &str) -> Result<Vec<String>, ConfigError> {
+	let (capabilities, plan) = classify_symbol_plan(node, at)?;
+	if plan == WorkspaceRulePlan::Linkage {
+		return unsupported(at, "linkage.group");
+	}
+	Ok(capabilities)
 }
 
 fn collect_capabilities(
 	node: &Node,
 	at: &str,
 	capabilities: &mut BTreeSet<String>,
+	plan: &mut WorkspaceRulePlan,
 ) -> Result<(), ConfigError> {
 	match node {
-		Node::Atom(atom) => collect_atom_capability(atom, at, capabilities),
+		Node::Atom(atom) => collect_atom_capability(atom, at, capabilities, plan),
 		Node::And(nodes) | Node::Or(nodes) => {
 			for node in nodes {
-				collect_capabilities(node, at, capabilities)?;
+				collect_capabilities(node, at, capabilities, plan)?;
 			}
 			Ok(())
 		}
-		Node::Not(node) => collect_capabilities(node, at, capabilities),
+		Node::Not(node) => collect_capabilities(node, at, capabilities, plan),
 		Node::Implies(left, right) => {
-			collect_capabilities(left, at, capabilities)?;
-			collect_capabilities(right, at, capabilities)
+			collect_capabilities(left, at, capabilities, plan)?;
+			collect_capabilities(right, at, capabilities, plan)
 		}
 		Node::Require(_) => unsupported(at, "inventory.require"),
 		Node::VerticalLayout(_) => unsupported(at, "local.vertical_layout"),
@@ -158,9 +222,10 @@ fn collect_atom_capability(
 	atom: &Atom,
 	at: &str,
 	capabilities: &mut BTreeSet<String>,
+	plan: &mut WorkspaceRulePlan,
 ) -> Result<(), ConfigError> {
 	let LhsExpr::Attr(lhs) = &atom.lhs else {
-		return unsupported(at, "non-attribute-expression");
+		return collect_linkage_count_capability(atom, at, capabilities, plan);
 	};
 	let facet = match lhs {
 		Lhs::Name => "name",
@@ -183,6 +248,33 @@ fn collect_atom_capability(
 	Ok(())
 }
 
+fn collect_linkage_count_capability(
+	atom: &Atom,
+	at: &str,
+	capabilities: &mut BTreeSet<String>,
+	plan: &mut WorkspaceRulePlan,
+) -> Result<(), ConfigError> {
+	let LhsExpr::Number(NumberExpr::Count { domain, filter }) = &atom.lhs else {
+		return unsupported(at, "non-attribute-expression");
+	};
+	if filter.is_some() {
+		return unsupported(at, "linkage.filtered-count");
+	}
+	let domain = match domain {
+		Domain::InRefs => "in_refs",
+		Domain::OutRefs => "out_refs",
+		_ => return unsupported(at, "linkage.unsupported-domain"),
+	};
+	if !matches!(atom.rhs, Rhs::Number(NumberExpr::Literal(_)))
+		|| !matches!(atom.op, Op::Eq | Op::Ne | Op::Lt | Op::Le | Op::Gt | Op::Ge)
+	{
+		return unsupported(at, "linkage.count-comparison");
+	}
+	capabilities.insert(format!("{domain}.count"));
+	*plan = WorkspaceRulePlan::Linkage;
+	Ok(())
+}
+
 fn unsupported<T>(at: &str, capability: &str) -> Result<T, ConfigError> {
 	Err(ConfigError::UnsupportedWorkspaceExpr {
 		at: at.to_string(),
@@ -198,6 +290,52 @@ pub fn evaluate_workspace_rules(
 	evaluate_workspace_rules_in(inventory, inventory.all_symbols(), compiled, report)
 }
 
+pub fn evaluate_workspace_rules_linked(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	compiled: &CompiledWorkspaceRules,
+	report: bool,
+) -> Result<WorkspaceEvaluation, WorkspaceLinkageError> {
+	evaluate_workspace_rules_linked_in(
+		index,
+		linkage,
+		index.inventory.all_symbols(),
+		compiled,
+		report,
+	)
+}
+
+pub fn evaluate_workspace_rules_linked_in(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	universe: &SymbolSet,
+	compiled: &CompiledWorkspaceRules,
+	report: bool,
+) -> Result<WorkspaceEvaluation, WorkspaceLinkageError> {
+	if linkage.index_generation != index.generation {
+		return Err(WorkspaceLinkageError {
+			index_generation: index.generation,
+			linkage_index_generation: linkage.index_generation,
+		});
+	}
+	Ok(evaluate_workspace_rules_linked_in_current(
+		index, linkage, universe, compiled, report,
+	))
+}
+
+pub(crate) fn evaluate_workspace_rules_linked_in_current(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	universe: &SymbolSet,
+	compiled: &CompiledWorkspaceRules,
+	report: bool,
+) -> WorkspaceEvaluation {
+	let mut evaluation = evaluate_workspace_rules_in(&index.inventory, universe, compiled, report);
+	linkage::evaluate_linkage_rules(index, linkage, universe, compiled, report, &mut evaluation);
+	sort_workspace_violations(&mut evaluation.violations);
+	evaluation
+}
+
 pub fn evaluate_workspace_rules_in(
 	inventory: &SymbolInventoryIndex,
 	universe: &SymbolSet,
@@ -207,6 +345,9 @@ pub fn evaluate_workspace_rules_in(
 	let mut evaluation = WorkspaceEvaluation::default();
 	let mut atom_cache = FxHashMap::<String, SymbolSet>::default();
 	for rule in &compiled.symbol {
+		if rule.plan != WorkspaceRulePlan::Inventory {
+			continue;
+		}
 		let truth = eval_node(&rule.root, inventory, universe, &mut atom_cache);
 		let violations = universe.difference(&truth);
 		evaluation
@@ -303,6 +444,9 @@ fn rule_report(
 		violations: violations.len(),
 		antecedent_matches,
 		warning: None,
+		inconclusive: None,
+		verdict: None,
+		coverage: None,
 	}
 }
 
@@ -621,6 +765,29 @@ mod tests {
 		assert!(
 			path::matches_text_segments(&pattern, &segments),
 			"{segments:#?}"
+		);
+	}
+
+	#[test]
+	fn linkage_reference_counts_classify_as_t2() {
+		let cfg = crate::check::config::load_from_str(
+			r#"
+			[[workspace.symbol.where]]
+			id = "used-types"
+			expr = "shape = 'type' => count(in_refs) >= 1"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect("workspace linkage config");
+		let compiled =
+			compile_workspace_rules(&cfg, "code+moniker://").expect("workspace linkage plan");
+		let specs = compiled.specs();
+		assert_eq!(specs.len(), 1);
+		assert_eq!(specs[0].plan, "t2_linkage");
+		assert_eq!(
+			specs[0].capabilities,
+			vec!["in_refs.count".to_string(), "shape.exact".to_string()]
 		);
 	}
 }

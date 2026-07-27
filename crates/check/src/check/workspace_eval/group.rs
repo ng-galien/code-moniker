@@ -409,6 +409,9 @@ fn evaluate_group_rule(
 			violations,
 			antecedent_matches: None,
 			warning: None,
+			inconclusive: None,
+			verdict: None,
+			coverage: None,
 		});
 	}
 }

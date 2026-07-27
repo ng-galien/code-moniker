@@ -50,8 +50,15 @@ impl WorkspaceCheckRunner {
 	pub fn run_check(
 		&mut self,
 		index: &CodeIndex,
-		_linkage: &LinkageSnapshot,
+		linkage: &LinkageSnapshot,
 	) -> anyhow::Result<WorkspaceRuleDiagnostics> {
+		if linkage.index_generation != index.generation {
+			anyhow::bail!(
+				"linkage snapshot targets index generation {}, current index is {}",
+				linkage.index_generation.value(),
+				index.generation.value()
+			);
+		}
 		let material = environment::cached_index_material(&self.cache, index.generation)
 			.ok_or_else(|| anyhow::anyhow!("code index material is unavailable"))?;
 		let generation = environment::next_resource_generation(&self.cache);
@@ -60,6 +67,7 @@ impl WorkspaceCheckRunner {
 			index,
 			&self.options,
 			&self.cache,
+			linkage,
 			self.state.as_ref(),
 		)?;
 		self.state = Some(collected.state);
@@ -67,6 +75,7 @@ impl WorkspaceCheckRunner {
 			generation,
 			index.generation,
 			collected.diagnostics,
+			collected.reports,
 		);
 		diagnostics.evaluation = collected.metrics;
 		Ok(diagnostics)
@@ -83,6 +92,7 @@ struct WorkspaceEvaluationState {
 
 struct CollectedDiagnostics {
 	diagnostics: Vec<WorkspaceRuleDiagnostic>,
+	reports: Vec<crate::check::eval::RuleReport>,
 	metrics: WorkspaceEvaluationMetrics,
 	state: WorkspaceEvaluationState,
 }
@@ -92,6 +102,7 @@ fn collect_diagnostics(
 	index: &CodeIndex,
 	options: &WorkspaceCheckRunnerOptions,
 	cache: &ResourceCache,
+	linkage: &LinkageSnapshot,
 	previous: Option<&WorkspaceEvaluationState>,
 ) -> anyhow::Result<CollectedDiagnostics> {
 	let cfg = load_config(options)?;
@@ -126,25 +137,19 @@ fn collect_diagnostics(
 	}
 	let workspace_rules =
 		crate::check::workspace_eval::compile_workspace_rules(&cfg, &options.scheme)?;
-	let included_symbols = index
-		.inventory
-		.all_symbols()
-		.iter()
-		.filter(|ordinal| {
-			index.inventory.record(*ordinal).is_some_and(|record| {
-				!excludes.matches_path(Path::new(record.source_path.as_ref()))
-			})
-		})
-		.collect::<SymbolSet>();
+	let included_symbols = included_workspace_symbols(index, &excludes);
 	let fingerprint = workspace_fingerprint(&workspace_rules, &cfg);
-	let (workspace_evaluation, metrics) = evaluate_workspace_snapshot(
-		index,
-		&included_symbols,
-		&workspace_rules,
-		&fingerprint,
-		cache,
-		previous,
-	);
+	let (mut workspace_evaluation, metrics) =
+		evaluate_workspace_snapshot(WorkspaceSnapshotEvaluationInput {
+			index,
+			universe: &included_symbols,
+			compiled: &workspace_rules,
+			fingerprint: &fingerprint,
+			cache,
+			linkage,
+			previous,
+		});
+	let mut reports = std::mem::take(&mut workspace_evaluation.reports);
 	let mut workspace_by_source = std::collections::BTreeMap::<
 		usize,
 		Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
@@ -193,8 +198,10 @@ fn collect_diagnostics(
 			diagnostic_from_violation(violation, primary, &symbol_by_identity)
 		}));
 	}
+	realign_workspace_reports(&mut reports, &diagnostics);
 	Ok(CollectedDiagnostics {
 		diagnostics,
+		reports,
 		metrics,
 		state: WorkspaceEvaluationState {
 			index_generation: index.generation,
@@ -204,6 +211,41 @@ fn collect_diagnostics(
 			evaluation: workspace_evaluation,
 		},
 	})
+}
+
+fn realign_workspace_reports(
+	reports: &mut [crate::check::eval::RuleReport],
+	diagnostics: &[WorkspaceRuleDiagnostic],
+) {
+	for report in reports.iter_mut().filter(|report| report.verdict.is_some()) {
+		report.violations = diagnostics
+			.iter()
+			.filter(|diagnostic| diagnostic.rule_id == report.rule_id)
+			.count();
+		report.verdict = Some(if report.violations > 0 {
+			crate::check::eval::RuleVerdict::Fail
+		} else if report.inconclusive.unwrap_or_default() > 0 {
+			crate::check::eval::RuleVerdict::Inconclusive
+		} else {
+			crate::check::eval::RuleVerdict::Pass
+		});
+	}
+}
+
+fn included_workspace_symbols(
+	index: &CodeIndex,
+	excludes: &check::UriExclusionMatcher,
+) -> SymbolSet {
+	index
+		.inventory
+		.all_symbols()
+		.iter()
+		.filter(|ordinal| {
+			index.inventory.record(*ordinal).is_some_and(|record| {
+				!excludes.matches_path(Path::new(record.source_path.as_ref()))
+			})
+		})
+		.collect()
 }
 
 fn workspace_fingerprint(
@@ -218,19 +260,36 @@ fn workspace_fingerprint(
 	)
 }
 
+struct WorkspaceSnapshotEvaluationInput<'a> {
+	index: &'a CodeIndex,
+	universe: &'a SymbolSet,
+	compiled: &'a crate::check::workspace_eval::CompiledWorkspaceRules,
+	fingerprint: &'a str,
+	cache: &'a ResourceCache,
+	linkage: &'a LinkageSnapshot,
+	previous: Option<&'a WorkspaceEvaluationState>,
+}
+
 fn evaluate_workspace_snapshot(
-	index: &CodeIndex,
-	universe: &SymbolSet,
-	compiled: &crate::check::workspace_eval::CompiledWorkspaceRules,
-	fingerprint: &str,
-	cache: &ResourceCache,
-	previous: Option<&WorkspaceEvaluationState>,
+	input: WorkspaceSnapshotEvaluationInput<'_>,
 ) -> (
 	crate::check::workspace_eval::WorkspaceEvaluation,
 	WorkspaceEvaluationMetrics,
 ) {
+	let WorkspaceSnapshotEvaluationInput {
+		index,
+		universe,
+		compiled,
+		fingerprint,
+		cache,
+		linkage,
+		previous,
+	} = input;
+	if compiled.has_linkage_rules() {
+		return evaluate_workspace_full(index, linkage, universe, compiled);
+	}
 	let Some(previous) = previous.filter(|state| state.fingerprint == fingerprint) else {
-		return evaluate_workspace_full(index, universe, compiled);
+		return evaluate_workspace_full(index, linkage, universe, compiled);
 	};
 	if previous.index_generation == index.generation {
 		return (
@@ -244,10 +303,10 @@ fn evaluate_workspace_snapshot(
 		);
 	}
 	let Some((diff_base, diff)) = environment::cached_index_diff(cache, index.generation) else {
-		return evaluate_workspace_full(index, universe, compiled);
+		return evaluate_workspace_full(index, linkage, universe, compiled);
 	};
 	if diff_base != previous.index_generation {
-		return evaluate_workspace_full(index, universe, compiled);
+		return evaluate_workspace_full(index, linkage, universe, compiled);
 	}
 	let incremental = crate::check::workspace_eval::evaluate_workspace_rules_incremental(
 		crate::check::workspace_eval::WorkspaceIncrementalInput {
@@ -273,17 +332,19 @@ fn evaluate_workspace_snapshot(
 
 fn evaluate_workspace_full(
 	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
 	universe: &SymbolSet,
 	compiled: &crate::check::workspace_eval::CompiledWorkspaceRules,
 ) -> (
 	crate::check::workspace_eval::WorkspaceEvaluation,
 	WorkspaceEvaluationMetrics,
 ) {
-	let evaluation = crate::check::workspace_eval::evaluate_workspace_rules_in(
-		&index.inventory,
+	let evaluation = crate::check::workspace_eval::evaluate_workspace_rules_linked_in_current(
+		index,
+		linkage,
 		universe,
 		compiled,
-		false,
+		compiled.has_linkage_rules(),
 	);
 	let metrics = WorkspaceEvaluationMetrics {
 		mode: WorkspaceEvaluationMode::Full,
@@ -318,6 +379,7 @@ pub struct WorkspaceRuleDiagnostics {
 	pub generation: ResourceGeneration,
 	pub index_generation: ResourceGeneration,
 	pub evaluation: WorkspaceEvaluationMetrics,
+	pub reports: Vec<crate::check::eval::RuleReport>,
 	pub errors: usize,
 	pub warnings: usize,
 	pub diagnostics: Vec<WorkspaceRuleDiagnostic>,
@@ -328,6 +390,7 @@ impl WorkspaceRuleDiagnostics {
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
 		diagnostics: Vec<WorkspaceRuleDiagnostic>,
+		reports: Vec<crate::check::eval::RuleReport>,
 	) -> Self {
 		let errors = diagnostics
 			.iter()
@@ -341,6 +404,7 @@ impl WorkspaceRuleDiagnostics {
 			generation,
 			index_generation,
 			evaluation: WorkspaceEvaluationMetrics::full(),
+			reports,
 			errors,
 			warnings,
 			diagnostics,

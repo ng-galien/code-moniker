@@ -189,7 +189,29 @@ pub(in crate::check) fn evaluate_compiled_with_requirements(
 	out
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleVerdict {
+	Pass,
+	Fail,
+	Inconclusive,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
+pub struct RuleCoverage {
+	pub total: usize,
+	pub decided: usize,
+	pub resolved: usize,
+	pub external: usize,
+	pub candidate: usize,
+	pub dynamic: usize,
+	pub blocked: usize,
+	pub unresolved: usize,
+	pub percent: usize,
+	pub min_percent: usize,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
 pub struct RuleReport {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
@@ -201,6 +223,12 @@ pub struct RuleReport {
 	pub antecedent_matches: Option<usize>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub warning: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub inconclusive: Option<usize>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub verdict: Option<RuleVerdict>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub coverage: Option<RuleCoverage>,
 }
 
 pub fn rule_report_compiled(
@@ -416,6 +444,9 @@ impl RuleReport {
 			violations: 0,
 			antecedent_matches: implication_premise(rule).map(|_| 0),
 			warning: None,
+			inconclusive: None,
+			verdict: None,
+			coverage: None,
 		}
 	}
 
@@ -429,6 +460,9 @@ impl RuleReport {
 			violations: 0,
 			antecedent_matches: None,
 			warning: None,
+			inconclusive: None,
+			verdict: None,
+			coverage: None,
 		}
 	}
 

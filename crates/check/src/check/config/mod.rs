@@ -96,6 +96,8 @@ pub struct RefsRules {
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceRules {
 	#[serde(default)]
+	pub min_linkage_coverage: Option<usize>,
+	#[serde(default)]
 	pub symbol: KindRules,
 	#[serde(default)]
 	pub group: WorkspaceGroupRules,
@@ -217,6 +219,8 @@ pub enum ConfigError {
 	UnsupportedWorkspaceExpr { at: String, capability: String },
 	#[error("invalid workspace group rule `{at}`: {message}")]
 	InvalidWorkspaceGroup { at: String, message: String },
+	#[error("workspace.min_linkage_coverage must be between 0 and 100, got {value}")]
+	InvalidWorkspaceCoverage { value: usize },
 	#[error("unknown kind `{kind}` under `[{section}.{kind}]` (allowed: {allowed})")]
 	UnknownKind {
 		section: String,
@@ -489,6 +493,9 @@ fn merge_into(base: &mut Config, ov: Config) {
 	}
 	base.views.extend(ov.views);
 	merge_refs(&mut base.refs, ov.refs);
+	if ov.workspace.min_linkage_coverage.is_some() {
+		base.workspace.min_linkage_coverage = ov.workspace.min_linkage_coverage;
+	}
 	merge_kind(&mut base.workspace.symbol, ov.workspace.symbol);
 	merge_group(&mut base.workspace.group, ov.workspace.group);
 	base.workspace
@@ -694,6 +701,11 @@ fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 }
 
 fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
+	if let Some(value) = cfg.workspace.min_linkage_coverage
+		&& value > 100
+	{
+		return Err(ConfigError::InvalidWorkspaceCoverage { value });
+	}
 	if cfg.workspace.symbol.require_doc_comment.is_some() {
 		return Err(ConfigError::WorkspaceRequireDocUnsupported);
 	}
@@ -1164,6 +1176,27 @@ mod tests {
 			cfg.workspace.symbol.rules[0].id.as_deref(),
 			Some("repositories-under-infra")
 		);
+	}
+
+	#[test]
+	fn workspace_linkage_coverage_is_a_bounded_percent() {
+		let error = load_from_str(
+			r#"
+			[workspace]
+			min_linkage_coverage = 101
+
+			[[workspace.symbol.where]]
+			id = "used"
+			expr = "count(in_refs) >= 1"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect_err("coverage over 100 must fail");
+		assert!(matches!(
+			error,
+			ConfigError::InvalidWorkspaceCoverage { value: 101 }
+		));
 	}
 
 	#[test]

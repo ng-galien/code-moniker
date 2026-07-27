@@ -15,14 +15,15 @@ pub use check::command::{
 };
 pub use check::config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};
 pub use check::eval::{
-	CompiledRuleSpec, CompiledRules, RuleReport, Violation, compile_rules, evaluate_compiled,
-	rule_report_compiled,
+	CompiledRuleSpec, CompiledRules, RuleCoverage, RuleReport, RuleVerdict, Violation,
+	compile_rules, evaluate_compiled, rule_report_compiled,
 };
 pub use check::exclude::UriExclusionMatcher;
 pub use check::suppress::apply as apply_suppressions;
 pub use check::workspace_eval::{
 	CompiledWorkspaceRules, ScopeKey, WorkspaceEvaluation, WorkspaceGroupResult,
-	WorkspaceSymbolViolation, compile_workspace_rules, evaluate_workspace_rules,
+	WorkspaceLinkageError, WorkspaceSymbolViolation, compile_workspace_rules,
+	evaluate_workspace_rules, evaluate_workspace_rules_linked, evaluate_workspace_rules_linked_in,
 };
 
 pub use check::workspace;
