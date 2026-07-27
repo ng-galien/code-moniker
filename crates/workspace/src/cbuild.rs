@@ -33,12 +33,13 @@ pub struct CBuildContext {
 impl CBuildContext {
 	pub fn load(root: &Path) -> Self {
 		let root = absolute_normalized(root);
-		let entries = ignore::WalkBuilder::new(&root)
-			.build()
-			.filter_map(Result::ok)
-			.filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-			.map(|entry| entry.into_path())
-			.collect::<Vec<_>>();
+		let entries = workspace_entries(&root);
+		let mut context = Self::from_entries(root, &entries);
+		context.record_translation_units(entries);
+		context
+	}
+
+	fn from_entries(root: PathBuf, entries: &[PathBuf]) -> Self {
 		let workspace_files = entries
 			.iter()
 			.filter_map(|path| project_relative_path(&root, path))
@@ -54,8 +55,12 @@ impl CBuildContext {
 			has_cpp_translation_unit: false,
 		};
 		if !context.include_paths.contains(&root) {
-			context.include_paths.push(root.clone());
+			context.include_paths.push(root);
 		}
+		context
+	}
+
+	fn record_translation_units(&mut self, entries: Vec<PathBuf>) {
 		let mut visited_c = HashSet::new();
 		let mut visited_cpp = HashSet::new();
 		for path in entries {
@@ -63,16 +68,15 @@ impl CBuildContext {
 				continue;
 			};
 			match language {
-				TranslationUnitLanguage::C => context.has_c_translation_unit = true,
-				TranslationUnitLanguage::Cpp => context.has_cpp_translation_unit = true,
+				TranslationUnitLanguage::C => self.has_c_translation_unit = true,
+				TranslationUnitLanguage::Cpp => self.has_cpp_translation_unit = true,
 			}
 			let visited = match language {
 				TranslationUnitLanguage::C => &mut visited_c,
 				TranslationUnitLanguage::Cpp => &mut visited_cpp,
 			};
-			context.record_includes(&path, language, visited);
+			self.record_includes(&path, language, visited);
 		}
-		context
 	}
 
 	pub fn extraction_presets(&self) -> Presets {
@@ -141,6 +145,15 @@ impl CBuildContext {
 			.find(|candidate| candidate.is_file())
 			.map(|candidate| absolute_normalized(&candidate))
 	}
+}
+
+fn workspace_entries(root: &Path) -> Vec<PathBuf> {
+	ignore::WalkBuilder::new(root)
+		.build()
+		.filter_map(Result::ok)
+		.filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+		.map(|entry| entry.into_path())
+		.collect()
 }
 
 fn translation_unit_language(path: &Path) -> Option<TranslationUnitLanguage> {
