@@ -6,7 +6,7 @@ use std::thread::{self, JoinHandle};
 
 use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_query::{
-	Command, CommandRequest, Query, QueryRequest, QueryResult, SymbolSearchQuery,
+	Command, CommandRequest, Query, QueryRequest, QueryResult, SymbolListResult, SymbolSearchQuery,
 	query_capability_specs,
 };
 use code_moniker_workspace::snapshot::{
@@ -21,7 +21,8 @@ use super::tools;
 use super::tools::read::{render_explorer_lmnav, render_symbol_source_lmnav};
 use super::tools::scope::{Paging, ScopeFilter, SymbolScopeFilter};
 use super::tools::symbols::{
-	SymbolAction, SymbolIndexView, render_symbols_lmnav, render_symbols_lmnav_mode,
+	SymbolAction, SymbolIndexView, render_daemon_symbol_list_lmnav, render_symbols_lmnav,
+	render_symbols_lmnav_mode,
 };
 use super::tools::usages::{UsageDirection, UsageIndexView, UsageQuery, render_usages_lmnav};
 use super::tools::{McpTool, ToolRegistry};
@@ -1735,6 +1736,107 @@ fn symbols_tool_filters_and_pages_symbols() {
 	assert!(text.contains("name=\"^r\""), "{text}");
 	assert!(text.contains("cursor=1"), "{text}");
 	assert!(!text.contains("code_moniker_read"), "{text}");
+}
+
+#[test]
+fn symbols_tool_explains_signed_callable_names_after_an_exact_bare_name_miss() {
+	let source_id = SourceId::at(1);
+	let sources = vec![source_file(source_id.clone(), "src/lib.rs", "rs")];
+	let symbols = vec![symbol_record(
+		SymbolId::at(0, 1),
+		source_id,
+		"code+moniker://./lang:rs/module:lib/fn:call(context:&Context)",
+		"call(context:&Context)",
+		"fn",
+		Some((1, 3)),
+	)];
+	let scope = SymbolScopeFilter::from_arguments(&json!({
+		"path": "src/**",
+		"lang": "rs",
+		"shape": "callable",
+		"name": "^call$"
+	}))
+	.unwrap();
+	let text = render_symbols_lmnav(
+		"code+moniker://",
+		"workspace",
+		&scope,
+		Paging {
+			cursor: 0,
+			generation: None,
+			limit: 20,
+		},
+		SymbolIndexView {
+			sources: &sources,
+			symbols: &symbols,
+			references: &[],
+		},
+		SymbolAction::List,
+	);
+
+	assert!(text.contains("symbols: 0"), "{text}");
+	assert!(
+		text.contains("callable names may include their parameter signature"),
+		"{text}"
+	);
+	assert!(text.contains(r#"try name="^call\\(""#), "{text}");
+}
+
+#[test]
+fn symbols_tool_does_not_suggest_callable_signatures_for_explicit_type_searches() {
+	let scope = SymbolScopeFilter::from_arguments(&json!({
+		"kind": "fn",
+		"shape": "type",
+		"name": "^Missing$"
+	}))
+	.unwrap();
+	let text = render_symbols_lmnav(
+		"code+moniker://",
+		"workspace",
+		&scope,
+		Paging {
+			cursor: 0,
+			generation: None,
+			limit: 20,
+		},
+		SymbolIndexView {
+			sources: &[],
+			symbols: &[],
+			references: &[],
+		},
+		SymbolAction::List,
+	);
+
+	assert!(!text.contains("callable names may include"), "{text}");
+}
+
+#[test]
+fn symbols_tool_does_not_explain_a_daemon_page_past_existing_matches() {
+	let scope = SymbolScopeFilter::from_arguments(&json!({
+		"name": "^call$"
+	}))
+	.unwrap();
+	let text = render_daemon_symbol_list_lmnav(
+		"code+moniker://",
+		"workspace",
+		&scope,
+		(
+			Paging {
+				cursor: 1,
+				generation: None,
+				limit: 20,
+			},
+			true,
+		),
+		None,
+		&SymbolListResult {
+			rows: Vec::new(),
+			total: 1,
+		},
+	);
+
+	assert!(text.contains("symbols: 1"), "{text}");
+	assert!(!text.contains("callable names may include"), "{text}");
 }
 
 #[test]

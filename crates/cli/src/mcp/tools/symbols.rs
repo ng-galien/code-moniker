@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use code_moniker_core::core::shape::Shape;
 use code_moniker_query::{
 	Query, QueryResult, SymbolDto, SymbolInsightsResult, SymbolListResult, SymbolSearchQuery,
 };
@@ -78,7 +79,7 @@ impl SymbolsTool {
 				},
 				"name": {
 					"type": "string",
-					"description": "Rust regex matched against symbol name."
+					"description": "Rust regex matched against the indexed symbol name. Callable names may include their parameter signature."
 				},
 				"include_non_navigable": {
 					"type": "boolean",
@@ -215,7 +216,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 	}
 }
 
-fn render_daemon_symbol_list_lmnav(
+pub(in crate::mcp) fn render_daemon_symbol_list_lmnav(
 	scheme: &str,
 	request_uri: &str,
 	scope: &SymbolScopeFilter,
@@ -248,6 +249,9 @@ fn render_daemon_symbol_list_lmnav(
 	output.push_str("results:\n");
 	if result.rows.is_empty() {
 		output.push_str("  <empty>\n");
+		if result.total == 0 {
+			append_signed_callable_name_hint(&mut output, scope);
+		}
 	} else {
 		for symbol in &result.rows {
 			render_daemon_symbol_row(&mut output, symbol, compact);
@@ -500,6 +504,7 @@ fn render_symbol_list_lmnav(
 	output.push_str("results:\n");
 	if rows.is_empty() {
 		output.push_str("  <empty>\n");
+		append_signed_callable_name_hint(&mut output, scope);
 	} else {
 		for (symbol, source) in rows.iter().take(end).skip(start) {
 			output.push_str(&format!(
@@ -556,6 +561,37 @@ fn render_symbol_list_lmnav(
 			.skip(start)
 			.map(|(symbol, _)| symbol.identity.as_ref()),
 	)
+}
+
+fn append_signed_callable_name_hint(output: &mut String, scope: &SymbolScopeFilter) {
+	let callable_scope = (scope.kinds.is_empty()
+		|| scope
+			.kinds
+			.iter()
+			.any(|kind| Shape::for_kind(kind.as_bytes()) == Shape::Callable))
+		&& (scope.shapes.is_empty() || scope.shapes.contains(&Shape::Callable));
+	if !callable_scope {
+		return;
+	}
+	let Some(name) = scope.name.as_ref().map(regex::Regex::as_str) else {
+		return;
+	};
+	let Some(bare_name) = name
+		.strip_prefix('^')
+		.and_then(|name| name.strip_suffix('$'))
+		.filter(|name| {
+			!name.is_empty()
+				&& name
+					.chars()
+					.all(|character| character.is_ascii_alphanumeric() || character == '_')
+		})
+	else {
+		return;
+	};
+	output.push_str("\nhint:\n");
+	output.push_str("  callable names may include their parameter signature; try");
+	append_call_string_arg(output, "name", &format!("^{bare_name}\\("));
+	output.push_str(" or omit the trailing `$`.\n");
 }
 
 fn render_symbol_insights_lmnav(
