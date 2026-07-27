@@ -193,6 +193,7 @@ fn snapshot_domain_value_expr(expr: &DomainValueExpr) -> Value {
 	json!({
 		"domain": snapshot_domain(&expr.domain),
 		"expr": snapshot_value_expr(&expr.expr),
+		"filter": expr.filter.as_ref().map(|filter| snapshot_node(filter)),
 	})
 }
 

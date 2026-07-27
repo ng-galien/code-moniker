@@ -1,0 +1,1 @@
+entropy(in_refs, source.parent, NOT source ~ '**/module:tests/**') >= 0.5

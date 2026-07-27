@@ -12,7 +12,8 @@ expression: snapshot_expr(&expr)
         "expr": {
           "name": "target.parent",
           "type": "projection"
-        }
+        },
+        "filter": null
       },
       "type": "mode"
     },

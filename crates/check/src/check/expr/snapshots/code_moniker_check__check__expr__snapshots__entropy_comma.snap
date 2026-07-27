@@ -18,7 +18,8 @@ expression: snapshot_expr(&expr)
             "expr": {
               "name": "source",
               "type": "projection"
-            }
+            },
+            "filter": null
           },
           "type": "entropy"
         },

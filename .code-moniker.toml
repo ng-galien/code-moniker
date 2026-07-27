@@ -55,6 +55,14 @@ rust_test_support = """
   moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/module:acceptance/**'
   OR moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:expr/module:/^(snapshots|fuzz)$/**'
 """
+rust_test_caller = """
+  source.kind = 'test'
+  OR source ~ '**/dir:tests/**'
+  OR source ~ '**/module:tests/**'
+  OR source ~ '**/dir:examples/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/module:ui/module:acceptance/**'
+  OR source ~ '**/dir:crates/dir:check/dir:src/module:check/module:expr/module:/^(snapshots|fuzz)$/**'
+"""
 
 [exclude]
 uris = [
@@ -267,12 +275,13 @@ functions are excluded while this rule is in adoption.
 [[rust.shape.callable.where]]
 id        = "smell-caller-concentration"
 severity  = "error"
-expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR visibility != 'public' OR count(in_refs) < 6 OR entropy(in_refs, source.parent) >= 0.5"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR visibility != 'public' OR count(in_refs, NOT $rust_test_caller) < 6 OR entropy(in_refs, source.parent, NOT $rust_test_caller) >= 0.5"
 message   = "Caller concentration candidate: `{name}` is mainly used by one local owner."
 rationale = """
 Low incoming-reference entropy is useful for public APIs that look broadly reusable but are
-mainly consumed by one local owner. Tests, examples, and private helpers are excluded while
-this rule is in adoption.
+mainly consumed by one local owner. Both the volume guard and the entropy metric operate on the
+same production-only reference domain, excluding integration tests, inline test modules,
+examples and named test-support modules. Private helpers remain outside this adoption gate.
 """
 
 [[rust.shape.type.where]]

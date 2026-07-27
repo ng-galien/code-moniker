@@ -3,6 +3,7 @@ use super::cursor::{self, ParseResult, ParserState};
 use super::domain::{parse_domain_ident, reject_pair_domain};
 use super::error::ParseError;
 use super::number::{next_starts_number_call, parse_number_expr};
+use super::parse::parse_expr;
 
 pub(super) fn parse_mode_lhs<'a>(state: ParserState<'a>) -> ParseResult<'a, LhsExpr> {
 	let state = cursor::advance(state, "mode".len());
@@ -30,6 +31,12 @@ pub(super) fn parse_domain_value_call_body<'a>(
 		parse_legacy_projection_value(state)?
 	};
 	let state = cursor::skip_ws(state);
+	let (filter, state) = if cursor::peek_byte(&state) == Some(b',') {
+		let (filter, state) = parse_expr(cursor::advance(state, 1))?;
+		(Some(Box::new(filter)), cursor::skip_ws(state))
+	} else {
+		(None, state)
+	};
 	if cursor::peek_byte(&state) != Some(b')') {
 		return Err(cursor::bail(
 			&state,
@@ -43,6 +50,7 @@ pub(super) fn parse_domain_value_call_body<'a>(
 		DomainValueExpr {
 			domain,
 			expr: Box::new(expr),
+			filter,
 		},
 		cursor::advance(state, 1),
 	))

@@ -1,0 +1,49 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "expr": {
+          "domain": {
+            "type": "in_refs"
+          },
+          "expr": {
+            "name": "source.parent",
+            "type": "projection"
+          },
+          "filter": {
+            "node": {
+              "lhs": {
+                "name": "source",
+                "type": "attr"
+              },
+              "op": "path_match",
+              "raw": "source ~ '**/module:tests/**'",
+              "rhs": {
+                "pattern": "**/module:tests/**",
+                "type": "path_pattern"
+              },
+              "type": "atom"
+            },
+            "type": "not"
+          }
+        },
+        "type": "entropy"
+      },
+      "type": "number"
+    },
+    "op": "ge",
+    "raw": "entropy(in_refs, source.parent, NOT source ~ '**/module:tests/**') >= 0.5",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 0.5
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

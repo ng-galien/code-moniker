@@ -1,11 +1,14 @@
-use crate::check::expr::{AggregateKind, Domain, DomainValueExpr, Lhs, NumberExpr, ValueExpr};
+use crate::check::expr::{
+	AggregateKind, Domain, DomainValueExpr, Lhs, Node, NumberExpr, ValueExpr,
+};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use std::collections::HashSet;
 
 use super::value::{Value, mode_value, value_counts};
 use super::{
-	EvalCtx, def_has_shape, eval_number_expr_def, eval_number_expr_ref, eval_number_expr_segment,
-	resolve_def_lhs, resolve_ref_lhs,
+	EvalCtx, NodeOutcome, def_has_shape, eval_external_def_node, eval_node_segment,
+	eval_node_with_self, eval_number_expr_def, eval_number_expr_ref, eval_number_expr_segment,
+	eval_ref_node, resolve_def_lhs, resolve_ref_lhs,
 };
 
 pub(super) struct AggregateEval<'a> {
@@ -320,11 +323,36 @@ fn collect_domain_values(
 ) -> Vec<Value> {
 	let mut values = Vec::new();
 	for item in domain_items(&collection.domain, def_idx, ctx) {
+		if collection
+			.filter
+			.as_deref()
+			.is_some_and(|filter| !domain_item_matches(item, filter, self_idx, ctx))
+		{
+			continue;
+		}
 		if let Some(value) = eval_domain_value_item(item, &collection.expr, self_idx, ctx) {
 			values.push(value);
 		}
 	}
 	values
+}
+
+fn domain_item_matches(
+	item: DomainItem<'_>,
+	filter: &Node,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> bool {
+	let outcome = match item {
+		DomainItem::Def {
+			idx: Some(idx),
+			def,
+		} => eval_node_with_self(filter, def, idx, self_idx, ctx),
+		DomainItem::Def { idx: None, def } => eval_external_def_node(filter, def, ctx),
+		DomainItem::Ref { record } => eval_ref_node(filter, record, ctx),
+		DomainItem::Segment { kind, name } => eval_node_segment(filter, kind, name),
+	};
+	matches!(outcome, NodeOutcome::Pass)
 }
 
 fn eval_domain_value_item(

@@ -472,7 +472,7 @@ fn material_from_files(
 		for (def_idx, def) in file.graph.defs().enumerate() {
 			symbols_by_moniker.insert(
 				def.moniker.clone(),
-				file.graph_identity().symbol_id(file_idx, def_idx),
+				file.identity.symbol_id(file_idx, def_idx),
 			);
 		}
 	}
@@ -692,14 +692,14 @@ fn collect_symbols(
 	symbols: &mut Vec<SymbolRecord>,
 ) {
 	for (def_idx, def) in file.graph.defs().enumerate() {
-		let id = file.graph_identity().symbol_id(file_idx, def_idx);
+		let id = file.identity.symbol_id(file_idx, def_idx);
 		let parent = def
 			.parent
-			.map(|parent_idx| file.graph_identity().symbol_id(file_idx, parent_idx));
+			.map(|parent_idx| file.identity.symbol_id(file_idx, parent_idx));
 		symbols.push(SymbolRecord {
 			id,
 			source: file.source_id,
-			identity: Arc::from(file.graph_identity().moniker_uri(&def.moniker)),
+			identity: Arc::from(file.identity.moniker_uri(&def.moniker)),
 			name: last_name(&def.moniker),
 			kind: def_kind(def),
 			visibility: def_visibility(def),
@@ -730,10 +730,9 @@ fn collect_references(
 	reference_identity_pool: &mut TargetIdentityPool,
 ) {
 	for (ref_idx, reference) in file.graph.refs().enumerate() {
-		let id = file.graph_identity().reference_id(file_idx, ref_idx);
-		let source_symbol = file.graph_identity().symbol_id(file_idx, reference.source);
-		let target_identity =
-			reference_identity_pool.intern(file.graph_identity(), &reference.target);
+		let id = file.identity.reference_id(file_idx, ref_idx);
+		let source_symbol = file.identity.symbol_id(file_idx, reference.source);
+		let target_identity = reference_identity_pool.intern(&file.identity, &reference.target);
 		references.push(
 			ReferenceRecord::new(
 				id,
@@ -795,14 +794,4 @@ fn ref_attr(bytes: &[u8]) -> Option<String> {
 		.ok()
 		.filter(|value| !value.is_empty())
 		.map(ToOwned::to_owned)
-}
-
-trait IndexedSourceIdentity {
-	fn graph_identity(&self) -> &LocalIdentityResolver;
-}
-
-impl IndexedSourceIdentity for IndexedSourceFile {
-	fn graph_identity(&self) -> &LocalIdentityResolver {
-		&self.identity
-	}
 }

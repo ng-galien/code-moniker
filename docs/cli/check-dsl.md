@@ -419,7 +419,10 @@ expr = "count(method) >= 5 => cv(method, fan_out(each)) <= 0.6"
 
 `entropy(D, E)` computes normalized entropy over any value expression,
 not only numbers. `mode(D, E)` returns the most frequent value and can be
-compared with `=` or `!=`.
+compared with `=` or `!=`. Both accept an optional third filter expression:
+`entropy(D, E, F)` and `mode(D, E, F)` evaluate only domain items for which
+`F` passes. The filter uses the same item-local `source`/`target` projections
+as `count(D, F)`.
 
 ```toml
 [[rust.struct.where]]
@@ -429,6 +432,10 @@ expr = "count(field) >= 3 => avg(field, entropy(in_refs, source)) >= 0.5"
 [[rust.method.where]]
 id   = "feature-envy"
 expr = "count(out_refs) >= 5 => mode(out_refs, target.parent) = source.parent"
+
+[[rust.method.where]]
+id   = "production-caller-entropy"
+expr = "count(in_refs, NOT source ~ '**/module:tests/**') >= 6 => entropy(in_refs, source.parent, NOT source ~ '**/module:tests/**') >= 0.5"
 ```
 
 ### Collections and multisets

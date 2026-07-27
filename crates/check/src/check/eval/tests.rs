@@ -1183,6 +1183,112 @@ fn average_field_entropy_uses_in_ref_sources() {
 	assert!(v.is_empty(), "both fields are read by both methods: {v:?}");
 }
 
+fn caller_concentration_config() -> Config {
+	cfg_from(
+		r#"
+		[aliases]
+		test_caller = "source.kind = 'test' OR source ~ '**/module:tests/**'"
+
+		[[ts.method.where]]
+		id   = "caller-concentration"
+		expr = "visibility != 'public' OR count(in_refs, NOT $test_caller) < 6 OR entropy(in_refs, source.parent, NOT $test_caller) >= 0.5"
+		"#,
+	)
+}
+
+fn caller_concentration_graph(
+	production_callers: usize,
+	test_module_callers: usize,
+	direct_test_callers: usize,
+) -> CodeGraph {
+	let module = build_module(b"a");
+	let mut graph = CodeGraph::new(module.clone(), b"module");
+	let api = child(&module, b"class", b"Api");
+	graph
+		.add_def(api.clone(), b"class", &module, Some((0, 10)))
+		.unwrap();
+	let operation = child(&api, b"method", b"operation");
+	graph
+		.add_def_attrs(
+			operation.clone(),
+			b"method",
+			&api,
+			Some((1, 2)),
+			&DefAttrs {
+				visibility: b"public",
+				..Default::default()
+			},
+		)
+		.unwrap();
+	let production = child(&module, b"module", b"production");
+	graph
+		.add_def(production.clone(), b"module", &module, Some((20, 30)))
+		.unwrap();
+	for index in 0..production_callers {
+		let caller = child(&production, b"fn", format!("caller_{index}").as_bytes());
+		graph
+			.add_def(caller.clone(), b"fn", &production, Some((21, 22)))
+			.unwrap();
+		graph
+			.add_ref(&caller, operation.clone(), b"method_call", Some((21, 22)))
+			.unwrap();
+	}
+	let tests = child(&module, b"module", b"tests");
+	graph
+		.add_def(tests.clone(), b"module", &module, Some((40, 50)))
+		.unwrap();
+	for index in 0..test_module_callers {
+		let helper = child(&tests, b"fn", format!("fixture_{index}").as_bytes());
+		graph
+			.add_def(helper.clone(), b"fn", &tests, Some((41, 42)))
+			.unwrap();
+		graph
+			.add_ref(&helper, operation.clone(), b"method_call", Some((41, 42)))
+			.unwrap();
+	}
+	for index in 0..direct_test_callers {
+		let test = child(&module, b"test", format!("direct_test_{index}").as_bytes());
+		graph
+			.add_def(test.clone(), b"test", &module, Some((60, 61)))
+			.unwrap();
+		graph
+			.add_ref(&test, operation.clone(), b"method_call", Some((60, 61)))
+			.unwrap();
+	}
+	graph
+}
+
+#[test]
+fn filtered_entropy_excludes_helpers_inside_test_modules() {
+	let graph = caller_concentration_graph(0, 8, 0);
+	let violations =
+		evaluate(&graph, "", Lang::Ts, &caller_concentration_config(), SCHEME).unwrap();
+	assert!(
+		violations.is_empty(),
+		"test-only helpers are not production callers: {violations:?}"
+	);
+}
+
+#[test]
+fn filtered_entropy_excludes_direct_test_callers() {
+	let graph = caller_concentration_graph(0, 0, 8);
+	let violations =
+		evaluate(&graph, "", Lang::Ts, &caller_concentration_config(), SCHEME).unwrap();
+	assert!(
+		violations.is_empty(),
+		"direct test definitions are not production callers: {violations:?}"
+	);
+}
+
+#[test]
+fn filtered_entropy_keeps_concentrated_production_calls_despite_more_tests() {
+	let graph = caller_concentration_graph(6, 7, 0);
+	let violations =
+		evaluate(&graph, "", Lang::Ts, &caller_concentration_config(), SCHEME).unwrap();
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].rule_id, "ts.method.caller-concentration");
+}
+
 #[test]
 fn gini_counts_filtered_in_refs_per_field() {
 	let cfg = cfg_from(

@@ -263,6 +263,7 @@ impl MetricKind {
 pub(in crate::check) struct DomainValueExpr {
 	pub(in crate::check) domain: Domain,
 	pub(in crate::check) expr: Box<ValueExpr>,
+	pub(in crate::check) filter: Option<Box<Node>>,
 }
 
 #[derive(Debug, Clone)]
