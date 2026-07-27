@@ -66,6 +66,11 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 		writeln!(stdout, "workspace: {}", entry.workspace_root)?;
 		writeln!(stdout, "endpoint: {}", entry.endpoint)?;
 		writeln!(stdout, "pid: {}", entry.pid)?;
+		writeln!(
+			stdout,
+			"build: {} {}",
+			entry.build.version, entry.build.fingerprint
+		)?;
 		writeln!(stdout, "state: indexing")?;
 		write_overlap_warning(stdout, &config, Some(&entry))?;
 		return Ok(());
@@ -104,6 +109,11 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 	writeln!(stdout, "daemon: {}", handshake.daemon_version)?;
 	writeln!(
 		stdout,
+		"build: {} {}",
+		handshake.build.version, handshake.build.fingerprint
+	)?;
+	writeln!(
+		stdout,
 		"queries: {}",
 		handshake.capabilities.queries.join(", ")
 	)?;
@@ -111,6 +121,15 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 		writeln!(
 			stdout,
 			"compatibility: incompatible (client protocol {PROTOCOL_VERSION})"
+		)?;
+		return Ok(());
+	}
+	let client_build = code_moniker_query::current_build_identity(env!("CARGO_PKG_VERSION"))?;
+	if handshake.build != client_build {
+		writeln!(
+			stdout,
+			"compatibility: incompatible (client build {} {})",
+			client_build.version, client_build.fingerprint
 		)?;
 		return Ok(());
 	}

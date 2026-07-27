@@ -297,12 +297,17 @@ export interface WorkspaceStatus {
   files: number;
   generation?: WorkspaceGeneration | null;
   phase: string;
+  producer?: BuildIdentity;
   references: number;
   root: string;
   roots: WorkspaceRootStatus[];
   stale: boolean;
   stale_summary: string;
   symbols: number;
+}
+export interface BuildIdentity {
+  fingerprint: string;
+  version: string;
 }
 export interface WorkspaceRootStatus {
   files: number;
@@ -326,6 +331,7 @@ export interface WorkspaceEventDto {
   stale_summary?: string | null;
 }
 export interface HandshakeResponse {
+  build?: BuildIdentity;
   capabilities: CapabilitySet;
   daemon_version: string;
   protocol_version: number;
@@ -870,6 +876,7 @@ export interface NotesResult {
   total: number;
 }
 export interface DaemonRegistryEntry {
+  build?: BuildIdentity;
   cache_dir?: string | null;
   endpoint: string;
   heartbeat_unix_ms?: number;

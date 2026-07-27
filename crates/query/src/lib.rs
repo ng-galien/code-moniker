@@ -70,6 +70,8 @@ pub enum ProtocolResponse {
 pub struct HandshakeResponse {
 	pub protocol_version: u32,
 	pub daemon_version: String,
+	#[serde(default)]
+	pub build: BuildIdentity,
 	pub workspace_root: String,
 	pub workspace_roots: Vec<String>,
 	pub capabilities: CapabilitySet,
@@ -1321,6 +1323,8 @@ pub struct ViewEvidenceDto {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WorkspaceStatus {
+	#[serde(default)]
+	pub producer: BuildIdentity,
 	pub root: String,
 	pub phase: String,
 	pub roots: Vec<WorkspaceRootStatus>,
@@ -2170,6 +2174,11 @@ pub fn format_query_response_projected(response: &QueryResponse, projection: &[S
 
 fn format_workspace_status(out: &mut String, status: &WorkspaceStatus) {
 	let _ = writeln!(out, "workspace: {}", status.root);
+	let _ = writeln!(
+		out,
+		"producer: {} {}",
+		status.producer.version, status.producer.fingerprint
+	);
 	let _ = writeln!(out, "phase: {}", status.phase);
 	let _ = writeln!(
 		out,

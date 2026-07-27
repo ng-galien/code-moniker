@@ -1,15 +1,57 @@
 use std::fs;
 use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use crate::DaemonWorkspaceConfig;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct BuildIdentity {
+	pub version: String,
+	pub fingerprint: String,
+}
+
+pub fn current_build_identity(version: impl Into<String>) -> anyhow::Result<BuildIdentity> {
+	static FINGERPRINT: OnceLock<Result<String, String>> = OnceLock::new();
+	let fingerprint = FINGERPRINT.get_or_init(|| {
+		std::env::current_exe()
+			.map_err(|error| error.to_string())
+			.and_then(|path| binary_fingerprint(path).map_err(|error| error.to_string()))
+	});
+	Ok(BuildIdentity {
+		version: version.into(),
+		fingerprint: fingerprint
+			.clone()
+			.map_err(|error| anyhow::anyhow!("cannot fingerprint current binary: {error}"))?,
+	})
+}
+
+pub fn binary_fingerprint(path: impl AsRef<Path>) -> anyhow::Result<String> {
+	let path = path.as_ref();
+	let mut file = fs::File::open(path)
+		.map_err(|error| anyhow::anyhow!("cannot read binary {}: {error}", path.display()))?;
+	let mut buffer = [0_u8; 64 * 1024];
+	let mut hash = 0xcbf29ce484222325_u64;
+	loop {
+		let read = file.read(&mut buffer)?;
+		if read == 0 {
+			break;
+		}
+		for byte in &buffer[..read] {
+			hash ^= u64::from(*byte);
+			hash = hash.wrapping_mul(0x100000001b3);
+		}
+	}
+	Ok(format!("fnv1a64:{hash:016x}"))
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -22,6 +64,8 @@ pub struct DaemonRegistryEntry {
 	pub endpoint: String,
 	pub token: String,
 	pub pid: u32,
+	#[serde(default)]
+	pub build: BuildIdentity,
 	#[serde(default)]
 	pub heartbeat_unix_ms: u64,
 	#[serde(default)]
@@ -404,6 +448,7 @@ mod tests {
 			endpoint: "127.0.0.1:1".to_string(),
 			token: token.to_string(),
 			pid,
+			build: BuildIdentity::default(),
 			heartbeat_unix_ms: registry_heartbeat_unix_ms(),
 			state: DaemonRegistryState::Ready,
 		}
@@ -468,8 +513,24 @@ mod tests {
 	fn legacy_registry_entries_default_to_ready() {
 		let mut value = serde_json::to_value(entry("legacy", 111)).expect("json");
 		value.as_object_mut().expect("object").remove("state");
+		value.as_object_mut().expect("object").remove("build");
 		let decoded: DaemonRegistryEntry = serde_json::from_value(value).expect("legacy entry");
 		assert_eq!(decoded.state, DaemonRegistryState::Ready);
+		assert_eq!(decoded.build, BuildIdentity::default());
+	}
+
+	#[test]
+	fn binary_fingerprint_changes_with_binary_content() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let binary = temp.path().join("code-moniker");
+		fs::write(&binary, b"old build").expect("old build");
+		let old = binary_fingerprint(&binary).expect("old fingerprint");
+		fs::write(&binary, b"new build").expect("new build");
+		let new = binary_fingerprint(&binary).expect("new fingerprint");
+
+		assert_ne!(old, new);
+		assert!(old.starts_with("fnv1a64:"));
+		assert!(new.starts_with("fnv1a64:"));
 	}
 
 	#[test]

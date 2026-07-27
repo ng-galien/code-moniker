@@ -16,10 +16,10 @@ use code_moniker_check::{
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use code_moniker_query::{
-	AuditClusterDto, AuditSampleDto, AuditTotalsDto, AuditZoneDto, CapabilitySet, CheckSummaryDto,
-	Command, CommandRequest, CommandResponse, Consistency, CountDto, DaemonRpcServer,
-	DaemonWorkspaceConfig, FailedRuleDto, FileErrorDto, HandshakeResponse, NoteDto,
-	NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page, ProtocolRequest,
+	AuditClusterDto, AuditSampleDto, AuditTotalsDto, AuditZoneDto, BuildIdentity, CapabilitySet,
+	CheckSummaryDto, Command, CommandRequest, CommandResponse, Consistency, CountDto,
+	DaemonRpcServer, DaemonWorkspaceConfig, FailedRuleDto, FileErrorDto, HandshakeResponse,
+	NoteDto, NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page, ProtocolRequest,
 	ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest, QueryResponse, QueryResult,
 	ResolutionAuditResult, RuleDto, RuleReportDto, RulesCheckResult, RulesCheckRootResult,
 	RulesListResult, SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto,
@@ -27,7 +27,7 @@ use code_moniker_query::{
 	SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode, TreeNodeKind,
 	UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto, WorkspaceEventDto,
 	WorkspaceEventKind, WorkspaceGeneration, WorkspaceRootStatus, WorkspaceStatus,
-	describe_query_capabilities,
+	current_build_identity, describe_query_capabilities,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -116,6 +116,7 @@ async fn serve_async(
 	let daemon = WorkspaceDaemon::with_events(config.clone(), events.clone())?;
 	let workspace_root = workspace_label(&daemon.roots);
 	let workspace_roots = root_labels(&daemon.roots);
+	let build = current_build_identity(env!("CARGO_PKG_VERSION"))?;
 	let shutdown = Arc::new(tokio::sync::Notify::new());
 	let daemon = Arc::new(Mutex::new(daemon));
 	let service = DaemonRpcService {
@@ -126,6 +127,7 @@ async fn serve_async(
 		handshake: HandshakeResponse {
 			protocol_version: code_moniker_query::PROTOCOL_VERSION,
 			daemon_version: env!("CARGO_PKG_VERSION").to_string(),
+			build: build.clone(),
 			workspace_root: workspace_root.clone(),
 			workspace_roots: workspace_roots.clone(),
 			capabilities: CapabilitySet::default(),
@@ -143,6 +145,7 @@ async fn serve_async(
 		endpoint: addr.to_string(),
 		token: generate_token()?,
 		pid: std::process::id(),
+		build,
 		heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
 		state: DaemonRegistryState::Indexing,
 	};
@@ -384,16 +387,22 @@ impl DaemonRpcServer for DaemonRpcService {
 	}
 
 	async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ErrorObjectOwned> {
-		match self
+		let mut response = match self
 			.dispatch(ProtocolRequest::Query(Box::new(request)))
 			.await?
 		{
-			ProtocolResponse::Query(response) => Ok(*response),
-			ProtocolResponse::Error(error) => Err(query_error(error)),
-			other => Err(internal_error(format!(
-				"unexpected query response: {other:?}"
-			))),
+			ProtocolResponse::Query(response) => *response,
+			ProtocolResponse::Error(error) => return Err(query_error(error)),
+			other => {
+				return Err(internal_error(format!(
+					"unexpected query response: {other:?}"
+				)));
+			}
+		};
+		if let QueryResult::WorkspaceStatus(status) = &mut response.result {
+			status.producer = self.handshake.build.clone();
 		}
+		Ok(response)
 	}
 
 	async fn command(&self, request: CommandRequest) -> Result<CommandResponse, ErrorObjectOwned> {
@@ -1927,6 +1936,7 @@ fn workspace_status(
 
 fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
 	let status = WorkspaceStatus {
+		producer: producer_identity(),
 		root: workspace_label(roots),
 		phase: "loading".to_string(),
 		roots: roots
@@ -1999,6 +2009,7 @@ fn workspace_status_result(
 	let symbols = root_statuses.iter().map(|root| root.symbols).sum();
 	let references = root_statuses.iter().map(|root| root.references).sum();
 	WorkspaceStatus {
+		producer: producer_identity(),
 		root: workspace_label(roots),
 		phase: if generation.is_some() {
 			"ready".to_string()
@@ -2013,6 +2024,13 @@ fn workspace_status_result(
 		stale: staleness.is_stale(),
 		stale_summary: staleness.summary(),
 	}
+}
+
+fn producer_identity() -> BuildIdentity {
+	current_build_identity(env!("CARGO_PKG_VERSION")).unwrap_or_else(|error| BuildIdentity {
+		version: env!("CARGO_PKG_VERSION").to_string(),
+		fingerprint: format!("unavailable:{error}"),
+	})
 }
 
 fn change_counts_by_source(snapshot: &WorkspaceSnapshot) -> BTreeMap<SourceId, usize> {
@@ -5101,6 +5119,7 @@ mod tests {
 		fs::write(temp.path().join("lib.rs"), "pub struct Customer;\n").expect("seed fixture");
 		let daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let (events, _) = tokio::sync::broadcast::channel(16);
+		let build = producer_identity();
 		let service = DaemonRpcService {
 			daemon: Arc::new(Mutex::new(daemon)),
 			roots: Arc::from(vec![temp.path().to_path_buf()]),
@@ -5109,6 +5128,7 @@ mod tests {
 			handshake: HandshakeResponse {
 				protocol_version: code_moniker_query::PROTOCOL_VERSION,
 				daemon_version: "test".to_string(),
+				build: build.clone(),
 				workspace_root: "test".to_string(),
 				workspace_roots: Vec::new(),
 				capabilities: CapabilitySet::default(),
@@ -5130,7 +5150,10 @@ mod tests {
 			.query(QueryRequest::new(Query::WorkspaceStatus))
 			.await
 			.expect("query");
-		assert!(matches!(response.result, QueryResult::WorkspaceStatus(_)));
+		let QueryResult::WorkspaceStatus(status) = response.result else {
+			panic!("expected workspace status")
+		};
+		assert_eq!(status.producer, build);
 
 		let mut subscription = client.subscribe_events().await.expect("subscribe");
 		events

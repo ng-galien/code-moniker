@@ -259,6 +259,7 @@ fn expired_claim_with_a_reused_live_pid_does_not_block_startup() {
 		endpoint: "127.0.0.1:9".to_string(),
 		token: "expired-reused-pid".to_string(),
 		pid: std::process::id(),
+		build: code_moniker_query::BuildIdentity::default(),
 		heartbeat_unix_ms: 0,
 		state: code_moniker_query::DaemonRegistryState::Ready,
 	};

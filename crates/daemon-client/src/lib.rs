@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use code_moniker_query::{
 	CommandRequest, CommandResponse, DaemonRpcClient, DaemonWorkspaceConfig, HandshakeResponse,
-	PROTOCOL_VERSION, QueryRequest, QueryResponse,
+	PROTOCOL_VERSION, QueryRequest, QueryResponse, current_build_identity,
 };
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
@@ -141,7 +141,7 @@ impl DaemonConnection {
 	}
 
 	pub fn query(&self, request: QueryRequest) -> anyhow::Result<QueryResponse> {
-		validate_protocol(&self.handshake)?;
+		validate_compatibility(&self.handshake)?;
 		self.block(self.ws.query(request))
 			.map_err(|err| anyhow::anyhow!("{err}"))
 	}
@@ -151,7 +151,7 @@ impl DaemonConnection {
 	}
 
 	pub fn command_response(&self, request: CommandRequest) -> anyhow::Result<CommandResponse> {
-		validate_protocol(&self.handshake)?;
+		validate_compatibility(&self.handshake)?;
 		self.block(self.ws.command(request))
 			.map_err(|err| anyhow::anyhow!("{err}"))
 	}
@@ -195,7 +195,12 @@ fn connect_entry(
 
 fn validate_client_protocol(client: &DaemonClient) -> anyhow::Result<()> {
 	let handshake = client.handshake("daemon-client")?;
-	validate_protocol(&handshake)
+	validate_compatibility(&handshake)
+}
+
+fn validate_compatibility(handshake: &HandshakeResponse) -> anyhow::Result<()> {
+	validate_protocol(handshake)?;
+	validate_build(handshake)
 }
 
 fn validate_protocol(handshake: &HandshakeResponse) -> anyhow::Result<()> {
@@ -207,6 +212,20 @@ fn validate_protocol(handshake: &HandshakeResponse) -> anyhow::Result<()> {
 		handshake.protocol_version,
 		PROTOCOL_VERSION,
 		handshake.daemon_version
+	)
+}
+
+fn validate_build(handshake: &HandshakeResponse) -> anyhow::Result<()> {
+	let client = current_build_identity(env!("CARGO_PKG_VERSION"))?;
+	if handshake.build == client {
+		return Ok(());
+	}
+	anyhow::bail!(
+		"daemon build {} ({}) does not match client build {} ({}); restart code-moniker so the snapshot producer matches the client",
+		handshake.build.version,
+		handshake.build.fingerprint,
+		client.version,
+		client.fingerprint
 	)
 }
 
@@ -259,7 +278,8 @@ fn connect_registered_daemon(
 		}
 	};
 	let handshake = client.handshake("daemon-client")?;
-	if handshake.protocol_version == PROTOCOL_VERSION {
+	let client_build = current_build_identity(env!("CARGO_PKG_VERSION"))?;
+	if handshake.protocol_version == PROTOCOL_VERSION && handshake.build == client_build {
 		return Ok(Some(client));
 	}
 	let _ = client.shutdown();
@@ -474,6 +494,7 @@ mod tests {
 		HandshakeResponse {
 			protocol_version,
 			daemon_version: "test".to_string(),
+			build: current_build_identity(env!("CARGO_PKG_VERSION")).expect("test build"),
 			workspace_root: "/workspace".to_string(),
 			workspace_roots: vec!["/workspace".to_string()],
 			capabilities: CapabilitySet::default(),
@@ -490,6 +511,7 @@ mod tests {
 			endpoint: "127.0.0.1:1234".to_string(),
 			token: "test".to_string(),
 			pid: std::process::id(),
+			build: code_moniker_query::BuildIdentity::default(),
 			heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
 			state: DaemonRegistryState::Ready,
 		}
@@ -497,7 +519,18 @@ mod tests {
 
 	#[test]
 	fn accepts_current_protocol() {
-		validate_protocol(&handshake(PROTOCOL_VERSION)).expect("current protocol");
+		validate_compatibility(&handshake(PROTOCOL_VERSION)).expect("current compatibility");
+	}
+
+	#[test]
+	fn rejects_a_build_mismatch_even_when_protocol_matches() {
+		let mut daemon = handshake(PROTOCOL_VERSION);
+		daemon.build.fingerprint = "fnv1a64:0000000000000000".to_string();
+
+		let error = validate_compatibility(&daemon).expect_err("mismatched build");
+		assert!(error.to_string().contains("daemon build"));
+		assert!(error.to_string().contains("does not match client build"));
+		assert!(error.to_string().contains("snapshot producer"));
 	}
 
 	#[test]
@@ -563,6 +596,7 @@ mod tests {
 			endpoint,
 			token: "unreachable-live-entry".to_string(),
 			pid: std::process::id(),
+			build: code_moniker_query::BuildIdentity::default(),
 			heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
 			state: DaemonRegistryState::Ready,
 		};

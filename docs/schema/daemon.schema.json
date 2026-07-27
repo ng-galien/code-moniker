@@ -273,6 +273,21 @@
         }
       }
     },
+    "BuildIdentity": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "version"
+      ],
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
     "CapabilitySet": {
       "type": "object",
       "required": [
@@ -979,6 +994,17 @@
         "workspace_roots"
       ],
       "properties": {
+        "build": {
+          "default": {
+            "fingerprint": "",
+            "version": ""
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/BuildIdentity"
+            }
+          ]
+        },
         "cache_dir": {
           "type": [
             "string",
@@ -1122,6 +1148,17 @@
         "workspace_roots"
       ],
       "properties": {
+        "build": {
+          "default": {
+            "fingerprint": "",
+            "version": ""
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/BuildIdentity"
+            }
+          ]
+        },
         "capabilities": {
           "$ref": "#/definitions/CapabilitySet"
         },
@@ -4316,6 +4353,17 @@
         },
         "phase": {
           "type": "string"
+        },
+        "producer": {
+          "default": {
+            "fingerprint": "",
+            "version": ""
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/BuildIdentity"
+            }
+          ]
         },
         "references": {
           "type": "integer",
