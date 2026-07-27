@@ -32,6 +32,7 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 		Lang::Ts => {
 			let presets = ts::Presets {
 				path_aliases: ctx.ts.aliases.clone(),
+				sdk_profile: ctx.ts.sdk_profile_for(path).clone(),
 				..ts::Presets::default()
 			};
 			ts::extract(uri, source, &anchor, deep, &presets)
@@ -124,6 +125,9 @@ pub fn file_uri(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::fs;
+
+	use tempfile::tempdir;
 
 	#[test]
 	fn path_derived_roots_match_extracted_graph_roots() {
@@ -154,6 +158,48 @@ mod tests {
 				lang.tag()
 			);
 		}
+	}
+
+	#[test]
+	fn typescript_extraction_uses_the_nearest_tsconfig_sdk_profile() {
+		let temp = tempdir().expect("tempdir");
+		let server = temp.path().join("server");
+		let web = temp.path().join("web");
+		fs::create_dir_all(&server).expect("server dir");
+		fs::create_dir_all(&web).expect("web dir");
+		fs::write(
+			server.join("tsconfig.json"),
+			r#"{"compilerOptions":{"target":"ES2022","lib":["ES2022"]}}"#,
+		)
+		.expect("server tsconfig");
+		fs::write(
+			web.join("tsconfig.json"),
+			r#"{"compilerOptions":{"target":"ES2022","lib":["ES2022","DOM"]}}"#,
+		)
+		.expect("web tsconfig");
+		let ctx = Context {
+			ts: crate::tsconfig::load(temp.path()),
+			..Context::default()
+		};
+		let source = "export function render() { document.body.replaceChildren(); return Promise.resolve(); }";
+
+		let server_graph = extract_with(Lang::Ts, source, &server.join("main.ts"), &ctx);
+		let web_graph = extract_with(Lang::Ts, source, &web.join("main.ts"), &ctx);
+		let is_sdk_target = |graph: &CodeGraph, name: &[u8]| {
+			graph.refs().any(|reference| {
+				let segments = reference.target.as_view().segments().collect::<Vec<_>>();
+				segments
+					.first()
+					.is_some_and(|segment| segment.kind == b"sdk")
+					&& segments.last().is_some_and(|segment| segment.name == name)
+			})
+		};
+
+		assert!(is_sdk_target(&web_graph, b"document"));
+		assert!(is_sdk_target(&web_graph, b"replaceChildren"));
+		assert!(!is_sdk_target(&server_graph, b"document"));
+		assert!(!is_sdk_target(&server_graph, b"replaceChildren"));
+		assert!(is_sdk_target(&server_graph, b"resolve"));
 	}
 
 	#[test]

@@ -16,7 +16,7 @@ use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
 // Bump when cached graph semantics change, even if the binary layout stays stable.
-const CACHE_FORMAT_VERSION: u32 = 8;
+const CACHE_FORMAT_VERSION: u32 = 9;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
@@ -55,12 +55,13 @@ impl CacheKey {
 			.duration_since(UNIX_EPOCH)
 			.map(|d| d.as_nanos() as u64)
 			.unwrap_or(0);
+		let context_hash = hash_context(ctx, &abs_path);
 		Ok(Self {
 			abs_path,
 			mtime,
 			size: meta.len(),
 			anchor_hash: hash_path(anchor),
-			context_hash: hash_context(ctx),
+			context_hash,
 		})
 	}
 
@@ -260,7 +261,7 @@ fn hash_path(p: &Path) -> u64 {
 	h.finish()
 }
 
-fn hash_context(ctx: &extract::Context) -> u64 {
+fn hash_context(ctx: &extract::Context, path: &Path) -> u64 {
 	let mut h = FxHasher::default();
 	ctx.project.hash(&mut h);
 	ctx.ts.aliases.len().hash(&mut h);
@@ -268,6 +269,9 @@ fn hash_context(ctx: &extract::Context) -> u64 {
 		alias.pattern.hash(&mut h);
 		alias.substitution.hash(&mut h);
 	}
+	let sdk_profile = ctx.ts.sdk_profile_for(path);
+	code_moniker_core::lang::ts::TsSdkProfile::catalog_digest().hash(&mut h);
+	sdk_profile.libraries().hash(&mut h);
 	h.finish()
 }
 
@@ -384,6 +388,36 @@ mod tests {
 		assert!(load(tmp.path(), &key1).is_some());
 		assert!(load(tmp.path(), &key2).is_none());
 		assert_ne!(key1.full_path(tmp.path()), key2.full_path(tmp.path()));
+	}
+
+	#[test]
+	fn load_misses_when_selected_typescript_sdk_profile_changes() {
+		let tmp = tempfile::tempdir().unwrap();
+		let src = tmp.path().join("src.ts");
+		std::fs::write(&src, b"document.createElement('div');\n").unwrap();
+		let config = tmp.path().join("tsconfig.json");
+		let anchor = tmp.path().join("anchor");
+		std::fs::write(&config, r#"{"compilerOptions":{"lib":["ES2022","DOM"]}}"#).unwrap();
+		let dom_context = extract::Context {
+			ts: crate::tsconfig::load(tmp.path()),
+			..extract::Context::default()
+		};
+		let dom_key = CacheKey::from_path_with_context(&src, &anchor, &dom_context).unwrap();
+		store(tmp.path(), &dom_key, &graph_with_one_def());
+
+		std::fs::write(&config, r#"{"compilerOptions":{"lib":["ES2022"]}}"#).unwrap();
+		let node_context = extract::Context {
+			ts: crate::tsconfig::load(tmp.path()),
+			..extract::Context::default()
+		};
+		let node_key = CacheKey::from_path_with_context(&src, &anchor, &node_context).unwrap();
+
+		assert_ne!(dom_key.context_hash, node_key.context_hash);
+		assert!(load(tmp.path(), &node_key).is_none());
+		assert_ne!(
+			dom_key.full_path(tmp.path()),
+			node_key.full_path(tmp.path())
+		);
 	}
 
 	#[test]

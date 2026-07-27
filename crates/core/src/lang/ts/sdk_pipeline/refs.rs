@@ -2,6 +2,7 @@ use crate::core::code_graph::RefAttrs;
 use crate::core::moniker::Moniker;
 use crate::lang::sdk::Namespace;
 
+use super::super::TsSdkProfile;
 use super::super::kinds;
 use super::defs::callable_arity;
 
@@ -66,61 +67,10 @@ pub(super) fn external_runtime_member_target(
 	builder.build()
 }
 
-pub(super) fn is_global_value(name: &[u8]) -> bool {
-	matches!(
-		name,
-		b"AbortController"
-			| b"Array"
-			| b"Blob" | b"Boolean"
-			| b"Date" | b"Error"
-			| b"File" | b"FormData"
-			| b"JSON" | b"Map"
-			| b"Math" | b"Number"
-			| b"Object"
-			| b"Promise"
-			| b"RegExp"
-			| b"ResizeObserver"
-			| b"Response"
-			| b"Set" | b"String"
-			| b"URL" | b"WebSocket"
-			| b"cancelAnimationFrame"
-			| b"clearInterval"
-			| b"clearTimeout"
-			| b"console"
-			| b"crypto"
-			| b"decodeURIComponent"
-			| b"document"
-			| b"encodeURIComponent"
-			| b"fetch"
-			| b"localStorage"
-			| b"navigator"
-			| b"parseFloat"
-			| b"parseInt"
-			| b"process"
-			| b"requestAnimationFrame"
-			| b"setInterval"
-			| b"setTimeout"
-			| b"structuredClone"
-			| b"window"
-	)
+pub(super) fn is_global_value(profile: &TsSdkProfile, name: &[u8]) -> bool {
+	profile.is_global_value(name)
 }
 
-pub(super) fn is_global_type(name: &[u8]) -> bool {
-	is_global_value(name)
-		|| matches!(
-			name,
-			b"Awaited"
-				| b"AsyncIterable"
-				| b"CanvasRenderingContext2D"
-				| b"ClipboardEvent"
-				| b"Element" | b"Event"
-				| b"HTMLElement"
-				| b"KeyboardEvent"
-				| b"MouseEvent"
-				| b"Partial" | b"Pick"
-				| b"Record" | b"Required"
-				| b"ReturnType"
-				| b"Storage" | b"Timeout"
-				| b"Window"
-		)
+pub(super) fn is_global_type(profile: &TsSdkProfile, name: &[u8]) -> bool {
+	profile.is_global_type(name)
 }

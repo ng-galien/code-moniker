@@ -117,16 +117,16 @@ impl WorkspacePathClassifier {
 		{
 			return PathLiveSignal::Ignore;
 		}
-		if self.is_notes_path(&path) {
+		if is_notes_path(&self.roots, &path) {
 			return PathLiveSignal::Notes;
 		}
-		if self.is_c_build_context_path(&path) {
+		if self.is_build_context_path(&path) {
 			return PathLiveSignal::BuildContext;
 		}
 		if self.is_manifest_path(&path) {
 			return PathLiveSignal::Manifest;
 		}
-		if self.is_source_path(&path) {
+		if is_source_path(&self.roots, &path) {
 			return PathLiveSignal::Source;
 		}
 		PathLiveSignal::Ignore
@@ -136,8 +136,8 @@ impl WorkspacePathClassifier {
 		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
 	}
 
-	fn is_c_build_context_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_c_build_context_file(path)
+	fn is_build_context_path(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_build_context_file(path)
 	}
 
 	fn is_ignored_root(&self, path: &Path) -> bool {
@@ -171,25 +171,24 @@ impl WorkspacePathClassifier {
 				.is_some_and(|git_dir| path.starts_with(git_dir))
 		})
 	}
+}
 
-	fn is_notes_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			let Some(notes_path) = root.notes_path.as_ref() else {
-				return false;
-			};
-			if path == notes_path {
-				return true;
-			}
-			root.notes_dir
-				.as_ref()
-				.is_some_and(|notes_dir| path == notes_dir || path.parent() == Some(notes_dir))
-		})
-	}
+fn is_notes_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| {
+		let Some(notes_path) = root.notes_path.as_ref() else {
+			return false;
+		};
+		if path == notes_path {
+			return true;
+		}
+		root.notes_dir
+			.as_ref()
+			.is_some_and(|notes_dir| path == notes_dir || path.parent() == Some(notes_dir))
+	})
+}
 
-	fn is_source_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path))
-			&& (path.is_dir() || is_source_file(path))
-	}
+fn is_source_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| path.starts_with(&root.path)) && (path.is_dir() || is_source_file(path))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -399,6 +398,10 @@ fn push_watch_root(
 
 fn is_source_file(path: &Path) -> bool {
 	crate::environment::language_for_path(path).is_ok()
+}
+
+fn is_build_context_file(path: &Path) -> bool {
+	is_c_build_context_file(path) || crate::tsconfig::is_tsconfig_path(path)
 }
 
 fn is_c_build_context_file(path: &Path) -> bool {

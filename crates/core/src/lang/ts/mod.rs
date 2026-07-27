@@ -8,7 +8,10 @@ use crate::lang::KindSpec;
 
 pub mod build;
 mod kinds;
+mod sdk_catalog;
 mod sdk_pipeline;
+
+pub use sdk_catalog::{TsSdkMember, TsSdkProfile};
 
 pub fn parse(source: &str) -> Tree {
 	parse_with_uri(source, "")
@@ -37,6 +40,7 @@ fn uri_uses_jsx(uri: &str) -> bool {
 pub struct Presets {
 	pub di_register_callees: Vec<String>,
 	pub path_aliases: Vec<PathAlias>,
+	pub sdk_profile: TsSdkProfile,
 }
 
 #[derive(Clone, Debug)]
@@ -636,6 +640,414 @@ function outer() {
 				(b"path".as_slice(), b"Object".as_slice()),
 				(b"method".as_slice(), b"fromEntries".as_slice()),
 			]
+		);
+	}
+
+	#[test]
+	fn extract_dom_profile_owns_globals_types_and_typed_member_chains() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"app.ts",
+			"function makeButton(button: HTMLButtonElement): HTMLButtonElement { return button; }
+			function render(button: HTMLButtonElement) {
+				document.createElement('div');
+				button.replaceChildren();
+				button.classList.add('active');
+				const created = document.createElement('button');
+				created.replaceChildren();
+				created.classList.add('created');
+				const fromHelper = makeButton(button);
+				fromHelper.classList.add('helper');
+				getComputedStyle(button);
+			}",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+
+		for name in [
+			b"HTMLButtonElement".as_slice(),
+			b"createElement".as_slice(),
+			b"replaceChildren".as_slice(),
+			b"add".as_slice(),
+			b"getComputedStyle".as_slice(),
+		] {
+			assert!(
+				graph.refs().any(|reference| {
+					reference
+						.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == name)
+						&& reference
+							.target
+							.as_view()
+							.segments()
+							.next()
+							.is_some_and(|segment| segment.kind == b"sdk")
+				}),
+				"{:?} must resolve through the active DOM SDK profile",
+				String::from_utf8_lossy(name),
+			);
+		}
+		let sdk_add_calls = graph
+			.refs()
+			.filter(|reference| {
+				reference.kind == b"method_call"
+					&& reference
+						.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"add")
+					&& reference
+						.target
+						.as_view()
+						.segments()
+						.next()
+						.is_some_and(|segment| segment.kind == b"sdk")
+			})
+			.count();
+		assert_eq!(
+			sdk_add_calls, 3,
+			"typed params, SDK call results and local typed helper results must preserve DOM ownership",
+		);
+	}
+
+	#[test]
+	fn extract_es_only_profile_does_not_promote_dom_or_react() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"server.ts",
+			"function run(node: HTMLElement, React: unknown) {
+				document.createElement('div');
+				node.replaceChildren();
+				React.createElement('div');
+				return Promise.resolve(node);
+			}",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+
+		for name in [
+			b"document".as_slice(),
+			b"HTMLElement".as_slice(),
+			b"replaceChildren".as_slice(),
+			b"React".as_slice(),
+		] {
+			assert!(
+				graph
+					.refs()
+					.filter(|reference| {
+						reference
+							.target
+							.as_view()
+							.segments()
+							.last()
+							.is_some_and(|segment| segment.name == name)
+					})
+					.all(|reference| reference
+						.target
+						.as_view()
+						.segments()
+						.next()
+						.is_none_or(|segment| segment.kind != b"sdk")),
+				"{:?} must not be promoted by an ES-only profile",
+				String::from_utf8_lossy(name),
+			);
+		}
+		assert!(graph.refs().any(|reference| {
+			reference
+				.target
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.name == b"resolve")
+				&& reference
+					.target
+					.as_view()
+					.segments()
+					.next()
+					.is_some_and(|segment| segment.kind == b"sdk")
+		}));
+	}
+
+	#[test]
+	fn extract_imported_type_shadows_same_named_dom_type_for_member_calls() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"server.ts",
+			"import type { Response } from 'express';
+			function send(res: Response) { res.json({ ok: true }); }",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call"
+					&& reference
+						.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"json")
+			})
+			.expect("res.json method call");
+
+		assert!(
+			call.target
+				.as_view()
+				.segments()
+				.next()
+				.is_none_or(|segment| segment.kind != b"sdk"),
+			"the imported Express Response must shadow the DOM Response catalog entry",
+		);
+	}
+
+	#[test]
+	fn extract_callable_local_type_shadows_same_named_dom_type() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"server.ts",
+			"interface CustomResponse { json(): void }
+			function send() {
+				type Response = CustomResponse;
+				const response: Response = {} as Response;
+				response.json();
+			}",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call" && reference.call_name.as_ref() == b"json"
+			})
+			.expect("response.json method call");
+		assert!(
+			call.target
+				.as_view()
+				.segments()
+				.next()
+				.is_none_or(|segment| segment.kind != b"sdk"),
+			"a callable-local Response alias must shadow the DOM Response",
+		);
+	}
+
+	#[test]
+	fn extract_hoists_callable_local_type_shadow_before_declaration() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"server.ts",
+			"interface CustomResponse { json(): void }
+			function send() {
+				const response: Response = {} as Response;
+				response.json();
+				type Response = CustomResponse;
+			}",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call" && reference.call_name.as_ref() == b"json"
+			})
+			.expect("response.json method call");
+		assert!(
+			call.target
+				.as_view()
+				.segments()
+				.next()
+				.is_none_or(|segment| segment.kind != b"sdk"),
+			"callable-local type declarations must shadow the SDK before their declaration",
+		);
+	}
+
+	#[test]
+	fn extract_destructured_parameter_does_not_share_one_sdk_type_between_leaves() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"app.ts",
+			"function render(
+				{ button, label }: { button: HTMLButtonElement; label: string }
+			) {
+				button.replaceChildren();
+				label.replaceChildren();
+			}",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let sdk_calls = graph
+			.refs()
+			.filter(|reference| {
+				reference.kind == b"method_call"
+					&& reference.call_name.as_ref() == b"replaceChildren"
+					&& reference
+						.target
+						.as_view()
+						.segments()
+						.next()
+						.is_some_and(|segment| segment.kind == b"sdk")
+			})
+			.count();
+		assert_eq!(
+			sdk_calls, 1,
+			"button must keep its DOM type without assigning HTMLButtonElement to label",
+		);
+	}
+
+	#[test]
+	fn extract_module_typed_binding_preserves_sdk_owner_inside_callables() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"app.ts",
+			"const button: HTMLButtonElement = document.createElement('button');
+			function render() { button.replaceChildren(); }",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call"
+					&& reference.call_name.as_ref() == b"replaceChildren"
+			})
+			.expect("button.replaceChildren method call");
+		assert_eq!(
+			call.target.as_view().segments().next().unwrap().kind,
+			b"sdk",
+			"an explicitly typed module binding must retain its DOM owner",
+		);
+	}
+
+	#[test]
+	fn extract_imported_type_shadows_same_named_dom_type_for_module_binding() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "DOM"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"server.ts",
+			"import type { Response } from 'express';
+			const response: Response = {} as Response;
+			export function send() { response.json(); }",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call" && reference.call_name.as_ref() == b"json"
+			})
+			.expect("response.json method call");
+		assert!(
+			call.target
+				.as_view()
+				.segments()
+				.next()
+				.is_none_or(|segment| segment.kind != b"sdk"),
+			"an imported module binding type must shadow the DOM catalog entry",
+		);
+	}
+
+	#[test]
+	fn extract_namespace_constructor_uses_sdk_catalog() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"app.ts",
+			"const formatter = Intl.DateTimeFormat('fr-FR');",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+		let call = graph
+			.refs()
+			.find(|reference| {
+				reference.kind == b"method_call"
+					&& reference.call_name.as_ref() == b"DateTimeFormat"
+			})
+			.expect("Intl.DateTimeFormat call");
+		assert_eq!(
+			call.target.as_view().segments().next().unwrap().kind,
+			b"sdk",
+			"declare namespace members must be represented by the generated SDK catalog",
+		);
+	}
+
+	#[test]
+	fn extract_webworker_profile_owns_worker_without_dom() {
+		let presets = Presets {
+			sdk_profile: TsSdkProfile::from_libraries(["ES2022", "WebWorker"]),
+			..Presets::default()
+		};
+		let graph = super::extract(
+			"worker.ts",
+			"postMessage('ready'); document.createElement('div');",
+			&make_anchor(),
+			true,
+			&presets,
+		);
+
+		assert!(graph.refs().any(|reference| {
+			reference.call_name.as_ref() == b"postMessage"
+				&& reference
+					.target
+					.as_view()
+					.segments()
+					.next()
+					.is_some_and(|segment| segment.kind == b"sdk")
+		}));
+		assert!(
+			graph
+				.refs()
+				.filter(|reference| {
+					reference
+						.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"document")
+				})
+				.all(|reference| reference
+					.target
+					.as_view()
+					.segments()
+					.next()
+					.is_none_or(|segment| segment.kind != b"sdk"))
 		);
 	}
 

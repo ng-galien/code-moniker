@@ -172,6 +172,28 @@ mod tests {
 	}
 
 	#[test]
+	fn tsconfig_changes_require_a_full_rescan() {
+		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
+			path: PathBuf::from("/repo"),
+			git_root: None,
+			ignored_paths: Vec::new(),
+			notes_path: None,
+		}]);
+
+		for path in [
+			"/repo/tsconfig.json",
+			"/repo/tsconfig.app.json",
+			"/repo/packages/api/tsconfig.node.json",
+		] {
+			assert_eq!(
+				classifier.classify_paths_with_git_signals(&[PathBuf::from(path)], true),
+				Some(WorkspaceLiveEvent::RescanRequired),
+				"{path} must rebuild TypeScript SDK profiles",
+			);
+		}
+	}
+
+	#[test]
 	fn classifies_source_create_remove_as_incremental_source_changes() {
 		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
 			path: PathBuf::from("/repo"),

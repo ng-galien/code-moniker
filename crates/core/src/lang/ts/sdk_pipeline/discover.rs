@@ -187,17 +187,23 @@ impl<'ctx, 'src> ImportTargetResolver<'ctx, 'src> {
 #[derive(Default)]
 struct TsScopes {
 	local: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
+	local_types: RefCell<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
+	local_type_names: RefCell<Vec<HashSet<Vec<u8>>>>,
 	nested_funcs: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
 
 impl TsScopes {
 	fn push(&self) {
 		self.local.borrow_mut().push(HashMap::new());
+		self.local_types.borrow_mut().push(HashMap::new());
+		self.local_type_names.borrow_mut().push(HashSet::new());
 		self.nested_funcs.borrow_mut().push(HashMap::new());
 	}
 
 	fn pop(&self) {
 		self.local.borrow_mut().pop();
+		self.local_types.borrow_mut().pop();
+		self.local_type_names.borrow_mut().pop();
 		self.nested_funcs.borrow_mut().pop();
 	}
 
@@ -213,6 +219,34 @@ impl TsScopes {
 			.iter()
 			.rev()
 			.find_map(|frame| frame.get(name).cloned())
+	}
+
+	fn bind_type(&self, name: &[u8], type_name: &[u8]) {
+		if let Some(top) = self.local_types.borrow_mut().last_mut() {
+			top.insert(name.to_vec(), type_name.to_vec());
+		}
+	}
+
+	fn lookup_type(&self, name: &[u8]) -> Option<Vec<u8>> {
+		self.local_types
+			.borrow()
+			.iter()
+			.rev()
+			.find_map(|scope| scope.get(name).cloned())
+	}
+
+	fn bind_type_name(&self, name: &[u8]) {
+		if let Some(top) = self.local_type_names.borrow_mut().last_mut() {
+			top.insert(name.to_vec());
+		}
+	}
+
+	fn contains_type_name(&self, name: &[u8]) -> bool {
+		self.local_type_names
+			.borrow()
+			.iter()
+			.rev()
+			.any(|scope| scope.contains(name))
 	}
 
 	fn lookup_nested_func(&self, name: &[u8]) -> Option<Moniker> {
@@ -237,14 +271,42 @@ impl TsScopes {
 			}
 		}
 	}
+
+	fn hoist_type_names(&self, body: Node<'_>, source: &[u8]) {
+		let mut cursor = body.walk();
+		let mut type_names = self.local_type_names.borrow_mut();
+		let Some(top) = type_names.last_mut() else {
+			return;
+		};
+		for child in body.named_children(&mut cursor) {
+			if !matches!(
+				child.kind(),
+				"class_declaration"
+					| "abstract_class_declaration"
+					| "interface_declaration"
+					| "enum_declaration"
+					| "type_alias_declaration"
+			) {
+				continue;
+			}
+			if let Some(name) = child.child_by_field_name("name") {
+				let name = node_slice(name, source);
+				if !name.is_empty() {
+					top.insert(name.to_vec());
+				}
+			}
+		}
+	}
 }
 
 struct TsReferenceResolver<'a> {
 	module: &'a Moniker,
+	sdk_profile: &'a super::super::TsSdkProfile,
 	imports: &'a TsImports,
 	type_table: &'a HashMap<Vec<u8>, Moniker>,
 	callable_table: &'a HashMap<(Moniker, Vec<u8>), CallableEntry>,
 	module_value_names: &'a HashSet<Vec<u8>>,
+	module_value_types: &'a HashMap<Vec<u8>, Vec<u8>>,
 	scopes: &'a TsScopes,
 	deep: bool,
 }
@@ -289,7 +351,7 @@ impl TsReferenceResolver<'_> {
 				(target, kinds::CONF_RESOLVED)
 			} else if let Some(target) = self.lookup_module_binding(name) {
 				(target, kinds::CONF_RESOLVED)
-			} else if is_global_value(name) {
+			} else if is_global_value(self.sdk_profile, name) {
 				(
 					external_runtime_target(self.module, kinds::FUNCTION, name),
 					kinds::CONF_EXTERNAL,
@@ -319,7 +381,7 @@ impl TsReferenceResolver<'_> {
 		if let Some(target) = self.lookup_module_binding(name) {
 			return (target, kinds::CONF_RESOLVED);
 		}
-		if is_global_value(name) {
+		if is_global_value(self.sdk_profile, name) {
 			return (
 				external_runtime_target(self.module, kinds::FUNCTION, name),
 				kinds::CONF_EXTERNAL,
@@ -354,7 +416,7 @@ impl TsReferenceResolver<'_> {
 			(target, confidence)
 		} else if let Some(target) = self.lookup_module_binding(name) {
 			(target, kinds::CONF_RESOLVED)
-		} else if is_global_value(name) {
+		} else if is_global_value(self.sdk_profile, name) {
 			(
 				external_runtime_target(self.module, kinds::FUNCTION, name),
 				kinds::CONF_EXTERNAL,
@@ -379,7 +441,7 @@ impl TsReferenceResolver<'_> {
 			(target, self.ref_confidence(name))
 		} else if let Some(target) = self.type_table.get(name) {
 			(target.clone(), self.ref_confidence(name))
-		} else if is_global_type(name) {
+		} else if is_global_type(self.sdk_profile, name) {
 			(
 				external_runtime_target(self.module, target_kind, name),
 				kinds::CONF_EXTERNAL,
@@ -717,7 +779,7 @@ impl TsTypeRefs<'_, '_> {
 			.or_else(|| self.imports.target(name))
 			.or_else(|| self.type_table.get(name).cloned())
 			.unwrap_or_else(|| {
-				if is_global_type(name) {
+				if is_global_type(self.refs.sdk_profile, name) {
 					external_runtime_target(self.module, kinds::CLASS, name)
 				} else {
 					extend_segment(self.module, kinds::CLASS, name)
@@ -746,7 +808,7 @@ impl TsTypeRefs<'_, '_> {
 			.target(root)
 			.map(|module| extend_segment(&module, kinds::CLASS, name))
 			.unwrap_or_else(|| {
-				if is_global_type(root) {
+				if is_global_type(self.refs.sdk_profile, root) {
 					external_runtime_member_target(self.module, root, kinds::CLASS, name)
 				} else {
 					let owner = extend_segment(self.module, kinds::PATH, root);
@@ -779,7 +841,7 @@ impl TsTypeRefs<'_, '_> {
 				.map(|module| extend_segment(&module, kinds::CLASS, name))
 				.or_else(|| self.type_table.get(name).cloned())
 				.unwrap_or_else(|| {
-					if is_global_type(root) {
+					if is_global_type(self.refs.sdk_profile, root) {
 						external_runtime_target(self.module, kinds::CLASS, name)
 					} else {
 						extend_segment(self.module, kinds::CLASS, name)
@@ -838,7 +900,7 @@ impl TsTypeRefs<'_, '_> {
 	}
 
 	fn type_confidence(&self, name: &[u8]) -> &'static [u8] {
-		if is_global_type(name) {
+		if is_global_type(self.refs.sdk_profile, name) {
 			kinds::CONF_EXTERNAL
 		} else if self.imports.target(name).is_some() {
 			self.refs.ref_confidence(name)
@@ -958,9 +1020,10 @@ impl<'src> TsCalls<'_, 'src> {
 			.filter(|object| object.kind() == "identifier")
 			.map(|object| node_slice(object, self.source));
 		let shadowed_global_target = obj_ident
-			.filter(|name| is_global_value(name))
+			.filter(|name| is_global_value(self.refs.sdk_profile, name))
 			.and_then(|name| self.refs.lookup_shadow_binding(name));
 		let imported_target = obj_ident.and_then(|name| self.imports.target(name));
+		let sdk_target = sdk_method_target(self, fn_node, name);
 		let (target, confidence) = if let Some(owner) = shadowed_global_target {
 			(
 				extend_segment(&owner, kinds::METHOD, name),
@@ -973,11 +1036,8 @@ impl<'src> TsCalls<'_, 'src> {
 					.map(|name| self.refs.ref_confidence(name))
 					.unwrap_or(kinds::CONF_IMPORTED),
 			)
-		} else if let Some(owner) = obj_ident.filter(|owner| is_global_value(owner)) {
-			(
-				external_runtime_member_target(self.module, owner, kinds::METHOD, name),
-				kinds::CONF_EXTERNAL,
-			)
+		} else if let Some(target) = sdk_target {
+			(target, kinds::CONF_EXTERNAL)
 		} else if let Some(owner) = obj_ident {
 			let owner = extend_segment(self.module, kinds::PATH, owner);
 			(
@@ -1076,6 +1136,111 @@ impl<'src> TsCalls<'_, 'src> {
 	}
 }
 
+fn sdk_method_target(calls: &TsCalls<'_, '_>, fn_node: Node<'_>, name: &[u8]) -> Option<Moniker> {
+	let object = fn_node.child_by_field_name("object")?;
+	let owner = sdk_receiver_owner(calls, object)?;
+	let method_name = std::str::from_utf8(name).ok()?;
+	let member = calls.refs.sdk_profile.method(&owner, method_name)?;
+	let target_owner = if object.kind() == "identifier" {
+		let raw = node_slice(object, calls.source);
+		if calls.refs.sdk_profile.is_global_value(raw)
+			&& calls.refs.lookup_shadow_binding(raw).is_none()
+			&& calls.imports.target(raw).is_none()
+		{
+			raw
+		} else {
+			member.owner.as_bytes()
+		}
+	} else {
+		member.owner.as_bytes()
+	};
+	Some(external_runtime_member_target(
+		calls.module,
+		target_owner,
+		kinds::METHOD,
+		name,
+	))
+}
+
+fn sdk_receiver_owner(calls: &TsCalls<'_, '_>, node: Node<'_>) -> Option<String> {
+	match node.kind() {
+		"identifier" => sdk_identifier_owner(calls, node),
+		"member_expression" => {
+			let object = node.child_by_field_name("object")?;
+			let property = node.child_by_field_name("property")?;
+			let owner = sdk_receiver_owner(calls, object)?;
+			let property = std::str::from_utf8(node_slice(property, calls.source)).ok()?;
+			calls
+				.refs
+				.sdk_profile
+				.property(&owner, property)?
+				.result
+				.map(str::to_owned)
+		}
+		"call_expression" => {
+			let function = node.child_by_field_name("function")?;
+			if function.kind() != "member_expression" {
+				return None;
+			}
+			let object = function.child_by_field_name("object")?;
+			let property = function.child_by_field_name("property")?;
+			let owner = sdk_receiver_owner(calls, object)?;
+			let method = std::str::from_utf8(node_slice(property, calls.source)).ok()?;
+			calls
+				.refs
+				.sdk_profile
+				.method(&owner, method)?
+				.result
+				.map(str::to_owned)
+		}
+		"as_expression" | "type_assertion" => {
+			let type_node = node.child_by_field_name("type")?;
+			let name = first_identifier_text(type_node, calls.source);
+			calls
+				.refs
+				.sdk_profile
+				.is_global_type(name)
+				.then(|| String::from_utf8_lossy(name).into_owned())
+		}
+		"parenthesized_expression" | "non_null_expression" => {
+			sdk_receiver_owner(calls, node.named_child(0)?)
+		}
+		_ => None,
+	}
+}
+
+fn sdk_identifier_owner(calls: &TsCalls<'_, '_>, node: Node<'_>) -> Option<String> {
+	let name = node_slice(node, calls.source);
+	if calls.refs.lookup_shadow_binding(name).is_some()
+		|| calls.refs.module_value_names.contains(name)
+	{
+		let owner = calls
+			.refs
+			.scopes
+			.lookup_type(name)
+			.or_else(|| calls.refs.module_value_types.get(name).cloned())?;
+		if calls.imports.target(&owner).is_some()
+			|| calls.refs.type_table.contains_key(&owner)
+			|| calls.refs.scopes.contains_type_name(&owner)
+		{
+			return None;
+		}
+		return calls
+			.refs
+			.sdk_profile
+			.is_global_type(&owner)
+			.then(|| String::from_utf8_lossy(&owner).into_owned());
+	}
+	if calls.imports.target(name).is_some() {
+		return None;
+	}
+	calls
+		.refs
+		.sdk_profile
+		.global_value_owner(name)
+		.map(str::to_owned)
+}
+
 struct TsClassifier<'a, 'src> {
 	discover: &'a TsDiscover<'src>,
 }
@@ -1124,23 +1289,35 @@ impl<'a, 'src_lang> TsClassifier<'a, 'src_lang> {
 				Some(NodeShape::Skip)
 			}
 			"export_statement" => Some(classify_export(self.discover, node, scope, source, graph)),
-			"class_declaration" | "abstract_class_declaration" => Some(classify_class(
-				self.discover,
-				node,
-				scope,
-				source,
-				None,
-				None,
-			)),
-			"interface_declaration" => Some(classify_interface(self.discover, node, scope, source)),
-			"enum_declaration" => Some(classify_enum(self.discover, node, scope, source)),
-			"type_alias_declaration" => Some(classify_type_alias(
-				self.discover,
-				node,
-				scope,
-				source,
-				graph,
-			)),
+			"class_declaration" | "abstract_class_declaration" => {
+				self.discover.bind_local_type_declaration(node, scope);
+				Some(classify_class(
+					self.discover,
+					node,
+					scope,
+					source,
+					None,
+					None,
+				))
+			}
+			"interface_declaration" => {
+				self.discover.bind_local_type_declaration(node, scope);
+				Some(classify_interface(self.discover, node, scope, source))
+			}
+			"enum_declaration" => {
+				self.discover.bind_local_type_declaration(node, scope);
+				Some(classify_enum(self.discover, node, scope, source))
+			}
+			"type_alias_declaration" => {
+				self.discover.bind_local_type_declaration(node, scope);
+				Some(classify_type_alias(
+					self.discover,
+					node,
+					scope,
+					source,
+					graph,
+				))
+			}
 			"function_declaration" | "generator_function_declaration" => {
 				Some(classify_function_decl(self.discover, node, scope, source))
 			}
@@ -1288,6 +1465,7 @@ pub(super) struct TsDiscover<'src> {
 	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 	module_value_names: HashSet<Vec<u8>>,
+	module_value_types: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 enum NodeShape<'src> {
@@ -1596,7 +1774,13 @@ impl<'a> TsDiscover<'a> {
 		let mut type_table: HashMap<Vec<u8>, Moniker> = HashMap::new();
 		collect_type_table(root, source_bytes, &module, &mut type_table);
 		let mut module_value_names = HashSet::new();
-		collect_module_value_names(root, source_bytes, &mut module_value_names);
+		let mut module_value_types = HashMap::new();
+		collect_module_values(
+			root,
+			source_bytes,
+			&mut module_value_names,
+			&mut module_value_types,
+		);
 		let discover = Self {
 			module: module.clone(),
 			anchor,
@@ -1609,6 +1793,7 @@ impl<'a> TsDiscover<'a> {
 			type_table,
 			callable_table,
 			module_value_names,
+			module_value_types,
 		};
 		let mut builder = SdkBuilder::new(module.clone());
 		SdkWalker::new(&discover, source_bytes).walk(root, &module, &mut builder);
@@ -1627,10 +1812,12 @@ impl<'a> TsDiscover<'a> {
 	fn refs(&self) -> TsReferenceResolver<'_> {
 		TsReferenceResolver {
 			module: &self.module,
+			sdk_profile: &self.presets.sdk_profile,
 			imports: &self.imports,
 			type_table: &self.type_table,
 			callable_table: &self.callable_table,
 			module_value_names: &self.module_value_names,
+			module_value_types: &self.module_value_types,
 			scopes: &self.scopes,
 			deep: self.deep,
 		}
@@ -1688,7 +1875,7 @@ impl<'a> TsDiscover<'a> {
 			bind_and_emit_params(self, params, moniker, graph);
 		}
 		if let Some(p) = node.child_by_field_name("parameter") {
-			bind_and_emit_param_leaf(self, p, moniker, graph);
+			bind_and_emit_param_leaf(self, p, None, moniker, graph);
 		}
 	}
 
@@ -1732,9 +1919,27 @@ impl<'a> TsDiscover<'a> {
 			}
 		}
 	}
+
+	fn bind_local_type_declaration(&self, node: Node<'_>, scope: &Moniker) {
+		if !is_callable_scope(scope, &self.module) {
+			return;
+		}
+		let Some(name) = node.child_by_field_name("name") else {
+			return;
+		};
+		let name = node_slice(name, self.source_bytes);
+		if !name.is_empty() {
+			self.scopes.bind_type_name(name);
+		}
+	}
 }
 
-fn collect_module_value_names(root: Node<'_>, source: &[u8], out: &mut HashSet<Vec<u8>>) {
+fn collect_module_values(
+	root: Node<'_>,
+	source: &[u8],
+	names: &mut HashSet<Vec<u8>>,
+	types: &mut HashMap<Vec<u8>, Vec<u8>>,
+) {
 	let mut cursor = root.walk();
 	for child in root.named_children(&mut cursor) {
 		match child.kind() {
@@ -1745,11 +1950,21 @@ fn collect_module_value_names(root: Node<'_>, source: &[u8], out: &mut HashSet<V
 						continue;
 					}
 					if let Some(name) = declarator.child_by_field_name("name") {
-						out.extend(collect_binding_names(name, source));
+						let bindings = collect_binding_names(name, source);
+						names.extend(bindings.iter().cloned());
+						if name.kind() == "identifier"
+							&& let Some(type_name) = declarator
+								.child_by_field_name("type")
+								.and_then(|node| first_sdk_type_name(node, source))
+						{
+							for binding in bindings {
+								types.insert(binding, type_name.to_vec());
+							}
+						}
 					}
 				}
 			}
-			"export_statement" => collect_module_value_names(child, source, out),
+			"export_statement" => collect_module_values(child, source, names, types),
 			_ => {}
 		}
 	}
@@ -1968,11 +2183,16 @@ fn classify_inline_callable<'src, 'src_lang>(
 		);
 	}
 	discover.scopes.push();
+	if let Some(body) = node.child_by_field_name("body") {
+		discover
+			.scopes
+			.hoist_type_names(body, discover.source_bytes);
+	}
 	if let Some(params) = node.child_by_field_name("parameters") {
 		bind_and_emit_params(discover, params, scope, graph);
 	}
 	if let Some(p) = node.child_by_field_name("parameter") {
-		bind_and_emit_param_leaf(discover, p, scope, graph);
+		bind_and_emit_param_leaf(discover, p, None, scope, graph);
 	}
 	if let Some(body) = node.child_by_field_name("body") {
 		discover.walk_children(body, scope, graph);
@@ -2092,6 +2312,14 @@ fn handle_variable_declarator<'src_lang>(
 	};
 	let value = decl.child_by_field_name("value");
 	let type_annot = decl.child_by_field_name("type");
+	let sdk_type = type_annot
+		.and_then(|node| active_sdk_type_name(discover, node))
+		.map(<[u8]>::to_vec)
+		.or_else(|| {
+			value
+				.and_then(|node| inferred_sdk_type_name(discover, node))
+				.map(String::into_bytes)
+		});
 
 	let names = collect_binding_names(name_node, discover.source_bytes);
 	let module_vis = discover.module_visibility(decl);
@@ -2100,6 +2328,9 @@ fn handle_variable_declarator<'src_lang>(
 			discover
 				.scopes
 				.bind_local(name, extend_segment(scope, kinds::LOCAL, name));
+			if let Some(type_name) = sdk_type.as_deref() {
+				discover.scopes.bind_type(name, type_name);
+			}
 		}
 		if !inside_callable
 			&& let Some(value) =
@@ -2158,6 +2389,11 @@ fn emit_assigned_function<'src_lang>(
 		&attrs,
 	);
 	discover.scopes.push();
+	if let Some(body) = value.child_by_field_name("body") {
+		discover
+			.scopes
+			.hoist_type_names(body, discover.source_bytes);
+	}
 	if let Some(return_type) = value.child_by_field_name("return_type") {
 		emit_uses_type_recursive(discover, return_type, &moniker, graph);
 	}
@@ -2165,7 +2401,7 @@ fn emit_assigned_function<'src_lang>(
 		bind_and_emit_params(discover, params, &moniker, graph);
 	}
 	if let Some(param) = value.child_by_field_name("parameter") {
-		bind_and_emit_param_leaf(discover, param, &moniker, graph);
+		bind_and_emit_param_leaf(discover, param, None, &moniker, graph);
 	}
 	if let Some(body) = value.child_by_field_name("body") {
 		discover.walk_children(body, &moniker, graph);
@@ -2242,7 +2478,7 @@ fn handle_catch_clause<'src_lang>(
 	if is_callable_scope(scope, &discover.module)
 		&& let Some(p) = node.child_by_field_name("parameter")
 	{
-		bind_and_emit_param_leaf(discover, p, scope, graph);
+		bind_and_emit_param_leaf(discover, p, None, scope, graph);
 	}
 	if let Some(body) = node.child_by_field_name("body") {
 		discover.walk_children(body, scope, graph);
@@ -2360,13 +2596,13 @@ fn handle_new<'src_lang>(
 				m
 			} else if let Some(m) = discover.type_table.get(n) {
 				m.clone()
-			} else if is_global_type(n) {
+			} else if is_global_type(&discover.presets.sdk_profile, n) {
 				external_runtime_target(&discover.module, kinds::CLASS, n)
 			} else {
 				extend_segment(&discover.module, kinds::CLASS, n)
 			};
 			let attrs = RefAttrs {
-				confidence: if is_global_type(n) {
+				confidence: if is_global_type(&discover.presets.sdk_profile, n) {
 					kinds::CONF_EXTERNAL
 				} else if discover.type_table.values().any(|m| m == &target)
 					|| graph.contains(&target)
@@ -2661,14 +2897,21 @@ fn bind_and_emit_params<'src_lang>(
 		match child.kind() {
 			"required_parameter" | "optional_parameter" => {
 				if let Some(p) = child.child_by_field_name("pattern") {
-					bind_and_emit_param_leaf(discover, p, callable, graph);
+					let type_node = child.child_by_field_name("type");
+					if p.kind() == "identifier" {
+						let sdk_type =
+							type_node.and_then(|node| active_sdk_type_name(discover, node));
+						bind_and_emit_param_leaf(discover, p, sdk_type, callable, graph);
+					} else {
+						bind_and_emit_structured_param(discover, p, type_node, callable, graph);
+					}
 				}
 				if let Some(t) = child.child_by_field_name("type") {
 					emit_uses_type_recursive(discover, t, callable, graph);
 				}
 			}
 			"rest_pattern" => {
-				bind_and_emit_param_leaf(discover, child, callable, graph);
+				bind_and_emit_param_leaf(discover, child, None, callable, graph);
 			}
 			_ => {}
 		}
@@ -2678,16 +2921,139 @@ fn bind_and_emit_params<'src_lang>(
 fn bind_and_emit_param_leaf<'src_lang>(
 	discover: &TsDiscover<'src_lang>,
 	pat: Node<'_>,
+	sdk_type: Option<&[u8]>,
 	callable: &Moniker,
 	graph: &mut SdkBuilder,
 ) {
 	for name in collect_binding_names(pat, discover.source_bytes) {
-		let m = extend_segment(callable, kinds::PARAM, &name);
-		discover.scopes.bind_local(&name, m.clone());
-		if discover.deep {
-			let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(pat)));
-		}
+		bind_and_emit_param_name(discover, &name, sdk_type, pat, callable, graph);
 	}
+}
+
+fn bind_and_emit_structured_param<'src_lang>(
+	discover: &TsDiscover<'src_lang>,
+	pattern: Node<'_>,
+	type_node: Option<Node<'_>>,
+	callable: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	let sdk_types = type_node
+		.and_then(find_object_type)
+		.map(|object_type| object_property_sdk_types(discover, object_type))
+		.unwrap_or_default();
+	for name in collect_binding_names(pattern, discover.source_bytes) {
+		let sdk_type = sdk_types.get(&name).map(Vec::as_slice);
+		bind_and_emit_param_name(discover, &name, sdk_type, pattern, callable, graph);
+	}
+}
+
+fn bind_and_emit_param_name<'src_lang>(
+	discover: &TsDiscover<'src_lang>,
+	name: &[u8],
+	sdk_type: Option<&[u8]>,
+	position_node: Node<'_>,
+	callable: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	let moniker = extend_segment(callable, kinds::PARAM, name);
+	discover.scopes.bind_local(name, moniker.clone());
+	if let Some(type_name) = sdk_type {
+		discover.scopes.bind_type(name, type_name);
+	}
+	if discover.deep {
+		let _ = graph.add_def(
+			moniker,
+			kinds::PARAM,
+			callable,
+			Some(node_position(position_node)),
+		);
+	}
+}
+
+fn find_object_type(node: Node<'_>) -> Option<Node<'_>> {
+	if node.kind() == "object_type" {
+		return Some(node);
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor).find_map(find_object_type)
+}
+
+fn object_property_sdk_types(
+	discover: &TsDiscover<'_>,
+	object_type: Node<'_>,
+) -> HashMap<Vec<u8>, Vec<u8>> {
+	let mut types = HashMap::new();
+	let mut cursor = object_type.walk();
+	for member in object_type.named_children(&mut cursor) {
+		if member.kind() != "property_signature" {
+			continue;
+		}
+		let Some(name) = member.child_by_field_name("name") else {
+			continue;
+		};
+		let Some(type_name) = member
+			.child_by_field_name("type")
+			.and_then(|node| active_sdk_type_name(discover, node))
+		else {
+			continue;
+		};
+		types.insert(
+			node_slice(name, discover.source_bytes).to_vec(),
+			type_name.to_vec(),
+		);
+	}
+	types
+}
+
+fn active_sdk_type_name<'src>(discover: &TsDiscover<'src>, node: Node<'src>) -> Option<&'src [u8]> {
+	let name = first_sdk_type_name(node, discover.source_bytes)?;
+	if discover.imports.target(name).is_some()
+		|| discover.type_table.contains_key(name)
+		|| discover.scopes.contains_type_name(name)
+	{
+		return None;
+	}
+	discover
+		.presets
+		.sdk_profile
+		.is_global_type(name)
+		.then_some(name)
+}
+
+fn inferred_sdk_type_name(discover: &TsDiscover<'_>, node: Node<'_>) -> Option<String> {
+	sdk_receiver_owner(&discover.calls(), node).or_else(|| {
+		let function = (node.kind() == "call_expression")
+			.then(|| node.child_by_field_name("function"))
+			.flatten()?;
+		let name = (function.kind() == "identifier")
+			.then(|| node_slice(function, discover.source_bytes))?;
+		let entry = discover
+			.callable_table
+			.get(&(discover.module.clone(), name.to_vec()))?;
+		let return_type = entry.return_type.as_deref()?;
+		if discover.imports.target(return_type).is_some()
+			|| discover.type_table.contains_key(return_type)
+			|| discover.scopes.contains_type_name(return_type)
+			|| !discover.presets.sdk_profile.is_global_type(return_type)
+		{
+			return None;
+		}
+		Some(String::from_utf8_lossy(return_type).into_owned())
+	})
+}
+
+fn first_sdk_type_name<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
+	let name = match node.kind() {
+		"type_identifier" | "predefined_type" => node_slice(node, source),
+		"generic_type" => generic_short(node, source).unwrap_or(b""),
+		_ => b"",
+	};
+	if !name.is_empty() {
+		return Some(name);
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.find_map(|child| first_sdk_type_name(child, source))
 }
 
 impl<'src_lang> TsDiscover<'src_lang> {
@@ -2708,6 +3074,7 @@ impl<'src_lang> TsDiscover<'src_lang> {
 		if let Some(body) = body {
 			self.scopes
 				.hoist_nested_funcs(body, &moniker, self.source_bytes);
+			self.scopes.hoist_type_names(body, self.source_bytes);
 		}
 
 		NodeShape::Symbol(Symbol {

@@ -958,6 +958,41 @@ fn rust_custom_lib_name_refresh_matches_full_rebuild() {
 	);
 }
 
+#[test]
+fn typescript_sdk_profile_source_edits_match_full_rebuild() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(
+		temp.path().join("tsconfig.json"),
+		r#"{"compilerOptions":{"target":"ES2022","lib":["ES2022","DOM"]}}"#,
+	)
+	.expect("tsconfig");
+	fs::write(
+		temp.path().join("app.ts"),
+		"export function render(button: HTMLButtonElement) { button.replaceChildren(); }\n",
+	)
+	.expect("TypeScript fixture");
+	let mut session = IncrementalSession::open(temp.path());
+
+	session.edit(
+		"app.ts",
+		"export function render(button: HTMLButtonElement) { button.classList.add('ready'); document.body.replaceChildren(button); }\n",
+	);
+
+	let incremental = session.normal_form();
+	assert_eq!(
+		incremental,
+		full_build_normal_form(temp.path()),
+		"TypeScript SDK references must stay equivalent under incremental source refresh",
+	);
+	assert!(
+		incremental
+			.external
+			.iter()
+			.any(|reference| reference.contains("sdk:ts")),
+		"the DOM profile must retain SDK provenance after refresh",
+	);
+}
+
 const ALPHA_VARIANTS: &[&str] = &[
 	ALPHA_RS,
 	"pub fn shared() {}\n",

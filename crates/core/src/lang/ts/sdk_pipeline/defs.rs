@@ -16,6 +16,7 @@ use super::syntax::is_callable_kind;
 pub(super) struct CallableEntry {
 	pub(super) kind: &'static [u8],
 	pub(super) segment: Vec<u8>,
+	pub(super) return_type: Option<Vec<u8>>,
 }
 
 pub(super) fn namespace_for_kind(_kind: &'static [u8]) -> Namespace {
@@ -86,6 +87,7 @@ pub(super) fn collect_callable_table<'src>(
 					CallableEntry {
 						kind: kinds::FUNCTION,
 						segment: callable_segment_slots(name, &slots),
+						return_type: callable_return_type(child, source),
 					},
 				);
 			}
@@ -103,21 +105,44 @@ pub(super) fn collect_callable_table<'src>(
 					continue;
 				}
 				let name = node_slice(name_node, source);
-				let (kind, seg) = match decl.child_by_field_name("value") {
+				let (kind, seg, return_type) = match decl.child_by_field_name("value") {
 					Some(v) if matches!(v.kind(), "arrow_function" | "function_expression") => {
 						let slots = callable_param_slots(v, source);
-						(kinds::FUNCTION, callable_segment_slots(name, &slots))
+						(
+							kinds::FUNCTION,
+							callable_segment_slots(name, &slots),
+							callable_return_type(v, source),
+						)
 					}
-					_ => (kinds::CONST, name.to_vec()),
+					_ => (kinds::CONST, name.to_vec(), None),
 				};
 				out.insert(
 					(module.clone(), name.to_vec()),
-					CallableEntry { kind, segment: seg },
+					CallableEntry {
+						kind,
+						segment: seg,
+						return_type,
+					},
 				);
 			}
 		}
 		_ => {}
 	});
+}
+
+fn callable_return_type(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	let return_type = node.child_by_field_name("return_type")?;
+	let name = first_type_name(return_type, source)?;
+	(!name.is_empty()).then(|| name.to_vec())
+}
+
+fn first_type_name<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
+	if matches!(node.kind(), "type_identifier" | "predefined_type") {
+		return Some(node_slice(node, source));
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.find_map(|child| first_type_name(child, source))
 }
 
 pub(super) fn collect_type_table<'src>(

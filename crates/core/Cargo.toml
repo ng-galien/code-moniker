@@ -22,6 +22,7 @@ serde   = ["dep:serde"]
 serde = { workspace = true, optional = true }
 
 rustc-hash             = { workspace = true }
+roaring                = { workspace = true }
 
 # Tree-sitter and per-language grammars for the lang/ extractors.
 tree-sitter            = { workspace = true }
