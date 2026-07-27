@@ -139,6 +139,14 @@ pub(crate) fn matches(pattern: &Pattern, m: &Moniker) -> bool {
 	match_steps(&pattern.steps, &segs)
 }
 
+pub(crate) fn matches_text_segments(pattern: &Pattern, segments: &[(&str, &str)]) -> bool {
+	let segments = segments
+		.iter()
+		.map(|(kind, name)| (kind.as_bytes(), name.as_bytes()))
+		.collect::<Vec<_>>();
+	match_steps(&pattern.steps, &segments)
+}
+
 fn match_steps(steps: &[Step], segs: &[(&[u8], &[u8])]) -> bool {
 	match steps.split_first() {
 		None => segs.is_empty(),

@@ -125,10 +125,12 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+
 	use crate::snapshot::{
 		ChangeOverlay, CodeIndex, CodeIndexTimings, LinkageSnapshot, RecordTable,
-		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
-		WorkspaceSnapshot, WorkspaceTimings,
+		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SymbolId,
+		SymbolInventoryIndex, SymbolRecord, WorkspaceSnapshot, WorkspaceTimings,
 	};
 
 	use super::*;
@@ -237,6 +239,7 @@ mod tests {
 				sources: vec![source],
 				symbols: RecordTable::from_records(vec![symbol]),
 				references: RecordTable::from_records(Vec::new()),
+				inventory: Arc::new(SymbolInventoryIndex::default()),
 				timings: CodeIndexTimings::default(),
 			},
 			linkage: LinkageSnapshot::new(
@@ -280,6 +283,7 @@ mod tests {
 				sources: Vec::new(),
 				symbols: RecordTable::from_records(vec![symbol]),
 				references: RecordTable::from_records(Vec::new()),
+				inventory: Arc::new(SymbolInventoryIndex::default()),
 				timings: CodeIndexTimings::default(),
 			},
 			linkage: LinkageSnapshot::new(

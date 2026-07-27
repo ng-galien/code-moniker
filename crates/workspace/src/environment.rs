@@ -4,6 +4,7 @@ use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::Lang;
+use std::sync::Arc;
 
 pub type ExtractContext = crate::extract::Context;
 pub type IdentityResolver = crate::source::LocalIdentityResolver;
@@ -74,6 +75,43 @@ pub fn extract_source_with(
 	ctx: &ExtractContext,
 ) -> CodeGraph {
 	crate::extract::extract_with(lang, source, path, ctx)
+}
+
+pub fn symbol_records_for_graph(
+	file_idx: usize,
+	source_id: crate::snapshot::SourceId,
+	graph: &CodeGraph,
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+) -> Vec<crate::snapshot::SymbolRecord> {
+	let identity = crate::source::LocalIdentityResolver::new(scheme);
+	let lines = crate::lines::LineIndex::new(source);
+	graph
+		.defs()
+		.enumerate()
+		.map(|(def_idx, def)| crate::snapshot::SymbolRecord {
+			id: identity.symbol_id(file_idx, def_idx),
+			source: source_id,
+			identity: Arc::from(identity.moniker_uri(&def.moniker)),
+			name: crate::code::last_name(&def.moniker),
+			kind: crate::code::def_kind(def),
+			visibility: std::str::from_utf8(&def.visibility)
+				.unwrap_or("")
+				.to_string(),
+			signature: String::from_utf8_lossy(&def.signature).to_string(),
+			call_name: (!def.call_name.is_empty())
+				.then(|| String::from_utf8_lossy(&def.call_name).to_string()),
+			call_arity: def.call_arity,
+			navigable: crate::code::is_navigable_def(lang, def),
+			line_range: def
+				.position
+				.map(|(start, end)| lines.line_range(start, end)),
+			parent: def
+				.parent
+				.map(|parent_idx| identity.symbol_id(file_idx, parent_idx)),
+		})
+		.collect()
 }
 
 pub fn source_root_moniker(lang: Lang, path: &Path, ctx: &ExtractContext) -> Option<Moniker> {

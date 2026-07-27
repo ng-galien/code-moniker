@@ -318,13 +318,19 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 			.or_default()
 			.push(spec);
 	}
-	let langs = Lang::ALL
+	let mut langs = Lang::ALL
 		.iter()
 		.map(|lang| ShowLang {
 			lang: lang.tag().to_string(),
 			rules: rules_by_lang.remove(lang.tag()).unwrap_or_default(),
 		})
 		.collect::<Vec<_>>();
+	if let Some(rules) = rules_by_lang.remove("workspace") {
+		langs.push(ShowLang {
+			lang: "workspace".to_string(),
+			rules,
+		});
+	}
 	let total_rules = langs.iter().map(|lang| lang.rules.len()).sum();
 	let report = ShowReport {
 		rules_file: path.display().to_string(),
@@ -427,6 +433,14 @@ fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<
 		writeln!(w, "[{}] {} rule(s)", lang.lang, lang.rules.len())?;
 		for rule in &lang.rules {
 			writeln!(w, "- {} ({})", rule.rule_id, rule.domain)?;
+			writeln!(
+				w,
+				"  root: {}; subject: {}; plan: {}",
+				rule.root, rule.subject, rule.plan
+			)?;
+			if !rule.capabilities.is_empty() {
+				writeln!(w, "  capabilities: {}", rule.capabilities.join(", "))?;
+			}
 			if rule.expr == rule.expanded_expr {
 				writeln!(w, "  expr: {}", one_line(&rule.expr))?;
 			} else {

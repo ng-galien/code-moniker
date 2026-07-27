@@ -435,9 +435,15 @@ fn append_rules_next_call(
 
 fn render_rule_dto(output: &mut String, spec: &RuleDto) {
 	output.push_str(&format!(
-		"  - {} [{}] domain={}\n",
-		spec.id, spec.severity, spec.domain
+		"  - {} [{}] root={} subject={} plan={} domain={}\n",
+		spec.id, spec.severity, spec.rule_root, spec.subject, spec.plan, spec.domain
 	));
+	if !spec.capabilities.is_empty() {
+		output.push_str(&format!(
+			"    capabilities: {}\n",
+			spec.capabilities.join(", ")
+		));
+	}
 	if let Some(message) = &spec.message {
 		output.push_str(&format!("    message: {message}\n"));
 	}

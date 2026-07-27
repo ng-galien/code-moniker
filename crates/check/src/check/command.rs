@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment;
 use code_moniker_workspace::lang::path_to_lang;
+use code_moniker_workspace::snapshot::{
+	RecordTable, ResourceGeneration, SourceFileRecord, SourceId, SymbolInventoryIndex,
+};
 
 use crate::check;
 use crate::check::config::{self, RuleSeverity};
@@ -594,7 +597,7 @@ pub fn compiled_specs_with_config(
 	langs: impl IntoIterator<Item = Lang>,
 	scheme: &str,
 ) -> anyhow::Result<Vec<CompiledRuleSpec>> {
-	let mut specs = Vec::new();
+	let mut specs = crate::check::workspace_eval::compile_workspace_rules(cfg, scheme)?.specs();
 	for lang in langs {
 		let compiled = check::compile_rules(cfg, lang, scheme)?;
 		specs.extend(compiled.specs(lang));
@@ -678,11 +681,18 @@ fn check_one_compiled(
 	})
 }
 
+struct CheckedSourceFile {
+	file: environment::SourceFile,
+	source: String,
+	graph: CodeGraph,
+	report: FileReport,
+}
+
 fn check_source_file_compiled(
 	file: &environment::SourceFile,
 	ctx: &environment::ExtractContext,
 	check_ctx: &CompiledCheck<'_>,
-) -> anyhow::Result<FileReport> {
+) -> anyhow::Result<CheckedSourceFile> {
 	let source = check_ctx.workspace.read_to_string(&file.path)?;
 	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
 	let raw = check::evaluate_compiled_with_requirements(
@@ -708,10 +718,15 @@ fn check_source_file_compiled(
 	} else {
 		Vec::new()
 	};
-	Ok(FileReport {
-		path: file.path.clone(),
-		violations,
-		rule_reports,
+	Ok(CheckedSourceFile {
+		file: file.clone(),
+		source,
+		graph,
+		report: FileReport {
+			path: file.path.clone(),
+			violations,
+			rule_reports,
+		},
 	})
 }
 
@@ -745,9 +760,12 @@ pub fn check_project_workspace(
 		&source_set,
 		cfg,
 		scheme,
-		report,
 		Some(&requirements),
 		workspace,
+		SourceSetCheckMode {
+			report,
+			workspace_rules: true,
+		},
 	)
 }
 
@@ -776,10 +794,20 @@ pub fn check_project_files_workspace(
 		&source_set,
 		cfg,
 		scheme,
-		report,
 		Some(&requirements),
 		workspace,
+		SourceSetCheckMode {
+			report,
+			workspace_rules: false,
+		},
 	)?;
+	if !cfg.workspace.symbol.rules.is_empty() {
+		errors.push(FileError {
+			path: root.to_path_buf(),
+			error: "workspace rules were not run: a file-scoped check does not provide a complete symbol inventory"
+				.to_string(),
+		});
+	}
 	if let Some(error) = requirements.source_catalog_error() {
 		errors.push(FileError {
 			path: root.to_path_buf(),
@@ -814,13 +842,19 @@ fn filter_source_set(
 	}
 }
 
+#[derive(Clone, Copy)]
+struct SourceSetCheckMode {
+	report: bool,
+	workspace_rules: bool,
+}
+
 fn check_source_set(
 	source_set: &environment::SourceFileSet,
 	cfg: &check::Config,
 	scheme: &str,
-	report: bool,
 	requirements: Option<&dyn check::RequirementResolver>,
 	workspace: &dyn CheckWorkspace,
+	mode: SourceSetCheckMode,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
@@ -837,7 +871,7 @@ fn check_source_set(
 		}
 		compiled.insert(f.lang, check::compile_rules(cfg, f.lang, scheme)?);
 	}
-	let outcomes: Vec<Result<FileReport, FileError>> = files
+	let outcomes: Vec<Result<CheckedSourceFile, FileError>> = files
 		.par_iter()
 		.map(|f| {
 			let f = *f;
@@ -846,7 +880,7 @@ fn check_source_set(
 			let check_ctx = CompiledCheck {
 				scheme,
 				compiled: rules,
-				report,
+				report: mode.report,
 				workspace,
 				requirements,
 			};
@@ -856,17 +890,124 @@ fn check_source_set(
 			})
 		})
 		.collect();
-	let mut reports = Vec::new();
+	let mut checked = Vec::new();
 	let mut errors = Vec::new();
 	for o in outcomes {
 		match o {
-			Ok(r) => reports.push(r),
+			Ok(r) => checked.push(r),
 			Err(e) => errors.push(e),
 		}
 	}
-	reports.sort_by(|a, b| a.path.cmp(&b.path));
+	checked.sort_by(|a, b| a.report.path.cmp(&b.report.path));
+	if mode.workspace_rules && errors.is_empty() {
+		apply_workspace_rules(&mut checked, cfg, scheme, mode.report)?;
+	}
+	let reports = checked.into_iter().map(|checked| checked.report).collect();
 	errors.sort_by(|a, b| a.path.cmp(&b.path));
 	Ok((reports, errors))
+}
+
+fn apply_workspace_rules(
+	checked: &mut [CheckedSourceFile],
+	cfg: &check::Config,
+	scheme: &str,
+	report: bool,
+) -> anyhow::Result<()> {
+	let compiled = crate::check::workspace_eval::compile_workspace_rules(cfg, scheme)?;
+	if compiled.is_empty() {
+		return Ok(());
+	}
+	let generation = ResourceGeneration::new(0);
+	let sources = workspace_source_records(checked);
+	let symbols = workspace_symbol_records(checked, scheme);
+	let inventory = SymbolInventoryIndex::build(generation, &sources, &symbols);
+	let mut evaluation =
+		crate::check::workspace_eval::evaluate_workspace_rules(&inventory, &compiled, report);
+	let kept_by_rule = merge_workspace_violations(checked, evaluation.violations);
+	for rule_report in &mut evaluation.reports {
+		rule_report.violations = kept_by_rule
+			.get(&rule_report.rule_id)
+			.copied()
+			.unwrap_or_default();
+	}
+	if report && let Some(first) = checked.first_mut() {
+		first.report.rule_reports.extend(evaluation.reports);
+		first
+			.report
+			.rule_reports
+			.sort_by(|left, right| left.rule_id.cmp(&right.rule_id));
+	}
+	Ok(())
+}
+
+fn workspace_source_records(checked: &[CheckedSourceFile]) -> Vec<SourceFileRecord> {
+	checked
+		.iter()
+		.enumerate()
+		.map(|(file_idx, checked)| SourceFileRecord {
+			id: SourceId::at(file_idx),
+			uri: checked.file.path.display().to_string(),
+			source_root: checked.file.source,
+			path: checked.file.path.display().to_string(),
+			rel_path: checked.file.rel_path.display().to_string(),
+			anchor: checked.file.anchor.display().to_string(),
+			language: checked.file.lang.tag().to_string(),
+			text: String::new(),
+		})
+		.collect()
+}
+
+fn workspace_symbol_records(
+	checked: &[CheckedSourceFile],
+	scheme: &str,
+) -> RecordTable<code_moniker_workspace::snapshot::SymbolRecord> {
+	let shards = checked
+		.iter()
+		.enumerate()
+		.map(|(file_idx, checked)| {
+			Arc::from(environment::symbol_records_for_graph(
+				file_idx,
+				SourceId::at(file_idx),
+				&checked.graph,
+				&checked.source,
+				checked.file.lang,
+				scheme,
+			))
+		})
+		.collect();
+	RecordTable::from_shards(shards)
+}
+
+fn merge_workspace_violations(
+	checked: &mut [CheckedSourceFile],
+	violations: Vec<crate::check::workspace_eval::WorkspaceSymbolViolation>,
+) -> BTreeMap<String, usize> {
+	let mut by_source = BTreeMap::<usize, Vec<check::Violation>>::new();
+	for workspace_violation in violations {
+		by_source
+			.entry(workspace_violation.source.file())
+			.or_default()
+			.push(workspace_violation.violation);
+	}
+	let mut kept_by_rule = BTreeMap::new();
+	for (file_idx, violations) in by_source {
+		let Some(checked) = checked.get_mut(file_idx) else {
+			continue;
+		};
+		let violations = check::apply_suppressions(&checked.graph, &checked.source, violations);
+		for violation in &violations {
+			*kept_by_rule
+				.entry(violation.rule_id.to_owned())
+				.or_insert(0) += 1;
+		}
+		checked.report.violations.extend(violations);
+		checked.report.violations.sort_by(|left, right| {
+			left.lines
+				.cmp(&right.lines)
+				.then_with(|| left.rule_id.cmp(&right.rule_id))
+		});
+	}
+	kept_by_rule
 }
 
 struct FileRequirementResolver<'a> {
@@ -1243,7 +1384,8 @@ mod tests {
 		let second = check::RequirementResolver::descendant_defs(&resolver, owner, &domain);
 		assert_eq!(second.len(), 2);
 
-		let reads = workspace.reads();
+		let mut reads = workspace.reads();
+		reads.sort();
 		assert_eq!(
 			reads,
 			vec![

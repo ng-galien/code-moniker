@@ -25,7 +25,8 @@ pub(in crate::linkage) fn run_full_linkage_with_timings(
 	let material = linkage.linkage_material(index)?;
 	let generation = linkage.cache.next_generation();
 	let candidate_timer = Instant::now();
-	let candidates = CandidateCatalog::new(&material);
+	let candidates =
+		CandidateCatalog::new(&material, std::sync::Arc::clone(index.inventory.catalog()));
 	let mut candidate_index = candidate_timer.elapsed();
 	let method_timer = Instant::now();
 	let method_indexer = MethodIndexer::new(&material, &candidates);

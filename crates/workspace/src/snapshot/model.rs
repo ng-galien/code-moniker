@@ -364,6 +364,7 @@ pub struct CodeIndex {
 	pub sources: Vec<SourceFileRecord>,
 	pub symbols: RecordTable<SymbolRecord>,
 	pub references: RecordTable<ReferenceRecord>,
+	pub inventory: Arc<super::SymbolInventoryIndex>,
 	pub timings: CodeIndexTimings,
 }
 
@@ -389,13 +390,19 @@ impl CodeIndex {
 		symbols: Vec<SymbolRecord>,
 		references: Vec<ReferenceRecord>,
 	) -> Self {
+		let sources = Vec::new();
+		let symbols = RecordTable::from_records(symbols);
+		let inventory = Arc::new(super::SymbolInventoryIndex::build(
+			generation, &sources, &symbols,
+		));
 		Self {
 			generation,
 			catalog_generation,
 			identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
-			sources: Vec::new(),
-			symbols: RecordTable::from_records(symbols),
+			sources,
+			symbols,
 			references: RecordTable::from_records(references),
+			inventory,
 			timings: CodeIndexTimings::default(),
 		}
 	}

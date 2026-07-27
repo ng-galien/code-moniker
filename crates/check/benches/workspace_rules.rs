@@ -1,9 +1,12 @@
-//! Baseline benchmarks for workspace rules before bitmap planning.
+//! Baseline and bitmap-plan benchmarks for workspace rules.
 
 mod support;
 
 use std::collections::BTreeMap;
 
+use code_moniker_check::{
+	DefaultRulesSelection, RuleSetRequest, compile_workspace_rules, evaluate_workspace_rules,
+};
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
 	CodeIndex, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
@@ -36,7 +39,8 @@ fn naive_repository_violations(index: &CodeIndex) -> usize {
 		.symbols
 		.iter()
 		.filter(|symbol| {
-			symbol.name.ends_with("Repository")
+			symbol.kind == "struct"
+				&& symbol.name.ends_with("Repository")
 				&& !symbol
 					.identity
 					.split('/')
@@ -71,6 +75,26 @@ fn scan_baseline(c: &mut Criterion) {
 	let (_registry, snapshot) = indexed_workspace(&workspace);
 	assert!(naive_repository_violations(&snapshot.index) > 0);
 	assert!(naive_name_collisions(&snapshot.index) > 0);
+	let cfg = RuleSetRequest::new(None, "code+moniker://")
+		.with_default_rules(DefaultRulesSelection::Disabled)
+		.with_inline_rules(vec![
+			r#"
+			[[workspace.symbol.where]]
+			id = "repositories-under-infra"
+			expr = "(shape = 'type' AND name =~ Repository$) => uri ~ '**/dir:infra/**'"
+			"#
+			.to_string(),
+		])
+		.load_config()
+		.expect("workspace benchmark config");
+	let compiled =
+		compile_workspace_rules(&cfg, "code+moniker://").expect("workspace benchmark plan");
+	assert_eq!(
+		evaluate_workspace_rules(&snapshot.index.inventory, &compiled, false)
+			.violations
+			.len(),
+		naive_repository_violations(&snapshot.index)
+	);
 	let mut group = c.benchmark_group("workspace_rules_baseline");
 	group.bench_function("placement_full_scan", |b| {
 		b.iter(|| {
@@ -82,6 +106,15 @@ fn scan_baseline(c: &mut Criterion) {
 	group.bench_function("grouping_full_scan", |b| {
 		b.iter(|| {
 			std::hint::black_box(naive_name_collisions(std::hint::black_box(&snapshot.index)))
+		});
+	});
+	group.bench_function("placement_bitmap_plan", |b| {
+		b.iter(|| {
+			std::hint::black_box(evaluate_workspace_rules(
+				std::hint::black_box(&snapshot.index.inventory),
+				std::hint::black_box(&compiled),
+				false,
+			))
 		});
 	});
 	group.finish();

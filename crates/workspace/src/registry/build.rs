@@ -9,8 +9,8 @@ use crate::linkage::{LinkageGraphDelta, LinkagePort, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
 	ChangeOverlay, CodeIndex, LinkageSnapshot, RecordTable, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceId, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
-	WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
+	SourceFileRecord, SourceId, SymbolInventoryIndex, WorkspaceFailure, WorkspaceRequest,
+	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 };
 use crate::source::SourceCatalogPort;
 
@@ -407,13 +407,21 @@ fn load_catalog_for_index(
 }
 
 fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
+	let sources = catalog_source_records(catalog);
+	let symbols = RecordTable::from_records(Vec::new());
+	let inventory = std::sync::Arc::new(SymbolInventoryIndex::build(
+		catalog.generation,
+		&sources,
+		&symbols,
+	));
 	CodeIndex {
 		generation: catalog.generation,
 		catalog_generation: catalog.generation,
 		identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
-		sources: catalog_source_records(catalog),
-		symbols: RecordTable::from_records(Vec::new()),
+		sources,
+		symbols,
 		references: RecordTable::from_records(Vec::new()),
+		inventory,
 		timings: Default::default(),
 	}
 }

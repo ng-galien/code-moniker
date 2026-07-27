@@ -8,6 +8,7 @@ pub(crate) mod expr;
 pub(crate) mod path;
 pub(crate) mod suppress;
 pub mod workspace;
+pub mod workspace_eval;
 
 pub(crate) use config::Config;
 #[cfg(test)]

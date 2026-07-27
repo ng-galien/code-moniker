@@ -30,6 +30,8 @@ pub struct Config {
 	#[serde(default)]
 	pub refs: RefsRules,
 	#[serde(default)]
+	pub workspace: WorkspaceRules,
+	#[serde(default)]
 	pub shape: HashMap<String, KindRules>,
 	#[serde(default)]
 	pub default: LangRules,
@@ -88,6 +90,15 @@ pub struct Profile {
 pub struct RefsRules {
 	#[serde(default, rename = "where")]
 	pub rules: Vec<RuleEntry>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceRules {
+	#[serde(default)]
+	pub symbol: KindRules,
+	#[serde(default, rename = "source_group")]
+	pub source_groups: Vec<toml::Value>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -169,6 +180,8 @@ pub enum ConfigError {
 		at: String,
 		error: super::expr::ParseError,
 	},
+	#[error("workspace rule `{at}` requires unsupported capability `{capability}`")]
+	UnsupportedWorkspaceExpr { at: String, capability: String },
 	#[error("unknown kind `{kind}` under `[{section}.{kind}]` (allowed: {allowed})")]
 	UnknownKind {
 		section: String,
@@ -185,6 +198,10 @@ pub enum ConfigError {
 		"shape rules under `[default.shape]` are not supported; use top-level `[shape]` for cross-language shape rules"
 	)]
 	DefaultShapeUnsupported,
+	#[error(
+		"require_doc_comment under `[workspace.symbol]` is not supported; use a workspace expression"
+	)]
+	WorkspaceRequireDocUnsupported,
 	#[error(
 		"require_doc_comment = `{value}` under `[{section}.{kind}]` is not a recognised visibility for that language (allowed: {allowed})"
 	)]
@@ -437,6 +454,10 @@ fn merge_into(base: &mut Config, ov: Config) {
 	}
 	base.views.extend(ov.views);
 	merge_refs(&mut base.refs, ov.refs);
+	merge_kind(&mut base.workspace.symbol, ov.workspace.symbol);
+	base.workspace
+		.source_groups
+		.extend(ov.workspace.source_groups);
 	merge_shape_map(&mut base.shape, ov.shape);
 	merge_lang(&mut base.default, ov.default);
 	merge_lang(&mut base.ts, ov.ts);
@@ -624,6 +645,9 @@ fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 }
 
 fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
+	if cfg.workspace.symbol.require_doc_comment.is_some() {
+		return Err(ConfigError::WorkspaceRequireDocUnsupported);
+	}
 	validate_shape_section(&cfg.shape, "shape", None)?;
 	if !cfg.default.shape.is_empty() {
 		return Err(ConfigError::DefaultShapeUnsupported);
@@ -704,6 +728,10 @@ fn allowed_def_shape_names() -> Vec<&'static str> {
 /// `comment`).
 pub(crate) fn allowed_kinds_for(lang: Lang) -> Vec<&'static str> {
 	allowed_kinds_set(Some(lang))
+}
+
+pub(crate) fn allowed_workspace_kinds() -> Vec<&'static str> {
+	allowed_kinds_set(None)
 }
 
 /// `lang`'s visibility vocabulary plus `"any"`. `"any"` is a special token
@@ -814,6 +842,12 @@ impl Config {
 		let enable = compile_patterns(&profile.enable, name, "enable")?;
 		let disable = compile_patterns(&profile.disable, name, "disable")?;
 		filter_rules(&mut self.refs.rules, "refs", &enable, &disable);
+		filter_rules(
+			&mut self.workspace.symbol.rules,
+			"workspace.symbol",
+			&enable,
+			&disable,
+		);
 		filter_shape_map(&mut self.shape, "shape", &enable, &disable);
 		filter_lang(&mut self.default, "default", &enable, &disable);
 		for lang in Lang::ALL {
@@ -913,6 +947,7 @@ fn filter_rules(rules: &mut Vec<RuleEntry>, prefix: &str, enable: &[Regex], disa
 fn collect_rule_keys(cfg: &Config) -> HashSet<String> {
 	let mut out = HashSet::new();
 	collect_rule_list_keys("refs", &cfg.refs.rules, &mut out);
+	collect_rule_list_keys("workspace.symbol", &cfg.workspace.symbol.rules, &mut out);
 	for (shape, rules) in &cfg.shape {
 		collect_rule_list_keys(&format!("shape.{shape}"), &rules.rules, &mut out);
 	}
@@ -1003,6 +1038,37 @@ mod tests {
 		.unwrap();
 		assert_eq!(cfg.shape["callable"].rules.len(), 1);
 		assert_eq!(cfg.rust.shape["callable"].rules.len(), 1);
+	}
+
+	#[test]
+	fn parses_workspace_symbol_rules() {
+		let cfg = parse(
+			r#"
+			[[workspace.symbol.where]]
+			id = "repositories-under-infra"
+			expr = "name =~ Repository$ => uri ~ '**/dir:infra/**'"
+			"#,
+		)
+		.expect("workspace symbol rule parses");
+		assert_eq!(cfg.workspace.symbol.rules.len(), 1);
+		assert_eq!(
+			cfg.workspace.symbol.rules[0].id.as_deref(),
+			Some("repositories-under-infra")
+		);
+	}
+
+	#[test]
+	fn workspace_symbol_rejects_local_doc_comment_directive() {
+		let result = parse(
+			r#"
+			[workspace.symbol]
+			require_doc_comment = "public"
+			"#,
+		);
+		assert!(matches!(
+			result,
+			Err(ConfigError::WorkspaceRequireDocUnsupported)
+		));
 	}
 
 	#[test]
@@ -1448,6 +1514,46 @@ mod tests {
 			ids.iter().any(|id| id == "rust.fn.check.parser-only"),
 			"{ids:?}"
 		);
+	}
+
+	#[test]
+	fn workspace_symbol_fragment_keeps_namespace_and_profile_key() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[profiles.only_workspace]
+			enable = ["^workspace\\.symbol\\.architecture\\."]
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"architecture",
+			r#"
+			fragment = "architecture"
+
+			[[workspace.symbol.where]]
+			id = "repositories-under-infra"
+			expr = "name =~ Repository$ => uri ~ '**/dir:infra/**'"
+			"#,
+		);
+		let mut cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+		cfg.apply_profile("only_workspace")
+			.expect("profile applies");
+		let compiled =
+			crate::check::workspace_eval::compile_workspace_rules(&cfg, "code+moniker://")
+				.expect("workspace fragment compiles");
+		let specs = compiled.specs();
+		assert_eq!(specs.len(), 1);
+		assert_eq!(
+			specs[0].rule_id,
+			"workspace.symbol.architecture.repositories-under-infra"
+		);
+		assert_eq!(cfg.fragments[0].active_rules, 1);
 	}
 
 	#[test]

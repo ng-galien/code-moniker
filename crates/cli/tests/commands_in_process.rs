@@ -773,6 +773,52 @@ fn rules_show_reports_exclude_uri_globs() {
 }
 
 #[test]
+fn rules_show_explains_workspace_inventory_plan() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[workspace.symbol.where]]
+		id = "repositories-under-infra"
+		expr = "(shape = 'type' AND name =~ Repository$) => uri ~ '**/dir:infra/**'"
+		"#,
+	)
+	.unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"rules",
+		"show",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
+	let rule = json["langs"]
+		.as_array()
+		.expect("langs")
+		.iter()
+		.find(|lang| lang["lang"] == "workspace")
+		.and_then(|lang| lang["rules"].as_array())
+		.and_then(|rules| rules.first())
+		.expect("workspace rule");
+	assert_eq!(rule["root"], "workspace");
+	assert_eq!(rule["subject"], "symbol");
+	assert_eq!(rule["plan"], "t1_inventory");
+	assert_eq!(
+		rule["capabilities"],
+		serde_json::json!(["name.regex", "shape.exact", "uri.path"])
+	);
+}
+
+#[test]
 fn check_project_excludes_configured_uri_globs() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	let rules_path = dir.path().join(".code-moniker.toml");

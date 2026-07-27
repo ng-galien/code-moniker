@@ -3,11 +3,16 @@
 //! This module is intentionally not wired directly to `WorkspaceStore`. It
 //! defines the target orchestration model and tests it through semantic ports.
 
+mod inventory;
 mod model;
 mod path;
 mod records;
 mod view;
 
+pub use inventory::{
+	InventorySegment, InventorySymbol, SymbolInventoryFacets, SymbolInventoryIndex, SymbolOrdinal,
+	SymbolOrdinalCatalog, SymbolSet,
+};
 pub use records::RecordTable;
 
 pub use model::{

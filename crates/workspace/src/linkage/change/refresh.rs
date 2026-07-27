@@ -86,12 +86,18 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 	let candidate_timer = Instant::now();
 	let candidates = match linkage.candidates.as_mut() {
 		Some(candidates) => {
-			candidates.refresh_files(&material);
+			candidates.refresh_files(
+				&material,
+				std::sync::Arc::clone(code_index.inventory.catalog()),
+			);
 			candidates
 		}
-		None => linkage
-			.candidates
-			.get_or_insert_with(|| CandidateCatalog::new(&material)),
+		None => linkage.candidates.get_or_insert_with(|| {
+			CandidateCatalog::new(
+				&material,
+				std::sync::Arc::clone(code_index.inventory.catalog()),
+			)
+		}),
 	};
 	let candidates = &*candidates;
 	let mut candidate_index = candidate_timer.elapsed();

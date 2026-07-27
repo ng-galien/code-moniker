@@ -31,17 +31,20 @@ type NameIndex = FxHashMap<Vec<u8>, SymbolSet>;
 
 pub(in crate::linkage) struct CandidateCatalog {
 	files: Vec<CandidateFileShard>,
-	symbols: SymbolOrdinalCatalog,
-	locations: Vec<Option<(u32, u32)>>,
+	symbols: Arc<SymbolOrdinalCatalog>,
+	locations: FxHashMap<SymbolOrdinal, (u32, u32)>,
 	indexes: CandidateIndexes,
 }
 
 impl CandidateCatalog {
-	pub(in crate::linkage) fn new(material: &CodeIndexMaterial) -> Self {
+	pub(in crate::linkage) fn new(
+		material: &CodeIndexMaterial,
+		symbols: Arc<SymbolOrdinalCatalog>,
+	) -> Self {
 		let mut catalog = Self {
 			files: Vec::with_capacity(material.files.len()),
-			symbols: SymbolOrdinalCatalog::default(),
-			locations: Vec::new(),
+			symbols,
+			locations: FxHashMap::default(),
 			indexes: CandidateIndexes::new(),
 		};
 		for (file_idx, file) in material.files.iter().enumerate() {
@@ -50,7 +53,12 @@ impl CandidateCatalog {
 		catalog
 	}
 
-	pub(in crate::linkage) fn refresh_files(&mut self, material: &CodeIndexMaterial) {
+	pub(in crate::linkage) fn refresh_files(
+		&mut self,
+		material: &CodeIndexMaterial,
+		symbols: Arc<SymbolOrdinalCatalog>,
+	) {
+		self.symbols = symbols;
 		for (file_idx, file) in material.files.iter().enumerate() {
 			if file_idx >= self.files.len() {
 				push_file(self, file_idx, Arc::clone(file));
@@ -82,7 +90,7 @@ impl CandidateCatalog {
 		&self,
 		symbol: SymbolOrdinal,
 	) -> Option<LinkageCandidate<'_>> {
-		let (file_idx, def_idx) = self.locations.get(symbol.index()).copied().flatten()?;
+		let (file_idx, def_idx) = self.locations.get(&symbol).copied()?;
 		let shard = self.files.get(file_idx as usize)?;
 		let def = shard.file.graph.def_at(def_idx as usize);
 		Some(candidate(file_idx as usize, def))
@@ -254,27 +262,13 @@ fn refresh_file(catalog: &mut CandidateCatalog, file_idx: usize, file: Arc<Index
 			by_location: Vec::new(),
 		},
 	);
-	let old_ordinals = unindex_shard(catalog, file_idx, &old_shard);
+	unindex_shard(catalog, file_idx, &old_shard);
 	let mut shard = CandidateFileShard {
 		by_location: vec![None; file.graph.def_count()],
 		file,
 	};
 	index_shard(catalog, file_idx, &mut shard);
 	catalog.files[file_idx] = shard;
-	for ordinal in old_ordinals {
-		let rebound_here = catalog
-			.locations
-			.get(ordinal.index())
-			.copied()
-			.flatten()
-			.is_some_and(|(slot, _)| slot as usize == file_idx);
-		if !rebound_here {
-			catalog.symbols.retire(ordinal);
-			if let Some(slot) = catalog.locations.get_mut(ordinal.index()) {
-				*slot = None;
-			}
-		}
-	}
 }
 
 fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut CandidateFileShard) {
@@ -284,12 +278,12 @@ fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut Cand
 			continue;
 		}
 		let symbol_id = file.identity.symbol_id(file_idx, def_idx);
-		let symbol_identity: Arc<str> = Arc::from(file.identity.moniker_uri(&def.moniker));
-		let symbol = catalog.symbols.push(symbol_id, symbol_identity);
-		if catalog.locations.len() <= symbol.index() {
-			catalog.locations.resize(symbol.index() + 1, None);
-		}
-		catalog.locations[symbol.index()] = Some((file_idx as u32, def_idx as u32));
+		let Some(symbol) = catalog.symbols.ordinal(&symbol_id) else {
+			continue;
+		};
+		catalog
+			.locations
+			.insert(symbol, (file_idx as u32, def_idx as u32));
 		shard.by_location[def_idx] = Some(symbol);
 		catalog
 			.indexes
@@ -297,24 +291,17 @@ fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut Cand
 	}
 }
 
-fn unindex_shard(
-	catalog: &mut CandidateCatalog,
-	file_idx: usize,
-	shard: &CandidateFileShard,
-) -> Vec<SymbolOrdinal> {
-	let mut old_ordinals = Vec::new();
+fn unindex_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &CandidateFileShard) {
 	for (def_idx, slot) in shard.by_location.iter().enumerate() {
 		let Some(symbol) = *slot else {
 			continue;
 		};
-		old_ordinals.push(symbol);
-		catalog.symbols.unbind_id(symbol);
+		catalog.locations.remove(&symbol);
 		let def = shard.file.graph.def_at(def_idx);
 		catalog
 			.indexes
 			.remove_candidate(shard.file.lang, symbol, &candidate(file_idx, def));
 	}
-	old_ordinals
 }
 
 fn candidate(file_idx: usize, def: &DefRecord) -> LinkageCandidate<'_> {

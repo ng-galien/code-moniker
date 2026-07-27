@@ -8,7 +8,8 @@ use serde::Deserialize;
 use code_moniker_core::lang::Lang;
 
 use super::{
-	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry, config_section,
+	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry, WorkspaceRules,
+	config_section,
 };
 
 const FRAGMENT_FILE_NAME: &str = "code-moniker.fragment.toml";
@@ -34,6 +35,8 @@ struct RawFragmentConfig {
 	aliases: HashMap<String, String>,
 	#[serde(default)]
 	refs: RefsRules,
+	#[serde(default)]
+	workspace: WorkspaceRules,
 	#[serde(default)]
 	shape: HashMap<String, KindRules>,
 	#[serde(default)]
@@ -69,6 +72,7 @@ impl RawFragmentConfig {
 			aliases: self.aliases,
 			exclude: Default::default(),
 			refs: self.refs,
+			workspace: self.workspace,
 			shape: self.shape,
 			default: self.default,
 			ts: self.ts,
@@ -337,6 +341,7 @@ fn rewrite_local_alias_refs(
 
 fn rewrite_rule_alias_refs(cfg: &mut Config, local_aliases: &HashSet<String>, namespace: &str) {
 	rewrite_rules(&mut cfg.refs.rules, local_aliases, namespace);
+	rewrite_rules(&mut cfg.workspace.symbol.rules, local_aliases, namespace);
 	for rules in cfg.shape.values_mut() {
 		rewrite_rules(&mut rules.rules, local_aliases, namespace);
 	}
@@ -366,6 +371,7 @@ fn rewrite_rules(rules: &mut [RuleEntry], local_aliases: &HashSet<String>, names
 }
 
 fn ensure_no_require_doc(cfg: &Config, path: &Path, fragment: &str) -> Result<(), ConfigError> {
+	ensure_require_doc_absent(&cfg.workspace.symbol, "workspace.symbol", path, fragment)?;
 	for (shape, rules) in &cfg.shape {
 		ensure_require_doc_absent(rules, &format!("shape.{shape}"), path, fragment)?;
 	}
@@ -414,6 +420,12 @@ fn ensure_require_doc_absent(
 
 fn namespace_rule_ids(cfg: &mut Config, path: &Path, fragment: &str) -> Result<(), ConfigError> {
 	namespace_rules(&mut cfg.refs.rules, "refs", path, fragment)?;
+	namespace_rules(
+		&mut cfg.workspace.symbol.rules,
+		"workspace.symbol",
+		path,
+		fragment,
+	)?;
 	for (shape, rules) in &mut cfg.shape {
 		namespace_rules(&mut rules.rules, &format!("shape.{shape}"), path, fragment)?;
 	}
@@ -475,7 +487,7 @@ fn namespace_rules(
 }
 
 fn count_rules(cfg: &Config) -> usize {
-	let mut count = cfg.refs.rules.len();
+	let mut count = cfg.refs.rules.len() + cfg.workspace.symbol.rules.len();
 	count += cfg
 		.shape
 		.values()
@@ -582,6 +594,7 @@ fn for_each_rule_key(
 	mut visit: impl FnMut(String, &RuleEntry) -> Result<(), ConfigError>,
 ) -> Result<(), ConfigError> {
 	for_each_rule_list("refs", &cfg.refs.rules, &mut visit)?;
+	for_each_rule_list("workspace.symbol", &cfg.workspace.symbol.rules, &mut visit)?;
 	for (shape, rules) in &cfg.shape {
 		for_each_rule_list(&format!("shape.{shape}"), &rules.rules, &mut visit)?;
 	}

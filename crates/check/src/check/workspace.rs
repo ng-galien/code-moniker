@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
@@ -8,7 +8,9 @@ use crate::check;
 use code_moniker_workspace::environment::{
 	self, IdentityResolver, IndexedSourceMaterial, ResourceCache,
 };
-use code_moniker_workspace::snapshot::{CodeIndex, LinkageSnapshot, ResourceGeneration, SymbolId};
+use code_moniker_workspace::snapshot::{
+	CodeIndex, LinkageSnapshot, ResourceGeneration, SymbolId, SymbolSet,
+};
 
 use crate::{RuleSetRequest, RuleSeverity};
 
@@ -47,7 +49,7 @@ impl WorkspaceCheckRunner {
 		let material = environment::cached_index_material(&self.cache, index.generation)
 			.ok_or_else(|| anyhow::anyhow!("code index material is unavailable"))?;
 		let generation = environment::next_resource_generation(&self.cache);
-		let diagnostics = collect_diagnostics(&material, &self.options)?;
+		let diagnostics = collect_diagnostics(&material, index, &self.options)?;
 		Ok(WorkspaceRuleDiagnostics::with_diagnostics(
 			generation,
 			index.generation,
@@ -58,6 +60,7 @@ impl WorkspaceCheckRunner {
 
 fn collect_diagnostics(
 	material: &IndexedSourceMaterial,
+	index: &CodeIndex,
 	options: &WorkspaceCheckRunnerOptions,
 ) -> anyhow::Result<Vec<WorkspaceRuleDiagnostic>> {
 	let cfg = load_config(options)?;
@@ -84,6 +87,42 @@ fn collect_diagnostics(
 		let raw =
 			check::evaluate_compiled(&file.graph, &file.source, file.lang, &options.scheme, rules);
 		let violations = check::apply_suppressions(&file.graph, &file.source, raw);
+		diagnostics.extend(
+			violations
+				.into_iter()
+				.map(|violation| diagnostic_from_violation(violation, &symbol_by_identity)),
+		);
+	}
+	let workspace_rules =
+		crate::check::workspace_eval::compile_workspace_rules(&cfg, &options.scheme)?;
+	let included_symbols = index
+		.inventory
+		.all_symbols()
+		.iter()
+		.filter(|ordinal| {
+			index.inventory.record(*ordinal).is_some_and(|record| {
+				!excludes.matches_path(Path::new(record.source_path.as_ref()))
+			})
+		})
+		.collect::<SymbolSet>();
+	let workspace_evaluation = crate::check::workspace_eval::evaluate_workspace_rules_in(
+		&index.inventory,
+		&included_symbols,
+		&workspace_rules,
+		false,
+	);
+	let mut workspace_by_source = std::collections::BTreeMap::<usize, Vec<check::Violation>>::new();
+	for violation in workspace_evaluation.violations {
+		workspace_by_source
+			.entry(violation.source.file())
+			.or_default()
+			.push(violation.violation);
+	}
+	for (source, violations) in workspace_by_source {
+		let Some(file) = material.files.get(source) else {
+			continue;
+		};
+		let violations = check::apply_suppressions(&file.graph, &file.source, violations);
 		diagnostics.extend(
 			violations
 				.into_iter()

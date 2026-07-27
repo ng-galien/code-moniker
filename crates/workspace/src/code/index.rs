@@ -13,8 +13,8 @@ use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexTimings, RecordTable, ReferenceId, ReferenceRecord, SourceCatalog,
-	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceCancellation, WorkspaceFailure,
-	WorkspaceResource, WorkspaceResult,
+	SourceFileRecord, SourceId, SymbolId, SymbolInventoryIndex, SymbolRecord,
+	WorkspaceCancellation, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -161,6 +161,7 @@ fn build_local_code_index(
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
 	sources.shrink_to_fit();
+	let inventory = Arc::new(SymbolInventoryIndex::build(generation, &sources, &symbols));
 	Ok(CodeIndex {
 		generation,
 		catalog_generation: catalog.generation,
@@ -168,6 +169,7 @@ fn build_local_code_index(
 		sources,
 		symbols,
 		references,
+		inventory,
 		timings: CodeIndexTimings {
 			extract_sources,
 			semantic_index,
@@ -269,6 +271,12 @@ fn refresh_local_code_index(
 	let generation = cache.next_generation();
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
+	let inventory = Arc::new(current.inventory.refresh(
+		generation,
+		&sources,
+		&symbols,
+		&changed_file_indexes,
+	));
 	Ok(CodeIndexRefresh {
 		index: CodeIndex {
 			generation,
@@ -279,6 +287,7 @@ fn refresh_local_code_index(
 			sources,
 			symbols,
 			references,
+			inventory,
 			timings: CodeIndexTimings {
 				extract_sources,
 				semantic_index,
