@@ -204,21 +204,21 @@ impl SymbolOrdinalCatalog {
 		self.ids[ordinal.index()] = Some(id);
 	}
 
-	pub(in crate::linkage) fn unbind_id(&mut self, ordinal: SymbolOrdinal) {
-		if let Some(slot) = self.ids.get_mut(ordinal.index())
-			&& let Some(previous_id) = slot.take()
-			&& self.ordinals_by_id.get(&previous_id) == Some(&ordinal)
-		{
-			self.ordinals_by_id.remove(&previous_id);
-		}
-	}
-
 	pub(in crate::linkage) fn retire(&mut self, ordinal: SymbolOrdinal) {
 		self.unbind_id(ordinal);
 		if let Some(slot) = self.identities.get_mut(ordinal.index())
 			&& let Some(identity) = slot.take()
 		{
 			self.ordinals_by_identity.remove(&identity);
+		}
+	}
+
+	pub(in crate::linkage) fn unbind_id(&mut self, ordinal: SymbolOrdinal) {
+		if let Some(slot) = self.ids.get_mut(ordinal.index())
+			&& let Some(previous_id) = slot.take()
+			&& self.ordinals_by_id.get(&previous_id) == Some(&ordinal)
+		{
+			self.ordinals_by_id.remove(&previous_id);
 		}
 	}
 
@@ -249,5 +249,12 @@ impl SymbolOrdinalCatalog {
 
 	pub(in crate::linkage) fn id(&self, ordinal: SymbolOrdinal) -> Option<&SymbolId> {
 		self.ids.get(ordinal.index()).and_then(|slot| slot.as_ref())
+	}
+
+	pub(in crate::linkage) fn active_ordinals(&self) -> impl Iterator<Item = (u32, SymbolId)> + '_ {
+		self.ids.iter().enumerate().filter_map(|(index, id)| {
+			id.as_ref()
+				.map(|id| (SymbolOrdinal::from_index(index).raw(), *id))
+		})
 	}
 }

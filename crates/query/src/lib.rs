@@ -328,6 +328,28 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		example: "symbol.graph focus:\"src/service.ts\"",
 	},
 	QueryCapabilitySpec {
+		name: "graph.path",
+		category: "graph",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &[
+			"workspace",
+			"from",
+			"to",
+			"expect",
+			"relation",
+			"max_depth",
+			"max_symbols",
+			"max_edges",
+			"min_coverage",
+		],
+		required_fields: &["from", "to"],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "graph.path from:\"code+moniker://...\" to:\"code+moniker://...\" expect:no_path",
+	},
+	QueryCapabilitySpec {
 		name: "identity.children",
 		category: "graph",
 		read_only: true,
@@ -495,7 +517,8 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 
 fn query_field_type(name: &str) -> &'static str {
 	match name {
-		"limit" | "depth" | "context_lines" | "max_items" | "min_count" => "unsigned_integer",
+		"limit" | "depth" | "context_lines" | "max_items" | "min_count" | "max_depth"
+		| "max_symbols" | "max_edges" | "min_coverage" => "unsigned_integer",
 		"include_non_navigable"
 		| "include_code"
 		| "include_internal"
@@ -503,6 +526,7 @@ fn query_field_type(name: &str) -> &'static str {
 		| "orphan"
 		| "include_done" => "boolean",
 		"direction" => "enum:incoming|outgoing|both",
+		"expect" => "enum:reachable|no_path",
 		"consistency" => "enum:current|refresh-if-stale|stale-ok",
 		"action" => "enum:list|get|create|update|transition|delete",
 		"cursor" => "cursor",
@@ -523,6 +547,12 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("symbol.graph", "direction") => Some("both"),
 		("symbol.graph", "min_count") => Some("1"),
 		("symbol.graph", "include_internal") => Some("true"),
+		("graph.path", "expect") => Some("reachable"),
+		("graph.path", "relation") => Some("calls,method_call"),
+		("graph.path", "max_depth") => Some("12"),
+		("graph.path", "max_symbols") => Some("10000"),
+		("graph.path", "max_edges") => Some("50000"),
+		("graph.path", "min_coverage") => Some("100"),
 		("rules.check", "report") => Some("true"),
 		("change.context", "max_items") => Some("20"),
 		("notes", "action") => Some("list"),
@@ -567,6 +597,7 @@ pub enum Query {
 	ChangeReview(ChangeReviewQuery),
 	ChangeContext(ChangeContextQuery),
 	SymbolGraph(SymbolGraphQuery),
+	GraphPath(GraphPathQuery),
 	IdentityChildren(IdentityChildrenQuery),
 	IdentityGraph(IdentityChildrenQuery),
 	ResolutionAudit(ResolutionAuditQuery),
@@ -590,6 +621,7 @@ impl Query {
 			Self::ChangeReview(_) => "change.review",
 			Self::ChangeContext(_) => "change.context",
 			Self::SymbolGraph(_) => "symbol.graph",
+			Self::GraphPath(_) => "graph.path",
 			Self::IdentityChildren(_) => "identity.children",
 			Self::IdentityGraph(_) => "identity.graph",
 			Self::ResolutionAudit(_) => "resolution.audit",
@@ -811,6 +843,69 @@ impl Default for SymbolGraphQuery {
 	}
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphPathQuery {
+	pub workspace: Option<String>,
+	pub from: String,
+	pub to: String,
+	pub expect: GraphPathExpectation,
+	pub relation: Vec<String>,
+	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
+	pub min_coverage: usize,
+}
+
+impl Default for GraphPathQuery {
+	fn default() -> Self {
+		Self {
+			workspace: None,
+			from: String::new(),
+			to: String::new(),
+			expect: GraphPathExpectation::Reachable,
+			relation: vec!["calls".to_string(), "method_call".to_string()],
+			max_depth: 12,
+			max_symbols: 10_000,
+			max_edges: 50_000,
+			min_coverage: 100,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GraphPathExpectation {
+	#[default]
+	Reachable,
+	NoPath,
+}
+
+impl GraphPathExpectation {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Reachable => "reachable",
+			Self::NoPath => "no_path",
+		}
+	}
+}
+
+impl FromStr for GraphPathExpectation {
+	type Err = QueryParseError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"reachable" => Ok(Self::Reachable),
+			"no_path" => Ok(Self::NoPath),
+			_ => Err(QueryParseError::InvalidValue {
+				key: "expect".to_string(),
+				value: value.to_string(),
+			}),
+		}
+	}
+}
+
 // One level of the identity tree: children of a moniker identity prefix
 // (`""` = the workspace root). The symbolic navigation surface - no
 // filesystem involved.
@@ -966,6 +1061,7 @@ pub enum QueryResult {
 	ChangeReview(Box<ChangeReviewResult>),
 	ChangeContext(Box<ChangeContextResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
+	GraphPath(Box<GraphPathResult>),
 	IdentityChildren(IdentityChildrenResult),
 	IdentityGraph(Box<IdentityGraphResult>),
 	ResolutionAudit(Box<ResolutionAuditResult>),
@@ -1024,6 +1120,78 @@ pub struct SymbolGraphEdge {
 	pub target: String,
 	pub kinds: Vec<String>,
 	pub count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphPathResult {
+	pub from: SymbolDto,
+	pub to: SymbolDto,
+	pub expectation: GraphPathExpectation,
+	pub verdict: GraphPathVerdict,
+	pub reachable: Option<bool>,
+	pub no_path: Option<bool>,
+	pub path: Vec<GraphPathStep>,
+	pub coverage: GraphPathCoverage,
+	pub search: GraphPathSearchStats,
+	pub reasons: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GraphPathVerdict {
+	Pass,
+	Fail,
+	Inconclusive,
+}
+
+impl GraphPathVerdict {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Pass => "pass",
+			Self::Fail => "fail",
+			Self::Inconclusive => "inconclusive",
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphPathStep {
+	pub source: SymbolDto,
+	pub target: SymbolDto,
+	pub relation: String,
+	pub reference: String,
+	pub file: String,
+	pub line_range: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphPathCoverage {
+	pub total: usize,
+	pub decided: usize,
+	pub resolved: usize,
+	pub external: usize,
+	pub candidate: usize,
+	pub dynamic: usize,
+	pub manifest_blocked: usize,
+	pub unresolved: usize,
+	pub percent: usize,
+	pub gap_reasons: BTreeMap<String, usize>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphPathSearchStats {
+	pub max_depth: usize,
+	pub depth_reached: usize,
+	pub explored_symbols: usize,
+	pub explored_edges: usize,
+	pub depth_limit_reached: bool,
+	pub symbol_limit_reached: bool,
+	pub edge_limit_reached: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1924,6 +2092,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 			max_items: fields.usize("max_items")?.unwrap_or(20),
 		}),
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
+		"graph.path" => Query::GraphPath(graph_path_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
 		"resolution.audit" => Query::ResolutionAudit(ResolutionAuditQuery {
@@ -2112,6 +2281,64 @@ fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseE
 	})
 }
 
+fn graph_path_query(fields: &FieldBag) -> Result<GraphPathQuery, QueryParseError> {
+	let max_depth = fields.usize("max_depth")?.unwrap_or(12);
+	if max_depth > 64 {
+		return Err(QueryParseError::InvalidValue {
+			key: "max_depth".to_string(),
+			value: max_depth.to_string(),
+		});
+	}
+	let min_coverage = fields.usize("min_coverage")?.unwrap_or(100);
+	if min_coverage > 100 {
+		return Err(QueryParseError::InvalidValue {
+			key: "min_coverage".to_string(),
+			value: min_coverage.to_string(),
+		});
+	}
+	let max_symbols = bounded_non_zero_field(fields, "max_symbols", 10_000, 100_000)?;
+	let max_edges = bounded_non_zero_field(fields, "max_edges", 50_000, 500_000)?;
+	let relation = fields.many("relation");
+	Ok(GraphPathQuery {
+		workspace: fields.one("workspace"),
+		from: fields
+			.one("from")
+			.ok_or(QueryParseError::MissingRequired("from"))?,
+		to: fields
+			.one("to")
+			.ok_or(QueryParseError::MissingRequired("to"))?,
+		expect: fields
+			.one("expect")
+			.unwrap_or_else(|| "reachable".to_string())
+			.parse()?,
+		relation: if relation.is_empty() {
+			vec!["calls".to_string(), "method_call".to_string()]
+		} else {
+			relation
+		},
+		max_depth,
+		max_symbols,
+		max_edges,
+		min_coverage,
+	})
+}
+
+fn bounded_non_zero_field(
+	fields: &FieldBag,
+	key: &str,
+	default: usize,
+	maximum: usize,
+) -> Result<usize, QueryParseError> {
+	let value = fields.usize(key)?.unwrap_or(default);
+	if value == 0 || value > maximum {
+		return Err(QueryParseError::InvalidValue {
+			key: key.to_string(),
+			value: value.to_string(),
+		});
+	}
+	Ok(value)
+}
+
 fn parse_notes_action(value: &str) -> Result<NotesAction, QueryParseError> {
 	match value {
 		"list" => Ok(NotesAction::List),
@@ -2164,6 +2391,7 @@ pub fn format_query_response_projected(response: &QueryResponse, projection: &[S
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
 		QueryResult::ChangeContext(result) => format_change_context(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
+		QueryResult::GraphPath(result) => format_graph_path(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
 		QueryResult::ResolutionAudit(result) => format_resolution_audit(&mut out, result),
@@ -2759,6 +2987,85 @@ fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 	}
 }
 
+fn format_graph_path(out: &mut String, result: &GraphPathResult) {
+	let _ = writeln!(
+		out,
+		"expectation: {} verdict: {}",
+		result.expectation.as_str(),
+		result.verdict.as_str()
+	);
+	let _ = writeln!(
+		out,
+		"from: {} {} ({})",
+		result.from.kind, result.from.name, result.from.file
+	);
+	let _ = writeln!(
+		out,
+		"to: {} {} ({})",
+		result.to.kind, result.to.name, result.to.file
+	);
+	let truth = |value: Option<bool>| match value {
+		Some(true) => "true",
+		Some(false) => "false",
+		None => "unknown",
+	};
+	let _ = writeln!(
+		out,
+		"reachable: {} no_path: {} path_length: {}",
+		truth(result.reachable),
+		truth(result.no_path),
+		result.path.len()
+	);
+	let _ = writeln!(
+		out,
+		"coverage: {}% ({}/{}) resolved={} external={} candidate={} dynamic={} manifest_blocked={} unresolved={}",
+		result.coverage.percent,
+		result.coverage.decided,
+		result.coverage.total,
+		result.coverage.resolved,
+		result.coverage.external,
+		result.coverage.candidate,
+		result.coverage.dynamic,
+		result.coverage.manifest_blocked,
+		result.coverage.unresolved
+	);
+	let _ = writeln!(
+		out,
+		"search: depth={}/{} symbols={} edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
+		result.search.depth_reached,
+		result.search.max_depth,
+		result.search.explored_symbols,
+		result.search.explored_edges,
+		result.search.depth_limit_reached,
+		result.search.symbol_limit_reached,
+		result.search.edge_limit_reached
+	);
+	if !result.reasons.is_empty() {
+		let _ = writeln!(out, "reasons: {}", result.reasons.join(", "));
+	}
+	for (index, step) in result.path.iter().enumerate() {
+		let location = step.line_range.map_or_else(
+			|| step.file.clone(),
+			|(start, end)| {
+				if start == end {
+					format!("{}:L{start}", step.file)
+				} else {
+					format!("{}:L{start}-L{end}", step.file)
+				}
+			},
+		);
+		let _ = writeln!(
+			out,
+			"{}. {} -> {} [{}] {}",
+			index + 1,
+			step.source.uri,
+			step.target.uri,
+			step.relation,
+			location
+		);
+	}
+}
+
 fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
 	let _ = writeln!(out, "scope: {}", result.scope);
 	let _ = writeln!(
@@ -3065,6 +3372,7 @@ mod tests {
 			"change.review" => serialized_fields(ChangeReviewQuery::default()),
 			"change.context" => serialized_fields(ChangeContextQuery::default()),
 			"symbol.graph" => serialized_fields(SymbolGraphQuery::default()),
+			"graph.path" => serialized_fields(GraphPathQuery::default()),
 			"identity.children" | "identity.graph" => {
 				serialized_fields(IdentityChildrenQuery::default())
 			}
@@ -3146,6 +3454,47 @@ mod tests {
 		assert_eq!(query.relation, vec!["calls", "uses_type"]);
 		assert_eq!(query.min_count, 2);
 		assert!(!query.include_internal);
+	}
+
+	#[test]
+	fn parses_bounded_graph_path_contract() {
+		let request = parse_query(
+			"graph.path from:\"code+moniker://./fn:callback()\" to:\"code+moniker://./fn:repository()\" expect:no_path relation:[calls,method_call] max_depth:6 max_symbols:200 max_edges:500 min_coverage:95",
+		)
+		.expect("graph path contract");
+		let Query::GraphPath(query) = request.query else {
+			panic!("expected graph path query");
+		};
+		assert_eq!(query.from, "code+moniker://./fn:callback()");
+		assert_eq!(query.to, "code+moniker://./fn:repository()");
+		assert_eq!(query.expect, GraphPathExpectation::NoPath);
+		assert_eq!(query.relation, vec!["calls", "method_call"]);
+		assert_eq!(query.max_depth, 6);
+		assert_eq!(query.max_symbols, 200);
+		assert_eq!(query.max_edges, 500);
+		assert_eq!(query.min_coverage, 95);
+	}
+
+	#[test]
+	fn rejects_unbounded_graph_path_limits() {
+		assert!(matches!(
+			parse_query(
+				"graph.path from:\"symbol:0:0\" to:\"symbol:0:1\" max_depth:65"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_depth"
+		));
+		assert!(matches!(
+			parse_query(
+				"graph.path from:\"symbol:0:0\" to:\"symbol:0:1\" min_coverage:101"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "min_coverage"
+		));
+		assert!(matches!(
+			parse_query(
+				"graph.path from:\"symbol:0:0\" to:\"symbol:0:1\" max_symbols:0"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_symbols"
+		));
 	}
 
 	#[test]

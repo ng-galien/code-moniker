@@ -120,6 +120,18 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      expect: GraphPathExpectation;
+      from: string;
+      max_depth: number;
+      max_edges: number;
+      max_symbols: number;
+      min_coverage: number;
+      op: "graph_path";
+      relation: string[];
+      to: string;
+      workspace?: string | null;
+    }
+  | {
       op: "identity_children";
       prefix: string;
       workspace?: string | null;
@@ -150,6 +162,7 @@ export type Query =
       title?: string | null;
     };
 export type UsageDirection = "incoming" | "outgoing" | "both";
+export type GraphPathExpectation = "reachable" | "no_path";
 export type NotesAction = "list" | "get" | "create" | "update" | "transition" | "delete";
 export type Consistency = "current" | "refresh_if_stale" | "stale_ok";
 export type QueryResult =
@@ -210,6 +223,10 @@ export type QueryResult =
       kind: "symbol_graph";
     }
   | {
+      data: GraphPathResult;
+      kind: "graph_path";
+    }
+  | {
       data: IdentityChildrenResult;
       kind: "identity_children";
     }
@@ -267,6 +284,7 @@ export type NoteResolutionDto =
   | {
       status: "orphan";
     };
+export type GraphPathVerdict = "pass" | "fail" | "inconclusive";
 export type DaemonRegistryState = "indexing" | "ready";
 
 /**
@@ -785,6 +803,53 @@ export interface NoteDto {
   status: string;
   title: string;
   updated_at: string;
+}
+export interface GraphPathResult {
+  coverage: GraphPathCoverage;
+  expectation: GraphPathExpectation;
+  from: SymbolDto;
+  no_path?: boolean | null;
+  path: GraphPathStep[];
+  reachable?: boolean | null;
+  reasons: string[];
+  search: GraphPathSearchStats;
+  to: SymbolDto;
+  verdict: GraphPathVerdict;
+}
+export interface GraphPathCoverage {
+  candidate: number;
+  decided: number;
+  dynamic: number;
+  external: number;
+  gap_reasons: {
+    [k: string]: number;
+  };
+  manifest_blocked: number;
+  percent: number;
+  resolved: number;
+  total: number;
+  unresolved: number;
+}
+export interface GraphPathStep {
+  file: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  line_range?: [number, number] | null;
+  reference: string;
+  relation: string;
+  source: SymbolDto;
+  target: SymbolDto;
+}
+export interface GraphPathSearchStats {
+  depth_limit_reached: boolean;
+  depth_reached: number;
+  edge_limit_reached: boolean;
+  explored_edges: number;
+  explored_symbols: number;
+  max_depth: number;
+  symbol_limit_reached: boolean;
 }
 export interface IdentityChildrenResult {
   children: IdentitySegmentDto[];

@@ -4,6 +4,7 @@
 //! defines the target orchestration model and tests it through semantic ports.
 
 mod model;
+mod path;
 mod records;
 mod view;
 
@@ -19,6 +20,9 @@ pub use model::{
 	UnresolvedReason, UnresolvedReference, WorkspaceCancellation, WorkspaceFailure,
 	WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 	WorkspaceTransition,
+};
+pub use path::{
+	BoundedPathCoverage, BoundedPathEdge, BoundedPathLimits, BoundedPathScope, BoundedPathSearch,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

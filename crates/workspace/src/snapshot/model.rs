@@ -700,7 +700,13 @@ pub struct LinkageSnapshot {
 pub struct LinkageReadIndex {
 	pub(crate) incoming: rustc_hash::FxHashMap<SymbolId, Vec<ReferenceId>>,
 	pub(crate) targets: rustc_hash::FxHashMap<ReferenceId, SymbolId>,
+	pub(crate) ordinals: rustc_hash::FxHashMap<SymbolId, u32>,
+	pub(crate) symbols: rustc_hash::FxHashMap<u32, SymbolId>,
+	pub(crate) outgoing: OutgoingPathIndex,
 }
+
+type OutgoingPathIndex =
+	rustc_hash::FxHashMap<u32, rustc_hash::FxHashMap<Arc<str>, Vec<ReferenceId>>>;
 
 impl LinkageReadIndex {
 	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
@@ -713,7 +719,27 @@ impl LinkageReadIndex {
 			targets.entry(reference).or_insert(target);
 			incoming.entry(target).or_default().push(reference);
 		}
-		Self { incoming, targets }
+		Self {
+			incoming,
+			targets,
+			ordinals: rustc_hash::FxHashMap::default(),
+			symbols: rustc_hash::FxHashMap::default(),
+			outgoing: rustc_hash::FxHashMap::default(),
+		}
+	}
+
+	pub(crate) fn from_edges_with_ordinals(
+		edges: &[LinkageEdge],
+		references: &RecordTable<ReferenceRecord>,
+		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
+	) -> Self {
+		let mut index = Self::from_edges(edges);
+		for (ordinal, symbol) in ordinals {
+			index.symbols.insert(ordinal, symbol);
+			index.ordinals.insert(symbol, ordinal);
+		}
+		index.outgoing = outgoing_path_index(references, &index.ordinals);
+		index
 	}
 
 	pub fn incoming(&self, symbol: &SymbolId) -> &[ReferenceId] {
@@ -723,6 +749,53 @@ impl LinkageReadIndex {
 	pub fn resolved_target(&self, reference: &ReferenceId) -> Option<&SymbolId> {
 		self.targets.get(reference)
 	}
+
+	pub(crate) fn ordinal(&self, symbol: &SymbolId) -> Option<u32> {
+		self.ordinals.get(symbol).copied()
+	}
+
+	pub(crate) fn symbol(&self, ordinal: u32) -> Option<SymbolId> {
+		self.symbols.get(&ordinal).copied()
+	}
+
+	pub(crate) fn outgoing(&self, ordinal: u32, relation: &str) -> &[ReferenceId] {
+		self.outgoing
+			.get(&ordinal)
+			.and_then(|by_relation| by_relation.get(relation))
+			.map(Vec::as_slice)
+			.unwrap_or(&[])
+	}
+
+	pub(crate) fn outgoing_relations(&self, ordinal: u32) -> impl Iterator<Item = &str> {
+		self.outgoing
+			.get(&ordinal)
+			.into_iter()
+			.flat_map(|by_relation| by_relation.keys().map(AsRef::as_ref))
+	}
+
+	#[cfg(test)]
+	pub(crate) fn active_symbol_slots(&self) -> usize {
+		self.symbols.len()
+	}
+}
+
+fn outgoing_path_index(
+	references: &RecordTable<ReferenceRecord>,
+	ordinals: &rustc_hash::FxHashMap<SymbolId, u32>,
+) -> OutgoingPathIndex {
+	let mut index = OutgoingPathIndex::default();
+	for reference in references.iter() {
+		let Some(source_ordinal) = ordinals.get(&reference.source_symbol).copied() else {
+			continue;
+		};
+		let by_relation = index.entry(source_ordinal).or_default();
+		if let Some(outgoing) = by_relation.get_mut(reference.kind.as_str()) {
+			outgoing.push(reference.id);
+		} else {
+			by_relation.insert(Arc::from(reference.kind.as_str()), vec![reference.id]);
+		}
+	}
+	index
 }
 
 #[derive(Clone, Debug, Default)]
@@ -731,6 +804,16 @@ pub struct LinkageReadIndexHandle(Option<Arc<LinkageReadIndex>>);
 impl LinkageReadIndexHandle {
 	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
 		Self(Some(Arc::new(LinkageReadIndex::from_edges(edges))))
+	}
+
+	pub(crate) fn from_edges_with_ordinals(
+		edges: &[LinkageEdge],
+		references: &RecordTable<ReferenceRecord>,
+		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
+	) -> Self {
+		Self(Some(Arc::new(LinkageReadIndex::from_edges_with_ordinals(
+			edges, references, ordinals,
+		))))
 	}
 
 	pub fn get(&self) -> Option<&LinkageReadIndex> {

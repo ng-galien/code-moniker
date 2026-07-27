@@ -39,8 +39,9 @@ use code_moniker_workspace::notes::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	ExternalReferenceOrigin, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
-	SymbolRecord, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
+	BoundedPathLimits, BoundedPathScope, ExternalReferenceOrigin, ReferenceId, ReferenceRecord,
+	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceSnapshot,
+	WorkspaceTransition, WorkspaceView,
 };
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
@@ -51,10 +52,12 @@ const DEFAULT_SCHEME: &str = "code+moniker://";
 use code_moniker_query::{
 	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
 	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide, ChangeReviewSummary,
-	ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphEdge,
-	IdentityGraphPort, IdentityGraphResult, IdentitySegmentDto, RuleApplicabilityDto,
-	RulesApplicableQuery, RulesApplicableResult, SymbolGraphEdge, SymbolGraphFocus,
-	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
+	ChangeReviewSymbol, GraphPathCoverage, GraphPathExpectation, GraphPathQuery, GraphPathResult,
+	GraphPathSearchStats, GraphPathStep, GraphPathVerdict, IdentityChildrenQuery,
+	IdentityChildrenResult, IdentityGraphEdge, IdentityGraphPort, IdentityGraphResult,
+	IdentitySegmentDto, RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult,
+	SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
+	UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -819,6 +822,9 @@ fn dispatch_loaded_query(
 		Query::SymbolGraph(query) => {
 			symbol_graph_response(snapshot, &daemon.roots, query, current_generation)
 		}
+		Query::GraphPath(query) => {
+			graph_path_response(snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::IdentityChildren(query) => {
 			identity_children_response(snapshot, &daemon.roots, query, current_generation)
 		}
@@ -1039,6 +1045,196 @@ fn symbol_graph_response(
 		generation: current_generation,
 		result: QueryResult::SymbolGraph(Box::new(result)),
 		next_cursor: None,
+	})
+}
+
+fn graph_path_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: GraphPathQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let selected_roots = selected_roots(roots, query.workspace.as_deref())?;
+	let from = find_symbol(snapshot, &query.from)?;
+	let to = find_symbol(snapshot, &query.to)?;
+	let view = WorkspaceView::new(snapshot);
+	let sources = view.sources();
+	let from_source = sources
+		.record(&from.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "source symbol source not found"))?;
+	let to_source = sources
+		.record(&to.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "target symbol source not found"))?;
+	for (uri, source) in [(&query.from, from_source), (&query.to, to_source)] {
+		if source_root(roots, &selected_roots, source).is_none() {
+			return Err(QueryError::new(
+				"symbol_not_in_workspace",
+				format!("symbol {uri} is not in the selected workspace"),
+			));
+		}
+	}
+	let path_scope = BoundedPathScope::from_sources(
+		snapshot
+			.index
+			.sources
+			.iter()
+			.filter(|source| source_root(roots, &selected_roots, source).is_some())
+			.map(|source| source.id),
+	);
+	let search = snapshot
+		.bounded_path(
+			from.id,
+			to.id,
+			&query.relation,
+			BoundedPathLimits {
+				max_depth: query.max_depth,
+				max_symbols: query.max_symbols,
+				max_edges: query.max_edges,
+			},
+			&path_scope,
+		)
+		.ok_or_else(|| {
+			QueryError::new(
+				"path_index_unavailable",
+				"the linkage snapshot has no symbol ordinal index; refresh the workspace",
+			)
+		})?;
+	let found = from.id == to.id || !search.path.is_empty();
+	let coverage_percent = search.coverage.percent();
+	let complete = !search.depth_limit_reached
+		&& !search.symbol_limit_reached
+		&& !search.edge_limit_reached
+		&& coverage_percent >= query.min_coverage;
+	let (reachable, no_path, verdict) = graph_path_truth(found, complete, query.expect);
+	let mut reasons = Vec::new();
+	if search.depth_limit_reached {
+		reasons.push("depth_limit".to_string());
+	}
+	if search.symbol_limit_reached {
+		reasons.push("symbol_limit".to_string());
+	}
+	if search.edge_limit_reached {
+		reasons.push("edge_limit".to_string());
+	}
+	if coverage_percent < query.min_coverage {
+		reasons.push("coverage_below_threshold".to_string());
+	}
+	for (reason, count) in &search.coverage.gap_reasons {
+		push_path_gap_reason(&mut reasons, reason, *count);
+	}
+	let path = search
+		.path
+		.iter()
+		.map(|edge| graph_path_step(snapshot, roots, edge))
+		.collect::<Result<Vec<_>, _>>()?;
+	let result = GraphPathResult {
+		from: symbol_dto(from, from_source, roots),
+		to: symbol_dto(to, to_source, roots),
+		expectation: query.expect,
+		verdict,
+		reachable,
+		no_path,
+		path,
+		coverage: GraphPathCoverage {
+			total: search.coverage.total,
+			decided: search.coverage.decided,
+			resolved: search.coverage.resolved,
+			external: search.coverage.external,
+			candidate: search.coverage.candidate,
+			dynamic: search.coverage.dynamic,
+			manifest_blocked: search.coverage.manifest_blocked,
+			unresolved: search.coverage.unresolved,
+			percent: coverage_percent,
+			gap_reasons: search.coverage.gap_reasons,
+		},
+		search: GraphPathSearchStats {
+			max_depth: query.max_depth,
+			depth_reached: search.depth_reached,
+			explored_symbols: search.explored_symbols,
+			explored_edges: search.explored_edges,
+			depth_limit_reached: search.depth_limit_reached,
+			symbol_limit_reached: search.symbol_limit_reached,
+			edge_limit_reached: search.edge_limit_reached,
+		},
+		reasons,
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::GraphPath(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+fn graph_path_truth(
+	found: bool,
+	complete: bool,
+	expectation: GraphPathExpectation,
+) -> (Option<bool>, Option<bool>, GraphPathVerdict) {
+	if found {
+		return (
+			Some(true),
+			Some(false),
+			if expectation == GraphPathExpectation::Reachable {
+				GraphPathVerdict::Pass
+			} else {
+				GraphPathVerdict::Fail
+			},
+		);
+	}
+	if !complete {
+		return (None, None, GraphPathVerdict::Inconclusive);
+	}
+	(
+		Some(false),
+		Some(true),
+		if expectation == GraphPathExpectation::NoPath {
+			GraphPathVerdict::Pass
+		} else {
+			GraphPathVerdict::Fail
+		},
+	)
+}
+
+fn push_path_gap_reason(reasons: &mut Vec<String>, reason: &str, count: usize) {
+	if count > 0 {
+		reasons.push(format!("{reason}:{count}"));
+	}
+}
+
+fn graph_path_step(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	edge: &code_moniker_workspace::snapshot::BoundedPathEdge,
+) -> Result<GraphPathStep, QueryError> {
+	let view = WorkspaceView::new(snapshot);
+	let symbols = view.symbols();
+	let sources = view.sources();
+	let references = view.references();
+	let source_symbol = symbols
+		.find(&edge.source)
+		.ok_or_else(|| QueryError::new("symbol_not_found", "path source symbol not found"))?;
+	let target_symbol = symbols
+		.find(&edge.target)
+		.ok_or_else(|| QueryError::new("symbol_not_found", "path target symbol not found"))?;
+	let reference = references
+		.reference(&edge.reference)
+		.ok_or_else(|| QueryError::new("reference_not_found", "path reference not found"))?;
+	let source = sources
+		.record(&reference.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "path reference source not found"))?;
+	let source_symbol_source = sources
+		.record(&source_symbol.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "path source source not found"))?;
+	let target_symbol_source = sources
+		.record(&target_symbol.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "path target source not found"))?;
+	Ok(GraphPathStep {
+		source: symbol_dto(source_symbol, source_symbol_source, roots),
+		target: symbol_dto(target_symbol, target_symbol_source, roots),
+		relation: reference.kind.clone(),
+		reference: reference.id.to_string(),
+		file: source.rel_path.clone(),
+		line_range: reference.line_range,
 	})
 }
 
@@ -4284,6 +4480,137 @@ mod tests {
 		assert!(filtered.callees[0].symbol.name.starts_with("helper"));
 	}
 
+	fn graph_path(
+		daemon: &mut WorkspaceDaemon,
+		from: &str,
+		to: &str,
+		expect: GraphPathExpectation,
+		max_depth: usize,
+	) -> GraphPathResult {
+		graph_path_with_limits(
+			daemon,
+			from,
+			to,
+			expect,
+			BoundedPathLimits {
+				max_depth,
+				max_symbols: 10_000,
+				max_edges: 50_000,
+			},
+		)
+	}
+
+	fn graph_path_with_limits(
+		daemon: &mut WorkspaceDaemon,
+		from: &str,
+		to: &str,
+		expect: GraphPathExpectation,
+		limits: BoundedPathLimits,
+	) -> GraphPathResult {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::GraphPath(GraphPathQuery {
+				workspace: None,
+				from: from.to_string(),
+				to: to.to_string(),
+				expect,
+				relation: vec!["calls".to_string(), "method_call".to_string()],
+				max_depth: limits.max_depth,
+				max_symbols: limits.max_symbols,
+				max_edges: limits.max_edges,
+				min_coverage: 100,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected graph path response, got {response:?}");
+		};
+		let rendered = code_moniker_query::format_query_response(&response);
+		assert!(rendered.contains("reachable:"), "{rendered}");
+		assert!(rendered.contains("coverage:"), "{rendered}");
+		let QueryResult::GraphPath(result) = response.result else {
+			panic!("expected graph path result, got {:?}", response.result);
+		};
+		*result
+	}
+
+	struct GraphPathFixture {
+		_temp: tempfile::TempDir,
+		daemon: WorkspaceDaemon,
+		uris: BTreeMap<&'static str, String>,
+	}
+
+	impl GraphPathFixture {
+		fn uri(&self, name: &'static str) -> String {
+			self.uris
+				.get(name)
+				.unwrap_or_else(|| panic!("missing fixture symbol {name}"))
+				.clone()
+		}
+	}
+
+	fn graph_path_fixture() -> GraphPathFixture {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(
+			src_dir.join("lib.rs"),
+			concat!(
+				"pub fn callback() { service(); alternative(); }\n",
+				"fn service() { repository(); }\n",
+				"fn alternative() { repository(); }\n",
+				"fn repository() {}\n",
+				"pub fn safe() { audit(); }\n",
+				"fn audit() {}\n",
+				"pub fn uncertain() { missing(); }\n",
+				"pub fn cyclic() { cycle_a(); }\n",
+				"fn cycle_a() { cycle_b(); }\n",
+				"fn cycle_b() { cycle_a(); }\n",
+			),
+		)
+		.expect("write lib");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SymbolGraph(SymbolGraphQuery {
+				workspace: None,
+				focus: "src/lib.rs".to_string(),
+				..Default::default()
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected symbol graph response");
+		};
+		let QueryResult::SymbolGraph(graph) = response.result else {
+			panic!("expected symbol graph, got {:?}", response.result);
+		};
+		let uris = ["callback", "repository", "safe", "uncertain", "cyclic"]
+			.into_iter()
+			.map(|name| {
+				let uri = graph
+					.members
+					.iter()
+					.find(|member| member.name.starts_with(name))
+					.unwrap_or_else(|| panic!("missing {name}: {graph:?}"))
+					.uri
+					.clone();
+				(name, uri)
+			})
+			.collect();
+		GraphPathFixture {
+			_temp: temp,
+			daemon,
+			uris,
+		}
+	}
+
 	#[test]
 	fn query_describe_does_not_require_a_loaded_snapshot() {
 		let temp = tempfile::tempdir().expect("tempdir");
@@ -4612,6 +4939,139 @@ mod tests {
 		);
 		assert!(unit.internal_edges.is_empty(), "{unit:?}");
 		assert_filtered_outgoing_graph(&mut daemon, entry_uri);
+	}
+
+	#[test]
+	fn graph_path_returns_minimal_witness_and_tri_state_confidence() {
+		let mut fixture = graph_path_fixture();
+		let callback = fixture.uri("callback");
+		let repository = fixture.uri("repository");
+		let safe = fixture.uri("safe");
+		let uncertain = fixture.uri("uncertain");
+
+		let reachable = graph_path(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			GraphPathExpectation::Reachable,
+			6,
+		);
+		assert_eq!(reachable.verdict, GraphPathVerdict::Pass, "{reachable:?}");
+		assert_eq!(reachable.reachable, Some(true), "{reachable:?}");
+		assert_eq!(reachable.no_path, Some(false), "{reachable:?}");
+		assert_eq!(reachable.path.len(), 2, "{reachable:?}");
+		assert!(
+			reachable.path[0].target.name.starts_with("service"),
+			"deterministic shortest witness: {reachable:?}"
+		);
+		assert!(
+			reachable.path[1].target.name.starts_with("repository"),
+			"{reachable:?}"
+		);
+
+		let safe = graph_path(
+			&mut fixture.daemon,
+			&safe,
+			&repository,
+			GraphPathExpectation::NoPath,
+			6,
+		);
+		assert_eq!(safe.verdict, GraphPathVerdict::Pass, "{safe:?}");
+		assert_eq!(safe.reachable, Some(false), "{safe:?}");
+		assert_eq!(safe.no_path, Some(true), "{safe:?}");
+		assert_eq!(safe.coverage.percent, 100, "{safe:?}");
+
+		let uncertain = graph_path(
+			&mut fixture.daemon,
+			&uncertain,
+			&repository,
+			GraphPathExpectation::NoPath,
+			6,
+		);
+		assert_eq!(
+			uncertain.verdict,
+			GraphPathVerdict::Inconclusive,
+			"{uncertain:?}"
+		);
+		assert_eq!(uncertain.reachable, None, "{uncertain:?}");
+		assert!(uncertain.coverage.unresolved > 0, "{uncertain:?}");
+		assert!(!uncertain.coverage.gap_reasons.is_empty(), "{uncertain:?}");
+
+		let bounded = graph_path(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			GraphPathExpectation::Reachable,
+			1,
+		);
+		assert_eq!(
+			bounded.verdict,
+			GraphPathVerdict::Inconclusive,
+			"{bounded:?}"
+		);
+		assert!(bounded.search.depth_limit_reached, "{bounded:?}");
+		assert!(bounded.path.is_empty(), "{bounded:?}");
+	}
+
+	#[test]
+	fn graph_path_bounds_cycles_and_exploration_budgets() {
+		let mut fixture = graph_path_fixture();
+		let callback = fixture.uri("callback");
+		let repository = fixture.uri("repository");
+		let cyclic = fixture.uri("cyclic");
+		let cycle = graph_path(
+			&mut fixture.daemon,
+			&cyclic,
+			&repository,
+			GraphPathExpectation::NoPath,
+			6,
+		);
+		assert_eq!(cycle.verdict, GraphPathVerdict::Pass, "{cycle:?}");
+		assert_eq!(cycle.no_path, Some(true), "{cycle:?}");
+		assert!(!cycle.search.depth_limit_reached, "{cycle:?}");
+		assert!(cycle.search.explored_symbols <= 3, "{cycle:?}");
+
+		let budgeted = graph_path_with_limits(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			GraphPathExpectation::Reachable,
+			BoundedPathLimits {
+				max_depth: 6,
+				max_symbols: 1,
+				max_edges: 50_000,
+			},
+		);
+		assert_eq!(
+			budgeted.verdict,
+			GraphPathVerdict::Inconclusive,
+			"{budgeted:?}"
+		);
+		assert!(budgeted.search.symbol_limit_reached, "{budgeted:?}");
+		assert!(
+			budgeted
+				.reasons
+				.iter()
+				.any(|reason| reason == "symbol_limit"),
+			"{budgeted:?}"
+		);
+		let edge_budgeted = graph_path_with_limits(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			GraphPathExpectation::Reachable,
+			BoundedPathLimits {
+				max_depth: 6,
+				max_symbols: 10_000,
+				max_edges: 1,
+			},
+		);
+		assert_eq!(
+			edge_budgeted.verdict,
+			GraphPathVerdict::Inconclusive,
+			"{edge_budgeted:?}"
+		);
+		assert!(edge_budgeted.search.edge_limit_reached, "{edge_budgeted:?}");
 	}
 
 	#[test]

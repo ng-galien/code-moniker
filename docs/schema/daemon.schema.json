@@ -1138,6 +1138,238 @@
         }
       }
     },
+    "GraphPathCoverage": {
+      "type": "object",
+      "required": [
+        "candidate",
+        "decided",
+        "dynamic",
+        "external",
+        "gap_reasons",
+        "manifest_blocked",
+        "percent",
+        "resolved",
+        "total",
+        "unresolved"
+      ],
+      "properties": {
+        "candidate": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "decided": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dynamic": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "gap_reasons": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        },
+        "manifest_blocked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "percent": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "resolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unresolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "GraphPathExpectation": {
+      "type": "string",
+      "enum": [
+        "reachable",
+        "no_path"
+      ]
+    },
+    "GraphPathResult": {
+      "type": "object",
+      "required": [
+        "coverage",
+        "expectation",
+        "from",
+        "path",
+        "reasons",
+        "search",
+        "to",
+        "verdict"
+      ],
+      "properties": {
+        "coverage": {
+          "$ref": "#/definitions/GraphPathCoverage"
+        },
+        "expectation": {
+          "$ref": "#/definitions/GraphPathExpectation"
+        },
+        "from": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "no_path": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphPathStep"
+          }
+        },
+        "reachable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "search": {
+          "$ref": "#/definitions/GraphPathSearchStats"
+        },
+        "to": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "verdict": {
+          "$ref": "#/definitions/GraphPathVerdict"
+        }
+      }
+    },
+    "GraphPathSearchStats": {
+      "type": "object",
+      "required": [
+        "depth_limit_reached",
+        "depth_reached",
+        "edge_limit_reached",
+        "explored_edges",
+        "explored_symbols",
+        "max_depth",
+        "symbol_limit_reached"
+      ],
+      "properties": {
+        "depth_limit_reached": {
+          "type": "boolean"
+        },
+        "depth_reached": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "edge_limit_reached": {
+          "type": "boolean"
+        },
+        "explored_edges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "explored_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_depth": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "symbol_limit_reached": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GraphPathStep": {
+      "type": "object",
+      "required": [
+        "file",
+        "reference",
+        "relation",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "reference": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "target": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "GraphPathVerdict": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "inconclusive"
+      ]
+    },
     "HandshakeResponse": {
       "type": "object",
       "required": [
@@ -2095,6 +2327,69 @@
         {
           "type": "object",
           "required": [
+            "expect",
+            "from",
+            "max_depth",
+            "max_edges",
+            "max_symbols",
+            "min_coverage",
+            "op",
+            "relation",
+            "to"
+          ],
+          "properties": {
+            "expect": {
+              "$ref": "#/definitions/GraphPathExpectation"
+            },
+            "from": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "max_edges": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "max_symbols": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "min_coverage": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "graph_path"
+              ]
+            },
+            "relation": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "to": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "op",
             "prefix"
           ],
@@ -2684,6 +2979,24 @@
               "type": "string",
               "enum": [
                 "symbol_graph"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/GraphPathResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "graph_path"
               ]
             }
           }
