@@ -1,0 +1,125 @@
+//! Baseline benchmarks for workspace rules before bitmap planning.
+
+mod support;
+
+use std::collections::BTreeMap;
+
+use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
+use code_moniker_workspace::snapshot::{
+	CodeIndex, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
+};
+use criterion::{Criterion, criterion_group, criterion_main};
+
+const MODULES: usize = 120;
+const SYMBOLS_PER_MODULE: usize = 40;
+
+fn indexed_workspace(
+	workspace: &support::SyntheticWorkspace,
+) -> (LocalWorkspaceRegistry, std::sync::Arc<WorkspaceSnapshot>) {
+	let mut registry = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![workspace.root().to_path_buf()],
+		None,
+	));
+	let transition = registry
+		.commands()
+		.refresh(WorkspaceRequest::new("workspace-rule-bench"));
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	let snapshot = registry
+		.queries()
+		.snapshot_arc()
+		.expect("workspace-rule benchmark snapshot");
+	(registry, snapshot)
+}
+
+fn naive_repository_violations(index: &CodeIndex) -> usize {
+	index
+		.symbols
+		.iter()
+		.filter(|symbol| {
+			symbol.name.ends_with("Repository")
+				&& !symbol
+					.identity
+					.split('/')
+					.any(|segment| segment == "dir:infra")
+		})
+		.count()
+}
+
+fn naive_name_collisions(index: &CodeIndex) -> usize {
+	let mut counts = BTreeMap::<(String, String, String), usize>::new();
+	for symbol in index
+		.symbols
+		.iter()
+		.filter(|symbol| symbol.kind == "struct")
+	{
+		let source = &index.sources[symbol.source.file()];
+		let owner = symbol
+			.identity
+			.split('/')
+			.filter(|segment| segment.starts_with("package:") || segment.starts_with("dir:"))
+			.collect::<Vec<_>>()
+			.join("/");
+		*counts
+			.entry((source.language.clone(), owner, symbol.name.clone()))
+			.or_default() += 1;
+	}
+	counts.values().filter(|count| **count > 1).count()
+}
+
+fn scan_baseline(c: &mut Criterion) {
+	let workspace = support::generate(MODULES, SYMBOLS_PER_MODULE);
+	let (_registry, snapshot) = indexed_workspace(&workspace);
+	assert!(naive_repository_violations(&snapshot.index) > 0);
+	assert!(naive_name_collisions(&snapshot.index) > 0);
+	let mut group = c.benchmark_group("workspace_rules_baseline");
+	group.bench_function("placement_full_scan", |b| {
+		b.iter(|| {
+			std::hint::black_box(naive_repository_violations(std::hint::black_box(
+				&snapshot.index,
+			)))
+		});
+	});
+	group.bench_function("grouping_full_scan", |b| {
+		b.iter(|| {
+			std::hint::black_box(naive_name_collisions(std::hint::black_box(&snapshot.index)))
+		});
+	});
+	group.finish();
+}
+
+fn refresh_baseline(c: &mut Criterion) {
+	let workspace = support::generate(MODULES, SYMBOLS_PER_MODULE);
+	let (mut registry, _) = indexed_workspace(&workspace);
+	let changed_module = workspace.changed_module();
+	let mut salt = 0usize;
+	let mut group = c.benchmark_group("workspace_rules_baseline");
+	group.sample_size(20);
+	group.bench_function("refresh_then_full_scan", |b| {
+		b.iter(|| {
+			salt += 1;
+			workspace.rewrite_module(changed_module, salt);
+			let transition = registry.commands().refresh_paths(
+				WorkspaceRequest::new("workspace-rule-refresh"),
+				vec![workspace.root().join(format!(
+					"src/{}/m{changed_module}.rs",
+					if changed_module % 2 == 0 {
+						"infra"
+					} else {
+						"domain"
+					}
+				))],
+			);
+			assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+			let snapshot = registry
+				.queries()
+				.snapshot()
+				.expect("refreshed workspace-rule snapshot");
+			std::hint::black_box(naive_repository_violations(&snapshot.index));
+			std::hint::black_box(naive_name_collisions(&snapshot.index));
+		});
+	});
+	group.finish();
+}
+
+criterion_group!(benches, scan_baseline, refresh_baseline);
+criterion_main!(benches);

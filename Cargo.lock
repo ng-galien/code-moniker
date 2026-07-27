@@ -463,6 +463,7 @@ dependencies = [
  "anyhow",
  "code-moniker-core",
  "code-moniker-workspace",
+ "criterion",
  "ignore",
  "insta",
  "proptest",

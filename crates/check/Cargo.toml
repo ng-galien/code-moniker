@@ -28,6 +28,11 @@ ignore     = { workspace = true }
 toml       = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 insta    = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "workspace_rules"
+harness = false

@@ -1,5 +1,6 @@
 # Rust build artefacts
 /target
+**/target
 
 # Coverage profile data. test/coverage.sh writes profraws under
 # target/cov/ (already covered above), but failed runs without
