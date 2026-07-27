@@ -70,7 +70,7 @@ impl CBuildContext {
 				TranslationUnitLanguage::C => &mut visited_c,
 				TranslationUnitLanguage::Cpp => &mut visited_cpp,
 			};
-			context.record_translation_unit(&path, language, visited);
+			context.record_includes(&path, language, visited);
 		}
 		context
 	}
@@ -99,15 +99,6 @@ impl CBuildContext {
 			.header_usage
 			.get(&path)
 			.is_some_and(|usage| usage.cpp && !usage.c)
-	}
-
-	fn record_translation_unit(
-		&mut self,
-		path: &Path,
-		language: TranslationUnitLanguage,
-		visited: &mut HashSet<PathBuf>,
-	) {
-		self.record_includes(path, language, visited);
 	}
 
 	fn record_includes(
