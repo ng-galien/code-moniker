@@ -1303,6 +1303,52 @@ fn rules_tool_runs_check_on_workspace() {
 }
 
 #[test]
+fn rules_tool_distinguishes_rule_errors_from_scan_errors() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
+	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
+		.expect("write fixture");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "error-rule"
+		expr = "name = 'Expected'"
+		severity = "error"
+
+		[[java.class.where]]
+		id = "warning-rule"
+		expr = "name = 'Expected'"
+		severity = "warn"
+		"#,
+	)
+	.expect("write rules");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_rules",
+			&json!({
+				"uri": "workspace",
+				"action": "run",
+				"limit": 5,
+				"report": false
+			}),
+		)
+		.expect("rules run");
+
+	assert!(!result.is_error);
+	assert!(
+		result
+			.text
+			.contains("2 violation(s): 1 warning(s), 1 rule error(s); 0 scan error(s)")
+	);
+}
+
+#[test]
 fn rules_tool_runs_check_on_multi_root_workspace() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let first = temp.path().join("first");

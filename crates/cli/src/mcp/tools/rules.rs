@@ -482,8 +482,11 @@ fn render_rules_check_result(output: &mut String, result: &RulesCheckResult) {
 fn render_rules_root_summary(output: &mut String, root: &RulesCheckRootResult) {
 	output.push_str(&format!("  root: {}\n", root.root));
 	output.push_str(&format!(
-		"    {} violation(s), {} warning(s), {} error(s)\n",
-		root.summary.total_violations, root.summary.total_warnings, root.summary.total_errors
+		"    {} violation(s): {} warning(s), {} rule error(s); {} scan error(s)\n",
+		root.summary.total_violations,
+		root.summary.total_warnings,
+		root.summary.total_rule_errors,
+		root.summary.total_errors
 	));
 	for failed in &root.summary.failed_rules {
 		output.push_str(&format!(
