@@ -284,6 +284,75 @@ mod tests {
 			"the requested direction must still render, got:\n{rendered}"
 		);
 	}
+
+	#[test]
+	fn graph_render_keeps_canonical_neighbor_uris() {
+		let neighbor_uri = "code+moniker://./lang:rs/module:sample/fn:caller()".to_string();
+		let local_uri =
+			"code+moniker://./lang:rs/module:sample/fn:caller()/local:value".to_string();
+		let result = SymbolGraphResult {
+			focus: SymbolGraphFocus::File {
+				path: "src/sample.rs".to_string(),
+			},
+			members: Vec::new(),
+			internal_edges: Vec::new(),
+			callers: vec![
+				SymbolGraphNeighbor {
+					symbol: code_moniker_query::SymbolDto {
+						root: "/workspace".to_string(),
+						uri: neighbor_uri.clone(),
+						id: "symbol:1:0".to_string(),
+						name: "caller()".to_string(),
+						kind: "fn".to_string(),
+						visibility: "private".to_string(),
+						signature: String::new(),
+						file: "src/caller.rs".to_string(),
+						language: "rs".to_string(),
+						line_range: Some((1, 3)),
+						navigable: true,
+						score: None,
+						match_reason: None,
+						source: None,
+					},
+					kinds: vec!["calls".to_string()],
+					count: 1,
+				},
+				SymbolGraphNeighbor {
+					symbol: code_moniker_query::SymbolDto {
+						root: "/workspace".to_string(),
+						uri: local_uri.clone(),
+						id: "symbol:1:1".to_string(),
+						name: "value".to_string(),
+						kind: "local".to_string(),
+						visibility: "private".to_string(),
+						signature: String::new(),
+						file: "src/caller.rs".to_string(),
+						language: "rs".to_string(),
+						line_range: Some((2, 2)),
+						navigable: false,
+						score: None,
+						match_reason: None,
+						source: None,
+					},
+					kinds: vec!["reads".to_string()],
+					count: 1,
+				},
+			],
+			callees: Vec::new(),
+			unlinked: UnlinkedRefsDto::default(),
+		};
+
+		let rendered = render_graph(&result, 10, UsageDirection::Incoming);
+
+		assert!(
+			rendered.contains(&format!("  uri: {neighbor_uri}")),
+			"{rendered}"
+		);
+		assert!(
+			!rendered.contains(&format!("  uri: {local_uri}")),
+			"{rendered}"
+		);
+	}
 }
 
 fn render_neighbors(
@@ -303,6 +372,9 @@ fn render_neighbors(
 			neighbor.count,
 			neighbor.kinds.join(",")
 		);
+		if neighbor.symbol.navigable {
+			let _ = writeln!(out, "  uri: {}", neighbor.symbol.uri);
+		}
 	}
 	if neighbors.len() > max_items {
 		let _ = writeln!(out, "- truncated: +{}", neighbors.len() - max_items);
