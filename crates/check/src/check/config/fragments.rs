@@ -158,6 +158,12 @@ pub(super) fn merge_into(
 }
 
 fn fragment_root(user_path: &Path) -> Option<PathBuf> {
+	if user_path
+		.file_name()
+		.is_none_or(|name| name != ".code-moniker.toml")
+	{
+		return None;
+	}
 	Some(
 		user_path
 			.parent()

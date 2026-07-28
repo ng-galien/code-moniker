@@ -44,7 +44,7 @@ needed; if a data field is an alias, resolve it from that response first.
 | Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; compact mode groups references by symbolic context, summarizes technical noise, and samples bounded source evidence |
 | Ego neighborhood before editing | `code_moniker_graph` | `focus` = URI or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal` |
 | One-call pre-change evidence | `code_moniker_context` | graph, coverage, notes, applicable rules, local changes and canonical suggested checks |
-| Rules: inspect or run | `code_moniker_rules` | `action:"list"` (rationales) or `action:"run"` (optionally file-scoped — the same check agent hooks run) |
+| Rules: inspect or run | `code_moniker_rules` | `action:"list"` (rationales) or `action:"run"` (optionally file-scoped). It shares rule-engine semantics with agent-hook checks, but MCP uses a daemon query while generated hooks launch the CLI directly. |
 | Changes as symbol facts | `code_moniker_diff` | review surface |
 | Text/structure search | `code_moniker_search` | when name filters aren't enough |
 | Force re-index | `code_moniker_refresh` | after external file changes |

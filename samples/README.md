@@ -4,7 +4,9 @@ This directory has two distinct sample corpora:
 
 - `catalog/`: executable check scenarios used by the VSCode extension catalog
   and by integration tests. Each document contains rules, a file layout, and
-  the violations that layout must produce.
+  the violations that layout must produce. `workspace-symbol.cm.md`,
+  `workspace-group.cm.md`, and `workspace-path.cm.md` cover the full-index
+  rule roots, including bounded transitive architecture checks.
 - `learn/`: focused DSL learning documents used by `code-moniker rules learn`.
   They are also executable scenario fixtures, but their purpose is to teach one
   syntax idea at a time.

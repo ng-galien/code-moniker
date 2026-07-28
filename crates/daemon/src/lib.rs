@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use code_moniker_check::{
 	CheckRequest, CheckSkipReason, CheckSummary, CompiledRuleSpec, DefaultRulesSelection,
-	RuleCoverage, RulePathReport, RulePathStep, RuleReport, RuleSetRequest, RuleSeverity,
-	RuleVerdict, Violation,
+	IndexedCheckWorkspace, RuleCoverage, RulePathReport, RulePathStep, RuleReport, RuleSetRequest,
+	RuleSeverity, RuleVerdict, Violation,
 };
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
@@ -23,12 +23,13 @@ use code_moniker_query::{
 	NoteDto, NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page, ProtocolRequest,
 	ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest, QueryResponse, QueryResult,
 	ResolutionAuditResult, RuleCoverageDto, RuleDto, RulePathReportDto, RulePathStepDto,
-	RuleReportDto, RulesCheckResult, RulesCheckRootResult, RulesListResult, SourceLine,
-	SourceSnippet, SymbolDetailResult, SymbolDto, SymbolInsightsResult, SymbolListResult,
-	SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
+	RuleReportDto, RulesCheckResult, RulesCheckRootResult, RulesCheckVerdict, RulesListResult,
+	SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto, SymbolInsightsResult,
+	SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
 	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
 	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
 	WorkspaceRootStatus, WorkspaceStatus, current_build_identity, describe_query_capabilities,
+	symbol_is_test_artifact,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -44,6 +45,7 @@ use code_moniker_workspace::snapshot::{
 	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceSnapshot,
 	WorkspaceTransition, WorkspaceView,
 };
+use code_moniker_workspace::source::LocalResourceCache;
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
 use jsonrpsee::types::ErrorObjectOwned;
@@ -477,6 +479,7 @@ pub struct WorkspaceDaemon {
 	roots: Vec<PathBuf>,
 	config_root: PathBuf,
 	registry: LocalWorkspaceRegistry,
+	cache: LocalResourceCache,
 	notes: WorkspaceNotes,
 	live: DaemonLiveState,
 }
@@ -513,6 +516,7 @@ struct WorkspaceDaemonInit {
 	roots: Vec<PathBuf>,
 	config_root: PathBuf,
 	registry: LocalWorkspaceRegistry,
+	cache: LocalResourceCache,
 	live: DaemonLiveState,
 }
 
@@ -529,6 +533,16 @@ struct RulesCheckEval {
 	files: Vec<String>,
 	report: bool,
 	page: Page,
+}
+
+struct IndexedRulesCheck<'a> {
+	root: &'a Path,
+	config_root: &'a Path,
+	workspace: &'a IndexedCheckWorkspace,
+	profile: Option<String>,
+	rules: Option<&'a str>,
+	files: &'a [String],
+	report: bool,
 }
 
 struct UsageDtoContext<'a> {
@@ -575,6 +589,7 @@ impl WorkspaceDaemon {
 			roots: init.roots,
 			config_root: init.config_root,
 			registry: init.registry,
+			cache: init.cache,
 			notes: WorkspaceNotes::default(),
 			live: init.live,
 		};
@@ -637,9 +652,11 @@ impl WorkspaceDaemonInit {
 	fn new(config: DaemonWorkspaceConfig) -> anyhow::Result<Self> {
 		let config = canonical_workspace_config(config)?;
 		let roots = config_roots(&config);
+		let (registry, cache) = daemon_registry(&config, &roots);
 		Ok(Self {
 			config_root: rules_config_root(&roots)?,
-			registry: daemon_registry(&config, &roots),
+			registry,
+			cache,
 			live: DaemonLiveState::new(DaemonLiveRefreshPolicy::parse(
 				config.live_refresh.as_deref(),
 			)?),
@@ -671,11 +688,17 @@ impl DaemonLiveRefreshPolicy {
 	}
 }
 
-fn daemon_registry(config: &DaemonWorkspaceConfig, roots: &[PathBuf]) -> LocalWorkspaceRegistry {
-	LocalWorkspaceRegistry::local(
+fn daemon_registry(
+	config: &DaemonWorkspaceConfig,
+	roots: &[PathBuf],
+) -> (LocalWorkspaceRegistry, LocalResourceCache) {
+	let cache = LocalResourceCache::default();
+	let registry = LocalWorkspaceRegistry::local_with_cache(
 		LocalWorkspaceOptions::new(roots.to_vec(), config.project.clone())
 			.with_cache_dir(config.cache_dir.as_ref().map(PathBuf::from)),
-	)
+		cache.clone(),
+	);
+	(registry, cache)
 }
 
 fn handle_protocol(daemon: &mut WorkspaceDaemon, request: ProtocolRequest) -> ProtocolResponse {
@@ -731,8 +754,11 @@ fn handle_query(
 			"workspace is stale; request consistency refresh-if-stale or stale-ok",
 		));
 	}
-	let snapshot = snapshot(&daemon.registry)?.clone();
-	let current_generation = generation(&daemon.registry);
+	let snapshot =
+		daemon.registry.queries().snapshot_arc().ok_or_else(|| {
+			QueryError::new("workspace_loading", "workspace snapshot is not ready")
+		})?;
+	let current_generation = Some(WorkspaceGeneration(snapshot.generation.value()));
 	let response_roots = daemon.roots.clone();
 	let response_config_root = daemon.config_root.clone();
 	let response = ResponseContext {
@@ -740,12 +766,12 @@ fn handle_query(
 		config_root: &response_config_root,
 		generation: current_generation,
 	};
-	dispatch_loaded_query(daemon, &snapshot, response, request)
+	dispatch_loaded_query(daemon, snapshot, response, request)
 }
 
 fn dispatch_loaded_query(
 	daemon: &mut WorkspaceDaemon,
-	snapshot: &WorkspaceSnapshot,
+	snapshot: Arc<WorkspaceSnapshot>,
 	response: ResponseContext<'_>,
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
@@ -754,24 +780,24 @@ fn dispatch_loaded_query(
 		Query::QueryDescribe(_) => unreachable!("query describe handled before snapshot load"),
 		Query::WorkspaceStatus => unreachable!("workspace status handled before snapshot load"),
 		Query::TreeChildren(query) => tree_children_response(
-			snapshot,
+			&snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::SymbolSearch(query) => symbol_search_response(
-			snapshot,
+			&snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::SymbolInsights(query) => {
-			symbol_insights_response(snapshot, &daemon.roots, query, current_generation)
+			symbol_insights_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::SymbolDetail(query) => symbol_detail_response(
-			snapshot,
+			&snapshot,
 			&daemon.roots,
 			query.workspace.as_deref(),
 			&query.uri,
@@ -779,17 +805,17 @@ fn dispatch_loaded_query(
 			current_generation,
 		),
 		Query::SymbolUsages(query) => symbol_usages_response(
-			snapshot,
+			&snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::ViewRead(query) => {
-			view_read_response(snapshot, &daemon.roots, query, current_generation)
+			view_read_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::RulesList(query) => rules_list_response(
-			snapshot,
+			&snapshot,
 			response,
 			RulesListEval {
 				workspace: query.workspace,
@@ -803,6 +829,8 @@ fn dispatch_loaded_query(
 			},
 		),
 		Query::RulesCheck(query) => rules_check_response(
+			&daemon.cache,
+			Arc::clone(&snapshot),
 			response,
 			RulesCheckEval {
 				workspace: query.workspace,
@@ -814,33 +842,33 @@ fn dispatch_loaded_query(
 			},
 		),
 		Query::RulesApplicable(query) => {
-			rules_applicable_response(snapshot, response, query, request.page)
+			rules_applicable_response(&snapshot, response, query, request.page)
 		}
 		Query::ChangeReview(query) => {
-			change_review_response(snapshot, &daemon.roots, query, current_generation)
+			change_review_response(&snapshot, &daemon.roots, query, current_generation)
 		}
-		Query::ChangeContext(query) => change_context_response(daemon, snapshot, response, query),
+		Query::ChangeContext(query) => change_context_response(daemon, &snapshot, response, query),
 		Query::SymbolGraph(query) => {
-			symbol_graph_response(snapshot, &daemon.roots, query, current_generation)
+			symbol_graph_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::GraphPath(query) => {
-			graph_path_response(snapshot, &daemon.roots, query, current_generation)
+			graph_path_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::IdentityChildren(query) => {
-			identity_children_response(snapshot, &daemon.roots, query, current_generation)
+			identity_children_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::IdentityGraph(query) => {
-			identity_graph_response(snapshot, &daemon.roots, query, current_generation)
+			identity_graph_response(&snapshot, &daemon.roots, query, current_generation)
 		}
 		Query::ResolutionAudit(query) => resolution_audit_response(
-			snapshot,
+			&snapshot,
 			&daemon.roots,
 			query,
 			request.page,
 			current_generation,
 		),
 		Query::Notes(query) => {
-			notes_response(daemon, snapshot, query, request.page, current_generation)
+			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
 	}
 }
@@ -2112,13 +2140,6 @@ fn generation(registry: &LocalWorkspaceRegistry) -> Option<WorkspaceGeneration> 
 		.map(|snapshot| WorkspaceGeneration(snapshot.generation.value()))
 }
 
-fn snapshot(registry: &LocalWorkspaceRegistry) -> Result<&WorkspaceSnapshot, QueryError> {
-	registry
-		.queries()
-		.snapshot()
-		.ok_or_else(|| QueryError::new("workspace_not_ready", "workspace snapshot is not ready"))
-}
-
 fn workspace_status(
 	roots: &[PathBuf],
 	registry: &LocalWorkspaceRegistry,
@@ -2456,12 +2477,7 @@ fn symbol_search_response(
 		.is_none_or(|text| text.trim().is_empty())
 		|| query.include_non_navigable
 	{
-		rows.sort_by(|a, b| {
-			a.file
-				.cmp(&b.file)
-				.then_with(|| a.line_range.cmp(&b.line_range))
-				.then_with(|| a.uri.cmp(&b.uri))
-		});
+		rows.sort_by(symbol_dto_navigation_cmp);
 	}
 	let paged = page_rows(rows, page, current_generation)?;
 	Ok(QueryResponse {
@@ -2472,6 +2488,18 @@ fn symbol_search_response(
 		}),
 		next_cursor: paged.next_cursor,
 	})
+}
+
+fn symbol_dto_navigation_cmp(left: &SymbolDto, right: &SymbolDto) -> std::cmp::Ordering {
+	symbol_is_test_artifact(&left.kind, &left.file, &left.uri)
+		.cmp(&symbol_is_test_artifact(
+			&right.kind,
+			&right.file,
+			&right.uri,
+		))
+		.then_with(|| left.file.cmp(&right.file))
+		.then_with(|| left.line_range.cmp(&right.line_range))
+		.then_with(|| left.uri.cmp(&right.uri))
 }
 
 fn matches_kind_shape(symbol: &SymbolRecord, query: &SymbolSearchQuery) -> bool {
@@ -3442,22 +3470,31 @@ fn context_changes(
 }
 
 fn rules_check_response(
+	cache: &LocalResourceCache,
+	snapshot: Arc<WorkspaceSnapshot>,
 	response: ResponseContext<'_>,
 	request: RulesCheckEval,
 ) -> Result<QueryResponse, QueryError> {
 	let selected_roots = selected_roots(response.roots, request.workspace.as_deref())?;
 	let mut roots = Vec::new();
 	for root in &selected_roots {
-		roots.push(run_rules_for_root(
+		let workspace =
+			IndexedCheckWorkspace::from_snapshot((*root).clone(), cache, Arc::clone(&snapshot))
+				.map_err(|error| {
+					QueryError::new("indexed_corpus_unavailable", error.to_string())
+				})?;
+		roots.push(run_rules_for_root(IndexedRulesCheck {
 			root,
-			response.config_root,
-			request.profile.clone(),
-			request.rules.as_deref(),
-			&request.files,
-			request.report,
-		)?);
+			config_root: response.config_root,
+			workspace: &workspace,
+			profile: request.profile.clone(),
+			rules: request.rules.as_deref(),
+			files: &request.files,
+			report: request.report,
+		})?);
 	}
 	let exit = aggregate_check_exit(&roots);
+	let verdict = RulesCheckVerdict::from_exit(&exit);
 	let summary = aggregate_check_summary(&roots);
 	let rows = rules_check_rows(&roots);
 	let paged = page_rows(rows, request.page, response.generation)?;
@@ -3480,6 +3517,7 @@ fn rules_check_response(
 	Ok(QueryResponse {
 		generation: response.generation,
 		result: QueryResult::RulesCheck(RulesCheckResult {
+			verdict,
 			exit,
 			summary,
 			roots: root_summaries,
@@ -4151,32 +4189,27 @@ mod helpers {
 	}
 
 	pub(super) fn run_rules_for_root(
-		root: &Path,
-		config_root: &Path,
-		profile: Option<String>,
-		rules: Option<&str>,
-		files: &[String],
-		report: bool,
+		check: IndexedRulesCheck<'_>,
 	) -> Result<RulesCheckRootResult, QueryError> {
-		let rules_path = resolve_rules_path(config_root, rules);
+		let rules_path = resolve_rules_path(check.config_root, check.rules);
 		let rules = RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
 			.with_default_rules(DefaultRulesSelection::Config)
-			.with_profile(profile);
-		let request = CheckRequest::new(root.to_path_buf(), rules)
-			.with_report(report)
-			.with_files(files.iter().map(PathBuf::from).collect());
+			.with_profile(check.profile);
+		let request = CheckRequest::new(check.root.to_path_buf(), rules)
+			.with_report(check.report)
+			.with_files(check.files.iter().map(PathBuf::from).collect());
 		let run = request
-			.run()
+			.run_with_workspace(check.workspace)
 			.map_err(|err| QueryError::new("rules_check_failed", err.to_string()))?;
 		let exit = check_exit(&run);
 		let summary = check_summary_dto(&run.summary());
 		let violations = run
 			.file_violations()
-			.map(|(path, violation)| violation_dto(root, path, violation))
+			.map(|(path, violation)| violation_dto(check.root, path, violation))
 			.collect();
 		let errors = run
 			.error_summaries()
-			.map(|(path, error)| file_error_dto(root, path, error))
+			.map(|(path, error)| file_error_dto(check.root, path, error))
 			.collect();
 		let rule_reports = run
 			.reports
@@ -4185,14 +4218,15 @@ mod helpers {
 				report
 					.rule_reports
 					.iter()
-					.map(move |rule| rule_report_dto(root, Some(&report.path), rule))
+					.map(move |rule| rule_report_dto(check.root, Some(&report.path), rule))
 			})
 			.collect();
 		let skip_reason = run
 			.skip_reason
-			.map(|reason| check_skip_reason_dto(root, reason));
+			.map(|reason| check_skip_reason_dto(check.root, reason));
 		Ok(RulesCheckRootResult {
-			root: root.display().to_string(),
+			root: check.root.display().to_string(),
+			verdict: RulesCheckVerdict::from_exit(&exit),
 			exit,
 			summary,
 			violations,
@@ -4411,7 +4445,18 @@ mod helpers {
 	}
 
 	pub(super) fn path_prefix(path: &str) -> String {
-		path.split('/').next().unwrap_or(path).to_string()
+		let parts = Path::new(path)
+			.parent()
+			.unwrap_or_else(|| Path::new(""))
+			.components()
+			.filter_map(|component| component.as_os_str().to_str())
+			.take(2)
+			.collect::<Vec<_>>();
+		if parts.is_empty() {
+			"<root>".to_string()
+		} else {
+			parts.join("/")
+		}
 	}
 
 	pub(super) fn reference_location(
@@ -4495,7 +4540,7 @@ mod tests {
 
 	use code_moniker_query::{
 		Page, ProtocolRequest, ProtocolResponse, Query, QueryCursor, QueryRequest, QueryResult,
-		WorkspaceGeneration,
+		RulesCheckQuery, WorkspaceGeneration,
 	};
 
 	use super::*;
@@ -4522,6 +4567,205 @@ mod tests {
 			ProtocolResponse::Query(query) => query.result,
 			other => panic!("expected query response, got {other:?}"),
 		}
+	}
+
+	#[test]
+	fn rules_check_evaluates_the_selected_daemon_generation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src = temp.path().join("src");
+		fs::create_dir_all(&src).expect("src dir");
+		let lib = src.join("lib.rs");
+		fs::write(&lib, "pub fn indexed_name() {}\n").expect("write indexed source");
+		let rules = temp.path().join("scratch-rules.toml");
+		fs::write(
+			&rules,
+			r#"
+default_rules = false
+
+[[rust.fn.where]]
+id = "indexed-name-is-visible"
+expr = "name != 'indexed_name'"
+message = "the rule must observe the indexed generation"
+"#,
+		)
+		.expect("write rules");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("on-demand".to_string()),
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		fs::write(&lib, "pub fn filesystem_name() {}\n").expect("change filesystem source");
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::RulesCheck(RulesCheckQuery {
+				workspace: None,
+				profile: None,
+				rules: Some(rules.display().to_string()),
+				file: Vec::new(),
+				report: true,
+			}),
+			consistency: code_moniker_query::Consistency::StaleOk,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected rules check response, got {response:?}");
+		};
+		assert_eq!(response.generation, Some(WorkspaceGeneration(1)));
+		let QueryResult::RulesCheck(result) = response.result else {
+			panic!("expected rules check result, got {:?}", response.result);
+		};
+		assert_eq!(result.summary.files_scanned, 1, "{result:?}");
+		assert_eq!(result.summary.total_violations, 1, "{result:?}");
+		assert_eq!(
+			result.violations[0].rule_id,
+			"rust.fn.indexed-name-is-visible"
+		);
+
+		fs::write(
+			&rules,
+			r#"
+default_rules = false
+
+[[rust.fn.where]]
+id = "changed-rules-are-reloaded"
+expr = "name == 'filesystem_name'"
+message = "the current rules file must run against the pinned index"
+"#,
+		)
+		.expect("change rules");
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::RulesCheck(RulesCheckQuery {
+				workspace: None,
+				profile: None,
+				rules: Some(rules.display().to_string()),
+				file: Vec::new(),
+				report: true,
+			}),
+			consistency: code_moniker_query::Consistency::StaleOk,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected rules check response, got {response:?}");
+		};
+		assert_eq!(response.generation, Some(WorkspaceGeneration(1)));
+		let QueryResult::RulesCheck(result) = response.result else {
+			panic!("expected rules check result, got {:?}", response.result);
+		};
+		assert_eq!(result.summary.total_violations, 1, "{result:?}");
+		assert_eq!(
+			result.violations[0].rule_id,
+			"rust.fn.changed-rules-are-reloaded"
+		);
+	}
+
+	#[test]
+	fn rules_check_scopes_nested_roots_by_source_identity() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let child = temp.path().join("apps/child");
+		fs::create_dir_all(&child).expect("child root");
+		let parent = temp.path().canonicalize().expect("canonical parent");
+		let child = child.canonicalize().expect("canonical child");
+		fs::write(parent.join("parent.rs"), "pub fn parent_fn() {}\n").expect("parent source");
+		let child_file = child.join("child.rs");
+		fs::write(&child_file, "pub fn child_fn() {}\n").expect("child source");
+		let rules = parent.join("scratch-rules.toml");
+		fs::write(
+			&rules,
+			r#"
+default_rules = false
+
+[[rust.fn.where]]
+id = "count-selected-source-root"
+expr = "name == 'never'"
+message = "every selected function is observable"
+"#,
+		)
+		.expect("rules");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![parent.display().to_string(), child.display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("on-demand".to_string()),
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		let parent_result = rules_check_result(&mut daemon, &rules, &parent, Vec::new());
+		assert_eq!(parent_result.summary.files_scanned, 2, "{parent_result:?}");
+		assert_eq!(
+			parent_result.summary.total_violations, 2,
+			"{parent_result:?}"
+		);
+		let parent_child_moniker = parent_result
+			.violations
+			.iter()
+			.find(|violation| violation.path == child_file.display().to_string())
+			.expect("child file through parent source root")
+			.moniker
+			.clone();
+
+		let nested = rules_check_result(&mut daemon, &rules, &child, Vec::new());
+		assert_eq!(nested.summary.files_scanned, 1, "{nested:?}");
+		assert_eq!(nested.summary.total_violations, 1, "{nested:?}");
+		let nested_moniker = nested.violations[0].moniker.clone();
+		assert_ne!(
+			parent_child_moniker, nested_moniker,
+			"the same physical file must keep the selected source root anchor"
+		);
+
+		for file in [
+			vec!["apps/child/child.rs".to_string()],
+			vec![child_file.display().to_string()],
+		] {
+			let filtered = rules_check_result(&mut daemon, &rules, &parent, file);
+			assert_eq!(filtered.summary.files_scanned, 1, "{filtered:?}");
+			assert_eq!(filtered.violations[0].moniker, parent_child_moniker);
+		}
+
+		for file in [
+			vec!["child.rs".to_string()],
+			vec![child_file.display().to_string()],
+		] {
+			let filtered = rules_check_result(&mut daemon, &rules, &child, file);
+			assert_eq!(filtered.summary.files_scanned, 1, "{filtered:?}");
+			assert_eq!(filtered.summary.total_violations, 1, "{filtered:?}");
+			assert_eq!(filtered.violations[0].moniker, nested_moniker);
+		}
+	}
+
+	fn rules_check_result(
+		daemon: &mut WorkspaceDaemon,
+		rules: &Path,
+		workspace: &Path,
+		file: Vec<String>,
+	) -> code_moniker_query::RulesCheckResult {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::RulesCheck(RulesCheckQuery {
+				workspace: Some(workspace.display().to_string()),
+				profile: None,
+				rules: Some(rules.display().to_string()),
+				file,
+				report: true,
+			}),
+			consistency: code_moniker_query::Consistency::StaleOk,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected rules check response, got {response:?}");
+		};
+		let QueryResult::RulesCheck(result) = response.result else {
+			panic!("expected rules check result, got {:?}", response.result);
+		};
+		result
 	}
 
 	fn assert_filtered_outgoing_graph(daemon: &mut WorkspaceDaemon, entry_uri: String) {
@@ -5594,6 +5838,73 @@ mod tests {
 		let error = page_rows(vec![1, 2, 3], page, Some(WorkspaceGeneration(2)))
 			.expect_err("missing generation");
 		assert_eq!(error.code, "cursor_generation_mismatch");
+	}
+
+	#[test]
+	fn usage_prefix_distinguishes_workspace_crates() {
+		assert_eq!(path_prefix("crates/daemon/src/lib.rs"), "crates/daemon");
+		assert_eq!(
+			path_prefix("crates/workspace/src/live/watcher.rs"),
+			"crates/workspace"
+		);
+		assert_eq!(path_prefix("src/a.rs"), "src");
+		assert_eq!(path_prefix("src/b.rs"), "src");
+	}
+
+	#[test]
+	fn symbol_search_lists_production_before_tests() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::create_dir_all(temp.path().join("src")).expect("create source directory");
+		fs::create_dir_all(temp.path().join("benches")).expect("create bench directory");
+		fs::write(
+			temp.path().join("src/lib.rs"),
+			r#"
+#[cfg(test)]
+mod tests {
+	fn helper() {}
+
+	#[test]
+	fn early_test() {}
+}
+
+pub fn production_entry() {}
+"#,
+		)
+		.expect("write fixture");
+		fs::write(
+			temp.path().join("benches/speed.rs"),
+			"pub fn benchmark_helper() {}\n",
+		)
+		.expect("write bench fixture");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refresh, ProtocolResponse::Command(_)));
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
+				shape: vec!["callable".to_string()],
+				..Default::default()
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page {
+				cursor: None,
+				limit: 1,
+			},
+		})));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected query response");
+		};
+		let QueryResult::SymbolList(list) = response.result else {
+			panic!("expected symbol list, got {:?}", response.result);
+		};
+
+		assert_eq!(list.rows.len(), 1);
+		assert_eq!(
+			list.rows[0].name, "production_entry()",
+			"production symbols must precede test symbols on the default page"
+		);
 	}
 
 	#[test]

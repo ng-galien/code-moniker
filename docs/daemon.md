@@ -27,9 +27,12 @@ params/results.
 ```
 code-moniker daemon start  [roots...] [--project N] [--cache DIR] [--live-refresh on-demand|auto] [--supervisor-pid PID]
 code-moniker daemon status [roots...]
+code-moniker daemon status --daemon <ENDPOINT>
 code-moniker daemon stop   [roots...]
+code-moniker daemon stop   --daemon <ENDPOINT>
 code-moniker daemon list
 code-moniker query [-r root] "<DSL>" [--json]
+code-moniker query --daemon <ENDPOINT> "<DSL>" [--json]
 ```
 
 `daemon start` runs in the foreground and does not report `index ready` until
@@ -37,6 +40,22 @@ the workspace is registered and available for queries. Clients auto-spawn a
 background daemon via `connect_or_start`; concurrent clients share its atomic
 registry claim rather than creating competing processes. `query` field syntax is positional for the URI, e.g.
 `code-moniker query "view.read workspace/views"`.
+
+The execution source is explicit:
+
+- `code-moniker check <path>` evaluates the current filesystem in one shot.
+- `code-moniker query --daemon <ENDPOINT> "rules.check ..."` evaluates the
+  indexed snapshot owned by that exact daemon. Obtain the endpoint from
+  `code-moniker daemon list`.
+
+`--daemon` is a direct process target, not a workspace lookup hint. It is
+mutually exclusive with `--root`, `--project`, `--cache`, and
+`--live-refresh`; it never starts another daemon and never falls back to a
+filesystem check. The same endpoint directly targets `daemon status` and
+`daemon stop`. An ambient `CODE_MONIKER_CACHE_DIR` only contributes to
+workspace-identity selection and does not alter an explicit endpoint target.
+The rules TOML is loaded for the current request while the source corpus and
+linkage graph remain pinned to the response `generation`.
 
 `--supervisor-pid` binds the daemon lifetime to another process. Automatic
 launchers also pass a private inherited liveness channel: EOF stops the daemon
@@ -165,8 +184,10 @@ root daemon can still be diagnosed and removed safely.
 `daemon status` distinguishes a daemon that is `indexing`, a `ready` daemon, a
 live PID with an unreachable endpoint (`stale registry`), and a dead PID (whose
 registry entry is removed). `daemon list` also purges dead-PID entries. A status
-for a workspace reports any concurrent daemon rooted at an ancestor or child
-directory, such as `/trust` and `/trust/apps/trust`.
+for a ready workspace reports its current indexed `generation` and any
+concurrent daemon rooted at an ancestor or child directory, such as `/trust`
+and `/trust/apps/trust`. The endpoint printed by `daemon list` is the canonical
+selector accepted by `query --daemon`.
 
 ## Live refresh
 

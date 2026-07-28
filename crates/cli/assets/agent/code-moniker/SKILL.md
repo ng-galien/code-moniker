@@ -1,6 +1,17 @@
 ---
 name: code-moniker
-description: Explore and diagnose any codebase through code-moniker's symbolic index, using the best installed surface (MCP tools when configured, otherwise the local binary). ALWAYS use this before grep/Glob/Read exploration when the question involves architecture, module structure, coupling or dependencies between parts, call graphs, callers/callees, impact of a change, code smells, refactor targets, or codebase health — manual exploration produces impressions, code-moniker produces counted facts (coupling edges with counts, ranked violations) in fewer calls. Typical requests, in any language: map the architecture, architecture or module overview, dependency graph, strongest or heaviest couplings, who calls or uses X, impact of changing X, where to refactor, is this codebase healthy, review this diff structurally. Zero project configuration on any ts/rs/java/python/go/cs/sql project.
+description: >-
+  Explore and diagnose any codebase through code-moniker's symbolic index,
+  using MCP tools when configured and otherwise the local binary. ALWAYS use
+  this before grep/Glob/Read for architecture, module structure, coupling,
+  dependencies, call graphs, callers/callees, change impact, code smells,
+  refactor targets, codebase health, structural diff review, or interpretation
+  of Code Moniker check, hook, MCP, and daemon output. First identify the exact
+  execution surface; never infer daemon caching or incremental behavior from
+  CLI or hook output. Typical requests include mapping architecture, finding
+  heavy coupling, tracing calls, assessing a refactor, reviewing structural
+  changes, or explaining why a check scanned zero files. Zero project
+  configuration on ts/rs/java/python/go/cs/sql projects.
 ---
 
 # code-moniker
@@ -54,6 +65,30 @@ If the MCP is wired, responds, and lacks a required read-only capability,
 report a parity defect. That is different from an installation without MCP:
 the latter must use the binary normally. Do not silently fall back to the
 daemon.
+
+## Establish output provenance before diagnosis
+
+Treat CLI, hook, MCP, and daemon output as evidence from different execution
+paths. Before naming a cache, invalidation, incremental, or stale-state bug,
+record the producer, exact command or tool arguments, workspace and file scope,
+rules source, and triggering event. If any of those are unknown, label the
+diagnosis as a hypothesis and reproduce it; do not assign it to the daemon.
+
+| Producer | Runtime contract | What an empty or changed result proves |
+|---|---|---|
+| Direct `code-moniker check` | Starts a one-shot filesystem check and loads the selected rules for that invocation. It does not query a running daemon. | Only that command, rules source, and scope. With `--file`, zero matching files is an intentional filtered result. |
+| Generated agent hook | Reads the current write-tool payload, keeps existing touched paths, exits `0` before invoking `check` when none remain, otherwise runs direct `check <scope> --file ...`. | Silence or zero files can describe the tool payload; it does not prove cached rules, a workspace verdict, or daemon state. |
+| `code_moniker_*` MCP tool | Queries the verified MCP workspace through its daemon-backed indexed surface. `code_moniker_rules action:"run"` loads the requested rules now and evaluates the source corpus pinned to the reported daemon generation. | Only the requested MCP scope at the reported workspace generation. Verify `expected_roots` before interpreting it. |
+| `code-moniker query --daemon <ENDPOINT>` | Targets the exact daemon endpoint printed by `daemon list`; it never starts another daemon and never falls back to the filesystem. `rules.check` evaluates that daemon's pinned indexed corpus. | The response belongs to the selected daemon and its reported generation. |
+| Daemon client, TUI, or extension | Uses an explicitly daemon-backed consumer and its indexed generation. | Daemon invalidation is a candidate only after this path and its generation are confirmed. |
+
+Reproduce on the surface under suspicion. For a rules-file invalidation claim,
+run the exact direct CLI command twice, changing only that rules file, and
+capture both exit codes and reports. For a hook claim, replay the actual hook
+payload or generated hook. Compare full checks only with full checks and
+file-scoped checks only with file-scoped checks. A differently named
+`--rules` file is standalone; only the canonical `.code-moniker.toml` root
+discovers `code-moniker.fragment.toml` descendants.
 
 ## Quick start on an unknown repo
 

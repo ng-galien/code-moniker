@@ -1575,6 +1575,23 @@ pub struct SymbolDto {
 	pub source: Option<SourceSnippet>,
 }
 
+pub fn symbol_is_test_artifact(kind: &str, file: &str, uri: &str) -> bool {
+	kind == "test"
+		|| uri
+			.split('/')
+			.any(|segment| matches!(segment, "module:test" | "module:tests"))
+		|| file.split(['/', '\\']).any(|component| {
+			matches!(
+				component,
+				"test"
+					| "tests" | "bench"
+					| "benches" | "fixture"
+					| "fixtures" | "testdata"
+					| "__tests__"
+			)
+		})
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolInsightsResult {
@@ -1740,6 +1757,7 @@ pub struct ChangeContextCoverageDto {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckResult {
+	pub verdict: RulesCheckVerdict,
 	pub exit: String,
 	pub summary: CheckSummaryDto,
 	pub roots: Vec<RulesCheckRootResult>,
@@ -1753,12 +1771,40 @@ pub struct RulesCheckResult {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckRootResult {
 	pub root: String,
+	pub verdict: RulesCheckVerdict,
 	pub exit: String,
 	pub summary: CheckSummaryDto,
 	pub violations: Vec<ViolationDto>,
 	pub errors: Vec<FileErrorDto>,
 	pub rule_reports: Vec<RuleReportDto>,
 	pub skip_reason: Option<CheckSkipReasonDto>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RulesCheckVerdict {
+	Pass,
+	Fail,
+	Error,
+}
+
+impl RulesCheckVerdict {
+	pub fn from_exit(exit: &str) -> Self {
+		match exit {
+			"match" => Self::Pass,
+			"no_match" => Self::Fail,
+			_ => Self::Error,
+		}
+	}
+
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Pass => "pass",
+			Self::Fail => "fail",
+			Self::Error => "error",
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -2744,9 +2790,27 @@ fn format_context_graph(out: &mut String, graph: &SymbolGraphResult) {
 				)
 			})
 			.collect();
+		let unlisted_labels: BTreeMap<&str, String> = graph
+			.internal_edges
+			.iter()
+			.flat_map(|edge| [edge.source.as_str(), edge.target.as_str()])
+			.filter(|endpoint| {
+				endpoint.starts_with("symbol:") && !member_labels.contains_key(endpoint)
+			})
+			.collect::<std::collections::BTreeSet<_>>()
+			.into_iter()
+			.enumerate()
+			.map(|(index, endpoint)| {
+				(
+					endpoint,
+					format!("unlisted internal member {}", index.saturating_add(1)),
+				)
+			})
+			.collect();
 		let endpoint_label = |endpoint: &str| {
 			member_labels
 				.get(endpoint)
+				.or_else(|| unlisted_labels.get(endpoint))
 				.cloned()
 				.unwrap_or_else(|| endpoint.to_string())
 		};
@@ -3179,6 +3243,7 @@ fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
 }
 
 fn format_rules_check(out: &mut String, result: &RulesCheckResult) {
+	let _ = writeln!(out, "verdict: {}", result.verdict.as_str());
 	let _ = writeln!(out, "exit: {}", result.exit);
 	let _ = writeln!(
 		out,
@@ -3948,6 +4013,12 @@ mod tests {
 					kinds: vec!["reads".to_string()],
 					count: 1,
 				},
+				SymbolGraphEdge {
+					source: "symbol:98:8".to_string(),
+					target: "symbol:99:9".to_string(),
+					kinds: vec!["calls".to_string()],
+					count: 1,
+				},
 			],
 			callers: Vec::new(),
 			callees: Vec::new(),
@@ -3960,8 +4031,16 @@ mod tests {
 			"internal edges must join member names, got:\n{out}"
 		);
 		assert!(
-			out.contains("- fn alpha() -> symbol:99:9 x1 [reads]"),
-			"unknown endpoints must keep the raw id, got:\n{out}"
+			out.contains("- fn alpha() -> unlisted internal member 2 x1 [reads]"),
+			"bounded contexts must explain omitted endpoints, got:\n{out}"
+		);
+		assert!(
+			out.contains("- unlisted internal member 1 -> unlisted internal member 2 x1 [calls]"),
+			"distinct omitted members must preserve the graph topology, got:\n{out}"
+		);
+		assert!(
+			!out.contains("symbol:98:8") && !out.contains("symbol:99:9"),
+			"internal storage ordinals must not leak into agent output:\n{out}"
 		);
 	}
 }

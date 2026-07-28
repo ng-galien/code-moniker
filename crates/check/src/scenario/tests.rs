@@ -180,3 +180,45 @@ fn unknown_front_matter_keys_and_bad_expects_fail_with_line_numbers() {
 	let error = Scenario::parse(bad_expect).expect_err("bad expect");
 	assert_eq!(error.line, 2);
 }
+
+#[test]
+fn rejects_a_rule_declared_as_both_demonstrated_and_undemonstrated() {
+	for directives in [
+		"verdict workspace.path.boundary = pass\n! workspace.path.boundary cannot be demonstrated",
+		"! workspace.path.boundary cannot be demonstrated\nverdict workspace.path.boundary = pass",
+	] {
+		let document = format!("```cm:expect\n{directives}\n```\n");
+		let error = Scenario::parse(&document).expect_err("contradictory directives");
+		assert_eq!(error.line, 3);
+		assert!(error.message.contains("both"));
+		assert!(error.message.contains("workspace.path.boundary"));
+	}
+}
+
+#[test]
+fn workspace_path_scenario_checks_exact_rule_verdicts() {
+	let document = include_str!("../../../../samples/catalog/workspace-path.cm.md");
+	let scenario = Scenario::parse(document).expect("parse workspace path scenario");
+	assert_eq!(scenario.verdicts.len(), 4);
+	let run = scenario
+		.run(std::path::Path::new("."), "code+moniker://")
+		.expect("run workspace path scenario");
+	assert!(run.is_match(), "mismatch:\n{}", run.mismatch_summary());
+
+	let wrong = document.replace(
+		"verdict workspace.path.short-budget-is-inconclusive = inconclusive",
+		"verdict workspace.path.short-budget-is-inconclusive = pass",
+	);
+	let scenario = Scenario::parse(&wrong).expect("parse wrong verdict");
+	let run = scenario
+		.run(std::path::Path::new("."), "code+moniker://")
+		.expect("run wrong verdict");
+	assert!(!run.is_match());
+	assert_eq!(run.verdict_mismatches.len(), 1);
+	assert!(
+		run.mismatch_summary()
+			.contains("workspace.path.short-budget-is-inconclusive")
+	);
+	assert!(run.mismatch_summary().contains("expected pass"));
+	assert!(run.mismatch_summary().contains("actual inconclusive"));
+}

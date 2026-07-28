@@ -527,6 +527,42 @@ fn rust_multiproject_canonicalizes_mod_rs_modules() {
 }
 
 #[test]
+fn rust_cross_crate_import_resolves_public_mod_rs_reexport() {
+	let snapshot = load_workspace("projects/rust/reexport-mod-cross-crate");
+
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:public_api/path:api/path:SharedModel",
+		"dir:public-api/dir:src/module:api/module:model/struct:SharedModel",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:public_api/path:api/path:AliasedModel",
+		"dir:public-api/dir:src/module:api/module:model/struct:SharedModel",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:public_api/path:api/path:DeepModel",
+		"dir:public-api/dir:src/module:api/module:model/struct:DeepModel",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:public_api/path:model_facade/path:NestedModel",
+		"dir:inner-model/dir:src/module:lib/module:models/struct:NestedModel",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:public_api/path:facade/path:ExternalModel",
+		"dir:inner-model/dir:src/module:lib/struct:ExternalModel",
+	);
+}
+
+#[test]
 fn rust_qualified_calls_do_not_match_unrelated_same_arity_callables() {
 	let snapshot = load_workspace("projects/rust/qualified-call-collision");
 

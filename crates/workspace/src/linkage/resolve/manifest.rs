@@ -42,6 +42,46 @@ struct ManifestEntryLocation {
 	entry: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::linkage) enum GlobalTargetAuthority {
+	Direct,
+	Forwarded,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::linkage) struct GlobalTargetQueries<'a> {
+	pub candidate: &'a LinkageQuery<'a>,
+	pub authority: &'a LinkageQuery<'a>,
+}
+
+impl GlobalTargetAuthority {
+	fn external_dependency(
+		self,
+		policy: &ManifestPolicy,
+		authority_query: &LinkageQuery<'_>,
+	) -> Option<bool> {
+		let declared = policy.can_classify_as_declared_external(authority_query);
+		match self {
+			Self::Direct => Some(declared),
+			Self::Forwarded => declared.then_some(false),
+		}
+	}
+
+	fn permission(
+		self,
+		policy: &ManifestPolicy,
+		candidate_query: &LinkageQuery<'_>,
+		declared: &impl Fn(usize) -> Option<LinkPermission>,
+		candidate: &crate::linkage::catalog::LinkageCandidate<'_>,
+	) -> Option<LinkPermission> {
+		match self {
+			Self::Direct => candidate_permission(policy, candidate_query, declared, candidate),
+			Self::Forwarded => candidate_matches_query(policy, candidate_query, candidate)
+				.then(|| declared(candidate.source_file).unwrap_or(LinkPermission::Allowed)),
+		}
+	}
+}
+
 impl ManifestPolicy {
 	pub(in crate::linkage) fn build(material: &CodeIndexMaterial) -> Self {
 		let mut policy = Self::default();
@@ -57,20 +97,27 @@ impl ManifestPolicy {
 
 	pub(in crate::linkage) fn evaluate_global_targets(
 		&self,
-		query: &LinkageQuery<'_>,
+		queries: GlobalTargetQueries<'_>,
 		candidates: SymbolSet,
 		catalog: &CandidateCatalog,
 		declared: impl Fn(usize) -> Option<LinkPermission>,
+		authority: GlobalTargetAuthority,
 	) -> GlobalTargetPolicy {
+		let Some(external_dependency) = authority.external_dependency(self, queries.authority)
+		else {
+			return GlobalTargetPolicy::default();
+		};
 		let mut policy = GlobalTargetPolicy {
-			external_dependency: self.can_classify_as_declared_external(query),
+			external_dependency,
 			..GlobalTargetPolicy::default()
 		};
 		for symbol in candidates.iter() {
 			let Some(candidate) = catalog.candidate(symbol) else {
 				continue;
 			};
-			let Some(permission) = candidate_permission(self, query, &declared, &candidate) else {
+			let Some(permission) =
+				authority.permission(self, queries.candidate, &declared, &candidate)
+			else {
 				continue;
 			};
 			match permission {
@@ -263,13 +310,26 @@ fn candidate_permission(
 	declared: &impl Fn(usize) -> Option<LinkPermission>,
 	candidate: &crate::linkage::catalog::LinkageCandidate<'_>,
 ) -> Option<LinkPermission> {
+	if !candidate_matches_query(policy, query, candidate) {
+		return None;
+	}
+	Some(declared(candidate.source_file).unwrap_or_else(|| {
+		policy.source_can_link_to_file(query.material, query.source_file, candidate.source_file)
+	}))
+}
+
+fn candidate_matches_query(
+	policy: &ManifestPolicy,
+	query: &LinkageQuery<'_>,
+	candidate: &crate::linkage::catalog::LinkageCandidate<'_>,
+) -> bool {
 	if let Some(import_root) = external_import_root(query)
 		&& let Some(target_entry) = policy.entry_for_file(candidate.source_file)
 		&& let Some(lib) = &target_entry.rust_lib
 		&& lib.import_root == import_root
 		&& !language::rust_external_crate_target_matches_def(query, candidate, &lib.path)
 	{
-		return None;
+		return false;
 	}
 	if let Some(import_root) = external_import_root(query)
 		&& !c_libc_symbol_may_be_overridden(query, import_root)
@@ -278,11 +338,9 @@ fn candidate_permission(
 			candidate.source_file,
 			import_root,
 		) {
-		return None;
+		return false;
 	}
-	Some(declared(candidate.source_file).unwrap_or_else(|| {
-		policy.source_can_link_to_file(query.material, query.source_file, candidate.source_file)
-	}))
+	true
 }
 
 fn c_libc_symbol_may_be_overridden(query: &LinkageQuery<'_>, import_root: &str) -> bool {

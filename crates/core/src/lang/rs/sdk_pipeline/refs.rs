@@ -1464,6 +1464,11 @@ fn external_import_refs(scope: &Moniker, node: Node<'_>, leaf: &ImportLeaf) -> V
 		kinds::CONF_EXTERNAL,
 		node,
 	));
+	if let Some(alias) = leaf.alias.as_ref()
+		&& let Some(reference) = refs.last_mut()
+	{
+		reference.hints.alias = alias.clone();
+	}
 	refs
 }
 
@@ -1519,6 +1524,11 @@ fn local_import_refs(
 		kinds::CONF_IMPORTED,
 		node,
 	));
+	if let Some(alias) = leaf.alias.as_ref()
+		&& let Some(reference) = refs.last_mut()
+	{
+		reference.hints.alias = alias.clone();
+	}
 	refs
 }
 

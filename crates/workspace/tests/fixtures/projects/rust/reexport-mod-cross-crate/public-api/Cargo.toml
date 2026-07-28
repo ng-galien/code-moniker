@@ -1,0 +1,11 @@
+[package]
+name = "public-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+inner-model = { path = "../inner-model" }
+
+[lib]
+name = "public_api"
+path = "src/lib.rs"

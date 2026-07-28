@@ -261,6 +261,7 @@ export type ViewReadResult =
       summary?: string | null;
       title?: string | null;
     };
+export type RulesCheckVerdict = "pass" | "fail" | "error";
 export type SymbolGraphFocus =
   | {
       kind: "symbol";
@@ -572,17 +573,22 @@ export interface RulesListResult {
   total: number;
 }
 export interface RuleDto {
+  capabilities: string[];
   domain: string;
   expanded_expr: string;
   expr: string;
+  group_by?: string[];
   id: string;
   kind?: string | null;
   lang: string;
   message?: string | null;
+  plan: string;
   rationale?: string | null;
   require_doc_comment?: string | null;
   root: string;
+  rule_root: string;
   severity: string;
+  subject: string;
 }
 export interface RulesCheckResult {
   errors: FileErrorDto[];
@@ -591,6 +597,7 @@ export interface RulesCheckResult {
   rule_reports: RuleReportDto[];
   skip_reasons: CheckSkipReasonDto[];
   summary: CheckSummaryDto;
+  verdict: RulesCheckVerdict;
   violations: ViolationDto[];
 }
 export interface FileErrorDto {
@@ -605,19 +612,68 @@ export interface RulesCheckRootResult {
   rule_reports: RuleReportDto[];
   skip_reason?: CheckSkipReasonDto | null;
   summary: CheckSummaryDto;
+  verdict: RulesCheckVerdict;
   violations: ViolationDto[];
 }
 export interface RuleReportDto {
   antecedent_matches?: number | null;
+  coverage?: RuleCoverageDto | null;
   domain: string;
   evaluated: number;
+  inconclusive?: number | null;
   matches: number;
   path?: string | null;
+  path_analysis?: RulePathReportDto | null;
   root: string;
   rule_id: string;
   severity: string;
+  verdict?: string | null;
   violations: number;
   warning?: string | null;
+}
+export interface RuleCoverageDto {
+  blocked: number;
+  candidate: number;
+  decided: number;
+  dynamic: number;
+  external: number;
+  min_percent: number;
+  percent: number;
+  resolved: number;
+  total: number;
+  unresolved: number;
+}
+export interface RulePathReportDto {
+  depth_limit_reached: boolean;
+  edge_limit_reached: boolean;
+  evaluated_pairs: number;
+  expectation: string;
+  explored_edges: number;
+  explored_symbols: number;
+  max_depth: number;
+  max_edges: number;
+  max_pairs: number;
+  max_symbols: number;
+  min_coverage: number;
+  pair_limit_reached: boolean;
+  reasons: string[];
+  relation: string[];
+  source_symbols: number;
+  symbol_limit_reached: boolean;
+  target_symbols: number;
+  witness: RulePathStepDto[];
+}
+export interface RulePathStepDto {
+  file: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  line_range?: [number, number] | null;
+  reference: string;
+  relation: string;
+  source: string;
+  target: string;
 }
 export interface CheckSkipReasonDto {
   reason: string;

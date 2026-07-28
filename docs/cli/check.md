@@ -216,7 +216,35 @@ of silently passing. Excluded files are removed from the active workspace
 bitmap and cannot be subjects or intermediate path vertices.
 
 See [`check-dsl`](check-dsl.md#workspace-roots) for group syntax, defaults,
-coverage semantics, and report fields.
+coverage semantics, and report fields. The executable catalog demonstrates
+all three workspace roots:
+
+- [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) for
+  inventory-wide placement;
+- [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) for
+  stable uniqueness buckets;
+- [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) for
+  bounded transitive architecture paths, witnesses, safe absence, and an
+  intentionally inconclusive budget.
+
+### Why run workspace rules on a hot index
+
+An ad-hoc rules file can be evaluated against the daemon's current
+`daemon_index` generation without rebuilding or replacing that corpus. This
+turns the live index into an architecture-rule workbench:
+
+- prohibit a transitive dependency and inspect its minimal witness;
+- require an entry point to reach a use case or domain policy;
+- prove the absence of a path only when traversal and linkage coverage are
+  complete;
+- test inventory placement, uniqueness groups, and linked fan-in/fan-out
+  budgets on the same generation.
+
+Use MCP `code_moniker_rules` with `action:"run"` and `rules:"<path>"`, or
+target the exact endpoint returned by `code-moniker daemon list` with
+`rules.check`. The result identifies `corpus: daemon_index`, the selected
+generation, and the rule verdicts. The rules file is reloaded for each
+request; the indexed sources and linkage remain pinned to that generation.
 
 ## Configuration
 
@@ -320,7 +348,9 @@ rule intent are visible without running a check.
 Large projects can split local rule policy into colocated fragments. The
 root `.code-moniker.toml` stays the global entrypoint; when it exists,
 `check` also discovers every `code-moniker.fragment.toml` below the same
-directory and merges enabled fragments after the root file.
+directory and merges enabled fragments after the root file. A differently
+named file passed with `--rules` is standalone and never turns its parent
+directory into an implicit fragment root.
 
 Each fragment must declare a stable id:
 
@@ -586,11 +616,12 @@ code-moniker extract src/order.ts --format tree
 
 ## Recipes
 
-The recipes cover direct dependency boundaries, external framework imports,
-class-size budgets, naming/location contracts, implementation contracts,
-test-only fixtures, doc comments, profiles, and suppressions. The DSL does
-not compute transitive dependency closure or cycles; use SQL over an
-ingested `code_graph` for those corpus-level checks.
+The recipes cover direct and bounded transitive dependency boundaries,
+external framework imports, class-size budgets, naming/location contracts,
+implementation contracts, test-only fixtures, doc comments, profiles, and
+suppressions. `workspace.path` computes confidence-aware bounded paths over
+the linked index. SCC/cycle rules, unbounded closure, dataflow and historical
+analysis still require another analysis surface.
 
 For copyable language-specific starting points, see the commented TOML
 samples:
@@ -599,6 +630,9 @@ samples:
 | -------- | ------ |
 | Architecture patterns | [architecture.cm.md](../../samples/catalog/architecture.cm.md) |
 | Test guardrails | [test-guardrails.cm.md](../../samples/catalog/test-guardrails.cm.md) |
+| Workspace symbol inventory | [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) |
+| Workspace grouping and uniqueness | [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) |
+| Transitive workspace paths | [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) |
 | TypeScript / JavaScript | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
 | Rust | [rust.cm.md](../../samples/catalog/rust.cm.md) |
 | Java | [java.cm.md](../../samples/catalog/java.cm.md) |
@@ -639,8 +673,27 @@ expr = """
 ```
 
 This catches direct refs from `application` to forbidden layers, or from
-`domain` to anything outside `domain`. It does not flag an indirect path
-such as `domain -> application -> infrastructure`.
+`domain` to anything outside `domain`. For a boundary that must also reject
+an indirect path such as `domain -> application -> infrastructure`, use the
+linked workspace root:
+
+```toml
+[[workspace.path]]
+id = "domain-must-not-reach-infrastructure"
+from = "uri ~ '**/dir:domain/**' AND shape = 'callable'"
+to = "uri ~ '**/dir:infrastructure/**'"
+expect = "no_path"
+relation = ["calls", "method_call"]
+max_depth = 12
+max_symbols = 10000
+max_edges = 50000
+max_pairs = 10000
+min_coverage = 99
+message = "Domain reaches infrastructure through {path}."
+```
+
+The complete executable example is
+[workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md).
 
 ### Framework imports stay out of domain
 

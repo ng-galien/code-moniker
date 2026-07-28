@@ -12,8 +12,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use code_moniker_daemon_client::{
-	DaemonClient, DaemonRegistryEntry, config_from_roots, read_registry_entry,
-	registry_path_for_config, remove_registry_entry_if_own,
+	DaemonClient, DaemonRegistryEntry, config_from_roots, daemon_workspace_config,
+	read_registry_entry, registry_path_for_config, remove_registry_entry_if_own,
 };
 use code_moniker_query::write_registry_entry;
 
@@ -110,6 +110,184 @@ fn supervised_daemon_exits_and_cleans_registry_when_supervisor_dies() {
 			.expect("final registry read")
 			.is_none(),
 		"supervised daemon left a registry entry behind"
+	);
+}
+
+#[test]
+fn query_targets_the_exact_registered_daemon_endpoint() {
+	let _lifecycle = lifecycle_test_lock();
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let config = config_from_roots([root.clone()]).expect("daemon config");
+	let mut supervisor = spawn_supervisor();
+	let mut daemon = spawn_supervised_daemon(&root, supervisor.child_mut().id());
+	wait_for_ready_registry(&config, daemon.child_mut().id(), Duration::from_secs(15));
+	let endpoint = read_registry_entry(&config)
+		.expect("registry read")
+		.expect("registered daemon")
+		.endpoint;
+
+	assert_exact_daemon_query_surface(workspace.path(), &root, &endpoint);
+	stop_daemon_endpoint(workspace.path(), &endpoint);
+	wait_for_exit(daemon.child_mut(), Duration::from_secs(15));
+	assert!(daemon.wait().expect("reap daemon").success());
+	wait_for_registry_removal(&config, Duration::from_secs(2));
+	assert_missing_endpoint_has_no_fallback(&config, &endpoint);
+
+	supervisor.child_mut().kill().expect("terminate supervisor");
+	supervisor.wait().expect("reap supervisor");
+}
+
+#[test]
+fn daemon_identity_control_uses_the_ambient_cache_directory() {
+	let _lifecycle = lifecycle_test_lock();
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let cache = workspace.path().join("cache");
+	let config = daemon_workspace_config(
+		[root.clone()],
+		None,
+		Some(cache.clone()),
+		Some("on-demand".to_string()),
+	)
+	.expect("daemon config");
+	let mut supervisor = spawn_supervisor();
+	let mut daemon = spawn_cached_supervised_daemon(&root, &cache, supervisor.child_mut().id());
+	wait_for_ready_registry(&config, daemon.child_mut().id(), Duration::from_secs(15));
+
+	for command in ["status", "stop"] {
+		let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["daemon", command])
+			.arg(&root)
+			.env("CODE_MONIKER_CACHE_DIR", &cache)
+			.output()
+			.expect("daemon identity control");
+		assert!(
+			output.status.success(),
+			"daemon {command}: {}\nstdout:\n{}\nstderr:\n{}",
+			output.status,
+			String::from_utf8_lossy(&output.stdout),
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+	wait_for_exit(daemon.child_mut(), Duration::from_secs(15));
+	assert!(daemon.wait().expect("reap daemon").success());
+	wait_for_registry_removal(&config, Duration::from_secs(2));
+	supervisor.child_mut().kill().expect("terminate supervisor");
+	supervisor.wait().expect("reap supervisor");
+}
+
+fn assert_exact_daemon_query_surface(workspace: &Path, root: &Path, endpoint: &str) {
+	let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["query", "--daemon", endpoint, "workspace.status"])
+		.env("CODE_MONIKER_CACHE_DIR", workspace.join("ambient-cache"))
+		.output()
+		.expect("query exact daemon endpoint");
+
+	assert!(
+		output.status.success(),
+		"query status: {}\nstdout:\n{}\nstderr:\n{}",
+		output.status,
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(
+		String::from_utf8_lossy(&output.stdout).contains(&root.display().to_string()),
+		"query must answer for the selected daemon: {}",
+		String::from_utf8_lossy(&output.stdout)
+	);
+
+	let rules = workspace.join("scratch-rules.toml");
+	std::fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[java.class.where]]
+id = "endpoint-index-is-pinned"
+expr = "name != 'App'"
+message = "the selected daemon generation must remain the source corpus"
+"#,
+	)
+	.expect("rules fixture");
+	std::fs::write(workspace.join("App.java"), "class Changed {}\n")
+		.expect("change filesystem source");
+	let rules_query = format!(
+		r#"rules.check rules:"{}" consistency:stale-ok"#,
+		rules.display()
+	);
+	let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["query", "--daemon", endpoint, "--json", &rules_query])
+		.output()
+		.expect("rules check exact daemon endpoint");
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	assert!(
+		output.status.success(),
+		"rules query status: {}\nstdout:\n{stdout}\nstderr:\n{}",
+		output.status,
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(
+		stdout.contains("java.class.endpoint-index-is-pinned"),
+		"rules must observe the pinned indexed App class: {stdout}"
+	);
+	assert!(
+		stdout.contains("\"generation\": 1"),
+		"response must identify the selected index generation: {stdout}"
+	);
+
+	let status = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["daemon", "status", "--daemon", endpoint])
+		.env("CODE_MONIKER_CACHE_DIR", workspace.join("ambient-cache"))
+		.output()
+		.expect("status exact daemon endpoint");
+	let status_stdout = String::from_utf8_lossy(&status.stdout);
+	assert!(
+		status.status.success(),
+		"daemon status: {}\nstdout:\n{status_stdout}\nstderr:\n{}",
+		status.status,
+		String::from_utf8_lossy(&status.stderr)
+	);
+	assert!(status_stdout.contains(&format!("endpoint: {endpoint}")));
+	assert!(status_stdout.contains("generation: 1"));
+}
+
+fn stop_daemon_endpoint(workspace: &Path, endpoint: &str) {
+	let stopped = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["daemon", "stop", "--daemon", endpoint])
+		.env("CODE_MONIKER_CACHE_DIR", workspace.join("ambient-cache"))
+		.output()
+		.expect("stop exact daemon endpoint");
+	assert!(
+		stopped.status.success(),
+		"daemon stop: {}\nstdout:\n{}\nstderr:\n{}",
+		stopped.status,
+		String::from_utf8_lossy(&stopped.stdout),
+		String::from_utf8_lossy(&stopped.stderr)
+	);
+}
+
+fn assert_missing_endpoint_has_no_fallback(
+	config: &code_moniker_query::DaemonWorkspaceConfig,
+	endpoint: &str,
+) {
+	let missing = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["query", "--daemon", endpoint, "workspace.status"])
+		.output()
+		.expect("query removed daemon endpoint");
+	assert!(!missing.status.success(), "missing daemon must fail closed");
+	assert!(
+		String::from_utf8_lossy(&missing.stderr).contains("no daemon registered at endpoint"),
+		"unexpected missing-daemon error: {}",
+		String::from_utf8_lossy(&missing.stderr)
+	);
+	assert!(
+		read_registry_entry(config)
+			.expect("registry after failed direct query")
+			.is_none(),
+		"an exact endpoint miss must not auto-start or register a replacement"
 	);
 }
 
@@ -373,6 +551,22 @@ fn spawn_supervised_daemon(root: &Path, supervisor_pid: u32) -> ChildGuard {
 			.stderr(Stdio::null())
 			.spawn()
 			.expect("spawn supervised daemon"),
+	))
+}
+
+fn spawn_cached_supervised_daemon(root: &Path, cache: &Path, supervisor_pid: u32) -> ChildGuard {
+	ChildGuard(Some(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["daemon", "start"])
+			.arg(root)
+			.args(["--cache"])
+			.arg(cache)
+			.args(["--supervisor-pid", &supervisor_pid.to_string()])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.spawn()
+			.expect("spawn cached supervised daemon"),
 	))
 }
 

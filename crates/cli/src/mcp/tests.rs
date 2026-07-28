@@ -1299,6 +1299,8 @@ fn rules_tool_runs_check_on_workspace() {
 	assert!(!result.is_error);
 	assert!(result.text.contains("uri: code+moniker://workspace/rules"));
 	assert!(result.text.contains("action: run"));
+	assert!(result.text.contains("corpus: daemon_index"));
+	assert!(result.text.contains("generation: 1"));
 	assert!(result.text.contains("exit: match"));
 	assert!(result.text.contains("report:"));
 }
@@ -1399,6 +1401,8 @@ fn rules_tool_distinguishes_rule_errors_from_scan_errors() {
 		.expect("rules run");
 
 	assert!(!result.is_error);
+	assert!(result.text.contains("verdict: fail"), "{}", result.text);
+	assert!(result.text.contains("exit: no_match"), "{}", result.text);
 	assert!(
 		result
 			.text
@@ -1793,6 +1797,62 @@ fn symbols_tool_filters_and_pages_symbols() {
 	assert!(text.contains("name=\"^r\""), "{text}");
 	assert!(text.contains("cursor=1"), "{text}");
 	assert!(!text.contains("code_moniker_read"), "{text}");
+}
+
+#[test]
+fn symbols_tool_lists_production_before_tests() {
+	let bench_source_id = SourceId::at(1);
+	let production_source_id = SourceId::at(2);
+	let sources = vec![
+		source_file(bench_source_id.clone(), "benches/speed.rs", "rs"),
+		source_file(production_source_id.clone(), "src/lib.rs", "rs"),
+	];
+	let symbols = vec![
+		symbol_record(
+			SymbolId::at(1, 1),
+			bench_source_id,
+			"code+moniker://./lang:rs/dir:benches/module:speed/fn:benchmark_helper()",
+			"benchmark_helper()",
+			"fn",
+			Some((2, 3)),
+		),
+		symbol_record(
+			SymbolId::at(2, 1),
+			production_source_id.clone(),
+			"code+moniker://./lang:rs/module:tests/fn:helper()",
+			"helper()",
+			"fn",
+			Some((2, 3)),
+		),
+		symbol_record(
+			SymbolId::at(2, 2),
+			production_source_id,
+			"code+moniker://./lang:rs/module:lib/fn:production_entry()",
+			"production_entry()",
+			"fn",
+			Some((8, 9)),
+		),
+	];
+	let text = render_symbols_lmnav(
+		"code+moniker://",
+		"workspace",
+		&SymbolScopeFilter::from_arguments(&json!({"shape": "callable"})).unwrap(),
+		Paging {
+			cursor: 0,
+			generation: None,
+			limit: 1,
+		},
+		SymbolIndexView {
+			sources: &sources,
+			symbols: &symbols,
+			references: &[],
+		},
+		SymbolAction::List,
+	);
+
+	assert!(text.contains("production_entry()"), "{text}");
+	assert!(!text.contains("benchmark_helper()"), "{text}");
+	assert!(!text.contains("helper()"), "{text}");
 }
 
 #[test]

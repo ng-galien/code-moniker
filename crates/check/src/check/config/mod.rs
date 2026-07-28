@@ -1701,6 +1701,32 @@ mod tests {
 	}
 
 	#[test]
+	fn scratch_rules_file_does_not_discover_sibling_fragments() {
+		let dir = tempfile::tempdir().unwrap();
+		let scratch_rules = dir.path().join("workspace-path-dogfood.toml");
+		std::fs::write(&scratch_rules, "default_rules = false\n").unwrap();
+		for relative in ["first", "second"] {
+			write_fragment(
+				dir.path(),
+				relative,
+				r#"
+				fragment = "duplicate"
+
+				[[rust.fn.where]]
+				id = "parked"
+				expr = "lines <= 10"
+				"#,
+			);
+		}
+
+		let cfg = load_with_options(Some(&scratch_rules), false)
+			.expect("an explicit scratch rules file is standalone");
+
+		assert!(cfg.fragments.is_empty());
+		assert!(cfg.rust.kinds.is_empty());
+	}
+
+	#[test]
 	fn user_config_can_disable_embedded_default_rules() {
 		let dir = tempfile::tempdir().unwrap();
 		let p = dir.path().join(".code-moniker.toml");

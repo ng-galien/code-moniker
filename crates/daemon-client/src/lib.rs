@@ -77,6 +77,12 @@ impl DaemonClient {
 		connect_entry(config, entry)
 	}
 
+	pub fn connect_endpoint(endpoint: &str) -> anyhow::Result<Self> {
+		let entry = registry_entry_for_endpoint(endpoint)?;
+		let config = config_from_registry_entry(&entry);
+		connect_entry(config, entry)
+	}
+
 	pub fn connect_or_start(roots: Vec<PathBuf>) -> anyhow::Result<Self> {
 		Self::connect_or_start_config(config_from_roots(roots)?)
 	}
@@ -115,6 +121,20 @@ impl DaemonClient {
 
 	pub fn endpoint(&self) -> &str {
 		&self.endpoint.address
+	}
+}
+
+pub fn registry_entry_for_endpoint(endpoint: &str) -> anyhow::Result<DaemonRegistryEntry> {
+	let matches = list_registry_entries()?
+		.into_iter()
+		.filter(|entry| entry.endpoint == endpoint)
+		.collect::<Vec<_>>();
+	match matches.as_slice() {
+		[] => anyhow::bail!(
+			"no daemon registered at endpoint {endpoint}; run `code-moniker daemon list`"
+		),
+		[entry] => Ok(entry.clone()),
+		_ => anyhow::bail!("multiple daemons registered at endpoint {endpoint}"),
 	}
 }
 
@@ -191,6 +211,16 @@ fn connect_entry(
 		},
 	};
 	Ok(client)
+}
+
+fn config_from_registry_entry(entry: &DaemonRegistryEntry) -> DaemonWorkspaceConfig {
+	let entry = entry.clone();
+	DaemonWorkspaceConfig {
+		roots: entry.workspace_roots,
+		project: entry.project,
+		cache_dir: entry.cache_dir,
+		live_refresh: entry.live_refresh,
+	}
 }
 
 fn validate_client_protocol(client: &DaemonClient) -> anyhow::Result<()> {
@@ -564,6 +594,21 @@ mod tests {
 			&config,
 			&registry_entry(&["/other"])
 		));
+	}
+
+	#[test]
+	fn reconstructs_the_exact_daemon_identity_from_its_registry_entry() {
+		let mut entry = registry_entry(&["/workspace", "/other"]);
+		entry.project = Some("backend".to_string());
+		entry.cache_dir = Some("/cache".to_string());
+		entry.live_refresh = Some("auto".to_string());
+
+		let config = config_from_registry_entry(&entry);
+
+		assert_eq!(config.roots, vec!["/workspace", "/other"]);
+		assert_eq!(config.project.as_deref(), Some("backend"));
+		assert_eq!(config.cache_dir.as_deref(), Some("/cache"));
+		assert_eq!(config.live_refresh.as_deref(), Some("auto"));
 	}
 
 	#[test]

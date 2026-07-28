@@ -80,6 +80,16 @@ fence line is not part of the file). Blank lines and `#` comments are allowed.
 The comparison is an exact multiset: every expected violation must be observed
 and every observed violation must be expected.
 
+A workspace rule's trivalent result can also be asserted exactly:
+
+```
+verdict <rule-id> = pass|fail|inconclusive
+```
+
+This is stronger than merely observing zero violations: a regression from
+`pass` to `inconclusive`, or the reverse, fails the scenario. A verdict
+expectation also counts as an explicit demonstration of the rule.
+
 A rule that cannot be demonstrated in a small layout is excused explicitly,
 with a reason:
 
@@ -87,9 +97,9 @@ with a reason:
 ! <rule-id> <reason>
 ```
 
-The contract harness rejects silent rules that are not excused, and excused
-rules that actually fire (a stale or misspelled marker). Bless preserves the
-directives.
+The contract harness rejects silent rules that are neither demonstrated by a
+verdict expectation nor excused, and excused rules that actually fire (a stale
+or misspelled marker). Bless preserves verdict requirements and excuses.
 
 ## Running
 
@@ -98,10 +108,13 @@ code-moniker check . --scenario samples/catalog/java-layer-boundaries.cm.md
 ```
 
 The runner mounts the layout in an in-memory workspace, replays the real scan
-pipeline (project mode, so cross-file `refs` rules resolve), prints the observed
-violations, and exits non-zero on any mismatch. Rules that never fire are
-reported as `silent rules` — a sample whose rules are not demonstrated is
-rejected by the contract harness.
+pipeline (project mode, so cross-file `refs` rules resolve), builds the same
+linked snapshot used by full checks when a workspace rule needs it, prints the
+observed violations, and exits non-zero on any mismatch. This makes
+`workspace.symbol`, `workspace.group`, and `workspace.path` catalog examples
+executable rather than illustrative prose. Rules that never fire are reported
+as `silent rules` — a sample whose rules are not demonstrated is rejected by
+the contract harness.
 
 ### Bless
 
@@ -110,12 +123,14 @@ CM_SCENARIO_BLESS=1 code-moniker check . --scenario samples/catalog/java-layer-b
 CM_SCENARIO_BLESS=1 cargo test -p code-moniker --test samples_contract
 ```
 
-Bless rewrites the `cm:expect` block in place from the observed violations
-(appending one if missing). Review the resulting diff like any snapshot
-update: an unexpected line shift is a signal, not noise.
+Bless rewrites the violation entries in the `cm:expect` block in place
+(appending one if missing), while preserving exact verdict requirements and
+explicit excuses. Review the resulting diff like any snapshot update: an
+unexpected line shift is a signal, not noise.
 
 ## CI contract
 
 `crates/cli/tests/samples_contract.rs` replays every `samples/catalog/*.cm.md`
 and `samples/learn/*.cm.md` document and fails on: expectation mismatches,
-configured rules that never fire, and samples that demonstrate nothing.
+configured rules with neither a violation, an exact verdict, nor an explicit
+excuse, and samples that demonstrate nothing.

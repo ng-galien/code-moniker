@@ -269,6 +269,10 @@ pub struct CodeIndexMaterial {
 }
 
 impl CodeIndexMaterial {
+	pub fn source_set(&self) -> &SourceFileSet {
+		&self.source_catalog.sources
+	}
+
 	pub fn symbol_moniker(&self, symbol: &SymbolId) -> Option<&Moniker> {
 		let (file_idx, def_idx) = self.identity.symbol_location(symbol)?;
 		let graph = &self.files.get(file_idx)?.graph;

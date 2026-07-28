@@ -1,8 +1,11 @@
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::Scenario;
 use super::expect::ExpectedViolation;
+use super::{ExpectedRuleVerdict, RuleVerdictMismatch};
+use crate::RuleVerdict;
 use crate::check::command::{
 	CheckRun, FileError, FileReport, MemoryCheckWorkspace, check_project_files_workspace,
 	check_project_workspace,
@@ -18,6 +21,7 @@ pub struct ScenarioRun {
 	pub actual: Vec<ExpectedViolation>,
 	pub missing: Vec<ExpectedViolation>,
 	pub unexpected: Vec<ExpectedViolation>,
+	pub verdict_mismatches: Vec<RuleVerdictMismatch>,
 	pub errors: Vec<String>,
 	pub silent_rules: Vec<String>,
 	pub stale_undemonstrated: Vec<String>,
@@ -27,11 +31,13 @@ impl ScenarioRun {
 	fn from_check(run: &CheckRun, root: &Path, scenario: &Scenario) -> Self {
 		let actual = collect_actual(run, root);
 		let (missing, unexpected) = diff_expectations(&scenario.expects, &actual);
+		let verdict_mismatches = diff_verdict_expectations(run, &scenario.verdicts);
 		let (silent_rules, stale_undemonstrated) = coverage(run, scenario);
 		Self {
 			actual,
 			missing,
 			unexpected,
+			verdict_mismatches,
 			errors: collect_errors(run, root),
 			silent_rules,
 			stale_undemonstrated,
@@ -39,7 +45,10 @@ impl ScenarioRun {
 	}
 
 	pub fn is_match(&self) -> bool {
-		self.missing.is_empty() && self.unexpected.is_empty() && self.errors.is_empty()
+		self.missing.is_empty()
+			&& self.unexpected.is_empty()
+			&& self.verdict_mismatches.is_empty()
+			&& self.errors.is_empty()
 	}
 
 	pub fn mismatch_summary(&self) -> String {
@@ -50,6 +59,7 @@ impl ScenarioRun {
 		for unexpected in &self.unexpected {
 			lines.push(format!("unexpected: {unexpected}"));
 		}
+		lines.extend(self.verdict_mismatches.iter().map(ToString::to_string));
 		for error in &self.errors {
 			lines.push(format!("error:      {error}"));
 		}
@@ -102,6 +112,7 @@ impl Scenario {
 			.iter()
 			.map(|rule| format!("! {} {}", rule.rule_id, rule.reason))
 			.collect();
+		entries.extend(self.verdicts.iter().map(ToString::to_string));
 		entries.extend(actual.iter().map(ToString::to_string));
 		let mut body = entries.join("\n");
 		if !body.is_empty() {
@@ -165,22 +176,57 @@ fn collect_errors(run: &CheckRun, root: &Path) -> Vec<String> {
 }
 
 fn coverage(run: &CheckRun, scenario: &Scenario) -> (Vec<String>, Vec<String>) {
-	let excused: Vec<&str> = scenario
+	let undemonstrated: Vec<&str> = scenario
 		.undemonstrated
 		.iter()
 		.map(|rule| rule.rule_id.as_str())
 		.collect();
+	let demonstrated: Vec<&str> = scenario
+		.verdicts
+		.iter()
+		.map(|rule| rule.rule_id.as_str())
+		.collect();
 	let silent = collect_silent_rules(run);
-	let stale = excused
+	let stale = undemonstrated
 		.iter()
 		.filter(|rule_id| !silent.iter().any(|silent| silent == *rule_id))
 		.map(ToString::to_string)
 		.collect();
 	let silent = silent
 		.into_iter()
-		.filter(|rule_id| !excused.contains(&rule_id.as_str()))
+		.filter(|rule_id| {
+			!undemonstrated.contains(&rule_id.as_str()) && !demonstrated.contains(&rule_id.as_str())
+		})
 		.collect();
 	(silent, stale)
+}
+
+fn diff_verdict_expectations(
+	run: &CheckRun,
+	expected: &[ExpectedRuleVerdict],
+) -> Vec<RuleVerdictMismatch> {
+	let actual = collect_rule_verdicts(run);
+	expected
+		.iter()
+		.filter_map(|expected| {
+			let actual = actual.get(&expected.rule_id).copied();
+			(actual != Some(expected.verdict)).then(|| RuleVerdictMismatch {
+				rule_id: expected.rule_id.clone(),
+				expected: expected.verdict,
+				actual,
+			})
+		})
+		.collect()
+}
+
+fn collect_rule_verdicts(run: &CheckRun) -> BTreeMap<String, RuleVerdict> {
+	let mut verdicts = BTreeMap::new();
+	for report in run.reports.iter().flat_map(|report| &report.rule_reports) {
+		if let Some(verdict) = report.verdict {
+			verdicts.insert(report.rule_id.clone(), verdict);
+		}
+	}
+	verdicts
 }
 
 fn collect_silent_rules(run: &CheckRun) -> Vec<String> {

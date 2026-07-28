@@ -1,0 +1,3 @@
+[workspace]
+members = ["consumer", "inner-model", "public-api", "unrelated-model"]
+resolver = "2"

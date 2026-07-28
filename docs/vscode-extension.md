@@ -70,7 +70,9 @@ Open a repository in VS Code and select the **Code Moniker** activity bar item.
 - **Workspace** shows rule files, daemon sessions, extracted symbols, and check
   results for the current workspace.
 - **Catalog** opens bundled learning and sample scenarios as editable `.cm.md`
-  notebooks.
+  notebooks. Its rule tree includes local `*.where` rules and specialized
+  `workspace.path` rules; the workspace samples demonstrate inventory,
+  grouping, transitive witnesses, proven absence, and inconclusive budgets.
 - `.code-moniker.toml` and `*.fragment.toml` files get Code Moniker rule syntax
   highlighting.
 - `.cm.md` files open with the Code Moniker scenario notebook renderer.

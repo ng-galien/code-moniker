@@ -65,10 +65,10 @@ pub struct DaemonArgs {
 pub enum DaemonCommand {
 	#[command(about = "Start a foreground daemon for a workspace root.")]
 	Start(DaemonStartArgs),
-	#[command(about = "Print daemon status for a workspace root.")]
-	Status(DaemonRootArgs),
-	#[command(about = "Ask a workspace daemon to shut down.")]
-	Stop(DaemonRootArgs),
+	#[command(about = "Print daemon status by workspace identity or exact endpoint.")]
+	Status(DaemonTargetArgs),
+	#[command(about = "Ask a workspace daemon to shut down by identity or exact endpoint.")]
+	Stop(DaemonTargetArgs),
 	#[command(about = "List daemon registry entries.")]
 	List,
 }
@@ -124,7 +124,56 @@ pub struct DaemonRootArgs {
 }
 
 #[derive(Debug, ClapArgs)]
+pub struct DaemonTargetArgs {
+	#[arg(
+		value_name = "WORKSPACE_ROOT",
+		num_args = 0..,
+		conflicts_with = "daemon",
+		help = "workspace identity; defaults to the current directory"
+	)]
+	pub workspace_roots: Vec<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "ENDPOINT",
+		conflicts_with_all = ["workspace_roots", "project", "cache", "live_refresh"],
+		help = "target the exact endpoint printed by `daemon list`"
+	)]
+	pub daemon: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		help = "on-disk cache directory attached to the daemon identity"
+	)]
+	pub cache: Option<PathBuf>,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = LiveRefresh::OnDemand,
+		help = "live index policy attached to the daemon identity"
+	)]
+	pub live_refresh: LiveRefresh,
+}
+
+#[derive(Debug, ClapArgs)]
 pub struct QueryArgs {
+	#[arg(
+		long,
+		value_name = "ENDPOINT",
+		conflicts_with_all = ["workspace_roots", "project", "cache", "live_refresh"],
+		help = "target the exact indexed daemon endpoint printed by `daemon list`; never starts another daemon or falls back to the filesystem"
+	)]
+	pub daemon: Option<String>,
+
 	#[arg(
 		short = 'r',
 		long = "root",
@@ -144,7 +193,6 @@ pub struct QueryArgs {
 	#[arg(
 		long,
 		value_name = "DIR",
-		env = "CODE_MONIKER_CACHE_DIR",
 		help = "on-disk cache directory attached to the daemon identity"
 	)]
 	pub cache: Option<PathBuf>,
@@ -177,6 +225,14 @@ pub(crate) enum QueryConsistency {
 	StaleOk,
 	RefreshIfStale,
 	Current,
+}
+
+pub(crate) fn cache_dir_with_env(explicit: &Option<PathBuf>) -> Option<PathBuf> {
+	explicit.clone().or_else(|| {
+		std::env::var_os("CODE_MONIKER_CACHE_DIR")
+			.filter(|value| !value.is_empty())
+			.map(PathBuf::from)
+	})
 }
 
 #[derive(Debug, ClapArgs)]
@@ -1209,6 +1265,50 @@ mod tests {
 		let help = error.to_string();
 		assert!(!help.contains("tool-files"), "{help}");
 		assert!(help.contains("install"), "{help}");
+	}
+
+	#[test]
+	fn query_accepts_an_exact_daemon_endpoint_without_workspace_identity() {
+		let cli = parse(&["query", "--daemon", "127.0.0.1:3210", "workspace.status"])
+			.expect("direct daemon query");
+		let Command::Query(args) = cli.command else {
+			panic!("expected query command");
+		};
+		assert_eq!(args.daemon.as_deref(), Some("127.0.0.1:3210"));
+		assert!(args.workspace_roots.is_empty());
+	}
+
+	#[test]
+	fn exact_daemon_target_conflicts_with_workspace_identity_fields() {
+		assert!(
+			parse(&[
+				"query",
+				"--daemon",
+				"127.0.0.1:3210",
+				"--root",
+				".",
+				"workspace.status"
+			])
+			.is_err()
+		);
+		assert!(parse(&["daemon", "status", "--daemon", "127.0.0.1:3210", "."]).is_err());
+	}
+
+	#[test]
+	fn daemon_status_and_stop_accept_an_exact_endpoint() {
+		for command in ["status", "stop"] {
+			let cli = parse(&["daemon", command, "--daemon", "127.0.0.1:3210"])
+				.expect("direct daemon control");
+			let Command::Daemon(args) = cli.command else {
+				panic!("expected daemon command");
+			};
+			let target = match args.command {
+				DaemonCommand::Status(target) | DaemonCommand::Stop(target) => target,
+				other => panic!("expected daemon target command, got {other:?}"),
+			};
+			assert_eq!(target.daemon.as_deref(), Some("127.0.0.1:3210"));
+			assert!(target.workspace_roots.is_empty());
+		}
 	}
 
 	#[test]

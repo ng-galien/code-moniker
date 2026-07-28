@@ -297,6 +297,11 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Str
 		output.push_str("completeness: full\n");
 	}
 	output.push_str("action: run\n");
+	output.push_str("corpus: daemon_index\n");
+	if let Some(generation) = response.generation {
+		output.push_str(&format!("generation: {}\n", generation.0));
+	}
+	output.push_str(&format!("verdict: {}\n", result.verdict.as_str()));
 	output.push_str(&format!("exit: {}\n", result.exit));
 	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
 	render_rules_scope(&mut output, request);

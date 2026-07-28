@@ -436,6 +436,24 @@ fn render_daemon_usage_next(
 		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
+	if matches!(
+		request.direction,
+		UsageDirection::Incoming | UsageDirection::Both
+	) && let Some(context) = result
+		.rows
+		.iter()
+		.filter(|row| row.direction == code_moniker_query::UsageDirection::Incoming)
+		.map(|row| row.context.as_str())
+		.find(|context| context.starts_with(scheme) && *context != result.target.uri)
+	{
+		output.push_str("  - code_moniker_read");
+		append_call_string_arg(output, "uri", context);
+		append_call_number_arg(output, "context_lines", 3);
+		if !request.compact {
+			append_call_bool_arg(output, "compact", false);
+		}
+		output.push('\n');
+	}
 	if !request.compact {
 		append_daemon_usages_call(
 			output,
@@ -1284,5 +1302,89 @@ impl<'a> UsageLookup<'a> {
 
 	fn symbol(&self, id: &SymbolId) -> Option<&'a SymbolRecord> {
 		self.symbols.get(id).copied()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use code_moniker_query::{SymbolDto, SymbolUsagesResult, UsageDto};
+	use serde_json::json;
+
+	use super::{UsageRequest, render_daemon_usage_next};
+
+	#[test]
+	fn daemon_usage_next_follows_the_first_navigable_context() {
+		let scheme = "acme://";
+		let target_uri = "acme://./module:model/fn:refresh_plan_from_event(event)";
+		let wrapper_uri = "acme://./module:model/struct:Plan/method:from_event(event)";
+		let request = UsageRequest::from_arguments(&json!({
+			"uri": target_uri,
+			"direction": "incoming"
+		}))
+		.expect("usage request");
+		let result = SymbolUsagesResult {
+			target: SymbolDto {
+				root: "/workspace".to_string(),
+				uri: target_uri.to_string(),
+				id: "symbol:1:1".to_string(),
+				name: "refresh_plan_from_event(event)".to_string(),
+				kind: "fn".to_string(),
+				visibility: "private".to_string(),
+				signature: String::new(),
+				file: "src/model.rs".to_string(),
+				language: "rs".to_string(),
+				line_range: Some((10, 20)),
+				navigable: true,
+				score: None,
+				match_reason: None,
+				source: None,
+			},
+			direction: code_moniker_query::UsageDirection::Incoming,
+			rows: vec![
+				UsageDto {
+					root: "/workspace".to_string(),
+					direction: code_moniker_query::UsageDirection::Incoming,
+					reference: "reference:2:1".to_string(),
+					kind: "calls".to_string(),
+					actor: "missing context".to_string(),
+					context: "symbol:2:3".to_string(),
+					endpoint: target_uri.to_string(),
+					file: "src/model.rs".to_string(),
+					prefix: "src".to_string(),
+					location: "src/model.rs:L7".to_string(),
+					line_range: Some((7, 7)),
+					via: None,
+				},
+				UsageDto {
+					root: "/workspace".to_string(),
+					direction: code_moniker_query::UsageDirection::Incoming,
+					reference: "reference:2:2".to_string(),
+					kind: "calls".to_string(),
+					actor: "from_event(event)".to_string(),
+					context: wrapper_uri.to_string(),
+					endpoint: target_uri.to_string(),
+					file: "src/model.rs".to_string(),
+					prefix: "src".to_string(),
+					location: "src/model.rs:L8".to_string(),
+					line_range: Some((8, 8)),
+					via: None,
+				},
+			],
+			total: 2,
+			incoming_summary: None,
+			outgoing_summary: None,
+		};
+
+		let mut output = String::new();
+		render_daemon_usage_next(&mut output, scheme, &request, None, &result);
+
+		assert!(
+			output.contains(&format!("code_moniker_read uri=\"{wrapper_uri}\"")),
+			"the known wrapper context must be directly navigable:\n{output}"
+		);
+		assert!(
+			!output.contains("code_moniker_read uri=\"symbol:2:3\""),
+			"internal symbol ordinals must never become navigation calls:\n{output}"
+		);
 	}
 }

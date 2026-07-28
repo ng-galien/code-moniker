@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_query::{
 	Query, QueryResult, SymbolDto, SymbolInsightsResult, SymbolListResult, SymbolSearchQuery,
+	symbol_is_test_artifact,
 };
 use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
@@ -474,12 +475,7 @@ fn render_symbol_list_lmnav(
 			})
 		})
 		.collect::<Vec<_>>();
-	rows.sort_by(|a, b| {
-		a.1.rel_path
-			.cmp(&b.1.rel_path)
-			.then_with(|| a.0.line_range.cmp(&b.0.line_range))
-			.then_with(|| a.0.identity.cmp(&b.0.identity))
-	});
+	rows.sort_by(symbol_navigation_cmp);
 	let (start, end, next) = paging.window(&rows);
 	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
 	let mut output = String::new();
@@ -561,6 +557,21 @@ fn render_symbol_list_lmnav(
 			.skip(start)
 			.map(|(symbol, _)| symbol.identity.as_ref()),
 	)
+}
+
+fn symbol_navigation_cmp(
+	left: &(&SymbolRecord, &SourceFileRecord),
+	right: &(&SymbolRecord, &SourceFileRecord),
+) -> std::cmp::Ordering {
+	symbol_is_test_artifact(&left.0.kind, &left.1.rel_path, left.0.identity.as_ref())
+		.cmp(&symbol_is_test_artifact(
+			&right.0.kind,
+			&right.1.rel_path,
+			right.0.identity.as_ref(),
+		))
+		.then_with(|| left.1.rel_path.cmp(&right.1.rel_path))
+		.then_with(|| left.0.line_range.cmp(&right.0.line_range))
+		.then_with(|| left.0.identity.cmp(&right.0.identity))
 }
 
 fn append_signed_callable_name_hint(output: &mut String, scope: &SymbolScopeFilter) {

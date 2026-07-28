@@ -3,17 +3,18 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use code_moniker_core::core::moniker::Moniker;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
 use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
+use crate::environment::SourceFileSet;
 use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexTimings, RecordTable, ReferenceId, ReferenceRecord, SourceCatalog,
-	SourceFileRecord, SourceId, SymbolId, SymbolInventoryIndex, SymbolRecord,
+	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolInventoryIndex, SymbolRecord,
 	WorkspaceCancellation, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
@@ -101,6 +102,15 @@ impl LocalCodeIndex {
 	pub fn new(options: LocalCodeIndexOptions, cache: LocalResourceCache) -> Self {
 		Self { options, cache }
 	}
+
+	pub fn build_index_from_extracted(
+		&mut self,
+		sources: SourceFileSet,
+		identity: LocalIdentityResolver,
+		files: Vec<IndexedSourceFile>,
+	) -> WorkspaceResult<(SourceCatalog, CodeIndex)> {
+		build_local_code_index_from_extracted(&self.cache, sources, identity, files)
+	}
 }
 
 impl CodeIndexPort for LocalCodeIndex {
@@ -176,6 +186,106 @@ fn build_local_code_index(
 			total: total_timer.elapsed(),
 		},
 	})
+}
+
+fn build_code_index_from_extracted(
+	cache: &LocalResourceCache,
+	catalog: &SourceCatalog,
+	source_material: SourceCatalogMaterial,
+	files: Vec<Arc<IndexedSourceFile>>,
+) -> WorkspaceResult<CodeIndex> {
+	let generation = cache.next_generation();
+	let cancellation = WorkspaceCancellation::default();
+	let (symbols, references, material) =
+		build_semantic_index(source_material, files, &cancellation)?;
+	let mut sources = source_records(&material.files);
+	let identity_scheme = material.identity.scheme().to_string();
+	cache.insert_index(generation, material);
+	sources.shrink_to_fit();
+	let inventory = Arc::new(SymbolInventoryIndex::build(generation, &sources, &symbols));
+	Ok(CodeIndex {
+		generation,
+		catalog_generation: catalog.generation,
+		identity_scheme,
+		sources,
+		symbols,
+		references,
+		inventory,
+		timings: CodeIndexTimings {
+			extract_sources: Duration::ZERO,
+			semantic_index: Duration::ZERO,
+			total: Duration::ZERO,
+		},
+	})
+}
+
+fn build_local_code_index_from_extracted(
+	cache: &LocalResourceCache,
+	sources: SourceFileSet,
+	identity: LocalIdentityResolver,
+	files: Vec<IndexedSourceFile>,
+) -> WorkspaceResult<(SourceCatalog, CodeIndex)> {
+	validate_extracted_files(&sources, &identity, &files)?;
+	let catalog_generation = cache.next_generation();
+	let units = sources
+		.files
+		.iter()
+		.enumerate()
+		.map(|(file_idx, file)| {
+			SourceUnit::with_language(
+				identity.source_id(file_idx, &file.rel_path),
+				file.rel_path.display().to_string(),
+				file.lang.tag(),
+			)
+		})
+		.collect();
+	let catalog = SourceCatalog::new(catalog_generation, units);
+	let source_material = SourceCatalogMaterial { sources, identity };
+	cache.insert_sources(catalog_generation, source_material.clone());
+	let index = build_code_index_from_extracted(
+		cache,
+		&catalog,
+		source_material,
+		files.into_iter().map(Arc::new).collect(),
+	)?;
+	Ok((catalog, index))
+}
+
+fn validate_extracted_files(
+	sources: &SourceFileSet,
+	identity: &LocalIdentityResolver,
+	files: &[IndexedSourceFile],
+) -> WorkspaceResult<()> {
+	if sources.files.len() != files.len() {
+		return Err(WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			format!(
+				"extracted file count {} does not match source catalog count {}",
+				files.len(),
+				sources.files.len()
+			),
+		));
+	}
+	for (file_idx, (source, extracted)) in sources.files.iter().zip(files).enumerate() {
+		let expected_id = identity.source_id(file_idx, &source.rel_path);
+		let matches = source.source == extracted.source_root
+			&& expected_id == extracted.source_id
+			&& source.path == extracted.path
+			&& source.rel_path == extracted.rel_path
+			&& source.anchor == extracted.anchor
+			&& source.lang == extracted.lang
+			&& extracted.identity == *identity;
+		if !matches {
+			return Err(WorkspaceFailure::new(
+				WorkspaceResource::CodeIndex,
+				format!(
+					"extracted file {} does not match source catalog slot {file_idx}",
+					extracted.rel_path.display()
+				),
+			));
+		}
+	}
+	Ok(())
 }
 
 fn refresh_local_code_index(

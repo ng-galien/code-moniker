@@ -119,6 +119,16 @@ run because a touched-file subset is not a complete workspace universe.
 Global exclusions are removed from the active bitmap and cannot become
 subjects or intermediate path vertices.
 
+Executable catalog coverage:
+
+- [`workspace-symbol.cm.md`](../../samples/catalog/workspace-symbol.cm.md)
+  exercises inventory placement;
+- [`workspace-group.cm.md`](../../samples/catalog/workspace-group.cm.md)
+  exercises stable bitmap grouping;
+- [`workspace-path.cm.md`](../../samples/catalog/workspace-path.cm.md)
+  exercises a transitive violation with a witness, a proven reachable path,
+  a proven absence, and a deliberately inconclusive traversal budget.
+
 ## Grammar
 
 Expressions are written in the `expr = "..."` string of a `where` rule.
@@ -787,8 +797,9 @@ loaded as the complete config. `check --rules-inline <TOML>` accepts the
 same TOML shape as a command-line overlay; inline overlays merge after the
 project file and discovered fragments, in command-line order.
 
-Fragments use the file name `code-moniker.fragment.toml` below the root
-rules file directory:
+Fragments use the file name `code-moniker.fragment.toml` below the canonical
+root `.code-moniker.toml` directory. A differently named `--rules` file is
+standalone and does not discover sibling fragments:
 
 ```toml
 fragment = "ui"                             # required
@@ -827,8 +838,10 @@ Worked examples for layer boundaries, DDD contracts, adapters, test modules,
 and doc comments live in the [recipes section of check](check.md#recipes).
 Executable catalog scenarios live in
 [samples/catalog](../../samples/catalog), with one scenario per supported
-language or rule family. Focused executable DSL learning scenarios live in
-[samples/learn](../../samples/learn).
+language or rule family. Workspace inventory, group and transitive-path roots
+have dedicated catalog scenarios linked in
+[Workspace roots](#workspace-roots). Focused executable DSL learning scenarios
+live in [samples/learn](../../samples/learn).
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 

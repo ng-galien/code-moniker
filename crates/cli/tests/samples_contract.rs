@@ -1,8 +1,9 @@
 //! Contract harness for executable samples under `samples/catalog/` and
 //! `samples/learn/`. Every scenario document must replay exactly to its
-//! `cm:expect` block, every configured rule must fire at least once, and a
-//! sample that demonstrates nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites
-//! the expect blocks from the observed violations instead of asserting.
+//! `cm:expect` block, every configured rule must be demonstrated by a violation
+//! or an exact verdict (or explicitly excused), and a sample that demonstrates
+//! nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites the violation entries
+//! instead of asserting.
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +45,34 @@ fn samples_match_their_expectations() {
 	);
 }
 
+#[test]
+fn published_catalog_covers_every_workspace_rule_root() {
+	let catalog = samples_dirs()[0].clone();
+	let documents = std::fs::read_dir(&catalog)
+		.expect("catalog directory")
+		.filter_map(|entry| {
+			let path = entry.ok()?.path();
+			path.extension()
+				.and_then(|extension| extension.to_str())
+				.is_some_and(|extension| extension == "md")
+				.then(|| std::fs::read_to_string(path).expect("read catalog sample"))
+		})
+		.collect::<Vec<_>>();
+
+	for root in [
+		"[[workspace.symbol.where]]",
+		"[[workspace.group.where]]",
+		"[[workspace.path]]",
+	] {
+		assert!(
+			documents
+				.iter()
+				.any(|document| document.contains("published: true") && document.contains(root)),
+			"published catalog does not demonstrate `{root}`"
+		);
+	}
+}
+
 fn check_sample(path: &Path) {
 	let document = std::fs::read_to_string(path).expect("read sample");
 	let scenario =
@@ -61,7 +90,7 @@ fn check_sample(path: &Path) {
 	);
 	assert!(
 		run.silent_rules.is_empty(),
-		"{}: rules never fired (demonstrate them or add a `! <rule-id> <reason>` line): {}",
+		"{}: rules lack a violation, exact verdict, or `! <rule-id> <reason>` excuse: {}",
 		path.display(),
 		run.silent_rules.join(", ")
 	);
@@ -72,8 +101,8 @@ fn check_sample(path: &Path) {
 		run.stale_undemonstrated.join(", ")
 	);
 	assert!(
-		!run.actual.is_empty(),
-		"{} demonstrates no violation",
+		!run.actual.is_empty() || !scenario.verdicts.is_empty(),
+		"{} demonstrates neither a violation nor an exact verdict",
 		path.display()
 	);
 }

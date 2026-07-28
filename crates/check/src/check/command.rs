@@ -5,14 +5,19 @@ use std::time::Instant;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::code::{LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::environment;
 use code_moniker_workspace::lang::path_to_lang;
+use code_moniker_workspace::linkage::{LinkagePort, LocalLinkage};
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	RecordTable, ResourceGeneration, SourceFileRecord, SourceId, SymbolInventoryIndex, SymbolSet,
-	WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
+	ChangeOverlay, RecordTable, ResourceGeneration, SourceFileRecord, SourceId,
+	SymbolInventoryIndex, SymbolSet, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTimings,
+	WorkspaceTransition,
 };
-use code_moniker_workspace::source::LocalIdentityResolver;
+use code_moniker_workspace::source::{
+	CodeIndexMaterial, IndexedSourceFile, LocalIdentityResolver, LocalResourceCache,
+};
 
 use crate::check;
 use crate::check::config::{self, RuleSeverity};
@@ -39,6 +44,15 @@ pub struct FileError {
 pub trait CheckWorkspace: Sync {
 	fn is_dir(&self, path: &Path) -> anyhow::Result<bool>;
 	fn read_to_string(&self, path: &Path) -> anyhow::Result<String>;
+	fn source_graph(
+		&self,
+		file: &environment::SourceFile,
+		ctx: &environment::ExtractContext,
+	) -> anyhow::Result<(String, CodeGraph)> {
+		let source = self.read_to_string(&file.path)?;
+		let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
+		Ok((source, graph))
+	}
 	fn source_set(
 		&self,
 		root: &Path,
@@ -123,6 +137,192 @@ fn build_fs_linked_snapshot(
 	}
 }
 
+#[derive(Clone)]
+pub struct IndexedCheckWorkspace {
+	root: PathBuf,
+	material: Arc<CodeIndexMaterial>,
+	snapshot: Arc<WorkspaceSnapshot>,
+}
+
+impl IndexedCheckWorkspace {
+	pub fn from_snapshot(
+		root: impl Into<PathBuf>,
+		cache: &LocalResourceCache,
+		snapshot: Arc<WorkspaceSnapshot>,
+	) -> anyhow::Result<Self> {
+		let material = indexed_material_for_snapshot(cache, &snapshot)?;
+		Ok(Self {
+			root: root.into(),
+			material,
+			snapshot,
+		})
+	}
+}
+
+fn indexed_material_for_snapshot(
+	cache: &LocalResourceCache,
+	snapshot: &WorkspaceSnapshot,
+) -> anyhow::Result<Arc<CodeIndexMaterial>> {
+	if snapshot.linkage.index_generation != snapshot.index.generation {
+		anyhow::bail!(
+			"indexed snapshot generation mismatch: linkage uses {}, index uses {}",
+			snapshot.linkage.index_generation.value(),
+			snapshot.index.generation.value()
+		);
+	}
+	let material = cache
+		.index_material(snapshot.index.generation)
+		.ok_or_else(|| {
+			anyhow::anyhow!(
+				"indexed source material is unavailable for generation {}",
+				snapshot.index.generation.value()
+			)
+		})?;
+	if material.identity.scheme() != snapshot.index.identity_scheme {
+		anyhow::bail!(
+			"indexed snapshot scheme mismatch: material uses {}, index uses {}",
+			material.identity.scheme(),
+			snapshot.index.identity_scheme
+		);
+	}
+	Ok(material)
+}
+
+fn indexed_file<'a>(
+	material: &'a CodeIndexMaterial,
+	root: &Path,
+	path: &Path,
+) -> Option<&'a IndexedSourceFile> {
+	let absolute = if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		root.join(path)
+	};
+	material.files.iter().find_map(|file| {
+		(file.path == path || file.path == absolute || file.rel_path == path || file.anchor == path)
+			.then_some(file.as_ref())
+	})
+}
+
+fn indexed_source_file<'a>(
+	material: &'a CodeIndexMaterial,
+	file: &environment::SourceFile,
+) -> Option<&'a IndexedSourceFile> {
+	let file_idx = material.source_set().files.iter().position(|candidate| {
+		candidate.source == file.source
+			&& candidate.path == file.path
+			&& candidate.rel_path == file.rel_path
+			&& candidate.anchor == file.anchor
+			&& candidate.lang == file.lang
+	})?;
+	let indexed = material.files.get(file_idx)?;
+	(indexed.source_root == file.source).then_some(indexed)
+}
+
+fn indexed_file_selected(
+	source_set: &environment::SourceFileSet,
+	root: &Path,
+	file: &environment::SourceFile,
+	requested: &[PathBuf],
+) -> bool {
+	if file.retired
+		|| source_set
+			.roots
+			.get(file.source)
+			.is_none_or(|source_root| source_root.input != root)
+	{
+		return false;
+	}
+	if requested.is_empty() {
+		return true;
+	}
+	requested.iter().any(|path| {
+		let absolute = if path.is_absolute() {
+			path.clone()
+		} else {
+			root.join(path)
+		};
+		file.path == *path
+			|| file.path == absolute
+			|| file.rel_path == *path
+			|| file.anchor == *path
+	})
+}
+
+fn ensure_indexed_root(expected: &Path, actual: &Path) -> anyhow::Result<()> {
+	if actual == expected {
+		return Ok(());
+	}
+	anyhow::bail!(
+		"indexed workspace root mismatch: expected {}, got {}",
+		expected.display(),
+		actual.display()
+	);
+}
+
+impl CheckWorkspace for IndexedCheckWorkspace {
+	fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+		Ok(path == self.root)
+	}
+
+	fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+		indexed_file(&self.material, &self.root, path)
+			.map(|file| file.source.clone())
+			.ok_or_else(|| anyhow::anyhow!("cannot read {}: not indexed", path.display()))
+	}
+
+	fn source_graph(
+		&self,
+		file: &environment::SourceFile,
+		_ctx: &environment::ExtractContext,
+	) -> anyhow::Result<(String, CodeGraph)> {
+		let indexed = indexed_source_file(&self.material, file)
+			.ok_or_else(|| anyhow::anyhow!("cannot read {}: not indexed", file.path.display()))?;
+		Ok((indexed.source.clone(), indexed.graph.clone()))
+	}
+
+	fn source_set(
+		&self,
+		root: &Path,
+		files: &[PathBuf],
+	) -> anyhow::Result<environment::SourceFileSet> {
+		ensure_indexed_root(&self.root, root)?;
+		let source_set = self.material.source_set();
+		Ok(environment::SourceFileSet {
+			roots: source_set.roots.clone(),
+			files: source_set
+				.files
+				.iter()
+				.filter(|file| indexed_file_selected(source_set, &self.root, file, files))
+				.cloned()
+				.collect(),
+			multi: source_set.multi,
+		})
+	}
+
+	fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet> {
+		self.source_set(root, &[])
+	}
+
+	fn exists(&self, path: &Path) -> bool {
+		indexed_file(&self.material, &self.root, path).is_some()
+	}
+
+	fn linked_snapshot(
+		&self,
+		_source_set: &environment::SourceFileSet,
+		scheme: &str,
+	) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
+		if scheme != self.snapshot.index.identity_scheme {
+			anyhow::bail!(
+				"indexed workspace scheme mismatch: expected {}, got {scheme}",
+				self.snapshot.index.identity_scheme
+			);
+		}
+		Ok(Some(Arc::clone(&self.snapshot)))
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct MemoryCheckWorkspace {
 	root: PathBuf,
@@ -182,7 +382,7 @@ impl CheckWorkspace for MemoryCheckWorkspace {
 		root: &Path,
 		files: &[PathBuf],
 	) -> anyhow::Result<environment::SourceFileSet> {
-		self.ensure_root(root)?;
+		ensure_memory_root(&self.root, root)?;
 		Ok(environment::SourceFileSet {
 			roots: vec![memory_source_root(&self.root)],
 			files: memory_source_files(&self.root, &self.files, files),
@@ -201,28 +401,93 @@ impl CheckWorkspace for MemoryCheckWorkspace {
 
 	fn linked_snapshot(
 		&self,
-		_source_set: &environment::SourceFileSet,
-		_scheme: &str,
+		source_set: &environment::SourceFileSet,
+		scheme: &str,
 	) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
-		Ok(None)
+		build_memory_linked_snapshot(self, source_set, scheme).map(Some)
 	}
+}
+
+fn ensure_memory_root(expected: &Path, actual: &Path) -> anyhow::Result<()> {
+	if actual == expected {
+		return Ok(());
+	}
+	anyhow::bail!(
+		"memory workspace root mismatch: expected {}, got {}",
+		expected.display(),
+		actual.display()
+	);
+}
+
+fn build_memory_linked_snapshot(
+	workspace: &MemoryCheckWorkspace,
+	source_set: &environment::SourceFileSet,
+	scheme: &str,
+) -> anyhow::Result<Arc<WorkspaceSnapshot>> {
+	let identity = LocalIdentityResolver::new(scheme);
+	let files = memory_indexed_files(workspace, source_set, &identity)?;
+	let cache = LocalResourceCache::default();
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::default(), cache.clone());
+	let (catalog, index) = code_index
+		.build_index_from_extracted(source_set.clone(), identity, files)
+		.map_err(|failure| anyhow::anyhow!(failure.message))?;
+	let mut linker = LocalLinkage::new(cache);
+	let linkage = linker
+		.resolve_linkage(&index)
+		.map_err(|failure| anyhow::anyhow!(failure.message))?;
+	let changes = ChangeOverlay::new(
+		catalog.generation,
+		catalog.generation,
+		index.generation,
+		Vec::new(),
+	);
+	Ok(Arc::new(WorkspaceSnapshot {
+		generation: linkage.generation,
+		catalog,
+		index,
+		linkage,
+		changes,
+		timings: WorkspaceTimings::default(),
+	}))
+}
+
+fn memory_indexed_files(
+	workspace: &MemoryCheckWorkspace,
+	source_set: &environment::SourceFileSet,
+	identity: &LocalIdentityResolver,
+) -> anyhow::Result<Vec<IndexedSourceFile>> {
+	source_set
+		.files
+		.iter()
+		.enumerate()
+		.map(|(file_idx, file)| {
+			let source = workspace
+				.files
+				.get(&file.rel_path)
+				.ok_or_else(|| anyhow::anyhow!("cannot read {}: not found", file.path.display()))?;
+			let ctx = source_set
+				.roots
+				.get(file.source)
+				.map(|root| &root.ctx)
+				.ok_or_else(|| anyhow::anyhow!("source root {} is unavailable", file.source))?;
+			Ok(IndexedSourceFile {
+				source_root: file.source,
+				source_id: identity.source_id(file_idx, &file.rel_path),
+				source_uri: identity.source_uri(&file.rel_path),
+				identity: LocalIdentityResolver::new(identity.scheme()),
+				path: file.path.to_path_buf(),
+				rel_path: file.rel_path.to_path_buf(),
+				anchor: file.anchor.to_path_buf(),
+				lang: file.lang,
+				graph: environment::extract_source_with(file.lang, &source.body, &file.anchor, ctx),
+				source: source.body.to_owned(),
+			})
+		})
+		.collect()
 }
 
 fn memory_rel_path(root: &Path, path: &Path) -> PathBuf {
 	normalize_relative(path.strip_prefix(root).unwrap_or(path).to_path_buf())
-}
-
-impl MemoryCheckWorkspace {
-	fn ensure_root(&self, root: &Path) -> anyhow::Result<()> {
-		if root == self.root {
-			return Ok(());
-		}
-		anyhow::bail!(
-			"memory workspace root mismatch: expected {}, got {}",
-			self.root.display(),
-			root.display()
-		);
-	}
 }
 
 fn memory_source_root(root: &Path) -> environment::SourceRoot {
@@ -743,8 +1008,7 @@ fn check_source_file_compiled(
 	ctx: &environment::ExtractContext,
 	check_ctx: &CompiledCheck<'_>,
 ) -> anyhow::Result<CheckedSourceFile> {
-	let source = check_ctx.workspace.read_to_string(&file.path)?;
-	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
+	let (source, graph) = check_ctx.workspace.source_graph(file, ctx)?;
 	let raw = check::evaluate_compiled_with_requirements(
 		&graph,
 		&source,
@@ -1640,5 +1904,67 @@ mod tests {
 		assert_eq!(run.errors[0].path, root);
 		assert!(run.errors[0].error.contains("catalog unavailable"));
 		assert_eq!(workspace.catalog_calls.load(Ordering::Relaxed), 1);
+	}
+
+	#[test]
+	fn indexed_workspace_is_built_from_one_cached_snapshot_generation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let source = temp.path().join("lib.rs");
+		std::fs::write(&source, "pub fn stale() {}\n").expect("write initial source");
+		let cache = LocalResourceCache::default();
+		let mut registry = LocalWorkspaceRegistry::local_with_cache(
+			LocalWorkspaceOptions::new(vec![temp.path().to_path_buf()], None),
+			cache.clone(),
+		);
+
+		assert!(matches!(
+			registry
+				.commands()
+				.refresh(WorkspaceRequest::new("initial")),
+			WorkspaceTransition::Ready { .. }
+		));
+		let stale = registry.queries().snapshot_arc().expect("stale snapshot");
+		let stale_material = cache
+			.index_material(stale.index.generation)
+			.expect("stale material");
+
+		std::fs::write(&source, "pub fn current() {}\n").expect("write refreshed source");
+		assert!(matches!(
+			registry
+				.commands()
+				.refresh(WorkspaceRequest::new("refresh")),
+			WorkspaceTransition::Ready { .. }
+		));
+		let current = registry.queries().snapshot_arc().expect("current snapshot");
+
+		assert!(
+			Arc::strong_count(&stale_material) > 0,
+			"the old material remains available to a caller holding it"
+		);
+		let error = IndexedCheckWorkspace::from_snapshot(temp.path(), &cache, Arc::clone(&stale))
+			.err()
+			.expect("an evicted snapshot generation must be rejected");
+		assert!(
+			error
+				.to_string()
+				.contains(&stale.index.generation.value().to_string())
+		);
+
+		let workspace =
+			IndexedCheckWorkspace::from_snapshot(temp.path(), &cache, Arc::clone(&current))
+				.expect("current generation");
+		assert_eq!(
+			workspace.read_to_string(&source).expect("indexed source"),
+			"pub fn current() {}\n"
+		);
+		assert_eq!(
+			workspace
+				.linked_snapshot(workspace.material.source_set(), "code+moniker://")
+				.expect("linked snapshot")
+				.expect("snapshot")
+				.index
+				.generation,
+			current.index.generation
+		);
 	}
 }

@@ -59,7 +59,11 @@ pub(super) fn external_crate_target_matches_def(
 		.and_then(|name| name.to_str())
 		.unwrap_or_default();
 	let module_name = if file_name == "mod.rs" {
-		"mod"
+		relative_file
+			.parent()
+			.and_then(Path::file_name)
+			.and_then(|name| name.to_str())
+			.unwrap_or_default()
 	} else {
 		relative_file
 			.file_stem()

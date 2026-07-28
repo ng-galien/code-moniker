@@ -1,5 +1,6 @@
 use super::expect::ExpectedViolation;
-use super::{Scenario, ScenarioFile, ScenarioMeta, UndemonstratedRule};
+use super::{ExpectedRuleVerdict, Scenario, ScenarioFile, ScenarioMeta, UndemonstratedRule};
+use crate::RuleVerdict;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioError {
@@ -28,6 +29,13 @@ enum Block<'a> {
 	Ignored,
 }
 
+#[derive(Default)]
+struct ParsedExpectations {
+	violations: Vec<ExpectedViolation>,
+	verdicts: Vec<ExpectedRuleVerdict>,
+	undemonstrated: Vec<UndemonstratedRule>,
+}
+
 pub(super) fn parse_document(document: &str) -> Result<Scenario, ScenarioError> {
 	let lines = split_lines(document);
 	let mut scenario = Scenario {
@@ -35,6 +43,7 @@ pub(super) fn parse_document(document: &str) -> Result<Scenario, ScenarioError> 
 		rules: None,
 		files: Vec::new(),
 		expects: Vec::new(),
+		verdicts: Vec::new(),
 		undemonstrated: Vec::new(),
 		expect_span: None,
 	};
@@ -75,7 +84,10 @@ fn collect_block(
 				return Err(block_error(opening, "duplicate cm:expect block"));
 			}
 			scenario.expect_span = Some(span);
-			(scenario.expects, scenario.undemonstrated) = parse_expect_block(content, opening.no)?;
+			let parsed = parse_expect_block(content, opening.no)?;
+			scenario.expects = parsed.violations;
+			scenario.verdicts = parsed.verdicts;
+			scenario.undemonstrated = parsed.undemonstrated;
 		}
 		Block::File { path, fence } => {
 			validate_relative_path(path, opening.no)?;
@@ -209,8 +221,9 @@ fn classify_info_string(text: &str) -> Block<'_> {
 fn parse_expect_block(
 	content: &str,
 	opening_line: usize,
-) -> Result<(Vec<ExpectedViolation>, Vec<UndemonstratedRule>), ScenarioError> {
+) -> Result<ParsedExpectations, ScenarioError> {
 	let mut expects = Vec::new();
+	let mut verdicts = Vec::new();
 	let mut undemonstrated = Vec::new();
 	for (offset, line) in content.lines().enumerate() {
 		let text = line.trim();
@@ -218,8 +231,37 @@ fn parse_expect_block(
 			continue;
 		}
 		let line_no = opening_line + offset + 1;
+		if let Some(directive) = text.strip_prefix("verdict ") {
+			let verdict = parse_verdict(directive, line_no)?;
+			reject_conflicting_directive(
+				&verdict.rule_id,
+				undemonstrated
+					.iter()
+					.any(|rule: &UndemonstratedRule| rule.rule_id == verdict.rule_id),
+				line_no,
+			)?;
+			if verdicts
+				.iter()
+				.any(|existing: &ExpectedRuleVerdict| existing.rule_id == verdict.rule_id)
+			{
+				return Err(ScenarioError {
+					line: line_no,
+					message: format!("duplicate verdict for rule `{}`", verdict.rule_id),
+				});
+			}
+			verdicts.push(verdict);
+			continue;
+		}
 		if let Some(directive) = text.strip_prefix('!') {
-			undemonstrated.push(parse_undemonstrated(directive, line_no)?);
+			let rule = parse_undemonstrated(directive, line_no)?;
+			reject_conflicting_directive(
+				&rule.rule_id,
+				verdicts
+					.iter()
+					.any(|verdict| verdict.rule_id == rule.rule_id),
+				line_no,
+			)?;
+			undemonstrated.push(rule);
 			continue;
 		}
 		let expected = ExpectedViolation::parse(text).map_err(|message| ScenarioError {
@@ -229,8 +271,58 @@ fn parse_expect_block(
 		expects.push(expected);
 	}
 	expects.sort();
+	verdicts.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
 	undemonstrated.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
-	Ok((expects, undemonstrated))
+	Ok(ParsedExpectations {
+		violations: expects,
+		verdicts,
+		undemonstrated,
+	})
+}
+
+fn reject_conflicting_directive(
+	rule_id: &str,
+	conflicts: bool,
+	line: usize,
+) -> Result<(), ScenarioError> {
+	if conflicts {
+		return Err(ScenarioError {
+			line,
+			message: format!(
+				"rule `{rule_id}` cannot be both demonstrated by a verdict and undemonstrated"
+			),
+		});
+	}
+	Ok(())
+}
+
+fn parse_verdict(directive: &str, line: usize) -> Result<ExpectedRuleVerdict, ScenarioError> {
+	let (rule_id, verdict) = directive.split_once('=').ok_or_else(|| ScenarioError {
+		line,
+		message: "expected `verdict <rule-id> = pass|fail|inconclusive`".to_string(),
+	})?;
+	let rule_id = rule_id.trim();
+	let verdict = match verdict.trim() {
+		"pass" => RuleVerdict::Pass,
+		"fail" => RuleVerdict::Fail,
+		"inconclusive" => RuleVerdict::Inconclusive,
+		_ => {
+			return Err(ScenarioError {
+				line,
+				message: "expected `verdict <rule-id> = pass|fail|inconclusive`".to_string(),
+			});
+		}
+	};
+	if rule_id.is_empty() || rule_id.contains(char::is_whitespace) {
+		return Err(ScenarioError {
+			line,
+			message: "expected one rule id in `verdict <rule-id> = <verdict>`".to_string(),
+		});
+	}
+	Ok(ExpectedRuleVerdict {
+		rule_id: rule_id.to_string(),
+		verdict,
+	})
 }
 
 fn parse_undemonstrated(directive: &str, line: usize) -> Result<UndemonstratedRule, ScenarioError> {

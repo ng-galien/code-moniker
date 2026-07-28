@@ -369,6 +369,8 @@ fn positive_number_argument(arguments: &Value, key: &str) -> anyhow::Result<Opti
 
 pub(super) fn path_prefix(rel_path: &str) -> String {
 	let mut parts = Path::new(rel_path)
+		.parent()
+		.unwrap_or_else(|| Path::new(""))
 		.components()
 		.filter_map(|component| component.as_os_str().to_str())
 		.take(2)
@@ -379,5 +381,17 @@ pub(super) fn path_prefix(rel_path: &str) -> String {
 		parts.remove(0).to_string()
 	} else {
 		parts.join("/")
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::path_prefix;
+
+	#[test]
+	fn path_prefix_groups_files_without_counting_the_filename() {
+		assert_eq!(path_prefix("crates/daemon/src/lib.rs"), "crates/daemon");
+		assert_eq!(path_prefix("src/a.rs"), "src");
+		assert_eq!(path_prefix("src/b.rs"), "src");
 	}
 }

@@ -37,10 +37,7 @@ fn run_inner<W1: Write, W2: Write>(
 		request.consistency = flag_consistency(args.consistency);
 	}
 	let projection = query_projection(&request.query).to_vec();
-	let client = daemon_client::DaemonClient::connect_or_start_supporting(
-		query_daemon_config(args)?,
-		request.query.capability(),
-	)?;
+	let client = query_daemon_client(args, request.query.capability())?;
 	let response = query_waiting_for_load(&client, request, stderr)?;
 	if args.json {
 		serde_json::to_writer_pretty(&mut *stdout, &response)?;
@@ -53,6 +50,23 @@ fn run_inner<W1: Write, W2: Write>(
 		)?;
 	}
 	Ok(())
+}
+
+fn query_daemon_client(
+	args: &QueryArgs,
+	capability: &str,
+) -> anyhow::Result<daemon_client::DaemonClient> {
+	let Some(endpoint) = args.daemon.as_deref() else {
+		return daemon_client::DaemonClient::connect_or_start_supporting(
+			query_daemon_config(args)?,
+			capability,
+		);
+	};
+	let client = daemon_client::DaemonClient::connect_endpoint(endpoint)?;
+	if client.supports_query(capability)? {
+		return Ok(client);
+	}
+	anyhow::bail!("daemon {endpoint} does not support query capability {capability}")
 }
 
 // A daemon that just started answers `workspace_loading` until its first
@@ -107,7 +121,7 @@ fn query_daemon_config(
 	daemon_client::daemon_workspace_config(
 		daemon_roots(&args.workspace_roots),
 		args.project.clone(),
-		args.cache.clone(),
+		crate::args::cache_dir_with_env(&args.cache),
 		Some(live_refresh_label(args)),
 	)
 }

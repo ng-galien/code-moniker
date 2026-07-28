@@ -3,6 +3,7 @@ use crate::linkage::binding::{
 };
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
+use crate::linkage::resolve::manifest::{GlobalTargetAuthority, GlobalTargetQueries};
 use crate::linkage::resolve::{
 	CrateForwards, GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
 };
@@ -90,7 +91,10 @@ impl<'a> ReferenceResolver<'a> {
 		);
 		let global_targets = confirm_name_match_targets(policies.candidates, query, global_targets);
 		let global_decision = policies.manifests.evaluate_global_targets(
-			query,
+			GlobalTargetQueries {
+				candidate: query,
+				authority: query,
+			},
 			global_targets,
 			policies.candidates,
 			|target_file| {
@@ -100,11 +104,49 @@ impl<'a> ReferenceResolver<'a> {
 					target_file,
 				)
 			},
+			GlobalTargetAuthority::Direct,
 		);
 		global_decision.for_reference(
 			site.reference_idx,
 			site.reference,
 			global_resolution_evidence(query),
+		)
+	}
+
+	fn resolve_forwarded_global(
+		&self,
+		original: &LinkageQuery<'_>,
+		forwarded: &LinkageQuery<'_>,
+		site: ReferenceSite<'_>,
+		policies: &LinkagePolicies<'_>,
+	) -> Option<ReferenceLinkageDecision> {
+		if !policies.manifests.declares_external_target(original) {
+			return None;
+		}
+		let targets = self.global.resolve(forwarded, policies.candidates);
+		let targets =
+			prefer_definitions_over_reexport_aliases(self.material, policies.candidates, targets);
+		let targets = confirm_name_match_targets(policies.candidates, forwarded, targets);
+		let policy = policies.manifests.evaluate_global_targets(
+			GlobalTargetQueries {
+				candidate: forwarded,
+				authority: original,
+			},
+			targets,
+			policies.candidates,
+			|target_file| {
+				policies.source_groups.link_permission(
+					self.material,
+					original.source_file,
+					target_file,
+				)
+			},
+			GlobalTargetAuthority::Forwarded,
+		);
+		policy.for_reference(
+			site.reference_idx,
+			site.reference,
+			global_resolution_evidence(forwarded),
 		)
 	}
 }
@@ -177,6 +219,14 @@ fn resolve_scopes(
 			site.reference_idx,
 			local_targets,
 		));
+	}
+	if let Some(forwarded) = policies.forwards.rewrite_rust_named(query.target) {
+		let forwarded_query = query.with_target(&forwarded);
+		if let Some(decision) =
+			resolver.resolve_forwarded_global(query, &forwarded_query, site, policies)
+		{
+			return decision;
+		}
 	}
 	if let Some(decision) = resolver.resolve_global(query, site, policies) {
 		return decision;

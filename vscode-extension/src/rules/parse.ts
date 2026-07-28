@@ -6,7 +6,7 @@ import { AST, parseTOML } from "toml-eslint-parser";
 import { langByTomlSection } from "../shared/languages";
 
 export interface RuleEntry {
-	/** Scope without the trailing `.where`, e.g. `rust.fn`, `ts.shape.callable`, `refs`. */
+	/** Rule scope, e.g. `rust.fn`, `ts.shape.callable`, `refs`, `workspace.path`. */
 	scope: string;
 	id: string;
 	severity: string;
@@ -53,7 +53,7 @@ export function parseRuleFile(text: string): ParsedRuleFile {
 		if (!isRuleTable(node, path)) {
 			continue;
 		}
-		const scope = path.slice(0, -1).join(".");
+		const scope = isWorkspacePathTable(path) ? path.join(".") : path.slice(0, -1).join(".");
 		const id = tableStringField(node, "id") ?? `${scope}.where[${rules.length}]`;
 		const severity = tableStringField(node, "severity") ?? "error";
 		const section = scope.split(".")[0];
@@ -71,7 +71,15 @@ export function parseRuleFile(text: string): ParsedRuleFile {
 }
 
 function isRuleTable(node: AST.TOMLTable, path: string[]): boolean {
-	return node.kind === "array" && path.length >= 2 && path[path.length - 1] === "where";
+	return node.kind === "array"
+		&& (
+			isWorkspacePathTable(path)
+			|| (path.length >= 2 && path[path.length - 1] === "where")
+		);
+}
+
+function isWorkspacePathTable(path: string[]): boolean {
+	return path.length === 2 && path[0] === "workspace" && path[1] === "path";
 }
 
 function tableStringField(table: AST.TOMLTable, name: string): string | undefined {

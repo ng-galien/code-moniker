@@ -3,6 +3,8 @@
 //! produce. One document feeds an in-memory workspace the scan pipeline can run
 //! against; see `docs/check-scenarios.md` for the format contract.
 
+use crate::RuleVerdict;
+
 mod expect;
 mod parse;
 mod run;
@@ -38,11 +40,56 @@ pub struct UndemonstratedRule {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpectedRuleVerdict {
+	pub rule_id: String,
+	pub verdict: RuleVerdict,
+}
+
+impl std::fmt::Display for ExpectedRuleVerdict {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"verdict {} = {}",
+			self.rule_id,
+			rule_verdict_name(self.verdict)
+		)
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleVerdictMismatch {
+	pub rule_id: String,
+	pub expected: RuleVerdict,
+	pub actual: Option<RuleVerdict>,
+}
+
+impl std::fmt::Display for RuleVerdictMismatch {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"verdict:   {} expected {}, actual {}",
+			self.rule_id,
+			rule_verdict_name(self.expected),
+			self.actual.map(rule_verdict_name).unwrap_or("absent")
+		)
+	}
+}
+
+fn rule_verdict_name(verdict: RuleVerdict) -> &'static str {
+	match verdict {
+		RuleVerdict::Pass => "pass",
+		RuleVerdict::Fail => "fail",
+		RuleVerdict::Inconclusive => "inconclusive",
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scenario {
 	pub meta: ScenarioMeta,
 	pub rules: Option<String>,
 	pub files: Vec<ScenarioFile>,
 	pub expects: Vec<ExpectedViolation>,
+	pub verdicts: Vec<ExpectedRuleVerdict>,
 	pub undemonstrated: Vec<UndemonstratedRule>,
 	pub(crate) expect_span: Option<(usize, usize)>,
 }

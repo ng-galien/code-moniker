@@ -9,7 +9,9 @@ use code_moniker_query::{
 };
 
 use crate::Exit;
-use crate::args::{DaemonArgs, DaemonCommand, DaemonRootArgs, DaemonStartArgs};
+use crate::args::{
+	DaemonArgs, DaemonCommand, DaemonRootArgs, DaemonStartArgs, DaemonTargetArgs, LiveRefresh,
+};
 
 pub(crate) fn run_daemon<W1: Write, W2: Write>(
 	args: &DaemonArgs,
@@ -36,22 +38,8 @@ fn daemon_start(args: &DaemonStartArgs) -> anyhow::Result<()> {
 	daemon::serve_foreground_config_supervised(config, args.supervisor_pid, args.supervisor_fd)
 }
 
-fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let config = daemon_config(args)?;
-	let Some(entry) = daemon_client::read_registry_entry(&config)? else {
-		let conflicts = overlapping_daemons(&config, None)?;
-		if conflicts.is_empty() {
-			anyhow::bail!(
-				"no daemon registered for {}",
-				daemon_client::workspace_label(&daemon_client::config_roots(&config))
-			);
-		}
-		anyhow::bail!(
-			"no daemon registered for {}; overlapping daemon roots: {}",
-			daemon_client::workspace_label(&daemon_client::config_roots(&config)),
-			format_daemon_roots(&conflicts)
-		);
-	};
+fn daemon_status<W: Write>(args: &DaemonTargetArgs, stdout: &mut W) -> anyhow::Result<()> {
+	let (config, entry) = resolve_daemon_target(args)?;
 	let registry_path = daemon_client::registry_path_for_config(&config)?;
 	if !pid_is_alive(entry.pid) {
 		remove_registry_entry_if_own(&registry_path, &entry);
@@ -75,7 +63,7 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 		write_overlap_warning(stdout, &config, Some(&entry))?;
 		return Ok(());
 	}
-	let client = match daemon_client::DaemonClient::connect_config(config.clone()) {
+	let client = match connect_daemon_target(args, config.clone()) {
 		Ok(client) => client,
 		Err(error) => {
 			writeln!(
@@ -135,6 +123,9 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 	}
 	let response = client.query(QueryRequest::new(Query::WorkspaceStatus))?;
 	if let QueryResult::WorkspaceStatus(status) = response.result {
+		if let Some(generation) = status.generation {
+			writeln!(stdout, "generation: {}", generation.0)?;
+		}
 		writeln!(
 			stdout,
 			"files: {} symbols: {} references: {} stale: {}",
@@ -151,11 +142,61 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 	Ok(())
 }
 
-fn daemon_stop<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let client = daemon_client::DaemonClient::connect_config(daemon_config(args)?)?;
+fn daemon_stop<W: Write>(args: &DaemonTargetArgs, stdout: &mut W) -> anyhow::Result<()> {
+	let client = if let Some(endpoint) = args.daemon.as_deref() {
+		daemon_client::DaemonClient::connect_endpoint(endpoint)?
+	} else {
+		daemon_client::DaemonClient::connect_config(daemon_target_config(args)?)?
+	};
 	client.shutdown()?;
 	writeln!(stdout, "stopped: {}", root_label(client.roots()))?;
 	Ok(())
+}
+
+fn resolve_daemon_target(
+	args: &DaemonTargetArgs,
+) -> anyhow::Result<(DaemonWorkspaceConfig, DaemonRegistryEntry)> {
+	if let Some(endpoint) = args.daemon.as_deref() {
+		let entry = daemon_client::registry_entry_for_endpoint(endpoint)?;
+		return Ok((registry_entry_config(&entry), entry));
+	}
+	let config = daemon_target_config(args)?;
+	let Some(entry) = daemon_client::read_registry_entry(&config)? else {
+		let conflicts = overlapping_daemons(&config, None)?;
+		if conflicts.is_empty() {
+			anyhow::bail!(
+				"no daemon registered for {}",
+				daemon_client::workspace_label(&daemon_client::config_roots(&config))
+			);
+		}
+		anyhow::bail!(
+			"no daemon registered for {}; overlapping daemon roots: {}",
+			daemon_client::workspace_label(&daemon_client::config_roots(&config)),
+			format_daemon_roots(&conflicts)
+		);
+	};
+	Ok((config, entry))
+}
+
+fn connect_daemon_target(
+	args: &DaemonTargetArgs,
+	config: DaemonWorkspaceConfig,
+) -> anyhow::Result<daemon_client::DaemonClient> {
+	if let Some(endpoint) = args.daemon.as_deref() {
+		daemon_client::DaemonClient::connect_endpoint(endpoint)
+	} else {
+		daemon_client::DaemonClient::connect_config(config)
+	}
+}
+
+fn registry_entry_config(entry: &DaemonRegistryEntry) -> DaemonWorkspaceConfig {
+	let entry = entry.clone();
+	DaemonWorkspaceConfig {
+		roots: entry.workspace_roots,
+		project: entry.project,
+		cache_dir: entry.cache_dir,
+		live_refresh: entry.live_refresh,
+	}
 }
 
 fn daemon_list<W: Write>(stdout: &mut W) -> anyhow::Result<()> {
@@ -241,15 +282,24 @@ fn daemon_config(args: &DaemonRootArgs) -> anyhow::Result<DaemonWorkspaceConfig>
 	daemon::daemon_workspace_config(
 		daemon_roots(&args.workspace_roots),
 		args.project.clone(),
-		args.cache.clone(),
-		Some(live_refresh_label(args)),
+		crate::args::cache_dir_with_env(&args.cache),
+		Some(live_refresh_label(args.live_refresh)),
 	)
 }
 
-fn live_refresh_label(args: &DaemonRootArgs) -> String {
-	match args.live_refresh {
-		crate::args::LiveRefresh::OnDemand => "on-demand",
-		crate::args::LiveRefresh::Auto => "auto",
+fn daemon_target_config(args: &DaemonTargetArgs) -> anyhow::Result<DaemonWorkspaceConfig> {
+	daemon::daemon_workspace_config(
+		daemon_roots(&args.workspace_roots),
+		args.project.clone(),
+		crate::args::cache_dir_with_env(&args.cache),
+		Some(live_refresh_label(args.live_refresh)),
+	)
+}
+
+fn live_refresh_label(policy: LiveRefresh) -> String {
+	match policy {
+		LiveRefresh::OnDemand => "on-demand",
+		LiveRefresh::Auto => "auto",
 	}
 	.to_string()
 }

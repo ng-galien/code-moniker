@@ -6,6 +6,14 @@ This is not the normal agent exploration path when MCP is available; use
 Discover what a daemon supports with `code-moniker daemon status <root>`
 (the `queries:` line) — a long-running daemon may predate newer verbs.
 
+Use `code-moniker daemon list` followed by
+`code-moniker query --daemon <ENDPOINT> '<verb> ...'` to target an already
+running daemon exactly. This direct selector never starts a replacement daemon
+and never falls back to the filesystem. The same endpoint is accepted by
+`daemon status --daemon` and `daemon stop --daemon`. For `rules.check`, the
+rules file is loaded for the request and the sources/linkage come from the
+selected daemon's reported index generation.
+
 ## Verbs
 
 | Verb | Key fields | Returns |
