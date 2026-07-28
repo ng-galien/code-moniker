@@ -8,6 +8,10 @@ repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
 description   = "Shared daemon query DSL and protocol DTOs for code-moniker."
 
+[package.metadata.dist]
+# `export-schema` is a build/maintenance utility, not a shipped application.
+dist = false
+
 [dependencies]
 anyhow     = { workspace = true }
 jsonrpsee  = { workspace = true, optional = true }

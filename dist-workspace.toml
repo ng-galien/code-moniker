@@ -1,0 +1,22 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+packages = ["code-moniker"]
+targets = [
+	"aarch64-apple-darwin",
+	"x86_64-apple-darwin",
+	"x86_64-unknown-linux-gnu",
+]
+features = ["tui", "mcp"]
+installers = ["shell"]
+install-path = "CARGO_HOME"
+install-updater = false
+pr-run-mode = "plan"
+tag-namespace = "v"
+github-attestations = true
+github-release = "announce"
+publish-jobs = ["./publish-crates"]
+github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write" } }

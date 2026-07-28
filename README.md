@@ -190,31 +190,45 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
-Code Moniker 0.5 supports macOS and Linux. Its workspace daemon is currently
-Unix-only, so Windows packages are not published yet.
+Code Moniker 0.6 supports macOS and Linux. Its workspace daemon is currently
+Unix-only, so Windows packages are not published yet. Release binaries include
+the terminal UI and MCP server; no Rust toolchain or local compilation is
+required.
 
-Install the CLI. Every binary includes the embedded agent skill:
+Install the latest release directly:
 
 ```sh
-cargo install code-moniker
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/ng-galien/code-moniker/releases/latest/download/code-moniker-installer.sh | sh
 ```
 
-Install the agent integration for a client. With the core binary, this
-materializes the versioned skill in the user's client directory:
+The installer selects the current platform, verifies the release archive
+checksum, and installs `code-moniker` under Cargo's binary directory
+(`$CARGO_HOME/bin`, normally `~/.cargo/bin`).
+
+Rust users can install the same official prebuilt release with
+[`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
+
+```sh
+cargo binstall code-moniker
+```
+
+Every binary includes the embedded agent skill. Install the agent integration
+for a client:
 
 ```sh
 code-moniker agent install --client codex
 code-moniker agent doctor --client codex
 ```
 
-Install the binary with MCP support when the integration should also register
-a project-owned stdio MCP. The same `agent install` command detects that
-capability and installs both components:
+Building from source remains available when a custom feature set is required:
 
 ```sh
-cargo install code-moniker --features mcp
-code-moniker agent install --client codex
+cargo install code-moniker --features tui,mcp
 ```
+
+The same `agent install` command detects MCP support and installs both the
+version-matched skill and the project-owned stdio MCP.
 
 Hooks remain an explicit project policy and select no check profile by
 default:
@@ -255,8 +269,9 @@ cargo install --path crates/cli --features tui,mcp
 - `tui` — the `ui` terminal explorer (implies `pretty`).
 - `mcp` — the `mcp` server and agent MCP installation.
 
-The default core binary remains light — `extract`, `check`, `rules`, the
-embedded skill installer and hooks, but no terminal UI or MCP server:
+Official prebuilt releases enable `tui` and `mcp`. A default source build
+remains light — `extract`, `check`, `rules`, the embedded skill installer and
+hooks, but no terminal UI or MCP server:
 
 ```sh
 cargo install code-moniker

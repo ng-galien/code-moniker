@@ -12,6 +12,13 @@ description   = "Standalone CLI / linter for the code-moniker symbol graph: file
 keywords      = ["code-search", "linter", "ast", "tree-sitter", "cli"]
 categories    = ["command-line-utilities", "development-tools"]
 
+[package.metadata.binstall]
+# Official release artifacts only: never fall back to a third-party build or
+# an implicit source compilation when a platform is unsupported.
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+disabled-strategies = ["quick-install", "compile"]
+
 [lib]
 name = "code_moniker_cli"
 

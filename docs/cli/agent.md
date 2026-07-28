@@ -50,9 +50,13 @@ or CI for full-tree guarantees.
 ## Install the agent integration
 
 ```sh
-cargo install code-moniker --features mcp
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/ng-galien/code-moniker/releases/latest/download/code-moniker-installer.sh | sh
 code-moniker agent install --client codex
 ```
+
+Official release binaries include MCP. A source install remains available with
+`cargo install code-moniker --features mcp`.
 
 The binary embeds the version-matched `code-moniker` skill. `agent install`
 materializes it in the selected client's user skill directory and registers a

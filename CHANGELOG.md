@@ -21,6 +21,14 @@ surfaced), the vscode extension's TypeScript climbs from 75.7% to
 83.0% explained, and every silent-empty agent surface now fails
 loudly with routing guidance. Daemon protocol 3 → 4.
 
+### Added
+
+- **Precompiled CLI distribution.** GitHub Releases now ship full-featured
+  (`tui,mcp`) macOS arm64, macOS x64, and Linux x64 archives with SHA-256
+  checksums and attestations. A universal `curl | sh` installer and
+  `cargo binstall code-moniker` both use those official artifacts, while
+  source installation remains available for custom feature sets.
+
 ### Changed
 
 - **Daemon protocol 3 → 4.** Two existing verbs changed observable

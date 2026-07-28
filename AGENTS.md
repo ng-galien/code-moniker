@@ -98,7 +98,8 @@ tmux capture-pane -t cm-mcp -p
 ## CI & Release
 
 - CI workflow: `.github/workflows/ci.yml` — fmt, clippy, lib tests, `cargo moniker-check`.
-- Release: `v*.*.*` tag → `.github/workflows/release.yml`; publish order `code-moniker-core`, `code-moniker-query`, `code-moniker-workspace`, `code-moniker-daemon-client`, `code-moniker-check`, `code-moniker-daemon`, `code-moniker`.
+- Release: `v*.*.*` tag → cargo-dist-generated `.github/workflows/v-release.yml`; binary config lives in `dist-workspace.toml`, and crates.io publication lives in the reusable `.github/workflows/publish-crates.yml`. Publish order: `code-moniker-core`, `code-moniker-query`, `code-moniker-workspace`, `code-moniker-daemon-client`, `code-moniker-check`, `code-moniker-daemon`, `code-moniker`.
+- Do not hand-edit `.github/workflows/v-release.yml`; update `dist-workspace.toml` and rerun the pinned `dist init`. See `docs/release.md`.
 - The release workflow publishes crates and the CLI binaries only. The VS Code extension is published separately with `vsce publish` from `vscode-extension/`.
 - After release: bump `[workspace.package]` version on `main`; no `-snapshot` suffix.
 
