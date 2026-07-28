@@ -186,6 +186,7 @@ fn project_def_path(
 		[name] if name == "kind" => Lhs::Kind,
 		[name] if name == "shape" => Lhs::Shape,
 		[name] if name == "visibility" => Lhs::Visibility,
+		[name] if name == "srcset" => Lhs::Srcset,
 		[name] if name == "lines" => Lhs::Lines,
 		[name] if name == "start_line" => Lhs::StartLine,
 		[name] if name == "end_line" => Lhs::EndLine,
@@ -221,10 +222,12 @@ fn project_ref_path(
 		[source, child] if source == "source" && child == "kind" => Lhs::SourceKind,
 		[source, child] if source == "source" && child == "shape" => Lhs::SourceShape,
 		[source, child] if source == "source" && child == "visibility" => Lhs::SourceVisibility,
+		[source, child] if source == "source" && child == "srcset" => Lhs::SourceSrcset,
 		[target, child] if target == "target" && child == "name" => Lhs::TargetName,
 		[target, child] if target == "target" && child == "kind" => Lhs::TargetKind,
 		[target, child] if target == "target" && child == "shape" => Lhs::TargetShape,
 		[target, child] if target == "target" && child == "visibility" => Lhs::TargetVisibility,
+		[target, child] if target == "target" && child == "srcset" => Lhs::TargetSrcset,
 		_ => return None,
 	};
 	resolve_ref_lhs(lhs, record, ctx)

@@ -81,6 +81,7 @@ fn append_violations(
 				rule_id: rule.rule_id.clone(),
 				severity: rule.severity,
 				moniker: record.identity.to_string(),
+				srcset: (!record.srcset.is_empty()).then(|| record.srcset.to_string()),
 				kind: record.kind.to_string(),
 				lines: record.line_range.unwrap_or((0, 0)),
 				message: format!(

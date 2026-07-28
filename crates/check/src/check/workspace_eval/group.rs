@@ -388,6 +388,7 @@ fn group_violation(
 	let primary = primary_member(inventory, &result.members)?;
 	let member_summary = member_summary(inventory, &result.members);
 	let group = result.key.label();
+	let srcset = group_srcset(inventory, &result.members);
 	let observations = result.observations.join(", ");
 	let evaluation_error = result.evaluation_error.as_deref().unwrap_or_default();
 	let explanation = rule.message.as_deref().map(|message| {
@@ -415,6 +416,7 @@ fn group_violation(
 			rule_id: rule.rule_id.clone(),
 			severity: rule.severity,
 			moniker: result.key.canonical(),
+			srcset,
 			kind: "group".to_string(),
 			lines: primary.1.line_range.unwrap_or((0, 0)),
 			message: format!(
@@ -424,6 +426,29 @@ fn group_violation(
 			explanation,
 		},
 	})
+}
+
+fn group_srcset(inventory: &SymbolInventoryIndex, members: &SymbolSet) -> Option<String> {
+	let mut srcset = None::<&str>;
+	let mut saw_unspecified = false;
+	for ordinal in members.iter() {
+		let Some(record) = inventory.record(ordinal) else {
+			continue;
+		};
+		if record.srcset.is_empty() {
+			saw_unspecified = true;
+			continue;
+		}
+		match srcset {
+			None => srcset = Some(record.srcset.as_ref()),
+			Some(value) if value == record.srcset.as_ref() => {}
+			Some(_) => return Some("mixed".to_string()),
+		}
+	}
+	if srcset.is_some() && saw_unspecified {
+		return Some("mixed".to_string());
+	}
+	srcset.map(str::to_string)
 }
 
 fn primary_member<'a>(
@@ -718,6 +743,22 @@ mod tests {
 				.collect(),
 		);
 		SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols)
+	}
+
+	#[test]
+	fn group_srcset_is_mixed_when_named_and_unspecified_members_coexist() {
+		let sources = vec![source(0, "com.acme.sales"), source(1, "com.acme.sales")];
+		let named = invoice(0, "com.acme.sales", "Named");
+		let mut unspecified = invoice(1, "com.acme.sales", "Unspecified");
+		unspecified.identity = Arc::from(unspecified.identity.replace("/srcset:main", ""));
+		let symbols =
+			RecordTable::from_shards(vec![Arc::from(vec![named]), Arc::from(vec![unspecified])]);
+		let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols);
+
+		assert_eq!(
+			group_srcset(&inventory, inventory.all_symbols()),
+			Some("mixed".to_string())
+		);
 	}
 
 	#[test]

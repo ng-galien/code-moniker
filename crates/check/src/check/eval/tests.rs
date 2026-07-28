@@ -1965,6 +1965,48 @@ fn source_and_target_kind_projection() {
 	assert_eq!(v.len(), 1, "class→function edge flagged: {v:?}");
 }
 
+#[test]
+fn srcset_projections_cover_defs_and_reference_endpoints() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id = "main-class"
+		expr = "srcset = 'main'"
+
+		[[refs.where]]
+		id = "main-must-not-call-test"
+		expr = "source.srcset = 'main' => target.srcset != 'test'"
+		"#,
+	);
+	let mut root_builder = MonikerBuilder::new();
+	root_builder.project(b".");
+	root_builder.segment(b"srcset", b"main");
+	root_builder.segment(b"lang", b"ts");
+	root_builder.segment(b"module", b"app");
+	let root = root_builder.build();
+	let mut graph = CodeGraph::new(root.clone(), b"module");
+	let source = child(&root, b"class", b"App");
+	graph
+		.add_def(source.clone(), b"class", &root, Some((0, 5)))
+		.unwrap();
+	let mut target_builder = MonikerBuilder::new();
+	target_builder.project(b".");
+	target_builder.segment(b"srcset", b"test");
+	target_builder.segment(b"lang", b"ts");
+	target_builder.segment(b"module", b"support");
+	target_builder.segment(b"function", b"fixture");
+	graph
+		.add_ref(&source, target_builder.build(), b"calls", Some((0, 5)))
+		.unwrap();
+
+	let violations = evaluate(&graph, "fixture", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(violations.len(), 1, "{violations:#?}");
+	assert_eq!(
+		violations[0].rule_id, "refs.main-must-not-call-test",
+		"{violations:#?}"
+	);
+}
+
 // ─── refs pipeline ──────────────────────────────────────────────────
 
 fn build_root() -> Moniker {

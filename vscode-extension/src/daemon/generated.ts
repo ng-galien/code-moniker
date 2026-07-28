@@ -689,6 +689,9 @@ export interface CheckSummaryDto {
   total_rule_errors: number;
   total_violations: number;
   total_warnings: number;
+  violations_by_srcset?: {
+    [k: string]: number;
+  };
 }
 export interface FailedRuleDto {
   rule_id: string;
@@ -708,6 +711,7 @@ export interface ViolationDto {
   root: string;
   rule_id: string;
   severity: string;
+  srcset?: string | null;
 }
 export interface RulesApplicableResult {
   file: string;

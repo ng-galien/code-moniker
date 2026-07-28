@@ -13,6 +13,7 @@ pub(in crate::check) enum Lhs {
 	Kind,
 	Shape,
 	Visibility,
+	Srcset,
 	Text,
 	Moniker,
 	Depth,
@@ -25,12 +26,14 @@ pub(in crate::check) enum Lhs {
 	SourceKind,
 	SourceShape,
 	SourceVisibility,
+	SourceSrcset,
 	SourceMoniker,
 	SourceParentMoniker,
 	TargetName,
 	TargetKind,
 	TargetShape,
 	TargetVisibility,
+	TargetSrcset,
 	TargetMoniker,
 	TargetParentMoniker,
 	SegmentName,
@@ -49,6 +52,7 @@ impl Lhs {
 			Self::Kind => "kind",
 			Self::Shape => "shape",
 			Self::Visibility => "visibility",
+			Self::Srcset => "srcset",
 			Self::Text => "text",
 			Self::Moniker => "uri",
 			Self::Depth => "depth",
@@ -61,12 +65,14 @@ impl Lhs {
 			Self::SourceKind => "source.kind",
 			Self::SourceShape => "source.shape",
 			Self::SourceVisibility => "source.visibility",
+			Self::SourceSrcset => "source.srcset",
 			Self::SourceMoniker => "source",
 			Self::SourceParentMoniker => "source.parent",
 			Self::TargetName => "target.name",
 			Self::TargetKind => "target.kind",
 			Self::TargetShape => "target.shape",
 			Self::TargetVisibility => "target.visibility",
+			Self::TargetSrcset => "target.srcset",
 			Self::TargetMoniker => "target",
 			Self::TargetParentMoniker => "target.parent",
 			Self::SegmentName => "segment.name",
@@ -85,6 +91,7 @@ impl Lhs {
 			"kind" => Self::Kind,
 			"shape" => Self::Shape,
 			"visibility" => Self::Visibility,
+			"srcset" => Self::Srcset,
 			"text" => Self::Text,
 			"uri" | "moniker" | "self" => Self::Moniker,
 			"depth" => Self::Depth,
@@ -98,12 +105,14 @@ impl Lhs {
 			"source.kind" => Self::SourceKind,
 			"source.shape" => Self::SourceShape,
 			"source.visibility" => Self::SourceVisibility,
+			"source.srcset" => Self::SourceSrcset,
 			"source.parent" => Self::SourceParentMoniker,
 			"target" => Self::TargetMoniker,
 			"target.name" => Self::TargetName,
 			"target.kind" => Self::TargetKind,
 			"target.shape" => Self::TargetShape,
 			"target.visibility" => Self::TargetVisibility,
+			"target.srcset" => Self::TargetSrcset,
 			"target.parent" => Self::TargetParentMoniker,
 			"segment.name" => Self::SegmentName,
 			"segment.kind" => Self::SegmentKind,
@@ -154,6 +163,7 @@ impl Lhs {
 			| Self::Kind
 			| Self::Shape
 			| Self::Visibility
+			| Self::Srcset
 			| Self::Text
 			| Self::Confidence
 			| Self::ParentName
@@ -163,10 +173,12 @@ impl Lhs {
 			| Self::SourceKind
 			| Self::SourceShape
 			| Self::SourceVisibility
+			| Self::SourceSrcset
 			| Self::TargetName
 			| Self::TargetKind
 			| Self::TargetShape
 			| Self::TargetVisibility
+			| Self::TargetSrcset
 			| Self::SegmentName
 			| Self::SegmentKind => LhsProjectionKind::Text,
 		}

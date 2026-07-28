@@ -6,6 +6,25 @@ use super::error::ParseError;
 use super::metrics::{starts_metric_call, try_parse_metric_expr};
 use super::value::parse_domain_value_call_body;
 
+const SUPPORTED_NUMBER_MEASURES: &str = "count, sum, max, min, avg, median, percentile, stddev, \
+	var, cv, gini, entropy, size, fan_out, fan_in, lcom4, cbo, rfc, wmc, dit, noc";
+
+fn unknown_numeric_measure_message(name: &str) -> String {
+	format!("unknown numeric measure `{name}` (supported: {SUPPORTED_NUMBER_MEASURES})")
+}
+
+pub(super) fn unsupported_measure_message(raw: &str) -> Option<String> {
+	let (name, _) = raw.split_once('(')?;
+	if name.is_empty()
+		|| !name
+			.bytes()
+			.all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+	{
+		return None;
+	}
+	Some(unknown_numeric_measure_message(name))
+}
+
 pub(super) fn next_starts_number_call(state: &ParserState<'_>) -> bool {
 	let rest = cursor::rest(state);
 	[
@@ -63,6 +82,12 @@ pub(super) fn parse_number_expr<'a>(state: ParserState<'a>) -> ParseResult<'a, N
 	}
 
 	let (raw, state) = cursor::take_projection_token(state);
+	if !raw.is_empty() && cursor::peek_byte(&state) == Some(b'(') {
+		return Err(ParseError::BadExpr {
+			expr: cursor::raw(&state).to_string(),
+			msg: unknown_numeric_measure_message(raw),
+		});
+	}
 	let Some(lhs) = Lhs::from_projection_name(raw) else {
 		return Err(ParseError::BadExpr {
 			expr: cursor::raw(&state).to_string(),

@@ -508,8 +508,17 @@ fn render_structural_rule_report(output: &mut String, report: &code_moniker_quer
 	));
 	if let Some(coverage) = &report.coverage {
 		output.push_str(&format!(
-			"      coverage: {}% (minimum {}%, resolved {}/{})\n",
-			coverage.percent, coverage.min_percent, coverage.resolved, coverage.total
+			"      coverage: {}% (minimum {}%, decided {}/{}, resolved={}, external={}, candidate={}, dynamic={}, blocked={}, unresolved={})\n",
+			coverage.percent,
+			coverage.min_percent,
+			coverage.decided,
+			coverage.total,
+			coverage.resolved,
+			coverage.external,
+			coverage.candidate,
+			coverage.dynamic,
+			coverage.blocked,
+			coverage.unresolved
 		));
 	}
 	let Some(path) = &report.path_analysis else {
@@ -551,6 +560,17 @@ fn render_rules_root_summary(output: &mut String, root: &RulesCheckRootResult) {
 		root.summary.total_rule_errors,
 		root.summary.total_errors
 	));
+	if !root.summary.violations_by_srcset.is_empty() {
+		output.push_str(&format!(
+			"    violations_by_srcset: {}\n",
+			root.summary
+				.violations_by_srcset
+				.iter()
+				.map(|(srcset, count)| format!("{srcset}={count}"))
+				.collect::<Vec<_>>()
+				.join(", ")
+		));
+	}
 	for failed in &root.summary.failed_rules {
 		output.push_str(&format!(
 			"    - {}: {} {} violation(s)\n",

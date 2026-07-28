@@ -6,7 +6,7 @@ use super::ast::*;
 use super::collection::parse_collection_rhs;
 use super::cursor::{lhs_token_end, operator_at};
 use super::error::ParseError;
-use super::number::parse_number_rhs;
+use super::number::{parse_number_rhs, unsupported_measure_message};
 use super::pairs::parse_pair_projection;
 use crate::check::path;
 
@@ -141,6 +141,12 @@ fn parse_lhs(s: &str, full: &str, pair_bindings_allowed: bool) -> Result<LhsExpr
 	}
 	if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)? {
 		return Ok(LhsExpr::PairProjection(projection));
+	}
+	if let Some(msg) = unsupported_measure_message(s) {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg,
+		});
 	}
 	match Lhs::from_projection_name(s) {
 		Some(lhs) if lhs.is_number_projection() => Ok(LhsExpr::Number(NumberExpr::Projection(lhs))),

@@ -239,6 +239,7 @@ fn collect_atom_capability(
 		Lhs::Kind => "kind",
 		Lhs::Shape => "shape",
 		Lhs::Visibility => "visibility",
+		Lhs::Srcset => "srcset",
 		Lhs::Moniker => "uri",
 		other => return unsupported(at, &format!("projection.{}", other.as_str())),
 	};
@@ -404,6 +405,7 @@ pub fn evaluate_workspace_rules_in(
 					rule_id: rule.rule_id.clone(),
 					severity: rule.severity,
 					moniker: record.identity.to_string(),
+					srcset: (!record.srcset.is_empty()).then(|| record.srcset.to_string()),
 					kind: record.kind.to_string(),
 					lines: record.line_range.unwrap_or((0, 0)),
 					message: format!(
@@ -519,6 +521,7 @@ fn eval_exact(
 		Lhs::Kind => inventory.facets().symbols_by_kind(value).cloned(),
 		Lhs::Shape => inventory.facets().symbols_by_shape(value).cloned(),
 		Lhs::Visibility => inventory.facets().symbols_by_visibility(value).cloned(),
+		Lhs::Srcset => inventory.facets().symbols_by_srcset(value).cloned(),
 		Lhs::Moniker => inventory
 			.catalog()
 			.ordinal_by_identity(value)
@@ -553,6 +556,9 @@ fn eval_regex(
 			regex.is_match(value)
 		}),
 		Lhs::Visibility => union_postings(inventory.facets().visibility_postings(), |value| {
+			regex.is_match(value)
+		}),
+		Lhs::Srcset => union_postings(inventory.facets().srcset_postings(), |value| {
 			regex.is_match(value)
 		}),
 		_ => SymbolSet::new(),
@@ -676,20 +682,31 @@ mod tests {
 				language: "java".to_string(),
 				text: String::new(),
 			},
+			SourceFileRecord {
+				id: SourceId::at(3),
+				uri: "test".to_string(),
+				source_root: 0,
+				path: "src/test/java/acme/TestHelper.java".to_string(),
+				rel_path: "src/test/java/acme/TestHelper.java".to_string(),
+				anchor: "src/test/java/acme/TestHelper.java".to_string(),
+				language: "java".to_string(),
+				text: String::new(),
+			},
 		];
-		let symbol = |file, name: &str, dir: &str| {
+		let symbol = |file, name: &str, dir: &str, srcset: &str| {
 			let mut symbol =
 				SymbolRecord::new(SymbolId::at(file, 0), SourceId::at(file), name, "class");
 			symbol.identity = Arc::from(format!(
-				"code+moniker://./lang:java/srcset:main/package:acme/dir:{dir}/class:{name}"
+				"code+moniker://./lang:java/srcset:{srcset}/package:acme/dir:{dir}/class:{name}"
 			));
 			symbol.line_range = Some((3, 3));
 			symbol
 		};
 		let symbols = RecordTable::from_shards(vec![
-			Arc::from(vec![symbol(0, "GoodRepository", "infra")]),
-			Arc::from(vec![symbol(1, "BadRepository", "domain")]),
-			Arc::from(vec![symbol(2, "Helper", "domain")]),
+			Arc::from(vec![symbol(0, "GoodRepository", "infra", "main")]),
+			Arc::from(vec![symbol(1, "BadRepository", "domain", "main")]),
+			Arc::from(vec![symbol(2, "Helper", "domain", "main")]),
+			Arc::from(vec![symbol(3, "TestHelper", "test", "test")]),
 		]);
 		SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols)
 	}
@@ -717,6 +734,33 @@ mod tests {
 		);
 		assert_eq!(result.reports[0].antecedent_matches, Some(2));
 		assert_eq!(result.reports[0].matches, 1);
+	}
+
+	#[test]
+	fn srcset_uses_inventory_postings_as_a_workspace_facet() {
+		let cfg = crate::check::config::load_from_str(
+			r#"
+			[[workspace.symbol.where]]
+			id = "main-only"
+			expr = "srcset = 'main'"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect("config");
+		let compiled = compile_workspace_rules(&cfg, "code+moniker://").expect("workspace compile");
+		assert_eq!(
+			compiled.specs()[0].capabilities,
+			vec!["srcset.exact".to_string()]
+		);
+		let result = evaluate_workspace_rules(&fixture(), &compiled, true);
+		assert_eq!(result.violations.len(), 1);
+		assert!(
+			result.violations[0]
+				.violation
+				.moniker
+				.ends_with("class:TestHelper")
+		);
 	}
 
 	#[test]

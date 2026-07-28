@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `lines <= skew(out_refs, lines)`: unknown numeric measure `skew` (supported: count, sum, max, min, avg, median, percentile, stddev, var, cv, gini, entropy, size, fan_out, fan_in, lcom4, cbo, rfc, wmc, dit, noc)",
+  "input": "lines <= skew(out_refs, lines)"
+}

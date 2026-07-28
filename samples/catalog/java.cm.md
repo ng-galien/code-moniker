@@ -17,8 +17,8 @@ below is a small Maven-style project where every rule is demonstrated.
 default_rules = false
 
 [aliases]
-java_main = "moniker ~ '**/srcset:main/**'"
-java_test = "moniker ~ '**/srcset:test/**'"
+java_main = "srcset = 'main'"
+java_test = "srcset = 'test'"
 
 api_pkg = "moniker ~ '**/package:api/**'"
 domain_pkg = "moniker ~ '**/package:domain/**'"

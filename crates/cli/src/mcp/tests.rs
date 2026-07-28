@@ -517,6 +517,116 @@ fn usages_tool_groups_repeated_contexts_and_attaches_bounded_source_evidence() {
 }
 
 #[test]
+fn usages_tool_joins_external_crate_identities_to_workspace_definitions() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::write(
+		temp.path().join("Cargo.toml"),
+		concat!(
+			"[workspace]\n",
+			"members = [\"shared-model\", \"consumer-a\", \"consumer-b\"]\n",
+			"resolver = \"3\"\n",
+		),
+	)
+	.expect("write workspace manifest");
+	for consumer in ["consumer-a", "consumer-b"] {
+		std::fs::create_dir_all(temp.path().join(consumer).join("src"))
+			.expect("mkdir consumer source");
+		std::fs::write(
+			temp.path().join(consumer).join("Cargo.toml"),
+			format!(
+				concat!(
+					"[package]\n",
+					"name = \"{}\"\n",
+					"version = \"0.1.0\"\n",
+					"edition = \"2024\"\n",
+					"\n",
+					"[dependencies]\n",
+					"shared-model = {{ path = \"../shared-model\" }}\n",
+				),
+				consumer,
+			),
+		)
+		.expect("write consumer manifest");
+		std::fs::write(
+			temp.path().join(consumer).join("src/lib.rs"),
+			concat!(
+				"use shared_model::SharedType;\n",
+				"\n",
+				"pub fn consume(value: SharedType) -> SharedType {\n",
+				"\tvalue\n",
+				"}\n",
+			),
+		)
+		.expect("write consumer source");
+	}
+	std::fs::create_dir_all(temp.path().join("shared-model/src")).expect("mkdir shared source");
+	std::fs::write(
+		temp.path().join("shared-model/Cargo.toml"),
+		concat!(
+			"[package]\n",
+			"name = \"shared-model\"\n",
+			"version = \"0.1.0\"\n",
+			"edition = \"2024\"\n",
+		),
+	)
+	.expect("write shared manifest");
+	std::fs::write(
+		temp.path().join("shared-model/src/lib.rs"),
+		concat!(
+			"pub struct SharedType;\n",
+			"\n",
+			"pub fn build() -> SharedType {\n",
+			"\tSharedType\n",
+			"}\n",
+		),
+	)
+	.expect("write shared source");
+
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let target = symbol_moniker(&context, "SharedType");
+	let result = ToolRegistry::new()
+		.call(
+			&context,
+			"code_moniker_usages",
+			&json!({
+				"uri": target,
+				"direction": "incoming",
+				"limit": 50,
+				"compact": false
+			}),
+		)
+		.expect("symbol usages");
+
+	assert!(!result.is_error, "{}", result.text);
+	assert!(result.text.contains("incoming_summary:"), "{}", result.text);
+	assert!(result.text.contains("files: 3"), "{}", result.text);
+	assert!(
+		result
+			.text
+			.contains("shared_helper_signal: shared_helper_candidate"),
+		"{}",
+		result.text
+	);
+	assert!(
+		result.text.contains("consumer-a/src/lib.rs"),
+		"{}",
+		result.text
+	);
+	assert!(
+		result.text.contains("consumer-b/src/lib.rs"),
+		"{}",
+		result.text
+	);
+	assert!(
+		result
+			.text
+			.contains("external_pkg:shared_model/path:SharedType"),
+		"{}",
+		result.text
+	);
+}
+
+#[test]
 fn usages_tool_pages_on_complete_symbolic_groups() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir rust source");
@@ -1405,8 +1515,68 @@ fn rules_tool_reports_workspace_path_verdict_coverage_and_witness() {
 		result.text
 	);
 	assert!(result.text.contains("coverage: 100%"), "{}", result.text);
+	assert!(result.text.contains("decided "), "{}", result.text);
+	assert!(
+		!result
+			.text
+			.contains("coverage: 100% (minimum 100%, resolved "),
+		"{}",
+		result.text
+	);
 	assert!(result.text.contains("witness:"), "{}", result.text);
 	assert!(result.text.contains("-[calls]->"), "{}", result.text);
+}
+
+#[test]
+fn rules_tool_reports_violations_by_srcset() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java/com/acme")).expect("mkdir main");
+	std::fs::create_dir_all(temp.path().join("src/test/java/com/acme")).expect("mkdir test");
+	std::fs::write(
+		temp.path().join("src/main/java/com/acme/MainType.java"),
+		"package com.acme;\npublic class MainType {}\n",
+	)
+	.expect("write main fixture");
+	std::fs::write(
+		temp.path().join("src/test/java/com/acme/TestType.java"),
+		"package com.acme;\npublic class TestType {}\n",
+	)
+	.expect("write test fixture");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "must-be-main"
+		expr = "srcset = 'main'"
+
+		[[java.class.where]]
+		id = "must-be-test"
+		expr = "srcset = 'test'"
+		"#,
+	)
+	.expect("write rules");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let result = ToolRegistry::new()
+		.call(
+			&context,
+			"code_moniker_rules",
+			&json!({
+				"uri": "workspace",
+				"action": "run",
+				"limit": 5,
+				"report": true
+			}),
+		)
+		.expect("rules run");
+
+	assert!(!result.is_error, "{}", result.text);
+	assert!(
+		result.text.contains("violations_by_srcset: main=1, test=1"),
+		"{}",
+		result.text
+	);
 }
 
 #[test]

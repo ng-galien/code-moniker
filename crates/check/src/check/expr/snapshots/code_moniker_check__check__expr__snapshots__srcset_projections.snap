@@ -1,0 +1,50 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "nodes": [
+      {
+        "lhs": {
+          "name": "srcset",
+          "type": "attr"
+        },
+        "op": "eq",
+        "raw": "srcset = 'main'",
+        "rhs": {
+          "type": "string",
+          "value": "main"
+        },
+        "type": "atom"
+      },
+      {
+        "lhs": {
+          "name": "source.srcset",
+          "type": "attr"
+        },
+        "op": "eq",
+        "raw": "source.srcset = 'main'",
+        "rhs": {
+          "type": "string",
+          "value": "main"
+        },
+        "type": "atom"
+      },
+      {
+        "lhs": {
+          "name": "target.srcset",
+          "type": "attr"
+        },
+        "op": "eq",
+        "raw": "target.srcset = 'test'",
+        "rhs": {
+          "type": "string",
+          "value": "test"
+        },
+        "type": "atom"
+      }
+    ],
+    "type": "and"
+  }
+}

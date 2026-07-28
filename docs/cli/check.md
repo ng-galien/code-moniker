@@ -129,6 +129,9 @@ also prints `antecedent_matches`; `0` means the left-hand side never
 matched any scanned def or ref. Linked workspace reports additionally expose
 `pass`, `fail`, or `inconclusive`, resolution coverage, and bounded traversal
 statistics. Path reports include the concrete witness when one exists.
+When violations carry source-set identity, text output also prints a
+`Violations by srcset` breakdown. This makes production/test skew visible
+without a separate JSON post-processing step.
 
 Debug a rule that does not fire in this order:
 
@@ -1025,19 +1028,24 @@ code-moniker check src/ --format json
 code-moniker check src/ --format json --report
 ```
 
-The top-level shape is:
+The top-level shape is shown below. The `files` array is abbreviated to one
+representative report; summary counts describe the full run.
 
 ```json
 {
   "summary": {
     "files_scanned": 2,
-    "files_with_violations": 1,
+    "files_with_violations": 2,
     "total_violations": 3,
     "total_rule_errors": 2,
     "total_warnings": 1,
     "files_with_errors": 1,
     "total_errors": 1,
     "elapsed_ms": 18,
+    "violations_by_srcset": {
+      "main": 1,
+      "test": 2
+    },
     "failed_rules": [
       {
         "rule_id": "ts.class.name-pascalcase",
@@ -1058,7 +1066,8 @@ The top-level shape is:
         {
           "rule_id": "ts.class.name-pascalcase",
           "severity": "error",
-          "moniker": "code+moniker://./lang:ts/module:widget/class:lower_bad",
+          "moniker": "code+moniker://./srcset:main/lang:ts/module:widget/class:lower_bad",
+          "srcset": "main",
           "kind": "class",
           "lines": [12, 18],
           "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`",
@@ -1096,6 +1105,11 @@ descending violation count, then by rule id. `errors` is present only when
 project mode could not read one or more files. `rule_report` is present
 only with `--report` and is omitted when empty.
 
+`summary.violations_by_srcset` is present when at least one violation carries
+a `srcset` segment. If the same result also contains violations without one,
+the map includes `unspecified` so its counts still reconcile with
+`total_violations`.
+
 Violation fields:
 
 | Field | Meaning |
@@ -1103,6 +1117,7 @@ Violation fields:
 | `rule_id` | full rule id, such as `ts.class.name-pascalcase` or `refs.domain-no-infra` |
 | `severity` | `error` or `warn`; warning violations do not fail `check` by themselves |
 | `moniker` | full moniker of the failing def or ref source |
+| `srcset` | optional source-set identity such as `main`, `test`, or a custom source set |
 | `kind` | failing def kind, or ref kind for ref-scoped rules |
 | `lines` | `[start, end]`, 1-indexed inclusive line range |
 | `message` | primary diagnostic text |

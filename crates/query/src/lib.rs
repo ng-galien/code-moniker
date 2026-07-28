@@ -1819,6 +1819,8 @@ pub struct CheckSummaryDto {
 	pub total_errors: usize,
 	pub elapsed_ms: u64,
 	pub failed_rules: Vec<FailedRuleDto>,
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub violations_by_srcset: BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1837,6 +1839,8 @@ pub struct ViolationDto {
 	pub rule_id: String,
 	pub severity: String,
 	pub moniker: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub srcset: Option<String>,
 	pub kind: String,
 	pub lines: (u32, u32),
 	pub message: String,

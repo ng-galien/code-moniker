@@ -64,22 +64,29 @@ builds stable buckets:
 ```toml
 [[workspace.symbol.where]]
 id = "repositories-under-infra"
-expr = "shape = 'type' AND name =~ Repository$ => uri ~ '**/dir:infra/**'"
+expr = "srcset = 'main' AND shape = 'type' AND name =~ Repository$ => uri ~ '**/dir:infra/**'"
 
 [[workspace.group.where]]
 id = "unique-type-name-per-package"
 members = "shape = 'type' AND segment('package') != ''"
-group_by = ["lang", "segment('package')", "name"]
+group_by = ["lang", "srcset", "segment('package')", "name"]
 expr = "count(member) <= 1"
 
 [[workspace.group.where]]
 id = "balanced-type-sizes-per-package"
 severity = "warn"
 members = "shape = 'type' AND segment('package') != ''"
-group_by = ["lang", "segment('package')"]
+group_by = ["lang", "srcset", "segment('package')"]
 expr = "count(member) >= 8 => gini(member, lines) <= 0.65"
 message = "Uneven type sizes in {group}: {observations}"
 ```
+
+The posting-list-backed `workspace.symbol` facets are `name`, `kind`, `shape`,
+`visibility`, and `srcset`. `srcset` supports exact and regex comparisons
+through the inventory posting list; it does not rescan moniker text. `uri`
+uses the identity catalog for exact comparisons and the moniker path matcher
+for `~`. `workspace.group.group_by` accepts `lang`, `name`, `kind`, `shape`,
+`visibility`, `source.path`, `source.root`, `srcset`, and `segment('<kind>')`.
 
 `workspace.group.expr` accepts boolean combinations of numeric comparisons
 over `count(member)` and these inventory-only aggregates:
@@ -642,6 +649,7 @@ In **def scope**, the bare attribute refers to the current def:
 | `kind`          | def kind                                     |
 | `shape`         | def's canonical shape (see below)            |
 | `visibility`    | def visibility                               |
+| `srcset`        | source-set segment (`main`, `test`, custom), or `""` |
 | `lines`         | line count of the def's body                 |
 | `depth`         | number of segments in the moniker            |
 | `moniker`       | the moniker itself (operands: `=` `<@` `@>` `?=` `~`) |
@@ -659,7 +667,7 @@ otherwise replaces most path directories.
 In **ref scope**, every projection is prefixed by `source.` or `target.`,
 and an unprefixed `kind` refers to the ref kind (e.g. `calls`, `imports`,
 `uses_type`, `implements`, `annotates`). Available projections on each
-side: `name`, `kind`, `shape`, `visibility`, `moniker`, plus path matching
+side: `name`, `kind`, `shape`, `visibility`, `srcset`, `moniker`, plus path matching
 via `~` and `has_segment(...)` / `segment(...)`.
 
 ### Shape — the canonical kind grouping

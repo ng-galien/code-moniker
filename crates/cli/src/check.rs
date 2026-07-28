@@ -238,6 +238,18 @@ fn write_reports_text<W: Write>(
 			write!(w, ", {} file(s) errored", errors.len())?;
 		}
 		writeln!(w, ").")?;
+		let srcsets = run.violations_by_srcset();
+		if !srcsets.is_empty() {
+			writeln!(
+				w,
+				"Violations by srcset: {}",
+				srcsets
+					.iter()
+					.map(|(srcset, count)| format!("{srcset}={count}"))
+					.collect::<Vec<_>>()
+					.join(", ")
+			)?;
+		}
 		write_failed_rules_text(w, run)?;
 		if !errors.is_empty() {
 			writeln!(w, "Read errors: {} file(s).", errors.len())?;
@@ -320,8 +332,17 @@ fn write_rule_report_text<W: Write>(w: &mut W, run: &CheckRun) -> std::io::Resul
 		if let Some(coverage) = &r.coverage {
 			write!(
 				w,
-				", coverage={}% (minimum {}%, resolved {}/{})",
-				coverage.percent, coverage.min_percent, coverage.resolved, coverage.total
+				", coverage={}% (minimum {}%, decided {}/{}, resolved={}, external={}, candidate={}, dynamic={}, blocked={}, unresolved={})",
+				coverage.percent,
+				coverage.min_percent,
+				coverage.decided,
+				coverage.total,
+				coverage.resolved,
+				coverage.external,
+				coverage.candidate,
+				coverage.dynamic,
+				coverage.blocked,
+				coverage.unresolved
 			)?;
 		}
 		if let Some(warning) = &r.warning {

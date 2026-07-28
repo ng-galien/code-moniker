@@ -18,7 +18,7 @@ line spans.
 id        = "unique-type-name-per-package"
 severity  = "warn"
 members   = "shape = 'type'"
-group_by  = ["lang", "segment('package')", "name"]
+group_by  = ["lang", "srcset", "segment('package')", "name"]
 expr      = "count(member) <= 1"
 message   = "Duplicate type group {group}: {members}"
 rationale = "A logical package must not expose two types with the same name."
@@ -27,7 +27,7 @@ rationale = "A logical package must not expose two types with the same name."
 id        = "balanced-type-sizes-per-package"
 severity  = "warn"
 members   = "shape = 'type'"
-group_by  = ["lang", "segment('package')"]
+group_by  = ["lang", "srcset", "segment('package')"]
 expr      = "count(member) >= 4 => gini(member, lines) <= 0.2"
 message   = "Uneven type sizes in {group}: {observations}"
 rationale = "A sufficiently large package should not concentrate most code in a few types."

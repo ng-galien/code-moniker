@@ -43,6 +43,8 @@ pub struct Violation {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
 	pub moniker: String,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub srcset: Option<String>,
 	pub kind: String,
 	#[serde(serialize_with = "serialize_lines")]
 	pub lines: (u32, u32),
@@ -1042,6 +1044,7 @@ fn eval_rule_with_id(
 		rule_id,
 		severity: rule.severity,
 		moniker,
+		srcset: non_empty(first_segment_name(&target.scope.record.moniker, b"srcset")),
 		kind: diagnostic_kind.to_string(),
 		lines: (start_line, end_line),
 		message,
@@ -1118,6 +1121,10 @@ fn eval_ref_rule(
 		rule_id: rule.rule_id.clone(),
 		severity: rule.severity,
 		moniker: target_uri,
+		srcset: non_empty(first_segment_name(
+			&graph.def_at(r.source).moniker,
+			b"srcset",
+		)),
 		kind: ref_kind.to_string(),
 		lines: (start_line, end_line),
 		message,
@@ -1407,6 +1414,10 @@ fn resolve_ref_lhs(
 				.to_string(),
 		),
 		Lhs::TargetShape => Value::Str(shape_of_last_segment(&r.target)?.as_str().to_string()),
+		Lhs::Srcset | Lhs::SourceSrcset => {
+			Value::Str(first_segment_name(&source_def.moniker, b"srcset"))
+		}
+		Lhs::TargetSrcset => Value::Str(first_segment_name(&r.target, b"srcset")),
 		Lhs::ParentShape => {
 			let segs: Vec<_> = source_def.moniker.as_view().segments().collect();
 			if segs.len() < 2 {
@@ -1462,6 +1473,10 @@ fn first_segment_name(m: &code_moniker_core::core::moniker::Moniker, kind: &[u8]
 		}
 	}
 	String::new()
+}
+
+fn non_empty(value: String) -> Option<String> {
+	(!value.is_empty()).then_some(value)
 }
 
 fn last_segment_kind(m: &code_moniker_core::core::moniker::Moniker) -> Option<String> {
@@ -1758,6 +1773,7 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 			Value::Str(std::str::from_utf8(p.kind).ok()?.to_string())
 		}
 		Lhs::Shape => Value::Str(d.shape()?.as_str().to_string()),
+		Lhs::Srcset => Value::Str(first_segment_name(&d.moniker, b"srcset")),
 		Lhs::ParentShape => {
 			let segs: Vec<_> = d.moniker.as_view().segments().collect();
 			if segs.len() < 2 {
@@ -1774,6 +1790,7 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 		Lhs::SourceKind => Value::Str(std::str::from_utf8(&d.kind).ok()?.to_string()),
 		Lhs::SourceShape => Value::Str(d.shape()?.as_str().to_string()),
 		Lhs::SourceVisibility => Value::Str(std::str::from_utf8(&d.visibility).ok()?.to_string()),
+		Lhs::SourceSrcset => Value::Str(first_segment_name(&d.moniker, b"srcset")),
 		Lhs::SourceMoniker => Value::Moniker(d.moniker.clone()),
 		Lhs::SourceParentMoniker => Value::Moniker(d.moniker.parent()?),
 		Lhs::Confidence
@@ -1781,6 +1798,7 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 		| Lhs::TargetKind
 		| Lhs::TargetShape
 		| Lhs::TargetVisibility
+		| Lhs::TargetSrcset
 		| Lhs::TargetMoniker
 		| Lhs::TargetParentMoniker
 		| Lhs::SegmentName
@@ -2481,6 +2499,7 @@ fn check_require_doc_comment_with_id(
 		rule_id,
 		severity: RuleSeverity::Error,
 		moniker,
+		srcset: non_empty(first_segment_name(&target.scope.record.moniker, b"srcset")),
 		kind: target.kind.to_string(),
 		lines: (start_line, end_line),
 		message: format!(

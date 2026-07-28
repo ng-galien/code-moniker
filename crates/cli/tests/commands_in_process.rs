@@ -1033,12 +1033,84 @@ fn check_project_reports_workspace_path_verdict_coverage_and_witness() {
 	);
 	assert!(out.contains("verdict=fail"), "{out}");
 	assert!(out.contains("coverage=100%"), "{out}");
+	assert!(out.contains("decided "), "{out}");
+	assert!(
+		!out.contains("coverage=100% (minimum 100%, resolved "),
+		"{out}"
+	);
 	assert!(out.contains("witness:"), "{out}");
 	assert!(out.contains("-[calls]->"), "{out}");
 	assert!(
 		out.contains("workspace path result is inconclusive: depth_limit"),
 		"{out}"
 	);
+}
+
+#[test]
+fn check_project_reports_violations_by_srcset_in_text_and_json() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"src/main/java/com/acme/MainType.java",
+		"package com.acme;\npublic class MainType {}\n",
+	);
+	write_under(
+		dir.path(),
+		"src/test/java/com/acme/TestType.java",
+		"package com.acme;\npublic class TestType {}\n",
+	);
+	let rules = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules,
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "must-be-main"
+		expr = "srcset = 'main'"
+
+		[[java.class.where]]
+		id = "must-be-test"
+		expr = "srcset = 'test'"
+		"#,
+	)
+	.expect("rules");
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out} stderr={err}");
+	assert!(
+		out.contains("Violations by srcset: main=1, test=1"),
+		"{out}"
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out} stderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("check JSON");
+	assert_eq!(json["summary"]["violations_by_srcset"]["main"], 1);
+	assert_eq!(json["summary"]["violations_by_srcset"]["test"], 1);
+	let mut violation_srcsets = json["files"]
+		.as_array()
+		.expect("file reports")
+		.iter()
+		.flat_map(|file| file["violations"].as_array().expect("violations").iter())
+		.filter_map(|violation| violation["srcset"].as_str())
+		.collect::<Vec<_>>();
+	violation_srcsets.sort_unstable();
+	assert_eq!(violation_srcsets, vec!["main", "test"]);
 }
 
 #[test]

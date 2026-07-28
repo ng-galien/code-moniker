@@ -4072,6 +4072,7 @@ mod helpers {
 			rule_id: violation.rule_id.to_string(),
 			severity: violation.severity.as_str().to_string(),
 			moniker: violation.moniker.to_string(),
+			srcset: violation.srcset.clone(),
 			kind: violation.kind.to_string(),
 			lines: violation.lines,
 			message: violation.message.to_string(),
@@ -4260,6 +4261,7 @@ mod helpers {
 
 	pub(super) fn aggregate_check_summary(roots: &[RulesCheckRootResult]) -> CheckSummaryDto {
 		let mut summary = CheckSummaryDto::default();
+		let mut unspecified_srcset = 0usize;
 		for root in roots {
 			summary.files_scanned += root.summary.files_scanned;
 			summary.files_with_violations += root.summary.files_with_violations;
@@ -4272,6 +4274,22 @@ mod helpers {
 			summary
 				.failed_rules
 				.extend(root.summary.failed_rules.iter().cloned());
+			unspecified_srcset += root
+				.summary
+				.total_violations
+				.saturating_sub(root.summary.violations_by_srcset.values().sum::<usize>());
+			for (srcset, violations) in &root.summary.violations_by_srcset {
+				*summary
+					.violations_by_srcset
+					.entry(srcset.clone())
+					.or_default() += violations;
+			}
+		}
+		if !summary.violations_by_srcset.is_empty() && unspecified_srcset > 0 {
+			*summary
+				.violations_by_srcset
+				.entry("unspecified".to_string())
+				.or_default() += unspecified_srcset;
 		}
 		summary.failed_rules.sort_by(|a, b| {
 			a.rule_id
@@ -4300,6 +4318,7 @@ mod helpers {
 					violations: rule.violations,
 				})
 				.collect(),
+			violations_by_srcset: summary.violations_by_srcset.clone(),
 		}
 	}
 
@@ -5764,6 +5783,34 @@ message = "every selected function is observable"
 		assert_eq!(
 			rules_config_root(&roots).expect("rules config root"),
 			temp.path().canonicalize().expect("canonical temp")
+		);
+	}
+
+	#[test]
+	fn aggregate_check_summary_reconciles_unspecified_srcsets_across_roots() {
+		let root = |root: &str, total_violations, violations_by_srcset| RulesCheckRootResult {
+			root: root.to_string(),
+			verdict: RulesCheckVerdict::Fail,
+			exit: "no_match".to_string(),
+			summary: CheckSummaryDto {
+				total_violations,
+				violations_by_srcset,
+				..Default::default()
+			},
+			violations: Vec::new(),
+			errors: Vec::new(),
+			rule_reports: Vec::new(),
+			skip_reason: None,
+		};
+		let summary = helpers::aggregate_check_summary(&[
+			root("legacy", 2, BTreeMap::new()),
+			root("indexed", 1, BTreeMap::from([("main".to_string(), 1)])),
+		]);
+
+		assert_eq!(summary.total_violations, 3);
+		assert_eq!(
+			summary.violations_by_srcset,
+			BTreeMap::from([("main".to_string(), 1), ("unspecified".to_string(), 2)])
 		);
 	}
 

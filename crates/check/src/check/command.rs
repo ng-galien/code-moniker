@@ -793,11 +793,16 @@ impl CheckRun {
 			total_errors: self.errors.len(),
 			elapsed_ms: self.elapsed_ms,
 			failed_rules: self.failed_rule_summary(),
+			violations_by_srcset: self.violations_by_srcset(),
 		}
 	}
 
 	pub fn failed_rule_summary(&self) -> Vec<FailedRuleSummary> {
 		failed_rule_summary(&self.reports)
+	}
+
+	pub fn violations_by_srcset(&self) -> std::collections::BTreeMap<String, usize> {
+		violations_by_srcset(&self.reports)
 	}
 
 	pub fn file_violations(&self) -> impl Iterator<Item = (&Path, &check::eval::Violation)> {
@@ -838,6 +843,8 @@ pub struct CheckSummary {
 	pub total_errors: usize,
 	pub elapsed_ms: u64,
 	pub failed_rules: Vec<FailedRuleSummary>,
+	#[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+	pub violations_by_srcset: std::collections::BTreeMap<String, usize>,
 }
 
 /// Per-rule failure count, sorted by severity and volume by [`CheckRun`].
@@ -1695,6 +1702,24 @@ fn violation_counts(reports: &[FileReport]) -> ViolationCounts {
 				counts.warnings += 1;
 			}
 		}
+	}
+	counts
+}
+
+fn violations_by_srcset(reports: &[FileReport]) -> std::collections::BTreeMap<String, usize> {
+	let mut counts = std::collections::BTreeMap::new();
+	let mut unspecified = 0usize;
+	for report in reports {
+		for violation in &report.violations {
+			if let Some(srcset) = &violation.srcset {
+				*counts.entry(srcset.clone()).or_default() += 1;
+			} else {
+				unspecified += 1;
+			}
+		}
+	}
+	if !counts.is_empty() && unspecified > 0 {
+		counts.insert("unspecified".to_string(), unspecified);
 	}
 	counts
 }
