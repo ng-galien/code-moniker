@@ -36,14 +36,28 @@ jobs:
       - name: Verify tag matches crates.io package versions
         run: |
           tag="${RELEASE_TAG#v}"
-          versions=$(cargo metadata --no-deps --format-version 1 \
+          packages=$(cargo metadata --no-deps --format-version 1 \
                     | jq -r '.packages[]
-                      | select(.name == "code-moniker-core" or .name == "code-moniker")
-                      | .version' \
-                    | sort -u)
+                      | select(
+                          .name == "code-moniker-core"
+                          or .name == "code-moniker-query"
+                          or .name == "code-moniker-workspace"
+                          or .name == "code-moniker-daemon-client"
+                          or .name == "code-moniker-check"
+                          or .name == "code-moniker-daemon"
+                          or .name == "code-moniker"
+                        )
+                      | "\(.name)=\(.version)"' \
+                    | sort)
+          package_count=$(printf '%s\n' "$packages" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$package_count" != "7" ]; then
+            echo "::error::expected seven crates.io packages, found $package_count: $packages"
+            exit 1
+          fi
+          versions=$(printf '%s\n' "$packages" | cut -d= -f2 | sort -u)
           count=$(printf '%s\n' "$versions" | sed '/^$/d' | wc -l | tr -d ' ')
           if [ "$count" != "1" ]; then
-            echo "::error::crates.io packages do not share one version: $versions"
+            echo "::error::crates.io packages do not share one version: $packages"
             exit 1
           fi
           version="$versions"
