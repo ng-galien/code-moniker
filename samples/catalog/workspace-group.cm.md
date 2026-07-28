@@ -1,15 +1,17 @@
 ---
 name: workspace-group
 lang: java
-blurb: Workspace-wide uniqueness rules over stable symbol groups
+blurb: Workspace-wide uniqueness and distribution rules over stable symbol groups
 published: true
 default_rules: false
 ---
 
-# Workspace group uniqueness
+# Workspace group invariants
 
 Group rules select symbols from the shared inventory, bucket them by stable
-projections, and emit one diagnostic for each failing group.
+projections, and emit one diagnostic for each failing group. Their predicates
+can combine member counts with descriptive statistics over inclusive symbol
+line spans.
 
 ```toml cm:rules
 [[workspace.group.where]]
@@ -20,6 +22,15 @@ group_by  = ["lang", "segment('package')", "name"]
 expr      = "count(member) <= 1"
 message   = "Duplicate type group {group}: {members}"
 rationale = "A logical package must not expose two types with the same name."
+
+[[workspace.group.where]]
+id        = "balanced-type-sizes-per-package"
+severity  = "warn"
+members   = "shape = 'type'"
+group_by  = ["lang", "segment('package')"]
+expr      = "count(member) >= 4 => gini(member, lines) <= 0.2"
+message   = "Uneven type sizes in {group}: {observations}"
+rationale = "A sufficiently large package should not concentrate most code in a few types."
 ```
 
 The two nested types have distinct monikers but collide on language, package
@@ -42,5 +53,6 @@ class SalesB {
 ```
 
 ```cm:expect
+workspace.group.balanced-type-sizes-per-package @ src/main/java/com/acme/sales/SalesA.java:L3-L5
 workspace.group.unique-type-name-per-package @ src/main/java/com/acme/sales/SalesA.java:L4
 ```

@@ -16,6 +16,14 @@ file's extracted code graph:
 - Local OO metrics: `lcom4`, `cbo`, `rfc`, `wmc`, `dit`, `noc`,
   `fan_in`, and `fan_out`.
 
+The indexed `workspace.group` root additionally supports boolean combinations
+of `count(member)` and `sum`, `max`, `min`, `avg`, `median`, `percentile`,
+`stddev`, `var`, `cv`, or `gini` over `(member, lines)`. Groups are selected
+and maintained as Roaring bitmaps; line spans come from inventory records.
+Missing spans fail closed with coverage, and implications should guard small
+samples. Boolean order is semantically neutral: a decisive known `AND`/`OR`
+operand wins, while unresolved compositions remain fail-closed.
+
 ## Executable Local Smell Families
 
 Use warning rules for:
@@ -50,7 +58,8 @@ Document these as evolutions unless the codebase already added support:
   typed Data Clumps.
 - `cyclo` and `max_nesting` numeric projections for Brain Method.
 - Corpus-wide baselines such as percentile/z-score across all project
-  symbols.
+  symbols for arbitrary projections. Member-line percentiles inside a
+  `workspace.group` are supported.
 
 ## Out Of Scope For CLI Local Rules
 

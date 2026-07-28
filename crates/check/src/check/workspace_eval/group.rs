@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 
 use crate::check::config::{ConfigError, WorkspaceGroupRuleEntry};
 use crate::check::eval::{CompiledRuleSpec, RuleReport, Violation};
-use crate::check::expr::{self, Domain, LhsExpr, Node, NumberExpr, Op, Rhs};
+use crate::check::expr::{self, Node};
 
 use super::{
 	CompiledWorkspaceRules, WorkspaceEvaluation, WorkspaceSymbolViolation, classify_t1, eval_node,
@@ -16,6 +16,10 @@ use super::{
 };
 
 const MEMBER_SAMPLE_LIMIT: usize = 5;
+
+mod predicate;
+
+use predicate::GroupPredicate;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopeKey {
@@ -51,6 +55,8 @@ pub struct WorkspaceGroupResult {
 	pub members: SymbolSet,
 	pub passed: bool,
 	pub suppressed: bool,
+	pub observations: Vec<String>,
+	pub evaluation_error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -80,12 +86,6 @@ enum GroupProjection {
 	SourceRoot,
 	Srcset,
 	Segment(String),
-}
-
-#[derive(Debug)]
-struct GroupPredicate {
-	op: Op,
-	limit: f64,
 }
 
 pub(super) fn compile_groups(
@@ -140,8 +140,8 @@ fn compile_group_rule(
 	let mut group_kinds = allowed_kinds.to_vec();
 	group_kinds.push("member");
 	let predicate_node = parse(&expr, scheme, &group_kinds, &at)?;
-	let predicate = compile_predicate(&predicate_node.root, &at)?;
-	capabilities.push("group.count".to_string());
+	let predicate = predicate::compile(&predicate_node.root, &at)?;
+	predicate.append_capabilities(&mut capabilities);
 	capabilities.sort();
 	capabilities.dedup();
 	for suppression in &entry.suppress {
@@ -186,32 +186,6 @@ fn parse(
 		at: at.to_string(),
 		error,
 	})
-}
-
-fn compile_predicate(node: &Node, at: &str) -> Result<GroupPredicate, ConfigError> {
-	let Node::Atom(atom) = node else {
-		return invalid(at, "`expr` must compare `count(member)` with a number");
-	};
-	let LhsExpr::Number(NumberExpr::Count {
-		domain: Domain::Children(domain),
-		filter: None,
-	}) = &atom.lhs
-	else {
-		return invalid(at, "`expr` must use the unfiltered domain `count(member)`");
-	};
-	if domain != "member" {
-		return invalid(at, "`expr` must use `count(member)`");
-	}
-	if !matches!(atom.op, Op::Eq | Op::Ne | Op::Lt | Op::Le | Op::Gt | Op::Ge) {
-		return invalid(at, "`count(member)` requires a numeric comparison");
-	}
-	let Rhs::Number(NumberExpr::Literal(limit)) = atom.rhs else {
-		return invalid(
-			at,
-			"`count(member)` must be compared with a numeric literal",
-		);
-	};
-	Ok(GroupPredicate { op: atom.op, limit })
 }
 
 fn invalid<T>(at: &str, message: &str) -> Result<T, ConfigError> {
@@ -298,21 +272,6 @@ fn escape_segment_component(value: &str) -> String {
 	value.replace('\\', "\\\\").replace('.', "\\.")
 }
 
-impl GroupPredicate {
-	fn passes(&self, member_count: usize) -> bool {
-		let count = member_count as f64;
-		match self.op {
-			Op::Eq => count == self.limit,
-			Op::Ne => count != self.limit,
-			Op::Lt => count < self.limit,
-			Op::Le => count <= self.limit,
-			Op::Gt => count > self.limit,
-			Op::Ge => count >= self.limit,
-			_ => false,
-		}
-	}
-}
-
 // CompiledRuleSpec is the owned public explanation DTO; projection necessarily
 // copies the plan strings out of the executable rule.
 // code-moniker: ignore[smell-clone-reflex]
@@ -379,21 +338,25 @@ fn evaluate_group_rule(
 	let mut passing = 0;
 	let mut violations = 0;
 	for (key, members) in buckets {
-		let passed = rule.predicate.passes(members.len());
+		let outcome = rule.predicate.evaluate(inventory, &members);
+		let passed = outcome.passed;
 		let suppressed = !passed && rule.suppress.contains(&key.values);
 		passing += usize::from(passed);
 		violations += usize::from(!passed && !suppressed);
-		if !passed && !suppressed {
-			if let Some(violation) = group_violation(inventory, rule, &key, &members) {
-				evaluation.violations.push(violation);
-			}
-		}
-		evaluation.groups.push(WorkspaceGroupResult {
+		let result = WorkspaceGroupResult {
 			key,
 			members,
 			passed,
 			suppressed,
-		});
+			observations: outcome.observations,
+			evaluation_error: outcome.error,
+		};
+		if !passed && !suppressed {
+			if let Some(violation) = group_violation(inventory, rule, &result) {
+				evaluation.violations.push(violation);
+			}
+		}
+		evaluation.groups.push(result);
 	}
 	if report {
 		evaluation.reports.push(RuleReport {
@@ -420,12 +383,13 @@ fn evaluate_group_rule(
 fn group_violation(
 	inventory: &SymbolInventoryIndex,
 	rule: &CompiledWorkspaceGroupRule,
-	key: &ScopeKey,
-	members: &SymbolSet,
+	result: &WorkspaceGroupResult,
 ) -> Option<WorkspaceSymbolViolation> {
-	let primary = primary_member(inventory, members)?;
-	let member_summary = member_summary(inventory, members);
-	let group = key.label();
+	let primary = primary_member(inventory, &result.members)?;
+	let member_summary = member_summary(inventory, &result.members);
+	let group = result.key.label();
+	let observations = result.observations.join(", ");
+	let evaluation_error = result.evaluation_error.as_deref().unwrap_or_default();
 	let explanation = rule.message.as_deref().map(|message| {
 		render_template(
 			message,
@@ -433,9 +397,16 @@ fn group_violation(
 				("group", group.as_str()),
 				("members", member_summary.as_str()),
 				("expr", rule.expr.as_str()),
+				("observations", observations.as_str()),
+				("evaluation_error", evaluation_error),
 			],
 		)
 	});
+	let detail = if observations.is_empty() {
+		String::new()
+	} else {
+		format!("; observed {observations}")
+	};
 	Some(WorkspaceSymbolViolation {
 		source: primary.1.source,
 		symbol: Some(primary.1.id),
@@ -443,12 +414,12 @@ fn group_violation(
 		violation: Violation {
 			rule_id: rule.rule_id.clone(),
 			severity: rule.severity,
-			moniker: key.canonical(),
+			moniker: result.key.canonical(),
 			kind: "group".to_string(),
 			lines: primary.1.line_range.unwrap_or((0, 0)),
 			message: format!(
-				"group `{group}` has {member_summary} and fails `{}`",
-				rule.expr
+				"group `{group}` has {member_summary} and fails `{}`{detail}",
+				rule.expr,
 			),
 			explanation,
 		},
@@ -556,7 +527,8 @@ pub(super) fn evaluate_groups_incremental(
 				next_by_key.remove(&key);
 				continue;
 			}
-			let passed = rule.predicate.passes(members.len());
+			let outcome = rule.predicate.evaluate(current_inventory, &members);
+			let passed = outcome.passed;
 			let suppressed = !passed && rule.suppress.contains(&key.values);
 			next_by_key.insert(
 				key.clone(),
@@ -565,6 +537,8 @@ pub(super) fn evaluate_groups_incremental(
 					members,
 					passed,
 					suppressed,
+					observations: outcome.observations,
+					evaluation_error: outcome.error,
 				},
 			);
 		}
@@ -628,8 +602,7 @@ fn group_diagnostics(
 			group_violation(
 				inventory,
 				rules.get(group.key.rule_id.as_str()).copied()?,
-				&group.key,
-				&group.members,
+				group,
 			)
 		})
 		.collect()
@@ -664,6 +637,15 @@ mod tests {
 	}
 
 	fn invoice(file: usize, package: &str, container: &str) -> SymbolRecord {
+		invoice_with_lines(file, package, container, Some((4, 4)))
+	}
+
+	fn invoice_with_lines(
+		file: usize,
+		package: &str,
+		container: &str,
+		line_range: Option<(u32, u32)>,
+	) -> SymbolRecord {
 		let packages = package
 			.split('.')
 			.map(|name| format!("package:{name}"))
@@ -678,7 +660,7 @@ mod tests {
 		symbol.identity = Arc::from(format!(
 			"code+moniker://./lang:java/srcset:main/{packages}/class:{container}/class:Invoice"
 		));
-		symbol.line_range = Some((4, 4));
+		symbol.line_range = line_range;
 		symbol
 	}
 
@@ -695,6 +677,324 @@ mod tests {
 			Some(false),
 		)
 		.expect("group config")
+	}
+
+	fn statistic_config(expr: &str) -> crate::check::config::Config {
+		crate::check::config::load_from_str(
+			&format!(
+				r#"
+				[[workspace.group.where]]
+				id = "balanced-size"
+				severity = "warn"
+				members = "name = 'Invoice'"
+				group_by = ["lang", "segment('package')"]
+				expr = "{expr}"
+				"#
+			),
+			"<test>",
+			Some(false),
+		)
+		.expect("statistic group config")
+	}
+
+	fn statistic_inventory(line_ranges: &[Option<(u32, u32)>]) -> SymbolInventoryIndex {
+		let sources = line_ranges
+			.iter()
+			.enumerate()
+			.map(|(file, _)| source(file, "com.acme.sales"))
+			.collect::<Vec<_>>();
+		let symbols = RecordTable::from_shards(
+			line_ranges
+				.iter()
+				.enumerate()
+				.map(|(file, line_range)| {
+					Arc::from(vec![invoice_with_lines(
+						file,
+						"com.acme.sales",
+						&format!("Sales{file}"),
+						*line_range,
+					)])
+				})
+				.collect(),
+		);
+		SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols)
+	}
+
+	#[test]
+	fn guarded_line_statistic_reports_the_value_and_coverage() {
+		let inventory = statistic_inventory(&[Some((4, 4)), Some((4, 4)), Some((4, 13))]);
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config("count(member) >= 3 => gini(member, lines) < 0.5"),
+			"code+moniker://",
+		)
+		.expect("statistic plan");
+		assert_eq!(
+			compiled.group[0].capabilities,
+			vec![
+				"group.count".to_string(),
+				"group.gini.lines".to_string(),
+				"group_by.lang".to_string(),
+				"group_by.segment.package".to_string(),
+				"name.exact".to_string(),
+			]
+		);
+
+		let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+		assert_eq!(result.groups.len(), 1);
+		assert!(!result.groups[0].passed);
+		assert_eq!(result.violations.len(), 1);
+		assert!(
+			result.violations[0]
+				.violation
+				.message
+				.contains("gini(member, lines)=0.5"),
+			"{:#?}",
+			result.violations
+		);
+		assert!(
+			result.violations[0]
+				.violation
+				.message
+				.contains("3/3 line ranges"),
+			"{:#?}",
+			result.violations
+		);
+	}
+
+	#[test]
+	fn line_statistic_is_fail_closed_when_a_member_has_no_line_range() {
+		let inventory = statistic_inventory(&[Some((4, 4)), None, Some((4, 13))]);
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config("count(member) >= 3 => avg(member, lines) <= 10"),
+			"code+moniker://",
+		)
+		.expect("statistic plan");
+
+		let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+		assert_eq!(result.groups.len(), 1);
+		assert!(!result.groups[0].passed);
+		assert_eq!(
+			result.groups[0].evaluation_error.as_deref(),
+			Some("avg(member, lines)=unavailable (2/3 line ranges)")
+		);
+		assert_eq!(result.violations.len(), 1);
+		assert!(
+			result.violations[0]
+				.violation
+				.message
+				.contains("avg(member, lines)=unavailable (2/3 line ranges)"),
+			"{:#?}",
+			result.violations
+		);
+	}
+
+	#[test]
+	fn unavailable_statistics_follow_order_independent_boolean_semantics() {
+		let inventory = statistic_inventory(&[Some((4, 4)), None]);
+
+		for expr in [
+			"count(member) >= 1 OR avg(member, lines) < 10",
+			"avg(member, lines) < 10 OR count(member) >= 1",
+		] {
+			let compiled =
+				super::super::compile_workspace_rules(&statistic_config(expr), "code+moniker://")
+					.expect("OR statistic plan");
+			let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+			assert!(result.groups[0].passed, "{expr}: {:#?}", result.groups[0]);
+			assert_eq!(result.groups[0].evaluation_error, None, "{expr}");
+		}
+
+		for expr in [
+			"count(member) < 1 AND avg(member, lines) < 10",
+			"avg(member, lines) < 10 AND count(member) < 1",
+		] {
+			let compiled =
+				super::super::compile_workspace_rules(&statistic_config(expr), "code+moniker://")
+					.expect("AND statistic plan");
+			let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+			assert!(!result.groups[0].passed, "{expr}: {:#?}", result.groups[0]);
+			assert_eq!(result.groups[0].evaluation_error, None, "{expr}");
+		}
+
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config("avg(member, lines) < 10 => count(member) >= 1"),
+			"code+moniker://",
+		)
+		.expect("implication statistic plan");
+		let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+		assert!(result.groups[0].passed, "{:#?}", result.groups[0]);
+		assert_eq!(result.groups[0].evaluation_error, None);
+
+		for expr in [
+			"count(member) >= 1 AND avg(member, lines) < 10",
+			"avg(member, lines) < 10 AND count(member) >= 1",
+			"count(member) < 1 OR avg(member, lines) < 10",
+			"avg(member, lines) < 10 OR count(member) < 1",
+		] {
+			let compiled =
+				super::super::compile_workspace_rules(&statistic_config(expr), "code+moniker://")
+					.expect("unresolved statistic plan");
+			let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+			assert!(!result.groups[0].passed, "{expr}: {:#?}", result.groups[0]);
+			assert!(
+				result.groups[0].evaluation_error.is_some(),
+				"{expr}: {:#?}",
+				result.groups[0]
+			);
+		}
+	}
+
+	#[test]
+	fn implication_guard_skips_the_statistic_for_small_groups() {
+		let inventory = statistic_inventory(&[Some((4, 4)), None]);
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config("count(member) >= 3 => gini(member, lines) <= 0.5"),
+			"code+moniker://",
+		)
+		.expect("statistic plan");
+
+		let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+		assert_eq!(result.groups.len(), 1);
+		assert!(result.groups[0].passed);
+		assert!(result.violations.is_empty());
+	}
+
+	#[test]
+	fn statistic_compilation_rejects_invalid_percentiles_and_projections() {
+		for (expr, expected) in [
+			(
+				"percentile(member, lines, 101) <= 10",
+				"requires P in 0..=100",
+			),
+			(
+				"gini(member, start_line) <= 0.5",
+				"descriptive aggregates over `(member, lines)`",
+			),
+		] {
+			let error =
+				super::super::compile_workspace_rules(&statistic_config(expr), "code+moniker://")
+					.expect_err("unsupported statistic must fail closed");
+			assert!(error.to_string().contains(expected), "{error}");
+		}
+	}
+
+	#[test]
+	fn all_descriptive_line_aggregates_use_the_group_member_domain() {
+		let inventory = statistic_inventory(&[Some((4, 4)), Some((4, 4)), Some((4, 13))]);
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config(
+				"sum(member, lines) = 12 \
+				AND max(member, lines) = 10 \
+				AND min(member, lines) = 1 \
+				AND avg(member, lines) = 4 \
+				AND median(member, lines) = 1 \
+				AND percentile(member, lines, 90) > 8 \
+				AND stddev(member, lines) > 4 \
+				AND var(member, lines) = 18 \
+				AND cv(member, lines) > 1 \
+				AND gini(member, lines) = 0.5",
+			),
+			"code+moniker://",
+		)
+		.expect("all descriptive statistics plan");
+
+		let result = super::super::evaluate_workspace_rules(&inventory, &compiled, false);
+
+		assert_eq!(result.groups.len(), 1);
+		assert!(result.groups[0].passed, "{:#?}", result.groups[0]);
+		assert_eq!(result.groups[0].observations.len(), 10);
+		assert!(result.violations.is_empty());
+	}
+
+	#[test]
+	fn incremental_line_statistic_matches_a_full_re_evaluation() {
+		let sources = (0..3)
+			.map(|file| source(file, "com.acme.sales"))
+			.collect::<Vec<_>>();
+		let before_symbols = RecordTable::from_shards(
+			(0..3)
+				.map(|file| {
+					Arc::from(vec![invoice_with_lines(
+						file,
+						"com.acme.sales",
+						&format!("Sales{file}"),
+						Some((4, 4)),
+					)])
+				})
+				.collect(),
+		);
+		let before =
+			SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &before_symbols);
+		let compiled = super::super::compile_workspace_rules(
+			&statistic_config("count(member) >= 3 => avg(member, lines) <= 2"),
+			"code+moniker://",
+		)
+		.expect("statistic plan");
+		let before_result = super::super::evaluate_workspace_rules(&before, &compiled, false);
+		assert!(before_result.groups[0].passed);
+
+		let after_symbols = RecordTable::from_shards(
+			(0..3)
+				.map(|file| {
+					Arc::from(vec![invoice_with_lines(
+						file,
+						"com.acme.sales",
+						&format!("Sales{file}"),
+						Some(if file == 2 { (4, 13) } else { (4, 4) }),
+					)])
+				})
+				.collect(),
+		);
+		let after = before.refresh(
+			ResourceGeneration::new(2),
+			&sources,
+			&after_symbols,
+			&BTreeSet::from([2]),
+		);
+		let previous_ordinal = before
+			.catalog()
+			.ordinal(&SymbolId::at(2, 0))
+			.expect("previous dirty ordinal");
+		let current_ordinal = after
+			.catalog()
+			.ordinal(&SymbolId::at(2, 0))
+			.expect("current dirty ordinal");
+		let mut previous_dirty = SymbolSet::new();
+		previous_dirty.insert(previous_ordinal);
+		let mut current_dirty = SymbolSet::new();
+		current_dirty.insert(current_ordinal);
+
+		let (groups, violations, affected) = evaluate_groups_incremental(GroupIncrementalInput {
+			previous_inventory: &before,
+			current_inventory: &after,
+			previous_universe: before.all_symbols(),
+			current_universe: after.all_symbols(),
+			previous_dirty: &previous_dirty,
+			current_dirty: &current_dirty,
+			compiled: &compiled,
+			previous: &before_result,
+		});
+		let full = super::super::evaluate_workspace_rules(&after, &compiled, false);
+
+		assert_eq!(affected, 1);
+		assert_eq!(groups, full.groups);
+		assert_eq!(violations.len(), 1);
+		assert_eq!(
+			violations[0].violation.message,
+			full.violations[0].violation.message
+		);
+		assert!(
+			violations[0]
+				.violation
+				.message
+				.contains("avg(member, lines)=4")
+		);
 	}
 
 	#[test]

@@ -57,11 +57,21 @@ pub struct CodeIndexRefresh {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CodeIndexGraphDiff {
+	/// Symbols added by the refresh.
 	pub added_symbols: Vec<SymbolId>,
+	/// Existing symbols whose linkage-relevant fields changed.
 	pub modified_symbols: Vec<SymbolId>,
+	/// Added or linkage-modified symbols used to refresh graph consumers.
 	pub changed_symbols: Vec<SymbolId>,
+	/// Symbols removed by the refresh.
 	pub removed_symbols: Vec<SymbolId>,
 	pub modified_symbol_identities: Vec<String>,
+	/// Existing symbols whose inventory-only fields changed.
+	///
+	/// These changes invalidate inventory consumers such as workspace statistics,
+	/// but do not require linkage reconstruction.
+	pub modified_inventory_symbols: Vec<SymbolId>,
+	pub modified_inventory_symbol_identities: Vec<String>,
 	pub removed_symbol_identities: Vec<String>,
 	pub changed_references: Vec<ReferenceId>,
 	pub removed_references: Vec<ReferenceId>,
@@ -74,7 +84,15 @@ pub struct CodeIndexGraphDiff {
 
 impl CodeIndexGraphDiff {
 	pub fn changed_symbol_count(&self) -> usize {
+		self.changed_linkage_symbol_count() + self.changed_inventory_symbol_count()
+	}
+
+	pub fn changed_linkage_symbol_count(&self) -> usize {
 		self.changed_symbols.len() + self.removed_symbols.len()
+	}
+
+	pub fn changed_inventory_symbol_count(&self) -> usize {
+		self.modified_inventory_symbols.len()
 	}
 
 	pub fn changed_reference_count(&self) -> usize {
@@ -681,9 +699,18 @@ fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut Cod
 			diff.changed_symbols.push(next_symbol.id);
 			continue;
 		}
+		let inventory_changed = symbol_inventory_fields_changed(previous_symbol, next_symbol);
+		if inventory_changed {
+			diff.modified_inventory_symbols.push(next_symbol.id);
+			diff.modified_inventory_symbol_identities
+				.push(next_symbol.identity.to_string());
+		}
 		if previous_symbol.id != next_symbol.id {
 			diff.symbol_id_remaps
 				.push((previous_symbol.id, next_symbol.id));
+		}
+		if inventory_changed {
+			continue;
 		}
 		diff.unchanged_symbols += 1;
 	}
@@ -776,6 +803,10 @@ fn symbol_linkage_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -
 		|| previous.call_name != next.call_name
 		|| previous.call_arity != next.call_arity
 		|| previous.navigable != next.navigable
+}
+
+fn symbol_inventory_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -> bool {
+	previous.line_range != next.line_range || previous.parent != next.parent
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -924,4 +955,33 @@ fn ref_attr(bytes: &[u8]) -> Option<String> {
 		.ok()
 		.filter(|value| !value.is_empty())
 		.map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn line_range_changes_are_inventory_deltas_not_linkage_deltas() {
+		let mut previous =
+			SymbolRecord::new(SymbolId::at(0, 0), SourceId::at(0), "Invoice", "class");
+		previous.identity = Arc::from("code+moniker://./lang:java/class:Invoice");
+		previous.line_range = Some((4, 4));
+		let mut next = previous.clone();
+		next.line_range = Some((4, 13));
+		let mut diff = CodeIndexGraphDiff::default();
+
+		diff_symbols(&[previous], &[next.clone()], &mut diff);
+
+		assert_eq!(diff.modified_inventory_symbols, vec![next.id]);
+		assert_eq!(
+			diff.modified_inventory_symbol_identities,
+			vec![next.identity.to_string()]
+		);
+		assert!(diff.modified_symbols.is_empty());
+		assert!(diff.modified_symbol_identities.is_empty());
+		assert_eq!(diff.unchanged_symbols, 0);
+		assert_eq!(diff.changed_symbol_count(), 1);
+		assert_eq!(diff.changed_linkage_symbol_count(), 0);
+	}
 }

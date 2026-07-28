@@ -176,7 +176,7 @@ The `workspace` TOML root reuses the existing rule engine on the full index:
 | Root | Subject | Inferred plan |
 | ---- | ------- | ------------- |
 | `[[workspace.symbol.where]]` | one active symbol | inventory or linkage |
-| `[[workspace.group.where]]` | a stable symbol bucket | inventory |
+| `[[workspace.group.where]]` | a stable symbol bucket, including member-line distributions | inventory |
 | `[[workspace.path]]` | paths between two selected symbol sets | linkage |
 
 The author does not choose a plan. The compiler reports `t1_inventory` for
@@ -208,6 +208,42 @@ conclusive. A missing path only passes `no_path` when all searches completed
 and linkage coverage met the threshold; otherwise the verdict is
 `inconclusive`.
 
+Group predicates support guarded descriptive statistics directly on the hot
+inventory:
+
+```toml
+[[workspace.group.where]]
+id = "balanced-type-sizes-per-package"
+severity = "warn"
+members = "shape = 'type'"
+group_by = ["lang", "segment('package')"]
+expr = "count(member) >= 8 => percentile(member, lines, 90) <= 400 \
+        AND gini(member, lines) <= 0.65"
+message = "Uneven type sizes in {group}: {observations}"
+```
+
+The supported functions are `sum`, `max`, `min`, `avg`, `median`,
+`percentile`, `stddev`, `var`, `cv`, and `gini` over `(member, lines)`.
+Line spans are inclusive and come from the inventory record. Missing spans
+fail the group with explicit coverage instead of silently dropping members;
+sample-size implications short-circuit before the statistic. `AND` and `OR`
+resolve a known decisive operand regardless of operand order; otherwise an
+unavailable statistic remains fail-closed. Treat distribution thresholds as
+warning-level review heuristics unless the repository has validated a hard
+architectural budget.
+
+The performance objective for this T1 plan is under 100 ms for one full
+statistical rule over 250,000 selected symbols in one group and under 10 ms for
+incremental rule evaluation after a one-file refresh whose affected group
+contains 40 selected symbols, on reference developer hardware. The evaluator
+keeps no duplicate statistical index: full cost is linear in selected members,
+while incremental cost is linear in the members of affected groups. The
+`workspace_rules` Criterion benchmark measures these contracts as
+`workspace_statistics_target_250k/full_single_group_bitmap_fold` and
+`workspace_rules_incremental/one_file_incremental_statistics`; the incremental
+benchmark refreshes the snapshot outside the timed section and asserts that at
+least one statistics group was actually invalidated.
+
 A full one-shot `code-moniker check <directory>` constructs an ephemeral
 linked snapshot when required. Daemon and MCP checks use the same contract.
 `--file` deliberately does not run workspace rules because a touched-file
@@ -222,7 +258,7 @@ all three workspace roots:
 - [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) for
   inventory-wide placement;
 - [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) for
-  stable uniqueness buckets;
+  stable uniqueness buckets and guarded member-line distributions;
 - [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) for
   bounded transitive architecture paths, witnesses, safe absence, and an
   intentionally inconclusive budget.
@@ -938,6 +974,16 @@ Ref-scoped rules also render templates:
 | `{source.name}` `{source.kind}` `{source.shape}` `{source.moniker}` | source def fields |
 | `{target.name}` `{target.kind}` `{target.shape}` `{target.moniker}` | target moniker fields |
 | `{atom}` `{actual}` `{expected}` | failing atom and values |
+
+Workspace-group rules render their group evaluation:
+
+| Token | Value |
+| ----- | ----- |
+| `{group}` | stable projected group label |
+| `{members}` | member count and bounded member sample |
+| `{expr}` | raw group predicate |
+| `{observations}` | evaluated counts/statistics and line-range coverage |
+| `{evaluation_error}` | fail-closed reason when a statistic is unavailable |
 
 ## Output
 

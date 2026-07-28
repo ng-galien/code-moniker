@@ -149,18 +149,7 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 }
 
 fn aggregate_label(kind: AggregateKind) -> &'static str {
-	match kind {
-		AggregateKind::Sum => "sum",
-		AggregateKind::Max => "max",
-		AggregateKind::Min => "min",
-		AggregateKind::Avg => "avg",
-		AggregateKind::Median => "median",
-		AggregateKind::Percentile => "percentile",
-		AggregateKind::Stddev => "stddev",
-		AggregateKind::Var => "var",
-		AggregateKind::Cv => "cv",
-		AggregateKind::Gini => "gini",
-	}
+	kind.as_str()
 }
 
 fn binding_label(binding: Binding) -> &'static str {

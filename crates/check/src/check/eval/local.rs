@@ -23,24 +23,7 @@ pub(super) struct AggregateEval<'a> {
 pub(super) fn eval_aggregate(input: AggregateEval<'_>, ctx: &EvalCtx<'_, '_>) -> Option<f64> {
 	let values =
 		collect_domain_numbers(input.domain, input.expr, input.def_idx, input.self_idx, ctx);
-	match input.kind {
-		AggregateKind::Sum => Some(values.iter().sum()),
-		AggregateKind::Max => values.into_iter().reduce(f64::max),
-		AggregateKind::Min => values.into_iter().reduce(f64::min),
-		AggregateKind::Avg => average(&values),
-		AggregateKind::Median => percentile_value(values, 50.0),
-		AggregateKind::Percentile => percentile_value(values, input.percentile?),
-		AggregateKind::Stddev => variance(&values).map(f64::sqrt),
-		AggregateKind::Var => variance(&values),
-		AggregateKind::Cv => {
-			let mean = average(&values)?;
-			if mean == 0.0 {
-				return None;
-			}
-			Some(variance(&values)?.sqrt() / mean.abs())
-		}
-		AggregateKind::Gini => gini(&values),
-	}
+	super::stats::aggregate(input.kind, values, input.percentile)
 }
 
 fn collect_domain_numbers(
@@ -75,54 +58,6 @@ fn collect_domain_numbers(
 		}
 	}
 	values
-}
-
-fn average(values: &[f64]) -> Option<f64> {
-	(!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
-}
-
-fn variance(values: &[f64]) -> Option<f64> {
-	let mean = average(values)?;
-	Some(values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64)
-}
-
-fn percentile_value(mut values: Vec<f64>, percentile: f64) -> Option<f64> {
-	if values.is_empty() || !(0.0..=100.0).contains(&percentile) {
-		return None;
-	}
-	values.sort_by(|a, b| a.total_cmp(b));
-	let rank = (percentile / 100.0) * (values.len().saturating_sub(1)) as f64;
-	let lo = rank.floor() as usize;
-	let hi = rank.ceil() as usize;
-	if lo == hi {
-		return values.get(lo).copied();
-	}
-	let weight = rank - lo as f64;
-	Some(values[lo] + (values[hi] - values[lo]) * weight)
-}
-
-fn gini(values: &[f64]) -> Option<f64> {
-	if values.is_empty() {
-		return None;
-	}
-	let mut sorted: Vec<f64> = values.iter().copied().filter(|v| *v >= 0.0).collect();
-	if sorted.len() != values.len() {
-		return None;
-	}
-	sorted.sort_by(|a, b| a.total_cmp(b));
-	let sum: f64 = sorted.iter().sum();
-	if sum == 0.0 {
-		return Some(0.0);
-	}
-	let weighted: f64 = sorted
-		.iter()
-		.enumerate()
-		.map(|(idx, value)| (idx as f64 + 1.0) * value)
-		.sum();
-	Some(
-		(2.0 * weighted) / (sorted.len() as f64 * sum)
-			- (sorted.len() as f64 + 1.0) / sorted.len() as f64,
-	)
 }
 
 pub(super) fn eval_entropy(

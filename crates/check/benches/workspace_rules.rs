@@ -4,6 +4,7 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::sync::Arc;
 
 use code_moniker_check::{
 	DefaultRulesSelection, RuleSetRequest, compile_workspace_rules, evaluate_workspace_rules,
@@ -11,13 +12,15 @@ use code_moniker_check::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	CodeIndex, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
+	CodeIndex, RecordTable, ResourceGeneration, SourceFileRecord, SourceId, SymbolId,
+	SymbolInventoryIndex, SymbolRecord, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
 };
 use code_moniker_workspace::source::LocalResourceCache;
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 const MODULES: usize = 120;
 const SYMBOLS_PER_MODULE: usize = 40;
+const STATISTIC_TARGET_SYMBOLS: usize = 250_000;
 
 fn indexed_workspace(
 	workspace: &support::SyntheticWorkspace,
@@ -129,6 +132,26 @@ fn scan_baseline(c: &mut Criterion) {
 			.count(),
 		naive_name_collisions(&snapshot.index)
 	);
+	let statistic_cfg = RuleSetRequest::new(None, "code+moniker://")
+		.with_default_rules(DefaultRulesSelection::Disabled)
+		.with_inline_rules(vec![
+			r#"
+			[[workspace.group.where]]
+			id = "balanced-type-size"
+			severity = "warn"
+			members = "shape = 'type'"
+			group_by = ["lang"]
+			expr = "count(member) >= 8 => gini(member, lines) <= 1"
+			"#
+			.to_string(),
+		])
+		.load_config()
+		.expect("workspace statistic benchmark config");
+	let compiled_statistics = compile_workspace_rules(&statistic_cfg, "code+moniker://")
+		.expect("workspace statistic plan");
+	let statistic_evaluation =
+		evaluate_workspace_rules(&snapshot.index.inventory, &compiled_statistics, false);
+	assert!(statistic_evaluation.groups.iter().all(|group| group.passed));
 	let mut group = c.benchmark_group("workspace_rules_baseline");
 	group.bench_function("placement_full_scan", |b| {
 		b.iter(|| {
@@ -156,6 +179,72 @@ fn scan_baseline(c: &mut Criterion) {
 			std::hint::black_box(evaluate_workspace_rules(
 				std::hint::black_box(&snapshot.index.inventory),
 				std::hint::black_box(&compiled_groups),
+				false,
+			))
+		});
+	});
+	group.bench_function("grouping_line_statistics_bitmap_plan", |b| {
+		b.iter(|| {
+			std::hint::black_box(evaluate_workspace_rules(
+				std::hint::black_box(&snapshot.index.inventory),
+				std::hint::black_box(&compiled_statistics),
+				false,
+			))
+		});
+	});
+	group.finish();
+}
+
+fn statistics_target(c: &mut Criterion) {
+	let source = SourceFileRecord {
+		id: SourceId::at(0),
+		uri: "src/target.rs".to_string(),
+		source_root: 0,
+		path: "src/target.rs".to_string(),
+		rel_path: "src/target.rs".to_string(),
+		anchor: "src/target.rs".to_string(),
+		language: "rs".to_string(),
+		text: String::new(),
+	};
+	let mut symbols = Vec::with_capacity(STATISTIC_TARGET_SYMBOLS);
+	for ordinal in 0..STATISTIC_TARGET_SYMBOLS {
+		let name = format!("Target{ordinal}");
+		let mut symbol =
+			SymbolRecord::new(SymbolId::at(0, ordinal), SourceId::at(0), &name, "struct");
+		symbol.identity = Arc::from(format!("code+moniker://./lang:rs/struct:{name}"));
+		symbol.line_range = Some((1, (ordinal % 120 + 1) as u32));
+		symbols.push(symbol);
+	}
+	let symbols = RecordTable::from_records(symbols);
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &[source], &symbols);
+	let cfg = RuleSetRequest::new(None, "code+moniker://")
+		.with_default_rules(DefaultRulesSelection::Disabled)
+		.with_inline_rules(vec![
+			r#"
+			[[workspace.group.where]]
+			id = "target-balanced-type-size"
+			severity = "warn"
+			members = "shape = 'type'"
+			group_by = ["lang"]
+			expr = "count(member) >= 8 => gini(member, lines) <= 1"
+			"#
+			.to_string(),
+		])
+		.load_config()
+		.expect("workspace statistics target config");
+	let compiled =
+		compile_workspace_rules(&cfg, "code+moniker://").expect("workspace statistics target plan");
+	let result = evaluate_workspace_rules(&inventory, &compiled, false);
+	assert_eq!(result.groups.len(), 1);
+	assert!(result.groups[0].passed);
+
+	let mut group = c.benchmark_group("workspace_statistics_target_250k");
+	group.sample_size(10);
+	group.bench_function("full_single_group_bitmap_fold", |b| {
+		b.iter(|| {
+			std::hint::black_box(evaluate_workspace_rules(
+				std::hint::black_box(&inventory),
+				std::hint::black_box(&compiled),
 				false,
 			))
 		});
@@ -203,15 +292,12 @@ fn refresh_baseline(c: &mut Criterion) {
 		r#"
 default_rules = false
 
-[[workspace.symbol.where]]
-id = "repositories-under-infra"
-expr = "(shape = 'type' AND name =~ Repository$) => uri ~ '**/dir:infra/**'"
-
 [[workspace.group.where]]
-id = "unique-type-name"
+id = "balanced-type-size"
+severity = "warn"
 members = "shape = 'type'"
-group_by = ["lang", "segment('dir')", "name"]
-expr = "count(member) <= 1"
+group_by = ["source.path"]
+expr = "count(member) >= 8 => gini(member, lines) <= 1"
 "#,
 	)
 	.expect("incremental benchmark rules");
@@ -227,35 +313,44 @@ expr = "count(member) <= 1"
 	let mut salt = 0usize;
 	let mut group = c.benchmark_group("workspace_rules_incremental");
 	group.sample_size(20);
-	group.bench_function("refresh_then_incremental_rules", |b| {
-		b.iter(|| {
-			salt += 1;
-			workspace.rewrite_module(changed_module, salt);
-			let transition = registry.commands().refresh_paths(
-				WorkspaceRequest::new("workspace-rule-incremental-refresh"),
-				vec![
-					workspace
-						.root()
-						.join(format!("src/infra/m{changed_module}.rs")),
-				],
-			);
-			assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
-			let snapshot = registry
-				.queries()
-				.snapshot()
-				.expect("incremental workspace-rule snapshot");
-			let diagnostics = runner
-				.run_check(&snapshot.index, &snapshot.linkage)
-				.expect("incremental workspace-rule evaluation");
-			assert_eq!(
-				diagnostics.evaluation.mode,
-				WorkspaceEvaluationMode::Incremental
-			);
-			std::hint::black_box(diagnostics);
-		});
+	group.bench_function("one_file_incremental_statistics", |b| {
+		b.iter_batched(
+			|| {
+				salt += 1;
+				workspace.rewrite_module(changed_module, salt);
+				let transition = registry.commands().refresh_paths(
+					WorkspaceRequest::new("workspace-rule-incremental-refresh"),
+					vec![
+						workspace
+							.root()
+							.join(format!("src/infra/m{changed_module}.rs")),
+					],
+				);
+				assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+				registry
+					.queries()
+					.snapshot_arc()
+					.expect("incremental workspace-rule snapshot")
+			},
+			|snapshot| {
+				let diagnostics = runner
+					.run_check(&snapshot.index, &snapshot.linkage)
+					.expect("incremental workspace-rule evaluation");
+				assert_eq!(
+					diagnostics.evaluation.mode,
+					WorkspaceEvaluationMode::Incremental
+				);
+				assert!(
+					diagnostics.evaluation.affected_groups > 0,
+					"the edited selected type must invalidate its statistics group"
+				);
+				std::hint::black_box(diagnostics);
+			},
+			BatchSize::PerIteration,
+		);
 	});
 	group.finish();
 }
 
-criterion_group!(benches, scan_baseline, refresh_baseline);
+criterion_group!(benches, scan_baseline, statistics_target, refresh_baseline);
 criterion_main!(benches);

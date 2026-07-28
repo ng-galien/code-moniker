@@ -11,6 +11,7 @@ use code_moniker_workspace::source::LocalResourceCache;
 
 const SCHEME: &str = "code+moniker://";
 const RULE_ID: &str = "workspace.group.unique-type-name-per-package";
+const STATISTIC_RULE_ID: &str = "workspace.group.balanced-invoice-size";
 
 fn write(root: &Path, path: &str, source: &str) {
 	let target = root.join(path);
@@ -264,4 +265,92 @@ fn changing_group_suppression_invalidates_cached_evaluation() {
 		.expect("cold evaluation after suppression change");
 	assert_eq!(cached.evaluation.mode, WorkspaceEvaluationMode::Full);
 	assert_eq!(cached.diagnostics, expected.diagnostics);
+}
+
+#[test]
+fn hot_index_recomputes_line_statistics_for_the_affected_group() {
+	let fixture = tempfile::tempdir().expect("workspace fixture");
+	for container in ["SalesA", "SalesB", "SalesC"] {
+		write(
+			fixture.path(),
+			&format!("src/main/java/com/acme/sales/{container}.java"),
+			&format!("package com.acme.sales;\n\nclass {container} {{\n\tclass Invoice {{}}\n}}\n"),
+		);
+	}
+	let rules = fixture.path().join(".code-moniker.toml");
+	fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[workspace.group.where]]
+id = "balanced-invoice-size"
+severity = "warn"
+members = "name = 'Invoice'"
+group_by = ["lang", "segment('package')"]
+expr = "count(member) >= 3 => avg(member, lines) <= 2"
+message = "Invoice size distribution in {group}: {observations}"
+"#,
+	)
+	.expect("statistic rules");
+	let cache = LocalResourceCache::default();
+	let mut registry = LocalWorkspaceRegistry::local_with_cache(
+		LocalWorkspaceOptions::new(vec![fixture.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let transition = registry
+		.commands()
+		.refresh(WorkspaceRequest::new("workspace-group-statistic-seed"));
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	let initial = registry.queries().snapshot().expect("initial snapshot");
+	let mut runner = WorkspaceCheckRunner::new(
+		WorkspaceCheckRunnerOptions::new(rules.clone(), None, SCHEME),
+		cache.clone(),
+	);
+	let seeded = runner
+		.run_check(&initial.index, &initial.linkage)
+		.expect("seeded statistic evaluation");
+	assert!(
+		seeded
+			.diagnostics
+			.iter()
+			.all(|diagnostic| diagnostic.rule_id != STATISTIC_RULE_ID)
+	);
+
+	let changed_path = fixture
+		.path()
+		.join("src/main/java/com/acme/sales/SalesC.java");
+	write(
+		fixture.path(),
+		"src/main/java/com/acme/sales/SalesC.java",
+		"package com.acme.sales;\n\nclass SalesC {\n\tclass Invoice {\n\t\tint first;\n\t\tint second;\n\t\tint third;\n\t\tint fourth;\n\t}\n}\n",
+	);
+	let transition = registry.commands().refresh_paths(
+		WorkspaceRequest::new("workspace-group-statistic-change"),
+		vec![changed_path],
+	);
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	let changed = registry.queries().snapshot().expect("changed snapshot");
+	let incremental = runner
+		.run_check(&changed.index, &changed.linkage)
+		.expect("incremental statistic evaluation");
+	let mut cold_runner =
+		WorkspaceCheckRunner::new(WorkspaceCheckRunnerOptions::new(rules, None, SCHEME), cache);
+	let cold = cold_runner
+		.run_check(&changed.index, &changed.linkage)
+		.expect("cold statistic evaluation");
+
+	assert_eq!(
+		incremental.evaluation.mode,
+		WorkspaceEvaluationMode::Incremental
+	);
+	assert_eq!(incremental.evaluation.affected_groups, 1);
+	assert_eq!(incremental.diagnostics, cold.diagnostics);
+	let statistic = incremental
+		.diagnostics
+		.iter()
+		.find(|diagnostic| diagnostic.rule_id == STATISTIC_RULE_ID)
+		.expect("statistic violation");
+	assert!(statistic.message.contains("avg(member, lines)="));
+	assert!(statistic.message.contains("3/3 line ranges"));
 }

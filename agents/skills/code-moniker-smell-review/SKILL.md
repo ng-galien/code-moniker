@@ -1,13 +1,13 @@
 ---
 name: code-moniker-smell-review
-description: Review a repository with code-moniker's local check DSL for Fowler and Lanza-Marinescu code smells. Use when Codex needs to write, validate, or run project-specific warning-severity smell rules, distinguish executable local DSL checks from AST/corpus/history checks, triage check output, or plan follow-up evolutions for missing smell-detection operators.
+description: Review a repository with code-moniker's local and workspace check DSL for Fowler and Lanza-Marinescu code smells. Use when Codex needs to write, validate, or run project-specific warning-severity smell rules, distinguish executable local or indexed DSL checks from AST/history checks, triage check output, or plan follow-up evolutions for missing smell-detection operators.
 ---
 
 # Code Moniker Smell Review
 
 ## Operating Mode
 
-Use the local CLI DSL first. Treat smell rules as heuristics, not hard
+Use the check DSL first. Treat smell rules as heuristics, not hard
 architecture gates, unless the user explicitly asks to enforce them.
 
 Default every smell rule to `severity = "warn"`. Warning rules should
@@ -25,12 +25,14 @@ For code-moniker itself, prefer these repo-local files:
 1. Inspect the target repository's language mix and existing rule overlay:
    `code-moniker rules show . --report` when available, otherwise inspect
    `.code-moniker.toml` and `code-moniker.fragment.toml` files.
-2. Select only local checks the DSL can execute: direct child defs,
+2. Select checks the DSL can execute: direct child defs,
    `out_refs`, `in_refs`, local metrics, collection algebra, entropy,
-   mode, percentile, `cv`, and `gini`.
+   mode, percentile, `cv`, and `gini`; or `workspace.group` member-line
+   distributions over the current full index.
 3. Keep out-of-scope smells out of the CLI ruleset: change-history smells,
-   clone detection, transitive message chains, reaching-defs, and
-   corpus-wide statistical baselines belong to later SQL/PG or extractor work.
+   clone detection, transitive message chains, reaching-defs, z-scores,
+   and arbitrary corpus projections still belong to later DSL, SQL/PG, or
+   extractor work.
 4. Validate rules before running a broad review:
    `code-moniker rules show . --profile smells`.
 5. Run the review as warnings:
@@ -69,6 +71,25 @@ severity = "warn"
 expr     = "count(out_refs) >= 5 => mode(out_refs, target.parent) = source.parent"
 ```
 
+Use `workspace.group` for cross-file line-distribution candidates already
+available in the hot inventory:
+
+```toml
+[[workspace.group.where]]
+id        = "smell-package-size-disharmony"
+severity  = "warn"
+members   = "shape = 'type'"
+group_by  = ["lang", "segment('package')"]
+expr      = "count(member) >= 8 => gini(member, lines) <= 0.65"
+message   = "Uneven type sizes in {group}: {observations}"
+```
+
+Keep the sample-size guard. `lines` is the inclusive extracted symbol span.
+The group evaluator requires a valid line range for every selected member and
+reports coverage instead of folding a biased subset. Boolean order does not
+change the verdict: a decisive known `AND`/`OR` operand wins, otherwise the
+unavailable statistic remains fail-closed.
+
 Use segment regexes to keep path-pattern rules compact and structural:
 
 ```toml
@@ -82,7 +103,7 @@ replace semantically different alternatives with a regex just to shorten a
 rule.
 
 Do not write rules that rely on unsupported arithmetic, AST control-flow
-shape, cross-file closure, or history. Capture those as evolutions.
+shape, arbitrary corpus projections, or history. Capture those as evolutions.
 
 ## Reference
 

@@ -59,7 +59,15 @@ fn module_source(module: usize, symbols_per_module: usize, salt: usize) -> Strin
 		} else {
 			format!("Entity{module}_{symbol}{suffix}")
 		};
-		source.push_str(&format!("pub struct {name};\n"));
+		if symbol == 0 {
+			source.push_str(&format!("pub struct {name} {{\n"));
+			for comment in 0..=salt % 2 {
+				source.push_str(&format!("\t// refresh line {salt}.{comment}\n"));
+			}
+			source.push_str("}\n");
+		} else {
+			source.push_str(&format!("pub struct {name};\n"));
+		}
 	}
 	source
 }

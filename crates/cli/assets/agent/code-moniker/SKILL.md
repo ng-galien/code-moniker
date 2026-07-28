@@ -90,6 +90,17 @@ file-scoped checks only with file-scoped checks. A differently named
 `--rules` file is standalone; only the canonical `.code-moniker.toml` root
 discovers `code-moniker.fragment.toml` descendants.
 
+When testing architecture heuristics on the indexed corpus,
+`workspace.group.expr` can combine boolean logic, `count(member)`, and
+descriptive aggregates over `(member, lines)`. Use a sample-size implication,
+for example `count(member) >= 8 => gini(member, lines) <= 0.65`, and default
+heuristics to warning severity. The currently indexed statistical projection
+is only inclusive symbol `lines`; do not infer support for arbitrary
+projections, entropy over linkage, history, or z-scores. A missing member line
+range fails closed and is reported with available/total coverage. Boolean
+composition is order-independent: a known false `AND` operand or known true
+`OR` operand decides the result; otherwise unavailability propagates.
+
 ## Quick start on an unknown repo
 
 ### With MCP

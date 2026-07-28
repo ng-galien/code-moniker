@@ -71,7 +71,34 @@ id = "unique-type-name-per-package"
 members = "shape = 'type' AND segment('package') != ''"
 group_by = ["lang", "segment('package')", "name"]
 expr = "count(member) <= 1"
+
+[[workspace.group.where]]
+id = "balanced-type-sizes-per-package"
+severity = "warn"
+members = "shape = 'type' AND segment('package') != ''"
+group_by = ["lang", "segment('package')"]
+expr = "count(member) >= 8 => gini(member, lines) <= 0.65"
+message = "Uneven type sizes in {group}: {observations}"
 ```
+
+`workspace.group.expr` accepts boolean combinations of numeric comparisons
+over `count(member)` and these inventory-only aggregates:
+`sum(member, lines)`, `max`, `min`, `avg`, `median`, `percentile`,
+`stddev`, `var`, `cv`, and `gini`. `lines` is the inclusive extracted symbol
+span (`end_line - start_line + 1`), not lexical or executable LOC. Use an
+implication guard to establish a meaningful sample size before applying a
+distribution heuristic.
+
+Each aggregate walks the group's Roaring bitmap and reads the already indexed
+`line_range`; it creates no second statistics index. Evaluation is fail-closed:
+if any selected member lacks a valid line range, the group fails with
+`unavailable (available/total line ranges)` instead of computing over a biased
+subset. A false implication antecedent short-circuits the aggregate, so small
+groups do not fail because an unused statistic is unavailable. Boolean
+composition is order-independent: known `false` dominates `AND`, known `true`
+dominates `OR`, and an unavailable operand propagates fail-closed only when no
+known operand determines the result. Incremental evaluation rebuilds and folds
+only group keys touched by the dirty symbol bitmaps.
 
 The compiler infers `t1_inventory` or `t2_linkage` from the requested
 capabilities. Direct `count(in_refs)` and `count(out_refs)` need linkage and
@@ -830,7 +857,11 @@ a check violation explanation. Def rule messages can use `{name}`,
 and the aliases `{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rule
 messages can use `{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
 `{source.moniker}`, `{target.name}`, `{target.kind}`, `{target.shape}`,
-`{target.moniker}`, `{atom}`, `{actual}`, and `{expected}`.
+`{target.moniker}`, `{atom}`, `{actual}`, and `{expected}`. Workspace group
+messages can use `{group}`, `{members}`, `{expr}`, `{observations}`, and
+`{evaluation_error}`. The default group diagnostic always includes evaluated
+observations and line-range coverage, even when the custom message omits these
+tokens.
 
 ## Recipes and suppression directives
 

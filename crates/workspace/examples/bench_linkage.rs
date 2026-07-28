@@ -429,7 +429,7 @@ fn print_incremental_metrics(
 	println!("changed_sources\t{}", refreshed.changed_sources.len());
 	println!(
 		"graph_changed_symbols\t{}",
-		refreshed.graph_diff.changed_symbol_count()
+		refreshed.graph_diff.changed_linkage_symbol_count()
 	);
 	println!(
 		"graph_added_or_changed_symbols\t{}",

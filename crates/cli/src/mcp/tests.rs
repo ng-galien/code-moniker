@@ -1306,6 +1306,53 @@ fn rules_tool_runs_check_on_workspace() {
 }
 
 #[test]
+fn rules_tool_runs_group_line_statistics_on_the_indexed_corpus() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
+	std::fs::write(
+		temp.path().join("src/main/java/App.java"),
+		"class Small {}\nclass Large {\n\tint value;\n}\nclass Other {}\n",
+	)
+	.expect("write fixture");
+	let rules = temp.path().join("scratch-rules.toml");
+	std::fs::write(
+		&rules,
+		r#"
+		default_rules = false
+
+		[[workspace.group.where]]
+		id = "balanced-types"
+		severity = "warn"
+		members = "shape = 'type'"
+		group_by = ["lang"]
+		expr = "count(member) >= 3 => gini(member, lines) = 0"
+		"#,
+	)
+	.expect("write statistic rules");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_rules",
+			&json!({
+				"uri": "workspace",
+				"action": "run",
+				"rules": rules,
+				"limit": 5,
+				"report": true
+			}),
+		)
+		.expect("statistic rules run");
+
+	assert!(!result.is_error, "{}", result.text);
+	assert!(result.text.contains("corpus: daemon_index"));
+	assert!(result.text.contains("workspace.group.balanced-types"));
+	assert!(result.text.contains("gini(member, lines)="));
+	assert!(result.text.contains("3/3 line ranges"));
+}
+
+#[test]
 fn rules_tool_reports_workspace_path_verdict_coverage_and_witness() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir");

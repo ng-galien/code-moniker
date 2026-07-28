@@ -8,6 +8,7 @@ mod layout;
 mod local;
 mod metrics;
 mod pairs;
+pub(in crate::check) mod stats;
 mod value;
 
 use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_section};

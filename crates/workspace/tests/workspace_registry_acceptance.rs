@@ -177,7 +177,7 @@ fn refresh_paths_relinks_only_graph_diff_references_when_reference_ids_shift() {
 		.refresh_paths(&index, std::slice::from_ref(&consumer))
 		.expect("refresh paths");
 
-	assert_eq!(refreshed.graph_diff.changed_symbol_count(), 0);
+	assert_eq!(refreshed.graph_diff.changed_linkage_symbol_count(), 0);
 	assert_eq!(refreshed.graph_diff.changed_reference_count(), 1);
 	assert!(
 		!refreshed.graph_diff.reference_id_remaps.is_empty(),
@@ -456,7 +456,7 @@ fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
 		.refresh_paths(&index, std::slice::from_ref(&consumer))
 		.expect("refresh paths");
 
-	assert_eq!(refreshed.graph_diff.changed_symbol_count(), 0);
+	assert_eq!(refreshed.graph_diff.changed_linkage_symbol_count(), 0);
 	assert_eq!(refreshed.graph_diff.changed_references.len(), 0);
 	assert!(
 		!refreshed.graph_diff.removed_references.is_empty(),

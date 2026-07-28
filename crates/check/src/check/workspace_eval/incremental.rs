@@ -134,6 +134,11 @@ fn dirty_symbol_sets(
 			previous_dirty.insert(ordinal);
 		}
 	}
+	for identity in &diff.modified_inventory_symbol_identities {
+		if let Some(ordinal) = previous.catalog().ordinal_by_identity(identity) {
+			previous_dirty.insert(ordinal);
+		}
+	}
 	for (before, after) in &diff.symbol_id_remaps {
 		if let Some(ordinal) = previous.catalog().ordinal(before) {
 			previous_dirty.insert(ordinal);
@@ -142,7 +147,12 @@ fn dirty_symbol_sets(
 			current_dirty.insert(ordinal);
 		}
 	}
-	for id in diff.added_symbols.iter().chain(&diff.modified_symbols) {
+	for id in diff
+		.added_symbols
+		.iter()
+		.chain(&diff.modified_symbols)
+		.chain(&diff.modified_inventory_symbols)
+	{
 		if let Some(ordinal) = current.catalog().ordinal(id) {
 			current_dirty.insert(ordinal);
 		}

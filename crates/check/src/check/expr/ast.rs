@@ -226,6 +226,23 @@ pub(in crate::check) enum AggregateKind {
 	Gini,
 }
 
+impl AggregateKind {
+	pub(in crate::check) fn as_str(self) -> &'static str {
+		match self {
+			Self::Sum => "sum",
+			Self::Max => "max",
+			Self::Min => "min",
+			Self::Avg => "avg",
+			Self::Median => "median",
+			Self::Percentile => "percentile",
+			Self::Stddev => "stddev",
+			Self::Var => "var",
+			Self::Cv => "cv",
+			Self::Gini => "gini",
+		}
+	}
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(in crate::check) enum Binding {
 	Self_,
