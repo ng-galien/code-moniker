@@ -27,7 +27,8 @@ pub use model::{
 	WorkspaceTransition,
 };
 pub use path::{
-	BoundedPathCoverage, BoundedPathEdge, BoundedPathLimits, BoundedPathScope, BoundedPathSearch,
+	BoundedPathCoverage, BoundedPathEdge, BoundedPathEngine, BoundedPathLimits, BoundedPathRequest,
+	BoundedPathScope, BoundedPathSearch, bounded_path,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

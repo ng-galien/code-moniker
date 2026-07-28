@@ -1,6 +1,7 @@
 mod group;
 mod incremental;
 mod linkage;
+mod path_rule;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,18 +50,21 @@ impl WorkspaceRulePlan {
 pub struct CompiledWorkspaceRules {
 	symbol: Vec<CompiledWorkspaceSymbolRule>,
 	group: Vec<group::CompiledWorkspaceGroupRule>,
+	path: Vec<path_rule::CompiledWorkspacePathRule>,
 	min_linkage_coverage: usize,
 }
 
 impl CompiledWorkspaceRules {
 	pub fn is_empty(&self) -> bool {
-		self.symbol.is_empty() && self.group.is_empty()
+		self.symbol.is_empty() && self.group.is_empty() && self.path.is_empty()
 	}
 
 	pub fn has_linkage_rules(&self) -> bool {
-		self.symbol
-			.iter()
-			.any(|rule| rule.plan == WorkspaceRulePlan::Linkage)
+		!self.path.is_empty()
+			|| self
+				.symbol
+				.iter()
+				.any(|rule| rule.plan == WorkspaceRulePlan::Linkage)
 	}
 
 	pub fn specs(&self) -> Vec<CompiledRuleSpec> {
@@ -86,6 +90,7 @@ impl CompiledWorkspaceRules {
 			})
 			.collect();
 		group::append_group_specs(self, &mut specs);
+		path_rule::append_path_specs(self, &mut specs);
 		specs
 	}
 }
@@ -140,9 +145,11 @@ pub fn compile_workspace_rules(
 		symbol.push(compile_symbol_rule(entry, at, scheme, &allowed, &aliases)?);
 	}
 	let group = group::compile_groups(cfg, scheme, &allowed, &aliases)?;
+	let path = path_rule::compile_paths(cfg, scheme, &allowed, &aliases)?;
 	Ok(CompiledWorkspaceRules {
 		symbol,
 		group,
+		path,
 		min_linkage_coverage: cfg.workspace.min_linkage_coverage.unwrap_or(100),
 	})
 }
@@ -332,6 +339,7 @@ pub(crate) fn evaluate_workspace_rules_linked_in_current(
 ) -> WorkspaceEvaluation {
 	let mut evaluation = evaluate_workspace_rules_in(&index.inventory, universe, compiled, report);
 	linkage::evaluate_linkage_rules(index, linkage, universe, compiled, report, &mut evaluation);
+	path_rule::evaluate_path_rules(index, linkage, universe, compiled, report, &mut evaluation);
 	sort_workspace_violations(&mut evaluation.violations);
 	evaluation
 }
@@ -447,6 +455,7 @@ fn rule_report(
 		inconclusive: None,
 		verdict: None,
 		coverage: None,
+		path: None,
 	}
 }
 

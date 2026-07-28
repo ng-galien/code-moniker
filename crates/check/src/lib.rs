@@ -15,8 +15,8 @@ pub use check::command::{
 };
 pub use check::config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};
 pub use check::eval::{
-	CompiledRuleSpec, CompiledRules, RuleCoverage, RuleReport, RuleVerdict, Violation,
-	compile_rules, evaluate_compiled, rule_report_compiled,
+	CompiledRuleSpec, CompiledRules, RuleCoverage, RulePathReport, RulePathStep, RuleReport,
+	RuleVerdict, Violation, compile_rules, evaluate_compiled, rule_report_compiled,
 };
 pub use check::exclude::UriExclusionMatcher;
 pub use check::suppress::apply as apply_suppressions;

@@ -212,6 +212,38 @@ pub struct RuleCoverage {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
+pub struct RulePathStep {
+	pub source: String,
+	pub target: String,
+	pub relation: String,
+	pub reference: String,
+	pub file: String,
+	pub line_range: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
+pub struct RulePathReport {
+	pub expectation: String,
+	pub relation: Vec<String>,
+	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
+	pub max_pairs: usize,
+	pub min_coverage: usize,
+	pub source_symbols: usize,
+	pub target_symbols: usize,
+	pub evaluated_pairs: usize,
+	pub explored_symbols: usize,
+	pub explored_edges: usize,
+	pub depth_limit_reached: bool,
+	pub symbol_limit_reached: bool,
+	pub edge_limit_reached: bool,
+	pub pair_limit_reached: bool,
+	pub reasons: Vec<String>,
+	pub witness: Vec<RulePathStep>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
 pub struct RuleReport {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
@@ -229,6 +261,8 @@ pub struct RuleReport {
 	pub verdict: Option<RuleVerdict>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub coverage: Option<RuleCoverage>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub path: Option<RulePathReport>,
 }
 
 pub fn rule_report_compiled(
@@ -447,6 +481,7 @@ impl RuleReport {
 			inconclusive: None,
 			verdict: None,
 			coverage: None,
+			path: None,
 		}
 	}
 
@@ -463,6 +498,7 @@ impl RuleReport {
 			inconclusive: None,
 			verdict: None,
 			coverage: None,
+			path: None,
 		}
 	}
 

@@ -412,6 +412,7 @@ fn evaluate_group_rule(
 			inconclusive: None,
 			verdict: None,
 			coverage: None,
+			path: None,
 		});
 	}
 }

@@ -1817,6 +1817,63 @@ pub struct RuleReportDto {
 	pub violations: usize,
 	pub antecedent_matches: Option<usize>,
 	pub warning: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub inconclusive: Option<usize>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub verdict: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub coverage: Option<RuleCoverageDto>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path_analysis: Option<RulePathReportDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RuleCoverageDto {
+	pub total: usize,
+	pub decided: usize,
+	pub resolved: usize,
+	pub external: usize,
+	pub candidate: usize,
+	pub dynamic: usize,
+	pub blocked: usize,
+	pub unresolved: usize,
+	pub percent: usize,
+	pub min_percent: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RulePathStepDto {
+	pub source: String,
+	pub target: String,
+	pub relation: String,
+	pub reference: String,
+	pub file: String,
+	pub line_range: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RulePathReportDto {
+	pub expectation: String,
+	pub relation: Vec<String>,
+	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
+	pub max_pairs: usize,
+	pub min_coverage: usize,
+	pub source_symbols: usize,
+	pub target_symbols: usize,
+	pub evaluated_pairs: usize,
+	pub explored_symbols: usize,
+	pub explored_edges: usize,
+	pub depth_limit_reached: bool,
+	pub symbol_limit_reached: bool,
+	pub edge_limit_reached: bool,
+	pub pair_limit_reached: bool,
+	pub reasons: Vec<String>,
+	pub witness: Vec<RulePathStepDto>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -3142,6 +3199,36 @@ fn format_rules_check(out: &mut String, result: &RulesCheckResult) {
 	}
 	if !result.rule_reports.is_empty() {
 		let _ = writeln!(out, "rule_reports: {}", result.rule_reports.len());
+		for report in result.rule_reports.iter().filter(|report| {
+			report.verdict.is_some() || report.coverage.is_some() || report.path_analysis.is_some()
+		}) {
+			let _ = writeln!(
+				out,
+				"  - {} verdict={} evaluated={} violations={}",
+				report.rule_id,
+				report.verdict.as_deref().unwrap_or("not_applicable"),
+				report.evaluated,
+				report.violations
+			);
+			if let Some(coverage) = &report.coverage {
+				let _ = writeln!(
+					out,
+					"    coverage={}%, minimum={}%",
+					coverage.percent, coverage.min_percent
+				);
+			}
+			if let Some(path) = &report.path_analysis {
+				let _ = writeln!(
+					out,
+					"    path expect={} pairs={} explored_symbols={} explored_edges={} witness_steps={}",
+					path.expectation,
+					path.evaluated_pairs,
+					path.explored_symbols,
+					path.explored_edges,
+					path.witness.len()
+				);
+			}
+		}
 	}
 }
 

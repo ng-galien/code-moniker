@@ -482,6 +482,58 @@ fn render_rules_check_result(output: &mut String, result: &RulesCheckResult) {
 			"    rule_reports: {}\n",
 			result.rule_reports.len()
 		));
+		for report in result.rule_reports.iter().filter(|report| {
+			report.verdict.is_some()
+				|| report.coverage.is_some()
+				|| report.path_analysis.is_some()
+				|| report.inconclusive.is_some_and(|count| count > 0)
+		}) {
+			render_structural_rule_report(output, report);
+		}
+	}
+}
+
+fn render_structural_rule_report(output: &mut String, report: &code_moniker_query::RuleReportDto) {
+	output.push_str(&format!(
+		"    - {}: verdict={}, evaluated={}, violations={}\n",
+		report.rule_id,
+		report.verdict.as_deref().unwrap_or("not_applicable"),
+		report.evaluated,
+		report.violations
+	));
+	if let Some(coverage) = &report.coverage {
+		output.push_str(&format!(
+			"      coverage: {}% (minimum {}%, resolved {}/{})\n",
+			coverage.percent, coverage.min_percent, coverage.resolved, coverage.total
+		));
+	}
+	let Some(path) = &report.path_analysis else {
+		return;
+	};
+	output.push_str(&format!(
+		"      path: expect={} relations={} pairs={} explored={} symbols/{} edges limits(depth={}, symbols={}, edges={}, pairs={})\n",
+		path.expectation,
+		path.relation.join(","),
+		path.evaluated_pairs,
+		path.explored_symbols,
+		path.explored_edges,
+		path.max_depth,
+		path.max_symbols,
+		path.max_edges,
+		path.max_pairs
+	));
+	if !path.reasons.is_empty() {
+		output.push_str(&format!("      reasons: {}\n", path.reasons.join(", ")));
+	}
+	for step in &path.witness {
+		let location = step
+			.line_range
+			.map(|(start, end)| format!("{}:{start}-{end}", step.file))
+			.unwrap_or_else(|| step.file.clone());
+		output.push_str(&format!(
+			"      witness: {} -[{}]-> {} ({location})\n",
+			step.source, step.relation, step.target
+		));
 	}
 }
 

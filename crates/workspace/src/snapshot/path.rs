@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use roaring::RoaringBitmap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{ReferenceId, SourceId, SymbolId, UnresolvedReason, WorkspaceSnapshot};
+use super::{
+	CodeIndex, LinkageSnapshot, ReferenceId, SourceId, SymbolId, UnresolvedReason,
+	WorkspaceSnapshot,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedPathEdge {
@@ -58,6 +61,15 @@ pub struct BoundedPathScope {
 	sources: RoaringBitmap,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedPathRequest<'a> {
+	pub from: SymbolId,
+	pub to: SymbolId,
+	pub relations: &'a [String],
+	pub limits: BoundedPathLimits,
+	pub scope: &'a BoundedPathScope,
+}
+
 impl BoundedPathScope {
 	pub fn from_sources(sources: impl IntoIterator<Item = SourceId>) -> Self {
 		Self {
@@ -83,62 +95,56 @@ struct ReferenceClassifications {
 }
 
 impl ReferenceClassifications {
-	fn from_snapshot(snapshot: &WorkspaceSnapshot) -> Self {
+	fn from_linkage(linkage: &LinkageSnapshot) -> Self {
 		Self {
-			external: Self::external(snapshot),
-			candidate: Self::candidate(snapshot),
-			dynamic: Self::dynamic(snapshot),
-			manifest_blocked: Self::manifest_blocked(snapshot),
-			unresolved: Self::unresolved(snapshot),
+			external: Self::external(linkage),
+			candidate: Self::candidate(linkage),
+			dynamic: Self::dynamic(linkage),
+			manifest_blocked: Self::manifest_blocked(linkage),
+			unresolved: Self::unresolved(linkage),
 		}
 	}
 
-	fn external(snapshot: &WorkspaceSnapshot) -> FxHashSet<ReferenceId> {
-		snapshot
-			.linkage
+	fn external(linkage: &LinkageSnapshot) -> FxHashSet<ReferenceId> {
+		linkage
 			.external
 			.iter()
 			.map(|reference| reference.reference)
 			.collect()
 	}
 
-	fn candidate(snapshot: &WorkspaceSnapshot) -> FxHashMap<ReferenceId, &'static str> {
-		snapshot
-			.linkage
+	fn candidate(linkage: &LinkageSnapshot) -> FxHashMap<ReferenceId, &'static str> {
+		linkage
 			.candidates
 			.iter()
 			.map(|reference| (reference.reference, reference.reason.as_str()))
 			.collect()
 	}
 
-	fn dynamic(snapshot: &WorkspaceSnapshot) -> FxHashMap<ReferenceId, &'static str> {
-		snapshot
-			.linkage
+	fn dynamic(linkage: &LinkageSnapshot) -> FxHashMap<ReferenceId, &'static str> {
+		linkage
 			.dynamic
 			.iter()
 			.map(|reference| (reference.reference, reference.reason.as_str()))
 			.collect()
 	}
 
-	fn manifest_blocked(snapshot: &WorkspaceSnapshot) -> FxHashSet<ReferenceId> {
-		snapshot
-			.linkage
+	fn manifest_blocked(linkage: &LinkageSnapshot) -> FxHashSet<ReferenceId> {
+		linkage
 			.blocked
 			.iter()
-			.chain(snapshot.linkage.manifest_blocked.iter())
+			.chain(linkage.manifest_blocked.iter())
 			.filter(|reference| reference.reason == UnresolvedReason::ManifestBlocked)
 			.map(|reference| reference.reference)
 			.collect()
 	}
 
-	fn unresolved(snapshot: &WorkspaceSnapshot) -> FxHashMap<ReferenceId, UnresolvedReason> {
-		snapshot
-			.linkage
+	fn unresolved(linkage: &LinkageSnapshot) -> FxHashMap<ReferenceId, UnresolvedReason> {
+		linkage
 			.unresolved
 			.iter()
 			.chain(
-				snapshot
-					.linkage
+				linkage
 					.blocked
 					.iter()
 					.filter(|reference| reference.reason != UnresolvedReason::ManifestBlocked),
@@ -178,6 +184,34 @@ fn tally_reason(reasons: &mut BTreeMap<String, usize>, category: &str, reason: &
 	*reasons.entry(format!("{category}:{reason}")).or_default() += 1;
 }
 
+pub struct BoundedPathEngine<'a> {
+	read_index: &'a super::LinkageReadIndex,
+	classifications: ReferenceClassifications,
+}
+
+impl<'a> BoundedPathEngine<'a> {
+	pub fn new(index: &CodeIndex, linkage: &'a LinkageSnapshot) -> Option<Self> {
+		if linkage.index_generation != index.generation {
+			return None;
+		}
+		Some(Self {
+			read_index: linkage.read_index.get()?,
+			classifications: ReferenceClassifications::from_linkage(linkage),
+		})
+	}
+
+	pub fn search(&self, request: BoundedPathRequest<'_>) -> Option<BoundedPathSearch> {
+		PathTraversal::new(
+			self.read_index,
+			&self.classifications,
+			request.relations,
+			request.limits,
+			request.scope,
+		)?
+		.run(request.from, request.to)
+	}
+}
+
 impl WorkspaceSnapshot {
 	pub fn bounded_path(
 		&self,
@@ -187,8 +221,26 @@ impl WorkspaceSnapshot {
 		limits: BoundedPathLimits,
 		scope: &BoundedPathScope,
 	) -> Option<BoundedPathSearch> {
-		PathTraversal::new(self, relations, limits, scope)?.run(from, to)
+		bounded_path(
+			&self.index,
+			&self.linkage,
+			BoundedPathRequest {
+				from,
+				to,
+				relations,
+				limits,
+				scope,
+			},
+		)
 	}
+}
+
+pub fn bounded_path(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	request: BoundedPathRequest<'_>,
+) -> Option<BoundedPathSearch> {
+	BoundedPathEngine::new(index, linkage)?.search(request)
 }
 
 struct PathTraversal<'a> {
@@ -198,7 +250,7 @@ struct PathTraversal<'a> {
 	max_depth: usize,
 	max_symbols: usize,
 	max_edges: usize,
-	classifications: ReferenceClassifications,
+	classifications: &'a ReferenceClassifications,
 	visited: RoaringBitmap,
 	predecessors: FxHashMap<u32, (u32, ReferenceId)>,
 	search: BoundedPathSearch,
@@ -206,12 +258,12 @@ struct PathTraversal<'a> {
 
 impl<'a> PathTraversal<'a> {
 	fn new(
-		snapshot: &'a WorkspaceSnapshot,
+		read_index: &'a super::LinkageReadIndex,
+		classifications: &'a ReferenceClassifications,
 		relations: &'a [String],
 		limits: BoundedPathLimits,
 		scope: &'a BoundedPathScope,
 	) -> Option<Self> {
-		let read_index = snapshot.linkage.read_index.get()?;
 		let mut seen_relations = FxHashSet::default();
 		Some(Self {
 			read_index,
@@ -224,7 +276,7 @@ impl<'a> PathTraversal<'a> {
 			max_depth: limits.max_depth,
 			max_symbols: limits.max_symbols,
 			max_edges: limits.max_edges,
-			classifications: ReferenceClassifications::from_snapshot(snapshot),
+			classifications,
 			visited: RoaringBitmap::new(),
 			predecessors: FxHashMap::default(),
 			search: BoundedPathSearch::default(),
@@ -581,5 +633,62 @@ mod tests {
 		assert_eq!(search.coverage.total, 3, "{search:?}");
 		assert_eq!(search.explored_edges, 3, "{search:?}");
 		assert!(search.edge_limit_reached, "{search:?}");
+	}
+
+	#[test]
+	fn prepared_engine_reuses_linkage_classifications_across_searches() {
+		let source = SourceId::at(0);
+		let from = SymbolId::at(0, 0);
+		let middle = SymbolId::at(0, 1);
+		let to = SymbolId::at(0, 2);
+		let first = ReferenceId::at(0, 0);
+		let second = ReferenceId::at(0, 1);
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(from, source, "from", "fn"),
+				SymbolRecord::new(middle, source, "middle", "fn"),
+				SymbolRecord::new(to, source, "to", "fn"),
+			],
+			vec![
+				ReferenceRecord::new(first, source, from, middle.to_string(), "calls", None),
+				ReferenceRecord::new(second, source, middle, to.to_string(), "calls", None),
+			],
+			vec![
+				LinkageEdge::new(first, middle),
+				LinkageEdge::new(second, to),
+			],
+			vec![(1, from), (2, middle), (3, to)],
+		);
+		let scope = BoundedPathScope::from_sources([source]);
+		let relations = vec!["calls".to_string()];
+		let limits = BoundedPathLimits {
+			max_depth: 4,
+			max_symbols: 10,
+			max_edges: 10,
+		};
+		let engine =
+			BoundedPathEngine::new(&snapshot.index, &snapshot.linkage).expect("path engine");
+
+		let first_search = engine
+			.search(BoundedPathRequest {
+				from,
+				to: middle,
+				relations: &relations,
+				limits,
+				scope: &scope,
+			})
+			.expect("first search");
+		let second_search = engine
+			.search(BoundedPathRequest {
+				from,
+				to,
+				relations: &relations,
+				limits,
+				scope: &scope,
+			})
+			.expect("second search");
+
+		assert_eq!(first_search.path.len(), 1);
+		assert_eq!(second_search.path.len(), 2);
 	}
 }

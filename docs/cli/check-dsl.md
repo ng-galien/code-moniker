@@ -35,6 +35,9 @@ A rule is anchored to a **scope** by its TOML path:
 | `[[default.<kind>.where]]`          | Def of that kind, **any lang** | fallback when no `[<lang>.<kind>]` entry exists for the file's language |
 | `[[refs.where]]`                    | Ref (poly-lang)   | `graph.refs()`   |
 | `[[<lang>.refs.where]]`             | Ref (per lang)    | `graph.refs()` filtered by lang of source |
+| `[[workspace.symbol.where]]`        | Active workspace symbol | bitmap inventory for the current index generation |
+| `[[workspace.group.where]]`         | Stable symbol group | bitmap buckets built from the workspace inventory |
+| `[[workspace.path]]`                | Source/target symbol sets | bounded paths in the resolved workspace graph |
 
 Top-level `[[refs.where]]` is the natural home for architectural invariants
 that hold across languages ("the domain layer does not depend on
@@ -49,6 +52,72 @@ block for that kind — per-language rules win over the default.
 Shape scopes are additive. A `[[shape.callable.where]]` rule and a
 `[[rust.fn.where]]` rule can both evaluate on a Rust `fn`. If both define
 the same `id`, the kind-specific rule wins for that kind.
+
+### Workspace roots
+
+`workspace` changes the inspected universe, not the expression language.
+`workspace.symbol` reuses the boolean DSL against the immutable symbol
+inventory. Exact facets, boolean operations and candidate sets are evaluated
+as Roaring bitmaps. `workspace.group` first selects a member bitmap, then
+builds stable buckets:
+
+```toml
+[[workspace.symbol.where]]
+id = "repositories-under-infra"
+expr = "shape = 'type' AND name =~ Repository$ => uri ~ '**/dir:infra/**'"
+
+[[workspace.group.where]]
+id = "unique-type-name-per-package"
+members = "shape = 'type' AND segment('package') != ''"
+group_by = ["lang", "segment('package')", "name"]
+expr = "count(member) <= 1"
+```
+
+The compiler infers `t1_inventory` or `t2_linkage` from the requested
+capabilities. Direct `count(in_refs)` and `count(out_refs)` need linkage and
+therefore use the trivalent T2 contract. `rules show` and MCP `rules` list the
+inferred `plan` and `capabilities`; authors do not declare a tier.
+
+`workspace.path` is a specialized root because a path has two independently
+selected endpoint sets plus traversal limits:
+
+```toml
+[[workspace.path]]
+id = "transactions-must-not-reach-repositories"
+from = "shape = 'callable' AND name =~ ^transaction"
+to = "shape = 'type' AND name =~ Repository$"
+expect = "no_path"
+relation = ["calls", "method_call"]
+max_depth = 12
+max_symbols = 10000
+max_edges = 50000
+max_pairs = 10000
+min_coverage = 99
+message = "Forbidden transitive dependency: {path}"
+```
+
+`from` and `to` use the same workspace-symbol expression parser, aliases and
+facets. `expect` is `reachable` or `no_path`. Traversal delegates to the same
+bounded engine as `graph.path`; defaults are the values shown above, except
+`min_coverage`, which inherits `[workspace].min_linkage_coverage` and otherwise
+defaults to `100`. `relation` defaults to `["calls", "method_call"]`.
+
+A found path is conclusive: it passes `reachable` and fails `no_path`.
+Absence is conclusive only when every selected pair was searched completely
+and linkage coverage meets the configured threshold. Empty selectors,
+insufficient coverage, or any depth/symbol/edge/pair limit produces
+`inconclusive`, never a false `pass`. An index/linkage generation mismatch is
+instead rejected as a technical stale-snapshot error before rule evaluation,
+so it produces no misleading rule verdict. Reports expose endpoint counts,
+evaluated pairs, explored symbols/edges, limit flags, reasons, coverage, and
+the witness path with files and line ranges.
+
+Workspace rules require a complete project check. Plain one-shot `check`
+builds an ephemeral linked snapshot; daemon and MCP checks use the same
+execution contract. `check --file` explicitly reports workspace rules as not
+run because a touched-file subset is not a complete workspace universe.
+Global exclusions are removed from the active bitmap and cannot become
+subjects or intermediate path vertices.
 
 ## Grammar
 
@@ -702,6 +771,9 @@ rationale = "..."                          # optional; rules-show metadata
 [[<lang>.shape.<shape>.where]]             # def-scoped, lang-specific shape
 [[refs.where]]                             # ref-scoped, poly-lang
 [[<lang>.refs.where]]                      # ref-scoped, lang-specific
+[[workspace.symbol.where]]                 # symbol-scoped, full inventory
+[[workspace.group.where]]                  # grouped full-inventory symbols
+[[workspace.path]]                         # bounded linked source -> target paths
 
 [<lang>.<kind>]
 require_doc_comment = "public"             # spatial rule, outside `where`
@@ -760,13 +832,13 @@ language or rule family. Focused executable DSL learning scenarios live in
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 
-## Beyond direct refs
+## Local and workspace graph boundaries
 
-The DSL evaluates per def or per ref inside the local file graph. It can
-derive local aggregates, multisets, pair checks, and named metrics from
-the direct local defs/refs that were extracted for that file.
+Local def/ref roots still evaluate only the extracted file graph. Their named
+metrics and domains keep their original local meaning. Workspace roots add
+cross-file inventory, direct linked-reference counts, and bounded transitive
+path constraints without changing local-rule behavior.
 
-It still does not perform project-wide linkage, cross-file closure, call
-graph transitive closure, cycle detection, or dataflow / taint
-propagation. Those checks belong to SQL on an ingested `code_graph` corpus
-or to a higher-level analysis pipeline.
+The workspace DSL does not yet expose SCC/cycle rules, dataflow, taint,
+resource-acquisition semantics, historical co-change, or unbounded transitive
+closure. Path rules are intentionally bounded and confidence-aware.

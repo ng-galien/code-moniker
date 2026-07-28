@@ -9,7 +9,7 @@ use code_moniker_core::lang::Lang;
 
 use super::{
 	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry,
-	WorkspaceGroupRuleEntry, WorkspaceRules, config_section,
+	WorkspaceGroupRuleEntry, WorkspacePathRuleEntry, WorkspaceRules, config_section,
 };
 
 const FRAGMENT_FILE_NAME: &str = "code-moniker.fragment.toml";
@@ -343,12 +343,24 @@ fn rewrite_rule_alias_refs(cfg: &mut Config, local_aliases: &HashSet<String>, na
 	rewrite_rules(&mut cfg.refs.rules, local_aliases, namespace);
 	rewrite_rules(&mut cfg.workspace.symbol.rules, local_aliases, namespace);
 	rewrite_group_rules(&mut cfg.workspace.group.rules, local_aliases, namespace);
+	rewrite_path_rules(&mut cfg.workspace.path, local_aliases, namespace);
 	for rules in cfg.shape.values_mut() {
 		rewrite_rules(&mut rules.rules, local_aliases, namespace);
 	}
 	rewrite_lang_rule_alias_refs(&mut cfg.default, local_aliases, namespace);
 	for lang in Lang::ALL {
 		rewrite_lang_rule_alias_refs(cfg.for_lang_mut(*lang), local_aliases, namespace);
+	}
+}
+
+fn rewrite_path_rules(
+	rules: &mut [WorkspacePathRuleEntry],
+	local_aliases: &HashSet<String>,
+	namespace: &str,
+) {
+	for rule in rules {
+		rule.from = rewrite_local_alias_refs(&rule.from, local_aliases, namespace);
+		rule.to = rewrite_local_alias_refs(&rule.to, local_aliases, namespace);
 	}
 }
 
@@ -444,6 +456,7 @@ fn namespace_rule_ids(cfg: &mut Config, path: &Path, fragment: &str) -> Result<(
 		path,
 		fragment,
 	)?;
+	namespace_path_rules(&mut cfg.workspace.path, "workspace.path", path, fragment)?;
 	for (shape, rules) in &mut cfg.shape {
 		namespace_rules(&mut rules.rules, &format!("shape.{shape}"), path, fragment)?;
 	}
@@ -455,6 +468,26 @@ fn namespace_rule_ids(cfg: &mut Config, path: &Path, fragment: &str) -> Result<(
 			path,
 			fragment,
 		)?;
+	}
+	Ok(())
+}
+
+fn namespace_path_rules(
+	rules: &mut [WorkspacePathRuleEntry],
+	at: &str,
+	path: &Path,
+	fragment: &str,
+) -> Result<(), ConfigError> {
+	for rule in rules {
+		let Some(local_id) = rule.id.as_deref() else {
+			return Err(ConfigError::FragmentRuleMissingId {
+				path: path.display().to_string(),
+				fragment: fragment.to_string(),
+				at: at.to_string(),
+			});
+		};
+		validate_rule_id(path, fragment, local_id)?;
+		rule.id = Some(format!("{fragment}.{local_id}"));
 	}
 	Ok(())
 }
@@ -525,8 +558,10 @@ fn namespace_rules(
 }
 
 fn count_rules(cfg: &Config) -> usize {
-	let mut count =
-		cfg.refs.rules.len() + cfg.workspace.symbol.rules.len() + cfg.workspace.group.rules.len();
+	let mut count = cfg.refs.rules.len()
+		+ cfg.workspace.symbol.rules.len()
+		+ cfg.workspace.group.rules.len()
+		+ cfg.workspace.path.len();
 	count += cfg
 		.shape
 		.values()
@@ -638,12 +673,29 @@ fn for_each_rule_key(
 	for_each_rule_list("refs", &cfg.refs.rules, &mut visit)?;
 	for_each_rule_list("workspace.symbol", &cfg.workspace.symbol.rules, &mut visit)?;
 	for_each_group_rule_list("workspace.group", &cfg.workspace.group.rules, &mut visit)?;
+	for_each_path_rule_list("workspace.path", &cfg.workspace.path, &mut visit)?;
 	for (shape, rules) in &cfg.shape {
 		for_each_rule_list(&format!("shape.{shape}"), &rules.rules, &mut visit)?;
 	}
 	for_each_lang_rule_key("default", &cfg.default, &mut visit)?;
 	for lang in Lang::ALL {
 		for_each_lang_rule_key(config_section(*lang), cfg.for_lang(*lang), &mut visit)?;
+	}
+	Ok(())
+}
+
+fn for_each_path_rule_list(
+	prefix: &str,
+	rules: &[WorkspacePathRuleEntry],
+	visit: &mut impl FnMut(String, &[&str]) -> Result<(), ConfigError>,
+) -> Result<(), ConfigError> {
+	for rule in rules {
+		if let Some(id) = &rule.id {
+			visit(
+				format!("{prefix}.{id}"),
+				&[rule.from.as_str(), rule.to.as_str()],
+			)?;
+		}
 	}
 	Ok(())
 }

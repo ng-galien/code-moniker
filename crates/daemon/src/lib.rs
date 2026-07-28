@@ -11,7 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use code_moniker_check::{
 	CheckRequest, CheckSkipReason, CheckSummary, CompiledRuleSpec, DefaultRulesSelection,
-	RuleReport, RuleSetRequest, RuleSeverity, Violation,
+	RuleCoverage, RulePathReport, RulePathStep, RuleReport, RuleSetRequest, RuleSeverity,
+	RuleVerdict, Violation,
 };
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
@@ -21,13 +22,13 @@ use code_moniker_query::{
 	DaemonRpcServer, DaemonWorkspaceConfig, FailedRuleDto, FileErrorDto, HandshakeResponse,
 	NoteDto, NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page, ProtocolRequest,
 	ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest, QueryResponse, QueryResult,
-	ResolutionAuditResult, RuleDto, RuleReportDto, RulesCheckResult, RulesCheckRootResult,
-	RulesListResult, SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto,
-	SymbolInsightsResult, SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery,
-	SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode, TreeNodeKind,
-	UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto, WorkspaceEventDto,
-	WorkspaceEventKind, WorkspaceGeneration, WorkspaceRootStatus, WorkspaceStatus,
-	current_build_identity, describe_query_capabilities,
+	ResolutionAuditResult, RuleCoverageDto, RuleDto, RulePathReportDto, RulePathStepDto,
+	RuleReportDto, RulesCheckResult, RulesCheckRootResult, RulesListResult, SourceLine,
+	SourceSnippet, SymbolDetailResult, SymbolDto, SymbolInsightsResult, SymbolListResult,
+	SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
+	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
+	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
+	WorkspaceRootStatus, WorkspaceStatus, current_build_identity, describe_query_capabilities,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -3468,7 +3469,7 @@ fn rules_check_response(
 		match row {
 			RulesCheckRow::Violation(violation) => violations.push(violation),
 			RulesCheckRow::Error(error) => errors.push(error),
-			RulesCheckRow::RuleReport(report) => rule_reports.push(report),
+			RulesCheckRow::RuleReport(report) => rule_reports.push(*report),
 			RulesCheckRow::SkipReason(reason) => skip_reasons.push(reason),
 		}
 	}
@@ -3796,7 +3797,7 @@ struct Paged<T> {
 enum RulesCheckRow {
 	Violation(ViolationDto),
 	Error(FileErrorDto),
-	RuleReport(RuleReportDto),
+	RuleReport(Box<RuleReportDto>),
 	SkipReason(code_moniker_query::CheckSkipReasonDto),
 }
 
@@ -3814,6 +3815,7 @@ fn rules_check_rows(roots: &[RulesCheckRootResult]) -> Vec<RulesCheckRow> {
 			root.rule_reports
 				.iter()
 				.cloned()
+				.map(Box::new)
 				.map(RulesCheckRow::RuleReport),
 		);
 		rows.extend(
@@ -4062,6 +4064,68 @@ mod helpers {
 			violations: report.violations,
 			antecedent_matches: report.antecedent_matches,
 			warning: report.warning.clone(),
+			inconclusive: report.inconclusive,
+			verdict: report.verdict.map(rule_verdict_label),
+			coverage: report.coverage.as_ref().map(rule_coverage_dto),
+			path_analysis: report.path.as_ref().map(rule_path_report_dto),
+		}
+	}
+
+	fn rule_verdict_label(verdict: RuleVerdict) -> String {
+		match verdict {
+			RuleVerdict::Pass => "pass",
+			RuleVerdict::Fail => "fail",
+			RuleVerdict::Inconclusive => "inconclusive",
+		}
+		.to_string()
+	}
+
+	fn rule_coverage_dto(coverage: &RuleCoverage) -> RuleCoverageDto {
+		RuleCoverageDto {
+			total: coverage.total,
+			decided: coverage.decided,
+			resolved: coverage.resolved,
+			external: coverage.external,
+			candidate: coverage.candidate,
+			dynamic: coverage.dynamic,
+			blocked: coverage.blocked,
+			unresolved: coverage.unresolved,
+			percent: coverage.percent,
+			min_percent: coverage.min_percent,
+		}
+	}
+
+	fn rule_path_report_dto(path: &RulePathReport) -> RulePathReportDto {
+		RulePathReportDto {
+			expectation: path.expectation.clone(),
+			relation: path.relation.clone(),
+			max_depth: path.max_depth,
+			max_symbols: path.max_symbols,
+			max_edges: path.max_edges,
+			max_pairs: path.max_pairs,
+			min_coverage: path.min_coverage,
+			source_symbols: path.source_symbols,
+			target_symbols: path.target_symbols,
+			evaluated_pairs: path.evaluated_pairs,
+			explored_symbols: path.explored_symbols,
+			explored_edges: path.explored_edges,
+			depth_limit_reached: path.depth_limit_reached,
+			symbol_limit_reached: path.symbol_limit_reached,
+			edge_limit_reached: path.edge_limit_reached,
+			pair_limit_reached: path.pair_limit_reached,
+			reasons: path.reasons.clone(),
+			witness: path.witness.iter().map(rule_path_step_dto).collect(),
+		}
+	}
+
+	fn rule_path_step_dto(step: &RulePathStep) -> RulePathStepDto {
+		RulePathStepDto {
+			source: step.source.clone(),
+			target: step.target.clone(),
+			relation: step.relation.clone(),
+			reference: step.reference.clone(),
+			file: step.file.clone(),
+			line_range: step.line_range,
 		}
 	}
 

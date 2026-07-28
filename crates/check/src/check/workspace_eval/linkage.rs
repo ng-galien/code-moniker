@@ -125,6 +125,7 @@ fn linkage_report(
 		inconclusive: Some(outcome.unknown.len()),
 		verdict: Some(verdict),
 		coverage: Some(coverage.report(min_percent)),
+		path: None,
 	}
 }
 

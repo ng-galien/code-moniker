@@ -1304,6 +1304,63 @@ fn rules_tool_runs_check_on_workspace() {
 }
 
 #[test]
+fn rules_tool_reports_workspace_path_verdict_coverage_and_witness() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+	std::fs::write(
+		temp.path().join("src/lib.rs"),
+		"pub fn entry() { middle(); }\nfn middle() { sink(); }\npub fn sink() {}\n",
+	)
+	.expect("write fixture");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[workspace.path]]
+		id = "entry-must-not-reach-sink"
+		severity = "warn"
+		from = "shape = 'callable' AND name =~ ^entry"
+		to = "shape = 'callable' AND name =~ ^sink"
+		expect = "no_path"
+		relation = ["calls"]
+		max_depth = 4
+		max_symbols = 100
+		max_edges = 100
+		max_pairs = 10
+		min_coverage = 100
+		"#,
+	)
+	.expect("write rules");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_rules",
+			&json!({
+				"uri": "workspace",
+				"action": "run",
+				"limit": 5,
+				"report": true
+			}),
+		)
+		.expect("rules run");
+
+	assert!(!result.is_error, "{}", result.text);
+	assert!(
+		result
+			.text
+			.contains("workspace.path.entry-must-not-reach-sink: verdict=fail"),
+		"{}",
+		result.text
+	);
+	assert!(result.text.contains("coverage: 100%"), "{}", result.text);
+	assert!(result.text.contains("witness:"), "{}", result.text);
+	assert!(result.text.contains("-[calls]->"), "{}", result.text);
+}
+
+#[test]
 fn rules_tool_distinguishes_rule_errors_from_scan_errors() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");

@@ -101,6 +101,8 @@ pub struct WorkspaceRules {
 	pub symbol: KindRules,
 	#[serde(default)]
 	pub group: WorkspaceGroupRules,
+	#[serde(default)]
+	pub path: Vec<WorkspacePathRuleEntry>,
 	#[serde(default, rename = "source_group")]
 	pub source_groups: Vec<toml::Value>,
 }
@@ -134,6 +136,61 @@ pub struct WorkspaceGroupRuleEntry {
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceGroupSuppression {
 	pub values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspacePathRuleEntry {
+	#[serde(default)]
+	pub id: Option<String>,
+	pub from: String,
+	pub to: String,
+	pub expect: WorkspacePathExpectation,
+	#[serde(default = "default_path_relations")]
+	pub relation: Vec<String>,
+	#[serde(default = "default_path_max_depth")]
+	pub max_depth: usize,
+	#[serde(default = "default_path_max_symbols")]
+	pub max_symbols: usize,
+	#[serde(default = "default_path_max_edges")]
+	pub max_edges: usize,
+	#[serde(default = "default_path_max_pairs")]
+	pub max_pairs: usize,
+	#[serde(default)]
+	pub min_coverage: Option<usize>,
+	#[serde(default)]
+	pub severity: RuleSeverity,
+	#[serde(default)]
+	pub message: Option<String>,
+	#[serde(default)]
+	pub rationale: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacePathExpectation {
+	Reachable,
+	NoPath,
+}
+
+fn default_path_relations() -> Vec<String> {
+	vec!["calls".to_string(), "method_call".to_string()]
+}
+
+const fn default_path_max_depth() -> usize {
+	12
+}
+
+const fn default_path_max_symbols() -> usize {
+	10_000
+}
+
+const fn default_path_max_edges() -> usize {
+	50_000
+}
+
+const fn default_path_max_pairs() -> usize {
+	10_000
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -219,6 +276,8 @@ pub enum ConfigError {
 	UnsupportedWorkspaceExpr { at: String, capability: String },
 	#[error("invalid workspace group rule `{at}`: {message}")]
 	InvalidWorkspaceGroup { at: String, message: String },
+	#[error("invalid workspace path rule `{at}`: {message}")]
+	InvalidWorkspacePath { at: String, message: String },
 	#[error("workspace.min_linkage_coverage must be between 0 and 100, got {value}")]
 	InvalidWorkspaceCoverage { value: usize },
 	#[error("unknown kind `{kind}` under `[{section}.{kind}]` (allowed: {allowed})")]
@@ -498,6 +557,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	}
 	merge_kind(&mut base.workspace.symbol, ov.workspace.symbol);
 	merge_group(&mut base.workspace.group, ov.workspace.group);
+	merge_path(&mut base.workspace.path, ov.workspace.path);
 	base.workspace
 		.source_groups
 		.extend(ov.workspace.source_groups);
@@ -522,6 +582,19 @@ fn merge_group(base: &mut WorkspaceGroupRules, ov: WorkspaceGroupRules) {
 		}) {
 			Some(index) => base.rules[index] = ov_rule,
 			None => base.rules.push(ov_rule),
+		}
+	}
+}
+
+fn merge_path(base: &mut Vec<WorkspacePathRuleEntry>, ov: Vec<WorkspacePathRuleEntry>) {
+	for ov_rule in ov {
+		match ov_rule
+			.id
+			.as_deref()
+			.and_then(|id| base.iter().position(|rule| rule.id.as_deref() == Some(id)))
+		{
+			Some(index) => base[index] = ov_rule,
+			None => base.push(ov_rule),
 		}
 	}
 }
@@ -723,6 +796,9 @@ fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 			});
 		}
 	}
+	for (index, rule) in cfg.workspace.path.iter().enumerate() {
+		validate_workspace_path(rule, index)?;
+	}
 	validate_shape_section(&cfg.shape, "shape", None)?;
 	if !cfg.default.shape.is_empty() {
 		return Err(ConfigError::DefaultShapeUnsupported);
@@ -752,6 +828,46 @@ fn is_stable_group_rule_id(id: &str) -> bool {
 		&& id
 			.bytes()
 			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn validate_workspace_path(rule: &WorkspacePathRuleEntry, index: usize) -> Result<(), ConfigError> {
+	let at = rule.id.as_deref().map_or_else(
+		|| format!("workspace.path.where_{index}"),
+		|id| format!("workspace.path.{id}"),
+	);
+	let Some(id) = rule.id.as_deref() else {
+		return Err(ConfigError::InvalidWorkspacePath {
+			at,
+			message: "`id` is required for stable diagnostics".to_string(),
+		});
+	};
+	if !is_stable_group_rule_id(id) {
+		return Err(ConfigError::InvalidWorkspacePath {
+			at,
+			message: "`id` may contain only ASCII letters, digits, `_` and `-`".to_string(),
+		});
+	}
+	let invalid = if rule.from.trim().is_empty() {
+		Some("`from` must not be empty".to_string())
+	} else if rule.to.trim().is_empty() {
+		Some("`to` must not be empty".to_string())
+	} else if rule.max_depth > 64 {
+		Some("`max_depth` must be at most 64".to_string())
+	} else if !(1..=100_000).contains(&rule.max_symbols) {
+		Some("`max_symbols` must be between 1 and 100000".to_string())
+	} else if !(1..=500_000).contains(&rule.max_edges) {
+		Some("`max_edges` must be between 1 and 500000".to_string())
+	} else if !(1..=100_000).contains(&rule.max_pairs) {
+		Some("`max_pairs` must be between 1 and 100000".to_string())
+	} else if rule.min_coverage.is_some_and(|coverage| coverage > 100) {
+		Some("`min_coverage` must be between 0 and 100".to_string())
+	} else {
+		None
+	};
+	if let Some(message) = invalid {
+		return Err(ConfigError::InvalidWorkspacePath { at, message });
+	}
+	Ok(())
 }
 
 fn validate_shape_section(
@@ -976,6 +1092,12 @@ impl WorkspaceGroupRuleEntry {
 	}
 }
 
+impl WorkspacePathRuleEntry {
+	pub(crate) fn fallback_id(&self, idx: usize) -> String {
+		self.id.clone().unwrap_or_else(|| format!("where_{idx}"))
+	}
+}
+
 fn compile_patterns(
 	patterns: &[String],
 	profile: &str,
@@ -1040,10 +1162,29 @@ fn filter_workspace_rules(workspace: &mut WorkspaceRules, enable: &[Regex], disa
 		enable,
 		disable,
 	);
+	filter_path_rules(&mut workspace.path, "workspace.path", enable, disable);
 }
 
 fn filter_group_rules(
 	rules: &mut Vec<WorkspaceGroupRuleEntry>,
+	prefix: &str,
+	enable: &[Regex],
+	disable: &[Regex],
+) {
+	if rules.is_empty() || (enable.is_empty() && disable.is_empty()) {
+		return;
+	}
+	let mut index = 0;
+	rules.retain(|rule| {
+		let full = format!("{prefix}.{}", rule.fallback_id(index));
+		index += 1;
+		(enable.is_empty() || enable.iter().any(|regex| regex.is_match(&full)))
+			&& !disable.iter().any(|regex| regex.is_match(&full))
+	});
+}
+
+fn filter_path_rules(
+	rules: &mut Vec<WorkspacePathRuleEntry>,
 	prefix: &str,
 	enable: &[Regex],
 	disable: &[Regex],
@@ -1067,6 +1208,11 @@ fn collect_rule_keys(cfg: &Config) -> HashSet<String> {
 	for rule in &cfg.workspace.group.rules {
 		if let Some(id) = &rule.id {
 			out.insert(format!("workspace.group.{id}"));
+		}
+	}
+	for rule in &cfg.workspace.path {
+		if let Some(id) = &rule.id {
+			out.insert(format!("workspace.path.{id}"));
 		}
 	}
 	for (shape, rules) in &cfg.shape {
@@ -1197,6 +1343,38 @@ mod tests {
 			error,
 			ConfigError::InvalidWorkspaceCoverage { value: 101 }
 		));
+	}
+
+	#[test]
+	fn workspace_path_rules_parse_bounded_graph_contract() {
+		let cfg = load_from_str(
+			r#"
+			[[workspace.path]]
+			id = "service-reaches-repository"
+			from = "name = 'service'"
+			to = "name = 'repository'"
+			expect = "reachable"
+			relation = ["calls", "method_call"]
+			max_depth = 8
+			max_symbols = 2000
+			max_edges = 4000
+			max_pairs = 500
+			min_coverage = 95
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect("workspace path config");
+		assert_eq!(cfg.workspace.path.len(), 1);
+		let rule = &cfg.workspace.path[0];
+		assert_eq!(rule.id.as_deref(), Some("service-reaches-repository"));
+		assert_eq!(rule.expect, WorkspacePathExpectation::Reachable);
+		assert_eq!(rule.relation, ["calls", "method_call"]);
+		assert_eq!(rule.max_depth, 8);
+		assert_eq!(rule.max_symbols, 2000);
+		assert_eq!(rule.max_edges, 4000);
+		assert_eq!(rule.max_pairs, 500);
+		assert_eq!(rule.min_coverage, Some(95));
 	}
 
 	#[test]
@@ -1776,6 +1954,43 @@ mod tests {
 			"workspace.group.architecture.unique-types"
 		);
 		assert!(specs[0].expanded_expr.contains("shape = 'type'"));
+		assert_eq!(cfg.fragments[0].active_rules, 1);
+	}
+
+	#[test]
+	fn workspace_path_fragment_rewrites_both_selectors_and_keeps_namespace() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"architecture",
+			r#"
+			fragment = "architecture"
+
+			[aliases]
+			entries = "shape = 'callable' AND name =~ ^entry"
+			sinks = "shape = 'callable' AND name =~ ^sink"
+
+			[[workspace.path]]
+			id = "entries-must-not-reach-sinks"
+			from = "$entries"
+			to = "$sinks"
+			expect = "no_path"
+			"#,
+		);
+		let cfg = load_with_overrides(Some(&root)).expect("path fragment loads");
+		let compiled =
+			crate::check::workspace_eval::compile_workspace_rules(&cfg, "code+moniker://")
+				.expect("path fragment compiles");
+		let specs = compiled.specs();
+		assert_eq!(specs.len(), 1);
+		assert_eq!(
+			specs[0].rule_id,
+			"workspace.path.architecture.entries-must-not-reach-sinks"
+		);
+		assert!(specs[0].expanded_expr.contains("name =~ ^entry"));
+		assert!(specs[0].expanded_expr.contains("name =~ ^sink"));
 		assert_eq!(cfg.fragments[0].active_rules, 1);
 	}
 

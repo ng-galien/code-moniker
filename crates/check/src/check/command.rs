@@ -7,9 +7,12 @@ use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment;
 use code_moniker_workspace::lang::path_to_lang;
+use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	RecordTable, ResourceGeneration, SourceFileRecord, SourceId, SymbolInventoryIndex,
+	RecordTable, ResourceGeneration, SourceFileRecord, SourceId, SymbolInventoryIndex, SymbolSet,
+	WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
 };
+use code_moniker_workspace::source::LocalIdentityResolver;
 
 use crate::check;
 use crate::check::config::{self, RuleSeverity};
@@ -43,6 +46,11 @@ pub trait CheckWorkspace: Sync {
 	) -> anyhow::Result<environment::SourceFileSet>;
 	fn source_catalog(&self, root: &Path) -> anyhow::Result<environment::SourceFileSet>;
 	fn exists(&self, path: &Path) -> bool;
+	fn linked_snapshot(
+		&self,
+		_source_set: &environment::SourceFileSet,
+		_scheme: &str,
+	) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>>;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -78,6 +86,40 @@ impl CheckWorkspace for FsCheckWorkspace {
 
 	fn exists(&self, path: &Path) -> bool {
 		path.exists()
+	}
+
+	fn linked_snapshot(
+		&self,
+		source_set: &environment::SourceFileSet,
+		scheme: &str,
+	) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
+		build_fs_linked_snapshot(source_set, scheme).map(Some)
+	}
+}
+
+fn build_fs_linked_snapshot(
+	source_set: &environment::SourceFileSet,
+	scheme: &str,
+) -> anyhow::Result<Arc<WorkspaceSnapshot>> {
+	let paths = source_set
+		.roots
+		.iter()
+		.map(|root| root.input.clone())
+		.collect();
+	let options =
+		LocalWorkspaceOptions::new(paths, None).with_identity(LocalIdentityResolver::new(scheme));
+	let mut registry = LocalWorkspaceRegistry::local(options);
+	match registry
+		.commands()
+		.refresh(WorkspaceRequest::new("check-workspace-linkage"))
+	{
+		WorkspaceTransition::Ready { .. } => registry
+			.queries()
+			.snapshot_arc()
+			.ok_or_else(|| anyhow::anyhow!("workspace refresh completed without a snapshot")),
+		WorkspaceTransition::Failed { failure, .. } => {
+			anyhow::bail!("workspace linkage build failed: {}", failure.message)
+		}
 	}
 }
 
@@ -155,6 +197,14 @@ impl CheckWorkspace for MemoryCheckWorkspace {
 	fn exists(&self, path: &Path) -> bool {
 		let rel = memory_rel_path(&self.root, path);
 		self.files.contains_key(&rel)
+	}
+
+	fn linked_snapshot(
+		&self,
+		_source_set: &environment::SourceFileSet,
+		_scheme: &str,
+	) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
+		Ok(None)
 	}
 }
 
@@ -801,7 +851,10 @@ pub fn check_project_files_workspace(
 			workspace_rules: false,
 		},
 	)?;
-	if !cfg.workspace.symbol.rules.is_empty() || !cfg.workspace.group.rules.is_empty() {
+	if !cfg.workspace.symbol.rules.is_empty()
+		|| !cfg.workspace.group.rules.is_empty()
+		|| !cfg.workspace.path.is_empty()
+	{
 		errors.push(FileError {
 			path: root.to_path_buf(),
 			error: "workspace rules were not run: a file-scoped check does not provide a complete symbol inventory"
@@ -900,7 +953,14 @@ fn check_source_set(
 	}
 	checked.sort_by(|a, b| a.report.path.cmp(&b.report.path));
 	if mode.workspace_rules && errors.is_empty() {
-		apply_workspace_rules(&mut checked, cfg, scheme, mode.report)?;
+		apply_workspace_rules(
+			&mut checked,
+			source_set,
+			cfg,
+			scheme,
+			mode.report,
+			workspace,
+		)?;
 	}
 	let reports = checked.into_iter().map(|checked| checked.report).collect();
 	errors.sort_by(|a, b| a.path.cmp(&b.path));
@@ -909,31 +969,68 @@ fn check_source_set(
 
 fn apply_workspace_rules(
 	checked: &mut [CheckedSourceFile],
+	source_set: &environment::SourceFileSet,
 	cfg: &check::Config,
 	scheme: &str,
 	report: bool,
+	workspace: &dyn CheckWorkspace,
 ) -> anyhow::Result<()> {
 	let compiled = crate::check::workspace_eval::compile_workspace_rules(cfg, scheme)?;
 	if compiled.is_empty() {
 		return Ok(());
 	}
-	if compiled.has_linkage_rules() {
-		anyhow::bail!(
-			"workspace linkage rules were not run: one-shot check does not provide a LinkageSnapshot"
-		);
+	let (mut evaluation, source_map) = if compiled.has_linkage_rules() {
+		let snapshot = workspace
+			.linked_snapshot(source_set, scheme)?
+			.ok_or_else(|| {
+				anyhow::anyhow!(
+					"workspace linkage rules were not run: this check workspace does not provide a linked snapshot"
+				)
+			})?;
+		let source_map = linked_source_map(&snapshot, checked);
+		let universe = linked_symbol_universe(&snapshot, &source_map);
+		let evaluation = crate::check::workspace_eval::evaluate_workspace_rules_linked_in(
+			&snapshot.index,
+			&snapshot.linkage,
+			&universe,
+			&compiled,
+			report,
+		)?;
+		(evaluation, Some(source_map))
+	} else {
+		let generation = ResourceGeneration::new(0);
+		let sources = workspace_source_records(checked);
+		let symbols = workspace_symbol_records(checked, scheme);
+		let inventory = SymbolInventoryIndex::build(generation, &sources, &symbols);
+		(
+			crate::check::workspace_eval::evaluate_workspace_rules(&inventory, &compiled, report),
+			None,
+		)
+	};
+	if let Some(source_map) = &source_map {
+		evaluation.violations.retain_mut(|violation| {
+			let Some(checked_idx) = source_map.get(&violation.source.file()) else {
+				return false;
+			};
+			violation.source = SourceId::at(*checked_idx);
+			true
+		});
 	}
-	let generation = ResourceGeneration::new(0);
-	let sources = workspace_source_records(checked);
-	let symbols = workspace_symbol_records(checked, scheme);
-	let inventory = SymbolInventoryIndex::build(generation, &sources, &symbols);
-	let mut evaluation =
-		crate::check::workspace_eval::evaluate_workspace_rules(&inventory, &compiled, report);
 	let kept_by_rule = merge_workspace_violations(checked, evaluation.violations);
 	for rule_report in &mut evaluation.reports {
 		rule_report.violations = kept_by_rule
 			.get(&rule_report.rule_id)
 			.copied()
 			.unwrap_or_default();
+		if rule_report.verdict.is_some() {
+			rule_report.verdict = Some(if rule_report.violations > 0 {
+				crate::RuleVerdict::Fail
+			} else if rule_report.inconclusive.unwrap_or_default() > 0 {
+				crate::RuleVerdict::Inconclusive
+			} else {
+				crate::RuleVerdict::Pass
+			});
+		}
 	}
 	if report && let Some(first) = checked.first_mut() {
 		first.report.rule_reports.extend(evaluation.reports);
@@ -943,6 +1040,56 @@ fn apply_workspace_rules(
 			.sort_by(|left, right| left.rule_id.cmp(&right.rule_id));
 	}
 	Ok(())
+}
+
+fn linked_source_map(
+	snapshot: &WorkspaceSnapshot,
+	checked: &[CheckedSourceFile],
+) -> std::collections::HashMap<usize, usize> {
+	use std::collections::HashMap;
+
+	let by_path = checked
+		.iter()
+		.enumerate()
+		.map(|(idx, checked)| (checked.file.path.clone(), idx))
+		.collect::<HashMap<_, _>>();
+	let by_root_relative = checked
+		.iter()
+		.enumerate()
+		.map(|(idx, checked)| ((checked.file.source, checked.file.rel_path.clone()), idx))
+		.collect::<HashMap<_, _>>();
+	snapshot
+		.index
+		.sources
+		.iter()
+		.filter_map(|source| {
+			let checked_idx = by_path
+				.get(Path::new(&source.path))
+				.or_else(|| {
+					by_root_relative.get(&(source.source_root, PathBuf::from(&source.rel_path)))
+				})
+				.copied()?;
+			Some((source.id.file(), checked_idx))
+		})
+		.collect()
+}
+
+fn linked_symbol_universe(
+	snapshot: &WorkspaceSnapshot,
+	source_map: &std::collections::HashMap<usize, usize>,
+) -> SymbolSet {
+	let mut universe = SymbolSet::new();
+	for source_idx in source_map.keys() {
+		if let Some(symbols) = snapshot
+			.index
+			.inventory
+			.facets()
+			.symbols_by_source(SourceId::at(*source_idx))
+		{
+			universe.union_with(symbols);
+		}
+	}
+	universe
 }
 
 fn workspace_source_records(checked: &[CheckedSourceFile]) -> Vec<SourceFileRecord> {
@@ -1379,6 +1526,14 @@ mod tests {
 
 		fn exists(&self, path: &Path) -> bool {
 			self.inner.exists(path)
+		}
+
+		fn linked_snapshot(
+			&self,
+			source_set: &environment::SourceFileSet,
+			scheme: &str,
+		) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
+			self.inner.linked_snapshot(source_set, scheme)
 		}
 	}
 

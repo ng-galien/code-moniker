@@ -311,10 +311,68 @@ fn write_rule_report_text<W: Write>(w: &mut W, run: &CheckRun) -> std::io::Resul
 		if let Some(n) = r.antecedent_matches {
 			write!(w, ", antecedent_matches={n}")?;
 		}
-		if let Some(warning) = r.warning {
+		if let Some(inconclusive) = r.inconclusive {
+			write!(w, ", inconclusive={inconclusive}")?;
+		}
+		if let Some(verdict) = r.verdict {
+			write!(w, ", verdict={}", rule_verdict_label(verdict))?;
+		}
+		if let Some(coverage) = &r.coverage {
+			write!(
+				w,
+				", coverage={}% (minimum {}%, resolved {}/{})",
+				coverage.percent, coverage.min_percent, coverage.resolved, coverage.total
+			)?;
+		}
+		if let Some(warning) = &r.warning {
 			write!(w, " warning: {warning}")?;
 		}
 		writeln!(w)?;
+		if let Some(path) = &r.path {
+			write_path_report_text(w, path)?;
+		}
+	}
+	Ok(())
+}
+
+fn rule_verdict_label(verdict: check::RuleVerdict) -> &'static str {
+	match verdict {
+		check::RuleVerdict::Pass => "pass",
+		check::RuleVerdict::Fail => "fail",
+		check::RuleVerdict::Inconclusive => "inconclusive",
+	}
+}
+
+fn write_path_report_text<W: Write>(
+	w: &mut W,
+	path: &check::RulePathReport,
+) -> std::io::Result<()> {
+	writeln!(
+		w,
+		"  path: expect={}, relations={}, pairs={}, explored={} symbols/{} edges, limits(depth={}, symbols={}, edges={}, pairs={})",
+		path.expectation,
+		path.relation.join(","),
+		path.evaluated_pairs,
+		path.explored_symbols,
+		path.explored_edges,
+		path.max_depth,
+		path.max_symbols,
+		path.max_edges,
+		path.max_pairs
+	)?;
+	if !path.reasons.is_empty() {
+		writeln!(w, "  reasons: {}", path.reasons.join(", "))?;
+	}
+	for step in &path.witness {
+		let location = step
+			.line_range
+			.map(|(start, end)| format!("{}:{start}-{end}", step.file))
+			.unwrap_or_else(|| step.file.clone());
+		writeln!(
+			w,
+			"  witness: {} -[{}]-> {} ({location})",
+			step.source, step.relation, step.target
+		)?;
 	}
 	Ok(())
 }
@@ -485,7 +543,7 @@ fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 	for report in &mut out {
 		if report.evaluated > 0 && report.antecedent_matches == Some(0) {
 			report.warning = Some("antecedent never matched".to_string());
-		} else {
+		} else if report.antecedent_matches.is_some() {
 			report.warning = None;
 		}
 	}

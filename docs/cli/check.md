@@ -31,10 +31,12 @@ lifecycle.
 ## Mental model
 
 `check` builds the same symbol graph as `extract`, loads the rule config,
-and evaluates each rule on one scope: one def, one ref, or one direct child
-collection. By default, the rule config is the embedded defaults merged
-with your TOML overlay; `--default-rules off` makes the TOML file the
-complete config.
+and evaluates each rule on its declared root. Local roots inspect one def,
+one ref, or one direct child collection. Workspace roots inspect the complete
+symbol inventory, linked references, or bounded paths across the current
+index generation. By default, the rule config is the embedded defaults merged
+with your TOML overlay; `--default-rules off` makes the TOML file the complete
+config.
 
 A `where` expression is an assertion. When it evaluates to `false`,
 `check` emits a violation. Most architecture rules should therefore use
@@ -124,7 +126,9 @@ code-moniker check src/ --profile architecture --report
 
 `--report` appends per-rule counts. For implication rules (`A => B`), it
 also prints `antecedent_matches`; `0` means the left-hand side never
-matched any scanned def or ref.
+matched any scanned def or ref. Linked workspace reports additionally expose
+`pass`, `fail`, or `inconclusive`, resolution coverage, and bounded traversal
+statistics. Path reports include the concrete witness when one exists.
 
 Debug a rule that does not fire in this order:
 
@@ -164,6 +168,55 @@ exit `2`.
 
 In single-file mode, unsupported extensions return `0` and produce no
 output. This keeps edit hooks quiet for docs, configs, and generated files.
+
+## Workspace rules
+
+The `workspace` TOML root reuses the existing rule engine on the full index:
+
+| Root | Subject | Inferred plan |
+| ---- | ------- | ------------- |
+| `[[workspace.symbol.where]]` | one active symbol | inventory or linkage |
+| `[[workspace.group.where]]` | a stable symbol bucket | inventory |
+| `[[workspace.path]]` | paths between two selected symbol sets | linkage |
+
+The author does not choose a plan. The compiler reports `t1_inventory` for
+facets that can be answered from Roaring bitmap posting lists and
+`t2_linkage` for linked-reference or path capabilities.
+
+```toml
+default_rules = false
+
+[[workspace.path]]
+id = "domain-must-not-reach-infrastructure"
+severity = "error"
+from = "uri ~ '**/dir:domain/**' AND shape = 'callable'"
+to = "uri ~ '**/dir:infrastructure/**'"
+expect = "no_path"
+relation = ["calls", "method_call"]
+max_depth = 12
+max_symbols = 10000
+max_edges = 50000
+max_pairs = 10000
+min_coverage = 99
+message = "Domain reaches infrastructure through {path}."
+```
+
+`expect` accepts `reachable` or `no_path`. `from` and `to` are ordinary
+workspace-symbol expressions and support aliases. The search is bounded by
+depth, explored symbols, explored edges, and endpoint pairs. A found path is
+conclusive. A missing path only passes `no_path` when all searches completed
+and linkage coverage met the threshold; otherwise the verdict is
+`inconclusive`.
+
+A full one-shot `code-moniker check <directory>` constructs an ephemeral
+linked snapshot when required. Daemon and MCP checks use the same contract.
+`--file` deliberately does not run workspace rules because a touched-file
+subset is not a complete inventory; the result reports that omission instead
+of silently passing. Excluded files are removed from the active workspace
+bitmap and cannot be subjects or intermediate path vertices.
+
+See [`check-dsl`](check-dsl.md#workspace-roots) for group syntax, defaults,
+coverage semantics, and report fields.
 
 ## Configuration
 

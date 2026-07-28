@@ -790,6 +790,12 @@ fn rules_show_explains_workspace_inventory_plan() {
 		members = "shape = 'type'"
 		group_by = ["lang", "name"]
 		expr = "count(member) <= 1"
+
+		[[workspace.path]]
+		id = "services-must-not-reach-repositories"
+		from = "shape = 'callable' AND name =~ Service$"
+		to = "shape = 'type' AND name =~ Repository$"
+		expect = "no_path"
 		"#,
 	)
 	.unwrap();
@@ -840,6 +846,18 @@ fn rules_show_explains_workspace_inventory_plan() {
 			"group_by.name",
 			"shape.exact"
 		])
+	);
+	let path = rules
+		.iter()
+		.find(|rule| rule["subject"] == "path")
+		.expect("workspace path rule");
+	assert_eq!(path["root"], "workspace");
+	assert_eq!(path["plan"], "t2_linkage");
+	assert!(
+		path["capabilities"]
+			.as_array()
+			.is_some_and(|capabilities| capabilities.contains(&serde_json::json!("graph.path"))),
+		"{path:#}"
 	);
 }
 
@@ -952,6 +970,73 @@ fn check_project_walks_directory_and_aggregates() {
 	assert!(out.contains("Failed rules:"), "{out}");
 	assert!(
 		out.contains("- ts.class.name-pascalcase: 1 violation(s)"),
+		"{out}"
+	);
+}
+
+#[test]
+fn check_project_reports_workspace_path_verdict_coverage_and_witness() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"src/lib.rs",
+		"pub fn entry() { middle(); }\nfn middle() { sink(); }\npub fn sink() {}\n",
+	);
+	let rules = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules,
+		r#"
+		default_rules = false
+
+		[[workspace.path]]
+		id = "entry-must-not-reach-sink"
+		severity = "warn"
+		from = "shape = 'callable' AND name =~ ^entry"
+		to = "shape = 'callable' AND name =~ ^sink"
+		expect = "no_path"
+		relation = ["calls"]
+		max_depth = 4
+		max_symbols = 100
+		max_edges = 100
+		max_pairs = 10
+		min_coverage = 100
+
+		[[workspace.path]]
+		id = "entry-reaches-sink-with-one-hop"
+		severity = "warn"
+		from = "shape = 'callable' AND name =~ ^entry"
+		to = "shape = 'callable' AND name =~ ^sink"
+		expect = "reachable"
+		relation = ["calls"]
+		max_depth = 1
+		max_symbols = 100
+		max_edges = 100
+		max_pairs = 10
+		min_coverage = 100
+		"#,
+	)
+	.expect("rules");
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules.to_str().unwrap(),
+		"--report",
+	]);
+
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.contains("workspace.path.entry-must-not-reach-sink"),
+		"{out}"
+	);
+	assert!(out.contains("verdict=fail"), "{out}");
+	assert!(out.contains("coverage=100%"), "{out}");
+	assert!(out.contains("witness:"), "{out}");
+	assert!(out.contains("-[calls]->"), "{out}");
+	assert!(
+		out.contains("workspace path result is inconclusive: depth_limit"),
 		"{out}"
 	);
 }
