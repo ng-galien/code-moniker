@@ -11,6 +11,9 @@ impl LanguageLinkageStrategy for SqlLanguageLinkageStrategy {
 		if sql_callable_query(query) {
 			return sql_callable_matches(query, candidate);
 		}
+		if sql_object_query(query) {
+			return sql_object_matches(query, candidate);
+		}
 		GenericLanguageLinkageStrategy.matches(query, candidate)
 	}
 }
@@ -19,6 +22,61 @@ fn sql_callable_query(query: &LinkageQuery<'_>) -> bool {
 	query
 		.target_last
 		.is_some_and(|segment| matches!(segment.kind, kinds::FUNCTION | b"procedure"))
+}
+
+fn sql_object_query(query: &LinkageQuery<'_>) -> bool {
+	query.target_last.is_some_and(|segment| {
+		matches!(
+			segment.kind,
+			kinds::TABLE | kinds::VIEW | kinds::TYPE | kinds::COLUMN
+		)
+	})
+}
+
+fn sql_object_matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	let Some(target) = query.target_last else {
+		return false;
+	};
+	let Some(candidate_segment) = candidate.last_segment else {
+		return false;
+	};
+	if !sql_object_kinds_match(target.kind, candidate_segment.kind, query.reference_kind)
+		|| !identifier_matches(target.name, candidate_segment.name)
+	{
+		return false;
+	}
+	if query_schema(query).is_some_and(|schema| {
+		!candidate_schema(candidate).is_some_and(|candidate| identifier_matches(schema, candidate))
+	}) {
+		return false;
+	}
+	if target.kind == kinds::COLUMN {
+		return relation_owner(query.target)
+			.zip(relation_owner(candidate.moniker))
+			.is_some_and(|(target, candidate)| identifier_matches(target, candidate));
+	}
+	true
+}
+
+fn sql_object_kinds_match(target: &[u8], candidate: &[u8], reference_kind: &str) -> bool {
+	match target {
+		kinds::TABLE => {
+			candidate == kinds::TABLE || (reference_kind == "reads" && candidate == kinds::VIEW)
+		}
+		kinds::VIEW => candidate == kinds::VIEW,
+		kinds::TYPE => candidate == kinds::TYPE,
+		kinds::COLUMN => candidate == kinds::COLUMN,
+		_ => false,
+	}
+}
+
+fn relation_owner(moniker: &code_moniker_core::core::moniker::Moniker) -> Option<&[u8]> {
+	let segments = moniker.as_view().segments().collect::<Vec<_>>();
+	let [.., owner, column] = segments.as_slice() else {
+		return None;
+	};
+	(column.kind == kinds::COLUMN && matches!(owner.kind, kinds::TABLE | kinds::VIEW))
+		.then_some(owner.name)
 }
 
 fn sql_callable_matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {

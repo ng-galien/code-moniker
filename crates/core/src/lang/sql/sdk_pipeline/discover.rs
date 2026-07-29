@@ -92,6 +92,28 @@ impl SqlBuilder {
 		}
 	}
 
+	fn add_definition(
+		&mut self,
+		moniker: Moniker,
+		kind: &'static [u8],
+		signature: Vec<u8>,
+		position: Position,
+		scope: &Moniker,
+	) -> bool {
+		self.add_symbol(
+			&SqlSymbol {
+				moniker,
+				kind,
+				signature,
+				call_name: Vec::new(),
+				call_arity: None,
+				body: None,
+				position,
+			},
+			scope,
+		)
+	}
+
 	fn add_symbol(&mut self, symbol: &SqlSymbol<'_>, scope: &Moniker) -> bool {
 		if self.contains(&symbol.moniker) {
 			return false;
@@ -237,13 +259,25 @@ impl SqlWalker<'_> {
 		match node.kind() {
 			"comment" if self.emit_comments => SqlNodeShape::Annotation,
 			"comment" => SqlNodeShape::Skip,
+			"CreateSchemaStmt" => classify_schema(node, source, self.module),
 			"CreateFunctionStmt" => classify_create_function(node, source, self.module),
 			"DefineStmt" if find_descendant(node, "kw_type").is_some() => {
 				classify_user_type(node, source, self.module)
 			}
 			"CreateDomainStmt" => classify_user_type(node, source, self.module),
+			"CreateTrigStmt" => classify_trigger(node, source, self.module),
 			"CreateStmt" => {
 				classify_qualified_relation(node, source, self.module, kinds::TABLE, None)
+			}
+			"CreateAsStmt" => {
+				emit_statement_write(node, source, scope, self.module, self.search_paths, builder);
+				classify_qualified_relation(
+					node,
+					source,
+					self.module,
+					kinds::TABLE,
+					find_child(node, "SelectStmt"),
+				)
 			}
 			"ViewStmt" => classify_qualified_relation(
 				node,
@@ -252,6 +286,15 @@ impl SqlWalker<'_> {
 				kinds::VIEW,
 				find_child(node, "SelectStmt"),
 			),
+			"InsertStmt" | "UpdateStmt" | "DeleteStmt" => {
+				emit_statement_write(node, source, scope, self.module, self.search_paths, builder);
+				emit_statement_reads(node, source, scope, self.module, self.search_paths, builder);
+				SqlNodeShape::Recurse
+			}
+			"SelectStmt" => {
+				emit_statement_reads(node, source, scope, self.module, self.search_paths, builder);
+				SqlNodeShape::Recurse
+			}
 			"func_application" => {
 				emit_call(node, source, scope, self.module, self.search_paths, builder);
 				SqlNodeShape::Recurse
@@ -271,6 +314,16 @@ impl SqlWalker<'_> {
 			return;
 		}
 		if let Some(body) = symbol.body {
+			if body.kind() == "SelectStmt" {
+				emit_statement_reads(
+					body,
+					self.source_str.as_bytes(),
+					&symbol.moniker,
+					self.module,
+					self.search_paths,
+					builder,
+				);
+			}
 			self.walk(body, &symbol.moniker, builder);
 		}
 		on_symbol_emitted(
@@ -373,7 +426,9 @@ fn on_symbol_emitted(
 			}
 		}
 	} else if sym_kind == kinds::TABLE {
-		emit_table_column_type_refs(node, source, sym_moniker, module, builder);
+		emit_table_members(node, source, sym_moniker, module, builder);
+	} else if sym_kind == kinds::TRIGGER {
+		emit_trigger_refs(node, source, sym_moniker, module, search_paths, builder);
 	}
 }
 
@@ -429,6 +484,28 @@ fn classify_create_function<'src>(
 	})
 }
 
+fn classify_schema<'src>(node: Node<'src>, source: &[u8], module: &Moniker) -> SqlNodeShape<'src> {
+	let name_node = find_child(node, "ColId").or_else(|| {
+		find_child(node, "opt_single_name").and_then(|name| find_descendant(name, "ColId"))
+	});
+	let Some(name_node) = name_node else {
+		return SqlNodeShape::Recurse;
+	};
+	let name = canonical_identifier(node_slice(name_node, source));
+	if name.is_empty() {
+		return SqlNodeShape::Recurse;
+	}
+	SqlNodeShape::Symbol(SqlSymbol {
+		moniker: extend_segment(module, kinds::SCHEMA, &name),
+		kind: kinds::SCHEMA,
+		signature: Vec::new(),
+		call_name: Vec::new(),
+		call_arity: None,
+		body: None,
+		position: node_position(node),
+	})
+}
+
 fn classify_qualified_relation<'src>(
 	node: Node<'src>,
 	source: &[u8],
@@ -436,7 +513,11 @@ fn classify_qualified_relation<'src>(
 	kind: &'static [u8],
 	body: Option<Node<'src>>,
 ) -> SqlNodeShape<'src> {
-	let Some(q) = find_child(node, "qualified_name") else {
+	let qualified_name = find_child(node, "qualified_name").or_else(|| {
+		find_child(node, "create_as_target")
+			.and_then(|target| find_descendant(target, "qualified_name"))
+	});
+	let Some(q) = qualified_name else {
 		return SqlNodeShape::Recurse;
 	};
 	let (schema, name) = split_qualified_name(q, source);
@@ -484,6 +565,46 @@ fn classify_user_type<'src>(
 		body: None,
 		position: node_position(node),
 	})
+}
+
+fn classify_trigger<'src>(node: Node<'src>, source: &[u8], module: &Moniker) -> SqlNodeShape<'src> {
+	let Some(name_node) = find_child(node, "name") else {
+		return SqlNodeShape::Recurse;
+	};
+	let name = canonical_identifier(node_slice(name_node, source));
+	let Some(table_name) = find_child(node, "qualified_name") else {
+		return SqlNodeShape::Recurse;
+	};
+	let Some(table) = relation_target_kind(
+		table_name,
+		source,
+		module,
+		module,
+		&CallableSearchPaths::new(),
+		trigger_relation_kind(node),
+	) else {
+		return SqlNodeShape::Recurse;
+	};
+	if name.is_empty() {
+		return SqlNodeShape::Recurse;
+	}
+	SqlNodeShape::Symbol(SqlSymbol {
+		moniker: extend_segment(&table, kinds::TRIGGER, &name),
+		kind: kinds::TRIGGER,
+		signature: Vec::new(),
+		call_name: Vec::new(),
+		call_arity: None,
+		body: None,
+		position: node_position(node),
+	})
+}
+
+fn trigger_relation_kind(node: Node<'_>) -> &'static [u8] {
+	if find_descendant(node, "kw_instead").is_some() {
+		kinds::VIEW
+	} else {
+		kinds::TABLE
+	}
 }
 
 fn collect_callable_metadata(
@@ -1142,16 +1263,23 @@ fn normalize_type(raw: &[u8]) -> Vec<u8> {
 		}
 		collapsed.push_str(w);
 	}
-	if !collapsed.contains('"') {
-		collapsed.make_ascii_lowercase();
+	let mut canonical = Vec::with_capacity(collapsed.len());
+	let mut quoted = false;
+	for mut byte in collapsed.bytes() {
+		if byte == b'"' {
+			quoted = !quoted;
+		} else if !quoted {
+			byte.make_ascii_lowercase();
+		}
+		canonical.push(byte);
 	}
-	match collapsed.as_str() {
-		"int" | "integer" => b"int4".to_vec(),
-		"bigint" => b"int8".to_vec(),
-		"smallint" => b"int2".to_vec(),
-		"real" => b"float4".to_vec(),
-		"double precision" => b"float8".to_vec(),
-		_ => collapsed.into_bytes(),
+	match canonical.as_slice() {
+		b"int" | b"integer" => b"int4".to_vec(),
+		b"bigint" => b"int8".to_vec(),
+		b"smallint" => b"int2".to_vec(),
+		b"real" => b"float4".to_vec(),
+		b"double precision" => b"float8".to_vec(),
+		_ => canonical,
 	}
 }
 
@@ -1231,21 +1359,407 @@ fn emit_function_type_refs(
 	}
 }
 
-fn emit_table_column_type_refs(
+fn emit_table_members(
 	node: Node<'_>,
 	source: &[u8],
-	source_moniker: &Moniker,
+	table_moniker: &Moniker,
 	module: &Moniker,
 	builder: &mut SqlBuilder,
 ) {
-	visit(node, &mut |n| {
-		if n.kind() != "columnDef" {
-			return;
+	let mut columns = Vec::new();
+	let mut table_constraints = Vec::new();
+	collect_nodes(node, "columnDef", &mut columns);
+	collect_nodes(node, "TableConstraint", &mut table_constraints);
+	for column in columns {
+		let Some(name_node) = find_child(column, "ColId") else {
+			continue;
+		};
+		let name = canonical_identifier(node_slice(name_node, source));
+		if name.is_empty() {
+			continue;
 		}
-		if let Some(t) = find_child(n, "Typename") {
-			emit_uses_type(t, source, source_moniker, module, builder);
+		let column_moniker = extend_segment(table_moniker, kinds::COLUMN, &name);
+		let type_node = find_child(column, "Typename");
+		let signature = type_node
+			.map(|r#type| normalize_type(node_slice(r#type, source)))
+			.unwrap_or_default();
+		if !builder.add_definition(
+			column_moniker.clone(),
+			kinds::COLUMN,
+			signature,
+			node_position(column),
+			table_moniker,
+		) {
+			continue;
 		}
-	});
+		if let Some(r#type) = type_node {
+			emit_uses_type(r#type, source, &column_moniker, module, builder);
+		}
+		let mut column_constraints = Vec::new();
+		collect_nodes(column, "ColConstraint", &mut column_constraints);
+		for constraint in column_constraints {
+			if find_descendant(constraint, "ColConstraintElem").is_some() {
+				emit_constraint(constraint, source, table_moniker, module, builder);
+			}
+		}
+	}
+	for constraint in table_constraints {
+		emit_constraint(constraint, source, table_moniker, module, builder);
+	}
+}
+
+fn emit_statement_write(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+	builder: &mut SqlBuilder,
+) {
+	let container_kind = match node.kind() {
+		"InsertStmt" => "insert_target",
+		"UpdateStmt" | "DeleteStmt" => "relation_expr_opt_alias",
+		"CreateAsStmt" => "create_as_target",
+		_ => return,
+	};
+	let Some(container) = find_child(node, container_kind) else {
+		return;
+	};
+	let Some(name) = find_descendant(container, "qualified_name") else {
+		return;
+	};
+	let Some(target) = relation_target(name, source, scope, module, search_paths) else {
+		return;
+	};
+	builder.push_ref(resolved_ref(
+		scope,
+		target,
+		kinds::REF_WRITES,
+		Some(node_position(name)),
+		kinds::CONF_NAME_MATCH,
+		&[],
+		None,
+	));
+}
+
+fn emit_statement_reads(
+	statement: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+	builder: &mut SqlBuilder,
+) {
+	let cte_names = visible_cte_names(statement, source);
+	let mut relations = Vec::new();
+	collect_nodes(statement, "relation_expr", &mut relations);
+	for relation in relations {
+		if !nearest_statement(relation).is_some_and(|owner| owner == statement)
+			|| !is_read_relation(relation, statement)
+		{
+			continue;
+		}
+		let Some(name_node) = find_descendant(relation, "qualified_name") else {
+			continue;
+		};
+		let (schema, name) = split_qualified_name(name_node, source);
+		let schema = canonical_identifier(schema);
+		let name = canonical_identifier(name);
+		if name.is_empty() || (schema.is_empty() && cte_names.contains(&name)) {
+			continue;
+		}
+		let Some(target) = relation_target(name_node, source, scope, module, search_paths) else {
+			continue;
+		};
+		builder.push_ref(resolved_ref(
+			scope,
+			target,
+			kinds::REF_READS,
+			Some(node_position(name_node)),
+			kinds::CONF_NAME_MATCH,
+			&[],
+			None,
+		));
+	}
+}
+
+fn relation_target(
+	name_node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+) -> Option<Moniker> {
+	relation_target_kind(name_node, source, scope, module, search_paths, kinds::TABLE)
+}
+
+fn relation_target_kind(
+	name_node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+	kind: &[u8],
+) -> Option<Moniker> {
+	let (schema, name) = split_qualified_name(name_node, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
+	if name.is_empty() {
+		return None;
+	}
+	let inferred_schema = if schema.is_empty() {
+		search_paths
+			.get(scope)
+			.and_then(Option::as_deref)
+			.unwrap_or_default()
+	} else {
+		&schema
+	};
+	Some(extend_segment(
+		&maybe_schema(module, inferred_schema),
+		kind,
+		&name,
+	))
+}
+
+fn nearest_statement(mut node: Node<'_>) -> Option<Node<'_>> {
+	while let Some(parent) = node.parent() {
+		if is_relational_statement(parent.kind()) {
+			return Some(parent);
+		}
+		node = parent;
+	}
+	None
+}
+
+fn is_relational_statement(kind: &str) -> bool {
+	matches!(
+		kind,
+		"SelectStmt" | "InsertStmt" | "UpdateStmt" | "DeleteStmt" | "CreateAsStmt"
+	)
+}
+
+fn is_read_relation(mut node: Node<'_>, statement: Node<'_>) -> bool {
+	while let Some(parent) = node.parent() {
+		if parent == statement {
+			return parent.kind() == "SelectStmt" && find_descendant(parent, "kw_table").is_some();
+		}
+		if parent.kind() == "table_ref" {
+			return true;
+		}
+		if is_relational_statement(parent.kind()) {
+			return false;
+		}
+		node = parent;
+	}
+	false
+}
+
+fn visible_cte_names(statement: Node<'_>, source: &[u8]) -> HashSet<Vec<u8>> {
+	let mut names = HashSet::new();
+	let mut current = Some(statement);
+	while let Some(owner) = current {
+		visit(owner, &mut |node| {
+			if node.kind() != "common_table_expr"
+				|| !nearest_statement(node).is_some_and(|statement| statement == owner)
+			{
+				return;
+			}
+			if let Some(name) = find_child(node, "name")
+				.and_then(|name| find_descendant(name, "ColId"))
+				.map(|name| canonical_identifier(node_slice(name, source)))
+				.filter(|name| !name.is_empty())
+			{
+				names.insert(name);
+			}
+		});
+		current = nearest_statement(owner);
+	}
+	names
+}
+
+fn emit_constraint(
+	node: Node<'_>,
+	source: &[u8],
+	table_moniker: &Moniker,
+	module: &Moniker,
+	builder: &mut SqlBuilder,
+) {
+	let explicit_name = find_child(node, "name")
+		.map(|name| canonical_identifier(node_slice(name, source)))
+		.filter(|name| !name.is_empty());
+	let moniker = explicit_name
+		.as_deref()
+		.map(|name| extend_segment(table_moniker, kinds::CONSTRAINT, name))
+		.unwrap_or_else(|| {
+			extend_segment_u32(table_moniker, kinds::CONSTRAINT, node.start_byte() as u32)
+		});
+	if !builder.add_definition(
+		moniker.clone(),
+		kinds::CONSTRAINT,
+		constraint_signature(node),
+		node_position(node),
+		table_moniker,
+	) {
+		return;
+	}
+	emit_foreign_key_refs(node, source, &moniker, module, builder);
+}
+
+fn constraint_signature(node: Node<'_>) -> Vec<u8> {
+	for (keyword, signature) in [
+		("kw_foreign", b"foreign key".as_slice()),
+		("kw_primary", b"primary key"),
+		("kw_unique", b"unique"),
+		("kw_check", b"check"),
+		("kw_references", b"foreign key"),
+		("kw_not", b"not null"),
+		("kw_null", b"null"),
+		("kw_default", b"default"),
+		("kw_generated", b"generated"),
+	] {
+		if find_descendant(node, keyword).is_some() {
+			return signature.to_vec();
+		}
+	}
+	Vec::new()
+}
+
+fn emit_foreign_key_refs(
+	node: Node<'_>,
+	source: &[u8],
+	constraint_moniker: &Moniker,
+	module: &Moniker,
+	builder: &mut SqlBuilder,
+) {
+	if find_descendant(node, "kw_references").is_none() {
+		return;
+	}
+	let Some(target_name) = find_descendant(node, "qualified_name") else {
+		return;
+	};
+	let Some(target_table) = relation_target(
+		target_name,
+		source,
+		constraint_moniker,
+		module,
+		&CallableSearchPaths::new(),
+	) else {
+		return;
+	};
+	builder.push_ref(resolved_ref(
+		constraint_moniker,
+		target_table.clone(),
+		kinds::REF_REFERENCES,
+		Some(node_position(target_name)),
+		kinds::CONF_NAME_MATCH,
+		&[],
+		None,
+	));
+	let mut target_columns = Vec::new();
+	collect_nodes(node, "columnElem", &mut target_columns);
+	for column in target_columns {
+		if column.start_byte() < target_name.end_byte() {
+			continue;
+		}
+		let Some(name_node) = find_descendant(column, "ColId") else {
+			continue;
+		};
+		let name = canonical_identifier(node_slice(name_node, source));
+		if name.is_empty() {
+			continue;
+		}
+		builder.push_ref(resolved_ref(
+			constraint_moniker,
+			extend_segment(&target_table, kinds::COLUMN, &name),
+			kinds::REF_REFERENCES,
+			Some(node_position(name_node)),
+			kinds::CONF_NAME_MATCH,
+			&[],
+			None,
+		));
+	}
+}
+
+fn emit_trigger_refs(
+	node: Node<'_>,
+	source: &[u8],
+	trigger_moniker: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+	builder: &mut SqlBuilder,
+) {
+	let relation_kind = trigger_relation_kind(node);
+	if let Some(table_name) = find_child(node, "qualified_name")
+		&& let Some(table) = relation_target_kind(
+			table_name,
+			source,
+			trigger_moniker,
+			module,
+			search_paths,
+			relation_kind,
+		) {
+		builder.push_ref(resolved_ref(
+			trigger_moniker,
+			table,
+			kinds::REF_REFERENCES,
+			Some(node_position(table_name)),
+			kinds::CONF_NAME_MATCH,
+			&[],
+			None,
+		));
+	}
+	if let Some(from_table) = find_child(node, "OptConstrFromTable")
+		.and_then(|from| find_descendant(from, "qualified_name"))
+		&& let Some(table) =
+			relation_target(from_table, source, trigger_moniker, module, search_paths)
+	{
+		builder.push_ref(resolved_ref(
+			trigger_moniker,
+			table,
+			kinds::REF_REFERENCES,
+			Some(node_position(from_table)),
+			kinds::CONF_NAME_MATCH,
+			&[],
+			None,
+		));
+	}
+	let Some(function_name) = find_child(node, "func_name") else {
+		return;
+	};
+	let (schema, name) = split_qualified_name(function_name, source);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
+	if name.is_empty() {
+		return;
+	}
+	let inferred_schema = schema
+		.is_empty()
+		.then(|| search_paths.get(trigger_moniker))
+		.flatten()
+		.and_then(Option::as_deref)
+		.unwrap_or(&schema);
+	let parent = maybe_schema(module, inferred_schema);
+	let target = extend_callable_slots(&parent, kinds::FUNCTION, &name, &[]);
+	builder.push_ref(resolved_ref(
+		trigger_moniker,
+		target,
+		kinds::REF_CALLS,
+		Some(node_position(function_name)),
+		kinds::CONF_NAME_MATCH,
+		&name,
+		Some(0),
+	));
+}
+
+fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, out: &mut Vec<Node<'tree>>) {
+	if node.kind() == kind {
+		out.push(node);
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		collect_nodes(child, kind, out);
+	}
 }
 
 fn emit_uses_type(
@@ -1285,7 +1799,9 @@ fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
 		.rposition(|byte| *byte == b'.')
 		.map(|dot| (&base[..dot], &base[dot + 1..]))
 		.unwrap_or((&[][..], base));
-	let target = extend_segment(&maybe_schema(module, schema), kinds::TYPE, name);
+	let schema = canonical_identifier(schema);
+	let name = canonical_identifier(name);
+	let target = extend_segment(&maybe_schema(module, &schema), kinds::TYPE, &name);
 	(target, kinds::CONF_NAME_MATCH)
 }
 

@@ -27,12 +27,15 @@ pub(super) fn walk_plpgsql_body(
 	};
 	let mut sql_parser = new_sql_parser();
 	for_each_sql_expression(tree.root_node(), &mut |expr| {
+		if inside_dynamic_execute(expr) {
+			return;
+		}
 		let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
 		let trimmed = raw.trim_end_matches(';').trim();
 		if trimmed.is_empty() {
 			return;
 		}
-		let prepared = if starts_with_keyword(trimmed, "call") {
+		let prepared = if starts_with_sql_statement(trimmed) {
 			trimmed.to_string()
 		} else if inside_call_statement(expr) {
 			format!("CALL {trimmed}")
@@ -50,6 +53,24 @@ pub(super) fn walk_plpgsql_body(
 			builder,
 		);
 	});
+}
+
+fn inside_dynamic_execute(mut node: Node<'_>) -> bool {
+	while let Some(parent) = node.parent() {
+		if parent.kind() == "stmt_dynexecute" {
+			return true;
+		}
+		node = parent;
+	}
+	false
+}
+
+fn starts_with_sql_statement(value: &str) -> bool {
+	[
+		"call", "create", "delete", "insert", "select", "update", "with",
+	]
+	.into_iter()
+	.any(|keyword| starts_with_keyword(value, keyword))
 }
 
 fn inside_call_statement(mut node: Node<'_>) -> bool {

@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::environment;
@@ -5,8 +6,12 @@ use crate::snapshot::{
 	SourceCatalog, SourceUnit, WorkspaceCancellation, WorkspaceFailure, WorkspaceRequest,
 	WorkspaceResource, WorkspaceResult,
 };
+use crate::sources::{SourceFile, SourceRoot};
 
-use super::content::{LocalResourceCache, SourceCatalogMaterial};
+use super::content::{
+	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceSet,
+	SourceCatalogMaterial, memory_source_path,
+};
 use super::identity::LocalIdentityResolver;
 
 pub trait SourceCatalogPort {
@@ -112,26 +117,18 @@ fn load_local_catalog(
 	}
 	.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
 	cancellation.check(WorkspaceResource::SourceCatalog)?;
+	let mut material = SourceCatalogMaterial {
+		sources,
+		identity: catalog.options.identity.clone(),
+		memory_sources: BTreeMap::new(),
+		memory_srcsets: BTreeMap::new(),
+		memory_slots: BTreeSet::new(),
+		memory_revisions: BTreeMap::new(),
+	};
+	sync_memory_source_sets(&mut material, &catalog.cache.memory_source_sets());
 	let generation = catalog.cache.next_generation();
-	let units = sources
-		.files
-		.iter()
-		.enumerate()
-		.map(|(file_idx, file)| {
-			SourceUnit::with_language(
-				catalog.options.identity.source_id(file_idx, &file.rel_path),
-				file.rel_path.display().to_string(),
-				file.lang.tag(),
-			)
-		})
-		.collect::<Vec<_>>();
-	catalog.cache.insert_sources(
-		generation,
-		SourceCatalogMaterial {
-			sources,
-			identity: catalog.options.identity.clone(),
-		},
-	);
+	let units = catalog_units(&material);
+	catalog.cache.insert_sources(generation, material);
 	Ok(SourceCatalog::new(generation, units))
 }
 
@@ -145,7 +142,8 @@ fn extend_local_catalog(
 	};
 	let added = new_source_files(&material, paths);
 	let flipped = flip_retired_slots(&mut material, paths);
-	if added.is_empty() && !flipped {
+	let memory_changed = sync_memory_source_sets(&mut material, &cache.memory_source_sets());
+	if added.is_empty() && !flipped && !memory_changed {
 		return Ok(None);
 	}
 	material.sources.files.extend(added);
@@ -164,6 +162,9 @@ fn flip_retired_slots(material: &mut SourceCatalogMaterial, paths: &[PathBuf]) -
 		let Some(file_idx) = file_idx else {
 			continue;
 		};
+		if material.is_memory_slot(&material.sources.files[file_idx].path) {
+			continue;
+		}
 		let exists = material.sources.files[file_idx].path.is_file();
 		let file = &mut material.sources.files[file_idx];
 		if file.retired != exists {
@@ -173,6 +174,133 @@ fn flip_retired_slots(material: &mut SourceCatalogMaterial, paths: &[PathBuf]) -
 		flipped = true;
 	}
 	flipped
+}
+
+fn sync_memory_source_sets(
+	material: &mut SourceCatalogMaterial,
+	source_sets: &BTreeMap<String, MemorySourceSet>,
+) -> bool {
+	let previous_sources = std::mem::take(&mut material.memory_sources);
+	material.memory_srcsets.clear();
+	let previous_revisions = std::mem::take(&mut material.memory_revisions);
+	let mut desired = desired_memory_sources(material, source_sets);
+	let mut changed = false;
+	for file in &mut material.sources.files {
+		if !material.memory_slots.contains(&file.path) {
+			continue;
+		}
+		match desired.remove(&file.path) {
+			Some((next, content)) => {
+				changed |= !same_source_file(file, &next);
+				*file = next;
+				material
+					.memory_sources
+					.insert(file.path.to_path_buf(), content);
+				material
+					.memory_srcsets
+					.insert(file.path.to_path_buf(), srcset_from_memory_path(&file.path));
+			}
+			None => {
+				if !file.retired {
+					file.retired = true;
+					changed = true;
+				}
+				material.memory_sources.remove(&file.path);
+			}
+		}
+	}
+	for (path, (file, content)) in desired {
+		material.memory_slots.insert(path.to_path_buf());
+		material
+			.memory_srcsets
+			.insert(path.to_path_buf(), srcset_from_memory_path(&path));
+		material.memory_sources.insert(path, content);
+		material.sources.files.push(file);
+		changed = true;
+	}
+
+	material.memory_revisions = source_sets
+		.iter()
+		.map(|(srcset, source_set)| (srcset.to_owned(), source_set.revision.to_owned()))
+		.collect();
+	changed
+		|| material.memory_sources != previous_sources
+		|| material.memory_revisions != previous_revisions
+}
+
+fn desired_memory_sources(
+	material: &mut SourceCatalogMaterial,
+	source_sets: &BTreeMap<String, MemorySourceSet>,
+) -> BTreeMap<PathBuf, (SourceFile, String)> {
+	let mut desired = BTreeMap::new();
+	if source_sets.is_empty() {
+		return desired;
+	}
+	let root_idx = memory_source_root_index(material);
+	for (srcset, source_set) in source_sets {
+		for document in &source_set.documents {
+			let path = memory_source_path(srcset, &document.uri);
+			let uri = PathBuf::from(&document.uri);
+			let mut ctx = material.sources.roots[root_idx].ctx.clone();
+			ctx.srcset = Some(srcset.to_string());
+			let file = SourceFile {
+				source: root_idx,
+				path: path.to_path_buf(),
+				rel_path: uri.to_path_buf(),
+				anchor: uri.to_path_buf(),
+				lang: document.lang,
+				root_moniker: environment::source_root_moniker(document.lang, &uri, &ctx),
+				retired: false,
+			};
+			desired.insert(path, (file, document.content.to_owned()));
+		}
+	}
+	desired
+}
+
+fn memory_source_root_index(material: &mut SourceCatalogMaterial) -> usize {
+	if let Some(index) = material
+		.sources
+		.roots
+		.iter()
+		.position(|root| root.input == Path::new(MEMORY_SOURCE_ROOT))
+	{
+		return index;
+	}
+	let project = material
+		.sources
+		.roots
+		.iter()
+		.find_map(|root| root.ctx.project.clone());
+	let index = material.sources.roots.len();
+	let path = PathBuf::from(MEMORY_SOURCE_ROOT);
+	material.sources.roots.push(SourceRoot {
+		input: path.clone(),
+		path,
+		label: MEMORY_SOURCE_ROOT_LABEL.to_string(),
+		ctx: crate::extract::Context {
+			project,
+			..Default::default()
+		},
+	});
+	index
+}
+
+fn srcset_from_memory_path(path: &Path) -> String {
+	path.components()
+		.nth(1)
+		.map(|component| component.as_os_str().to_string_lossy().into_owned())
+		.unwrap_or_default()
+}
+
+fn same_source_file(current: &SourceFile, next: &SourceFile) -> bool {
+	current.source == next.source
+		&& current.path == next.path
+		&& current.rel_path == next.rel_path
+		&& current.anchor == next.anchor
+		&& current.lang == next.lang
+		&& current.root_moniker == next.root_moniker
+		&& current.retired == next.retired
 }
 
 fn canonical_lookup_path(path: &Path) -> PathBuf {

@@ -25,7 +25,7 @@ moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/view:open_order
 
 [[refs]]
 kind = "uses_type"
-from = "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+from = "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/column:id"
 to = "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
 confidence = "external"
 

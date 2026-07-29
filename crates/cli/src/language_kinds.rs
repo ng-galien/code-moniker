@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use code_moniker_core::core::kinds::{
 	KIND_COMMENT, KIND_LOCAL, KIND_MODULE, KIND_PARAM, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER,
 	REF_DI_REQUIRE, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
-	REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+	REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_REFERENCES, REF_USES_TYPE,
+	REF_WRITES,
 };
 use code_moniker_core::lang::Lang;
 
@@ -20,6 +21,8 @@ pub const CROSS_LANG_KINDS: &[&[u8]] = &[
 	REF_CALLS,
 	REF_METHOD_CALL,
 	REF_READS,
+	REF_WRITES,
+	REF_REFERENCES,
 	REF_USES_TYPE,
 	REF_INSTANTIATES,
 	REF_EXTENDS,
@@ -73,6 +76,23 @@ mod tests {
 		let k = known_kinds(langs.iter());
 		assert!(k.contains("function"), "TS contributes `function`");
 		assert!(k.contains("fn"), "Rust contributes `fn`");
+	}
+
+	#[test]
+	fn known_kinds_for_sql_include_relational_symbols_and_edges() {
+		let kinds = known_kinds(std::iter::once(&Lang::Sql));
+		for kind in [
+			"schema",
+			"table",
+			"column",
+			"constraint",
+			"trigger",
+			"reads",
+			"writes",
+			"references",
+		] {
+			assert!(kinds.contains(kind), "SQL vocabulary is missing `{kind}`");
+		}
 	}
 
 	#[test]

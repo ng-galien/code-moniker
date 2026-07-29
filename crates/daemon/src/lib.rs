@@ -28,8 +28,8 @@ use code_moniker_query::{
 	SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
 	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
 	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
-	WorkspaceRootStatus, WorkspaceStatus, current_build_identity, describe_query_capabilities,
-	symbol_is_test_artifact,
+	WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus, current_build_identity,
+	describe_query_capabilities, symbol_is_test_artifact,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -45,12 +45,33 @@ use code_moniker_workspace::snapshot::{
 	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceSnapshot,
 	WorkspaceTransition, WorkspaceView,
 };
-use code_moniker_workspace::source::LocalResourceCache;
+use code_moniker_workspace::source::{
+	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
+	MemorySourceSet, MemorySourceSetUpdate,
+};
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
 use jsonrpsee::types::ErrorObjectOwned;
 
 const DEFAULT_SCHEME: &str = "code+moniker://";
+const MEMORY_SOURCE_LIMITS: MemorySourceLimits = MemorySourceLimits {
+	max_source_sets: 128,
+	max_documents_per_set: 10_000,
+	max_uri_bytes: 4 * 1024,
+	max_document_bytes: 16 * 1024 * 1024,
+	max_source_set_bytes: 64 * 1024 * 1024,
+	max_total_bytes: 256 * 1024 * 1024,
+};
+
+#[derive(Clone, Copy)]
+struct MemorySourceLimits {
+	max_source_sets: usize,
+	max_documents_per_set: usize,
+	max_uri_bytes: usize,
+	max_document_bytes: usize,
+	max_source_set_bytes: usize,
+	max_total_bytes: usize,
+}
 
 use code_moniker_query::{
 	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
@@ -721,7 +742,196 @@ fn handle_command(
 	drain_live_events(daemon)?;
 	match request.command {
 		Command::WorkspaceRefresh => daemon.refresh_cancellable(WorkspaceCancellation::default()),
+		Command::WorkspaceSourceSetReplace { source_set } => {
+			let source_set = parse_memory_source_set(source_set)?;
+			validate_memory_source_set_limits(&daemon.cache, &source_set, MEMORY_SOURCE_LIMITS)?;
+			let srcset = source_set.srcset.clone();
+			let update = daemon.cache.replace_memory_source_set(source_set);
+			refresh_memory_source_set(daemon, update, format!("source set `{srcset}` replaced"))
+		}
+		Command::WorkspaceSourceSetRemove { srcset } => {
+			validate_srcset(&srcset)?;
+			let update = daemon.cache.remove_memory_source_set(&srcset);
+			refresh_memory_source_set(daemon, update, format!("source set `{srcset}` removed"))
+		}
 	}
+}
+
+fn parse_memory_source_set(dto: WorkspaceSourceSetDto) -> Result<MemorySourceSet, QueryError> {
+	validate_srcset(&dto.srcset)?;
+	let mut seen = HashSet::new();
+	let mut documents = Vec::with_capacity(dto.documents.len());
+	for document in dto.documents {
+		validate_memory_source_uri(&document.uri)?;
+		if !seen.insert(document.uri.clone()) {
+			return Err(QueryError::new(
+				"duplicate_workspace_source_uri",
+				format!(
+					"source set `{}` contains duplicate URI `{}`",
+					dto.srcset, document.uri
+				),
+			));
+		}
+		let lang = Lang::from_tag(&document.language).ok_or_else(|| {
+			QueryError::new(
+				"unsupported_workspace_source_language",
+				format!(
+					"unsupported language `{}` for `{}`; expected one of: {}",
+					document.language,
+					document.uri,
+					Lang::ALL
+						.iter()
+						.map(|lang| lang.tag())
+						.collect::<Vec<_>>()
+						.join(", ")
+				),
+			)
+		})?;
+		documents.push(MemorySourceDocument {
+			uri: document.uri,
+			lang,
+			content: document.content,
+		});
+	}
+	documents.sort_by(|left, right| left.uri.cmp(&right.uri));
+	Ok(MemorySourceSet {
+		srcset: dto.srcset,
+		revision: dto.revision,
+		documents,
+	})
+}
+
+fn validate_memory_source_set_limits(
+	cache: &LocalResourceCache,
+	source_set: &MemorySourceSet,
+	limits: MemorySourceLimits,
+) -> Result<(), QueryError> {
+	if source_set.documents.len() > limits.max_documents_per_set {
+		return Err(memory_source_limit_error(format!(
+			"source set `{}` contains {} documents; the limit is {}",
+			source_set.srcset,
+			source_set.documents.len(),
+			limits.max_documents_per_set
+		)));
+	}
+	for document in &source_set.documents {
+		if document.uri.len() > limits.max_uri_bytes {
+			return Err(memory_source_limit_error(format!(
+				"document URI in source set `{}` uses {} bytes; the limit is {}",
+				source_set.srcset,
+				document.uri.len(),
+				limits.max_uri_bytes
+			)));
+		}
+		if document.content.len() > limits.max_document_bytes {
+			return Err(memory_source_limit_error(format!(
+				"document `{}` uses {} content bytes; the limit is {}",
+				document.uri,
+				document.content.len(),
+				limits.max_document_bytes
+			)));
+		}
+	}
+	let source_set_bytes = source_set.size_bytes();
+	if source_set_bytes > limits.max_source_set_bytes {
+		return Err(memory_source_limit_error(format!(
+			"source set `{}` uses {source_set_bytes} bytes; the limit is {}",
+			source_set.srcset, limits.max_source_set_bytes
+		)));
+	}
+	let (active_sets, _active_documents, active_bytes) =
+		cache.memory_source_usage_after_replacing(source_set);
+	if active_sets > limits.max_source_sets {
+		return Err(memory_source_limit_error(format!(
+			"the replacement would keep {active_sets} active source sets; the limit is {}",
+			limits.max_source_sets
+		)));
+	}
+	if active_bytes > limits.max_total_bytes {
+		return Err(memory_source_limit_error(format!(
+			"the replacement would keep {active_bytes} bytes of active source text; the limit is {}",
+			limits.max_total_bytes
+		)));
+	}
+	Ok(())
+}
+
+fn memory_source_limit_error(message: String) -> QueryError {
+	QueryError::new("workspace_source_set_limit_exceeded", message)
+}
+
+fn validate_srcset(srcset: &str) -> Result<(), QueryError> {
+	let valid = !srcset.is_empty()
+		&& srcset.len() <= 128
+		&& !matches!(srcset, "." | "..")
+		&& srcset
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+	if valid {
+		return Ok(());
+	}
+	Err(QueryError::new(
+		"invalid_workspace_srcset",
+		"srcset must contain 1 to 128 ASCII letters, digits, dots, dashes, or underscores, and cannot be `.` or `..`",
+	))
+}
+
+fn validate_memory_source_uri(uri: &str) -> Result<(), QueryError> {
+	if !uri.is_empty() && !uri.contains('\0') {
+		return Ok(());
+	}
+	Err(QueryError::new(
+		"invalid_workspace_source_uri",
+		"workspace source URI must be non-empty and contain no NUL byte",
+	))
+}
+
+fn refresh_memory_source_set(
+	daemon: &mut WorkspaceDaemon,
+	update: MemorySourceSetUpdate,
+	message: String,
+) -> Result<CommandResponse, QueryError> {
+	if !update.changed {
+		return Ok(CommandResponse {
+			generation: generation(&daemon.registry),
+			message: format!("{message}: unchanged"),
+			status: Some(workspace_status_result(&daemon.roots, &daemon.registry)),
+		});
+	}
+	let MemorySourceSetUpdate {
+		paths,
+		srcset,
+		previous,
+		..
+	} = update;
+	let transition = if daemon.registry.queries().snapshot().is_some() {
+		daemon
+			.registry
+			.commands()
+			.refresh_paths(WorkspaceRequest::new("daemon-memory-source-set"), paths)
+	} else {
+		daemon
+			.registry
+			.commands()
+			.refresh(WorkspaceRequest::new("daemon-memory-source-set"))
+	};
+	if let Err(error) = workspace_transition_result(transition) {
+		daemon.cache.restore_memory_source_set(srcset, previous);
+		return Err(error);
+	}
+	let generation = generation(&daemon.registry);
+	if let Some(events) = &daemon.live.events {
+		let _ = events.send(WorkspaceEventDto {
+			kind: WorkspaceEventKind::Refreshed,
+			generation,
+			stale_summary: None,
+		});
+	}
+	Ok(CommandResponse {
+		generation,
+		message,
+		status: Some(workspace_status_result(&daemon.roots, &daemon.registry)),
+	})
 }
 
 fn handle_query(
@@ -3009,8 +3219,17 @@ fn rules_list_response(
 	request: RulesListEval,
 ) -> Result<QueryResponse, QueryError> {
 	let selected_roots = selected_roots(response.roots, request.workspace.as_deref())?;
+	let mut rule_roots = selected_roots
+		.iter()
+		.map(|root| (*root).to_path_buf())
+		.collect::<Vec<_>>();
+	if workspace_selector_is_all(request.workspace.as_deref())
+		&& has_memory_sources(snapshot, response.roots)
+	{
+		rule_roots.push(PathBuf::from(MEMORY_SOURCE_ROOT));
+	}
 	let mut rows = Vec::new();
-	for root in &selected_roots {
+	for root in &rule_roots {
 		let requested_langs =
 			workspace_langs(snapshot, response.roots, root, &request.filters.langs);
 		let rules_path = resolve_rules_path(response.config_root, request.rules.as_deref());
@@ -3042,7 +3261,7 @@ fn rules_list_response(
 	Ok(QueryResponse {
 		generation: response.generation,
 		result: QueryResult::RulesList(RulesListResult {
-			roots: selected_roots
+			roots: rule_roots
 				.iter()
 				.map(|root| root.display().to_string())
 				.collect(),
@@ -3476,10 +3695,19 @@ fn rules_check_response(
 	request: RulesCheckEval,
 ) -> Result<QueryResponse, QueryError> {
 	let selected_roots = selected_roots(response.roots, request.workspace.as_deref())?;
+	let mut check_roots = selected_roots
+		.iter()
+		.map(|root| (*root).to_path_buf())
+		.collect::<Vec<_>>();
+	if workspace_selector_is_all(request.workspace.as_deref())
+		&& has_memory_sources(&snapshot, response.roots)
+	{
+		check_roots.push(PathBuf::from(MEMORY_SOURCE_ROOT));
+	}
 	let mut roots = Vec::new();
-	for root in &selected_roots {
+	for root in &check_roots {
 		let workspace =
-			IndexedCheckWorkspace::from_snapshot((*root).clone(), cache, Arc::clone(&snapshot))
+			IndexedCheckWorkspace::from_snapshot(root.clone(), cache, Arc::clone(&snapshot))
 				.map_err(|error| {
 					QueryError::new("indexed_corpus_unavailable", error.to_string())
 				})?;
@@ -4418,12 +4646,15 @@ mod helpers {
 		roots: &'a [PathBuf],
 		selected_roots: &[&PathBuf],
 		source: &SourceFileRecord,
-	) -> Option<&'a PathBuf> {
-		let root = roots.get(source.source_root)?;
+	) -> Option<&'a Path> {
+		let Some(root) = roots.get(source.source_root) else {
+			return (source.source_root == roots.len() && selected_roots.len() == roots.len())
+				.then(|| Path::new(MEMORY_SOURCE_ROOT));
+		};
 		selected_roots
 			.iter()
 			.any(|selected| selected.as_path() == root.as_path())
-			.then_some(root)
+			.then_some(root.as_path())
 	}
 
 	pub(super) fn source_in_root(
@@ -4431,16 +4662,40 @@ mod helpers {
 		source: &SourceFileRecord,
 		root: &Path,
 	) -> bool {
+		if source.source_root == roots.len() {
+			return root == Path::new(MEMORY_SOURCE_ROOT);
+		}
 		roots
 			.get(source.source_root)
 			.is_some_and(|declared_root| declared_root == root)
 	}
 
 	pub(super) fn source_root_label(roots: &[PathBuf], source: &SourceFileRecord) -> String {
+		if source.source_root == roots.len() {
+			return MEMORY_SOURCE_ROOT_LABEL.to_string();
+		}
 		roots
 			.get(source.source_root)
 			.map(|root| root.display().to_string())
 			.unwrap_or_default()
+	}
+
+	pub(super) fn has_memory_sources(snapshot: &WorkspaceSnapshot, roots: &[PathBuf]) -> bool {
+		let active_sources = snapshot
+			.catalog
+			.sources
+			.iter()
+			.map(|source| source.id)
+			.collect::<HashSet<_>>();
+		snapshot
+			.index
+			.sources
+			.iter()
+			.any(|source| source.source_root == roots.len() && active_sources.contains(&source.id))
+	}
+
+	pub(super) fn workspace_selector_is_all(selector: Option<&str>) -> bool {
+		selector.is_none_or(|selector| selector.trim().is_empty())
 	}
 
 	pub(super) fn sorted_counts<I>(values: I) -> Vec<CountDto>
@@ -4559,7 +4814,7 @@ mod tests {
 
 	use code_moniker_query::{
 		Page, ProtocolRequest, ProtocolResponse, Query, QueryCursor, QueryRequest, QueryResult,
-		RulesCheckQuery, WorkspaceGeneration,
+		RulesCheckQuery, WorkspaceGeneration, WorkspaceSourceDocumentDto,
 	};
 
 	use super::*;
@@ -4586,6 +4841,97 @@ mod tests {
 			ProtocolResponse::Query(query) => query.result,
 			other => panic!("expected query response, got {other:?}"),
 		}
+	}
+
+	fn search_symbols_named(daemon: &mut WorkspaceDaemon, name: &str) -> QueryResult {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
+				name: Some(format!("^{}$", regex::escape(name))),
+				include_code: true,
+				context_lines: 0,
+				..Default::default()
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		match response {
+			ProtocolResponse::Query(query) => query.result,
+			other => panic!("expected query response, got {other:?}"),
+		}
+	}
+
+	fn replace_source_set(
+		daemon: &mut WorkspaceDaemon,
+		source_set: WorkspaceSourceSetDto,
+	) -> CommandResponse {
+		let response = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceSourceSetReplace { source_set },
+		}));
+		let ProtocolResponse::Command(response) = response else {
+			panic!("expected source-set replacement, got {response:?}");
+		};
+		response
+	}
+
+	fn remove_source_set(daemon: &mut WorkspaceDaemon, srcset: &str) -> CommandResponse {
+		let response = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceSourceSetRemove {
+				srcset: srcset.to_string(),
+			},
+		}));
+		let ProtocolResponse::Command(response) = response else {
+			panic!("expected source-set removal, got {response:?}");
+		};
+		response
+	}
+
+	fn assert_symbol_total(daemon: &mut WorkspaceDaemon, text: &str, expected: usize) {
+		let QueryResult::SymbolList(symbols) = search_symbols_named(daemon, text) else {
+			panic!("expected symbol list");
+		};
+		assert_eq!(symbols.total, expected, "{symbols:?}");
+	}
+
+	fn assert_memory_root_absent_from_rules(daemon: &mut WorkspaceDaemon, rules: &Path) {
+		let listed = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::RulesList(code_moniker_query::RulesListQuery {
+				rules: Some(rules.display().to_string()),
+				..Default::default()
+			}),
+		))));
+		let ProtocolResponse::Query(listed) = listed else {
+			panic!("expected rules list, got {listed:?}");
+		};
+		let QueryResult::RulesList(listed) = listed.result else {
+			panic!("expected rules list result, got {:?}", listed.result);
+		};
+		assert!(
+			listed.roots.iter().all(|root| root != MEMORY_SOURCE_ROOT),
+			"removed memory roots must disappear from rules.list: {listed:?}"
+		);
+
+		let checked = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::RulesCheck(RulesCheckQuery {
+				workspace: None,
+				profile: None,
+				rules: Some(rules.display().to_string()),
+				file: Vec::new(),
+				report: true,
+			}),
+		))));
+		let ProtocolResponse::Query(checked) = checked else {
+			panic!("expected rules check, got {checked:?}");
+		};
+		let QueryResult::RulesCheck(checked) = checked.result else {
+			panic!("expected rules check result, got {:?}", checked.result);
+		};
+		assert!(
+			checked
+				.roots
+				.iter()
+				.all(|root| root.root != MEMORY_SOURCE_ROOT),
+			"removed memory roots must disappear from rules.check: {checked:?}"
+		);
 	}
 
 	#[test]
@@ -5996,6 +6342,428 @@ pub fn production_entry() {}
 		}
 	}
 
+	#[test]
+	fn memory_source_set_replace_is_idempotent_and_removable() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(
+			temp.path().join("local.rs"),
+			"pub fn local_symbol_survives() {}\n",
+		)
+		.expect("write local source");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		let ProtocolResponse::Command(refresh) = refresh else {
+			panic!("expected initial refresh, got {refresh:?}");
+		};
+
+		let source_set = WorkspaceSourceSetDto {
+			srcset: "database".to_string(),
+			revision: Some("1".to_string()),
+			documents: vec![
+				WorkspaceSourceDocumentDto {
+					uri: "schema/accounts.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.virtual_accounts (id bigint);\n".to_string(),
+				},
+				WorkspaceSourceDocumentDto {
+					uri: "schema/audit.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.virtual_audit (id bigint);\n".to_string(),
+				},
+			],
+		};
+		let replace = replace_source_set(&mut daemon, source_set.clone());
+		assert!(
+			replace.generation.expect("replace generation").0
+				> refresh.generation.expect("refresh generation").0
+		);
+
+		let QueryResult::SymbolList(accounts) =
+			search_symbols_named(&mut daemon, "virtual_accounts")
+		else {
+			panic!("expected symbol list");
+		};
+		assert_eq!(accounts.total, 1, "{accounts:?}");
+		assert!(
+			accounts.rows[0].uri.contains("/srcset:database/"),
+			"the existing srcset identity facet must carry the supplied source set: {accounts:?}"
+		);
+		assert!(accounts.rows[0].file.ends_with("schema/accounts.sql"));
+		assert_eq!(
+			accounts.rows[0]
+				.source
+				.as_ref()
+				.expect("in-memory source snippet")
+				.lines[0]
+				.text,
+			"CREATE TABLE app.virtual_accounts (id bigint);"
+		);
+
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		let ProtocolResponse::Command(refreshed) = refreshed else {
+			panic!("expected full refresh, got {refreshed:?}");
+		};
+		assert_symbol_total(&mut daemon, "virtual_accounts", 1);
+
+		let mut reordered = source_set.clone();
+		reordered.documents.reverse();
+		let duplicate = replace_source_set(&mut daemon, reordered);
+		assert_eq!(duplicate.generation, refreshed.generation);
+
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "database".to_string(),
+				revision: Some("2".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "schema/accounts.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.virtual_customers (id bigint);\n".to_string(),
+				}],
+			},
+		);
+		assert_symbol_total(&mut daemon, "virtual_accounts", 0);
+		assert_symbol_total(&mut daemon, "virtual_audit", 0);
+		assert_symbol_total(&mut daemon, "virtual_customers", 1);
+		assert_symbol_total(&mut daemon, "local_symbol_survives()", 1);
+
+		let remove = remove_source_set(&mut daemon, "database");
+		assert_symbol_total(&mut daemon, "virtual_customers", 0);
+		assert_symbol_total(&mut daemon, "local_symbol_survives()", 1);
+
+		let duplicate_remove = remove_source_set(&mut daemon, "database");
+		assert_eq!(duplicate_remove.generation, remove.generation);
+
+		let rules = temp.path().join("memory-lifecycle-rules.toml");
+		fs::write(
+			&rules,
+			r#"
+default_rules = false
+
+[[rust.fn.where]]
+id = "local-function-remains"
+expr = "name =~ ."
+message = "the local function remains visible"
+"#,
+		)
+		.expect("lifecycle rules");
+		assert_memory_root_absent_from_rules(&mut daemon, &rules);
+	}
+
+	#[test]
+	fn memory_source_set_refreshes_linkage_from_local_sources() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let source_dir = temp.path().join("src/main/java/app");
+		fs::create_dir_all(&source_dir).expect("create Java source directory");
+		fs::write(
+			source_dir.join("Local.java"),
+			"package app; public class Local { Generated value; }\n",
+		)
+		.expect("write local source");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "main".to_string(),
+				revision: Some("1".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "src/main/java/app/Generated.java".to_string(),
+					language: "java".to_string(),
+					content: "package app; public class Generated {}\n".to_string(),
+				}],
+			},
+		);
+		let snapshot = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("indexed snapshot");
+		let target = snapshot
+			.index
+			.symbols
+			.iter()
+			.find(|symbol| symbol.name == "Generated" && symbol.kind == "class")
+			.expect("virtual target");
+		assert!(
+			snapshot
+				.linkage
+				.resolved
+				.iter()
+				.any(|edge| edge.target == target.id),
+			"an unchanged local reference must be reconsidered when its in-memory target appears; \
+			 refs={:?}; unresolved={:?}; target={}",
+			snapshot
+				.index
+				.references
+				.iter()
+				.map(|reference| reference.target_identity.to_string())
+				.collect::<Vec<_>>(),
+			snapshot.linkage.unresolved,
+			target.identity
+		);
+	}
+
+	#[test]
+	fn memory_source_set_rejects_ambiguous_input() {
+		for srcset in ["bad/name", ".", ".."] {
+			let error = parse_memory_source_set(WorkspaceSourceSetDto {
+				srcset: srcset.to_string(),
+				revision: None,
+				documents: Vec::new(),
+			})
+			.expect_err("invalid srcset");
+			assert_eq!(error.code, "invalid_workspace_srcset");
+		}
+
+		let error = parse_memory_source_set(WorkspaceSourceSetDto {
+			srcset: "generated".to_string(),
+			revision: None,
+			documents: vec![WorkspaceSourceDocumentDto {
+				uri: "generated.data".to_string(),
+				language: "unknown".to_string(),
+				content: String::new(),
+			}],
+		})
+		.expect_err("invalid language");
+		assert_eq!(error.code, "unsupported_workspace_source_language");
+
+		let document = WorkspaceSourceDocumentDto {
+			uri: "generated.rs".to_string(),
+			language: "rs".to_string(),
+			content: String::new(),
+		};
+		let error = parse_memory_source_set(WorkspaceSourceSetDto {
+			srcset: "generated".to_string(),
+			revision: None,
+			documents: vec![document.clone(), document],
+		})
+		.expect_err("duplicate URI");
+		assert_eq!(error.code, "duplicate_workspace_source_uri");
+	}
+
+	#[test]
+	fn memory_source_set_publishes_its_new_generation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let (events, mut rx) = tokio::sync::broadcast::channel(4);
+		let mut daemon = WorkspaceDaemon::with_events(
+			DaemonWorkspaceConfig {
+				roots: vec![temp.path().display().to_string()],
+				project: None,
+				cache_dir: None,
+				live_refresh: Some("on-demand".to_string()),
+			},
+			events,
+		)
+		.expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+		let response = replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "generated".to_string(),
+				revision: Some("1".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "generated.rs".to_string(),
+					language: "rs".to_string(),
+					content: "pub fn generated() {}\n".to_string(),
+				}],
+			},
+		);
+		let event = rx.try_recv().expect("refreshed event");
+		assert_eq!(event.kind, WorkspaceEventKind::Refreshed);
+		assert_eq!(event.generation, response.generation);
+	}
+
+	#[test]
+	fn memory_source_set_replace_rolls_back_after_refresh_failure() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let workspace = temp.path().join("workspace");
+		let unavailable = temp.path().join("workspace-unavailable");
+		fs::create_dir_all(&workspace).expect("workspace");
+		let mut daemon = WorkspaceDaemon::new(vec![workspace.clone()]).expect("daemon");
+		let source_set = WorkspaceSourceSetDto {
+			srcset: "generated".to_string(),
+			revision: Some("1".to_string()),
+			documents: vec![WorkspaceSourceDocumentDto {
+				uri: "generated.rs".to_string(),
+				language: "rs".to_string(),
+				content: "pub struct RetriedPublication;\n".to_string(),
+			}],
+		};
+
+		fs::rename(&workspace, &unavailable).expect("make workspace unavailable");
+		let failed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceSourceSetReplace {
+				source_set: source_set.clone(),
+			},
+		}));
+		assert!(
+			matches!(failed, ProtocolResponse::Error(_)),
+			"the unavailable workspace must reject publication: {failed:?}"
+		);
+
+		fs::rename(&unavailable, &workspace).expect("restore workspace");
+		let retried = replace_source_set(&mut daemon, source_set);
+		assert!(
+			retried.generation.is_some(),
+			"replaying a failed publication must rebuild and publish it"
+		);
+		assert_symbol_total(&mut daemon, "RetriedPublication", 1);
+	}
+
+	#[test]
+	fn memory_source_set_has_workspace_level_multi_root_identity() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let first = temp.path().join("first");
+		let second = temp.path().join("second");
+		fs::create_dir_all(&first).expect("first root");
+		fs::create_dir_all(&second).expect("second root");
+		let source_set = WorkspaceSourceSetDto {
+			srcset: "generated".to_string(),
+			revision: Some("1".to_string()),
+			documents: vec![WorkspaceSourceDocumentDto {
+				uri: "generated.rs".to_string(),
+				language: "rs".to_string(),
+				content: "pub struct WorkspaceOwned;\n".to_string(),
+			}],
+		};
+		let coordinates = |roots: Vec<PathBuf>| {
+			let mut daemon = WorkspaceDaemon::new(roots).expect("daemon");
+			daemon
+				.refresh_cancellable(WorkspaceCancellation::default())
+				.expect("initial refresh");
+			replace_source_set(&mut daemon, source_set.clone());
+			let QueryResult::SymbolList(symbols) =
+				search_symbols_named(&mut daemon, "WorkspaceOwned")
+			else {
+				panic!("expected symbol list");
+			};
+			let symbol = symbols.rows.first().expect("workspace-owned symbol");
+			(symbol.root.clone(), symbol.uri.clone())
+		};
+
+		let forward = coordinates(vec![first.clone(), second.clone()]);
+		let reversed = coordinates(vec![second, first]);
+		assert_eq!(forward, reversed);
+		assert_eq!(forward.0, MEMORY_SOURCE_ROOT_LABEL);
+	}
+
+	#[test]
+	fn memory_source_set_runs_through_unscoped_indexed_rules() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let rules = temp.path().join("memory-rules.toml");
+		fs::write(
+			&rules,
+			r#"
+default_rules = false
+
+[[rust.shape.type.where]]
+id = "memory-type-is-visible"
+expr = "name != 'WorkspaceOwned'"
+message = "the indexed rule must observe the memory source"
+"#,
+		)
+		.expect("rules");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "generated".to_string(),
+				revision: Some("1".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "generated.rs".to_string(),
+					language: "rs".to_string(),
+					content: "pub struct WorkspaceOwned;\n".to_string(),
+				}],
+			},
+		);
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::RulesCheck(RulesCheckQuery {
+				workspace: None,
+				profile: None,
+				rules: Some(rules.display().to_string()),
+				file: Vec::new(),
+				report: true,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected rules response, got {response:?}");
+		};
+		let QueryResult::RulesCheck(result) = response.result else {
+			panic!("expected rules result, got {:?}", response.result);
+		};
+		assert_eq!(result.summary.files_scanned, 1, "{result:?}");
+		assert_eq!(result.summary.total_violations, 1, "{result:?}");
+		assert_eq!(result.violations[0].root, MEMORY_SOURCE_ROOT);
+		assert_eq!(
+			result.violations[0].rule_id,
+			"rust.shape.type.memory-type-is-visible"
+		);
+	}
+
+	#[test]
+	fn memory_source_set_limits_bound_each_publication_and_global_usage() {
+		let limits = MemorySourceLimits {
+			max_source_sets: 1,
+			max_documents_per_set: 1,
+			max_uri_bytes: 8,
+			max_document_bytes: 8,
+			max_source_set_bytes: 20,
+			max_total_bytes: 20,
+		};
+		let cache = LocalResourceCache::default();
+		let first = MemorySourceSet {
+			srcset: "first".to_string(),
+			revision: None,
+			documents: vec![MemorySourceDocument {
+				uri: "a.rs".to_string(),
+				lang: Lang::Rs,
+				content: "fn a()".to_string(),
+			}],
+		};
+		validate_memory_source_set_limits(&cache, &first, limits).expect("first publication fits");
+		cache.replace_memory_source_set(first);
+
+		let second = MemorySourceSet {
+			srcset: "second".to_string(),
+			revision: None,
+			documents: vec![MemorySourceDocument {
+				uri: "b.rs".to_string(),
+				lang: Lang::Rs,
+				content: "fn b()".to_string(),
+			}],
+		};
+		let error = validate_memory_source_set_limits(&cache, &second, limits)
+			.expect_err("global active-set budget");
+		assert_eq!(error.code, "workspace_source_set_limit_exceeded");
+
+		let oversized = MemorySourceSet {
+			srcset: "first".to_string(),
+			revision: None,
+			documents: vec![MemorySourceDocument {
+				uri: "long-uri.rs".to_string(),
+				lang: Lang::Rs,
+				content: "fn too_large()".to_string(),
+			}],
+		};
+		let error = validate_memory_source_set_limits(&cache, &oversized, limits)
+			.expect_err("per-publication budget");
+		assert_eq!(error.code, "workspace_source_set_limit_exceeded");
+	}
+
 	#[tokio::test]
 	async fn rpc_server_answers_query_and_streams_events() {
 		use code_moniker_query::DaemonRpcClient;
@@ -6004,8 +6772,17 @@ pub fn production_entry() {}
 
 		let temp = tempfile::tempdir().expect("tempdir");
 		fs::write(temp.path().join("lib.rs"), "pub struct Customer;\n").expect("seed fixture");
-		let daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let (events, _) = tokio::sync::broadcast::channel(16);
+		let daemon = WorkspaceDaemon::with_events(
+			DaemonWorkspaceConfig {
+				roots: vec![temp.path().display().to_string()],
+				project: None,
+				cache_dir: None,
+				live_refresh: None,
+			},
+			events.clone(),
+		)
+		.expect("daemon");
 		let build = producer_identity();
 		let service = DaemonRpcService {
 			daemon: Arc::new(Mutex::new(daemon)),
@@ -6043,6 +6820,30 @@ pub fn production_entry() {}
 		assert_eq!(status.producer, build);
 
 		let mut subscription = client.subscribe_events().await.expect("subscribe");
+		let replaced = client
+			.command(CommandRequest {
+				command: Command::WorkspaceSourceSetReplace {
+					source_set: WorkspaceSourceSetDto {
+						srcset: "generated".to_string(),
+						revision: Some("rpc-1".to_string()),
+						documents: vec![WorkspaceSourceDocumentDto {
+							uri: "generated.rs".to_string(),
+							language: "rs".to_string(),
+							content: "pub struct RpcGenerated;\n".to_string(),
+						}],
+					},
+				},
+			})
+			.await
+			.expect("replace source set over RPC");
+		let refreshed = subscription
+			.next()
+			.await
+			.expect("refreshed event present")
+			.expect("refreshed event decoded");
+		assert_eq!(refreshed.kind, WorkspaceEventKind::Refreshed);
+		assert_eq!(refreshed.generation, replaced.generation);
+
 		events
 			.send(WorkspaceEventDto {
 				kind: WorkspaceEventKind::Notes,

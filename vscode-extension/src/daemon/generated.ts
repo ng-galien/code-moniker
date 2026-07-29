@@ -5,9 +5,18 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type Command = {
-  op: "workspace_refresh";
-};
+export type Command =
+  | {
+      op: "workspace_refresh";
+    }
+  | {
+      op: "workspace_source_set_replace";
+      source_set: WorkspaceSourceSetDto;
+    }
+  | {
+      op: "workspace_source_set_remove";
+      srcset: string;
+    };
 export type WorkspaceGeneration = number;
 export type WorkspaceEventKind = "stale" | "refreshed" | "notes" | "git_base";
 export type Query =
@@ -306,6 +315,16 @@ export interface DaemonProtocol {
 }
 export interface CommandRequest {
   command: Command;
+}
+export interface WorkspaceSourceSetDto {
+  documents: WorkspaceSourceDocumentDto[];
+  revision?: string | null;
+  srcset: string;
+}
+export interface WorkspaceSourceDocumentDto {
+  content: string;
+  language: string;
+  uri: string;
 }
 export interface CommandResponse {
   generation?: WorkspaceGeneration | null;

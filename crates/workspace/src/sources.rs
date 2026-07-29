@@ -231,6 +231,7 @@ fn discover_scopes(
 					c,
 					ts,
 					project: source_project,
+					srcset: None,
 				},
 			},
 		});

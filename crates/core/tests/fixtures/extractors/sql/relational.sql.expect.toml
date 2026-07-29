@@ -1,0 +1,55 @@
+root = "code+moniker://app/lang:sql/module:relational"
+
+[[defs]]
+kind = "schema"
+moniker = "code+moniker://app/lang:sql/module:relational/schema:sales"
+
+[[defs]]
+kind = "column"
+moniker = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:ID"
+signature = "uuid"
+
+[[defs]]
+kind = "constraint"
+moniker = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:Orders_PK"
+signature = "primary key"
+
+[[refs]]
+kind = "references"
+from = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk"
+to = "code+moniker://app/lang:sql/module:relational/schema:crm/table:customers"
+confidence = "name_match"
+
+[[refs]]
+kind = "references"
+from = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk"
+to = "code+moniker://app/lang:sql/module:relational/schema:crm/table:customers/column:id"
+confidence = "name_match"
+
+[[refs]]
+kind = "reads"
+from = "code+moniker://app/lang:sql/module:relational/schema:sales/view:open_orders"
+to = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+confidence = "name_match"
+
+[[refs]]
+kind = "writes"
+from = "code+moniker://app/lang:sql/module:relational"
+to = "code+moniker://app/lang:sql/module:relational/schema:audit/table:events"
+confidence = "name_match"
+
+[[defs]]
+kind = "trigger"
+moniker = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders"
+
+[[refs]]
+kind = "references"
+from = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders"
+to = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+confidence = "name_match"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders"
+to = "code+moniker://app/lang:sql/module:relational/schema:audit/function:log_order()"
+confidence = "name_match"

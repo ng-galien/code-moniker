@@ -7,5 +7,7 @@ pub use content::LocalResourceCache;
 pub use identity::LocalIdentityResolver;
 
 pub use content::{
-	CodeIndexMaterial, IndexedSourceFile, ResolvedSourceResource, SourceCatalogMaterial,
+	CodeIndexMaterial, IndexedSourceFile, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL,
+	MemorySourceDocument, MemorySourceSet, MemorySourceSetUpdate, ResolvedSourceResource,
+	SourceCatalogMaterial,
 };

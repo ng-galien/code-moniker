@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -107,7 +107,14 @@ impl Default for CapabilitySet {
 				.iter()
 				.map(|spec| (spec.name.to_string(), spec.mcp_tool.to_string()))
 				.collect(),
-			commands: vec!["workspace.refresh".to_string()],
+			commands: [
+				"workspace.refresh",
+				"workspace.source_set.replace",
+				"workspace.source_set.remove",
+			]
+			.into_iter()
+			.map(str::to_string)
+			.collect(),
 			events: Vec::new(),
 		}
 	}
@@ -952,9 +959,27 @@ pub struct CommandRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct WorkspaceSourceSetDto {
+	pub srcset: String,
+	pub revision: Option<String>,
+	pub documents: Vec<WorkspaceSourceDocumentDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct WorkspaceSourceDocumentDto {
+	pub uri: String,
+	pub language: String,
+	pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Command {
 	WorkspaceRefresh,
+	WorkspaceSourceSetReplace { source_set: WorkspaceSourceSetDto },
+	WorkspaceSourceSetRemove { srcset: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -4132,5 +4157,52 @@ mod contract_tests {
 			stale_summary: None,
 		};
 		assert_eq!(serde_json::to_value(&event).unwrap()["kind"], "git_base");
+	}
+
+	#[test]
+	fn workspace_source_set_commands_are_op_tagged() {
+		let replace = Command::WorkspaceSourceSetReplace {
+			source_set: WorkspaceSourceSetDto {
+				srcset: "database".to_string(),
+				revision: Some("42".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "schema/accounts.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE accounts (id bigint);".to_string(),
+				}],
+			},
+		};
+		assert_eq!(
+			serde_json::to_value(replace).unwrap(),
+			json!({
+				"op": "workspace_source_set_replace",
+				"source_set": {
+					"srcset": "database",
+					"revision": "42",
+					"documents": [{
+						"uri": "schema/accounts.sql",
+						"language": "sql",
+						"content": "CREATE TABLE accounts (id bigint);"
+					}]
+				}
+			}),
+		);
+
+		assert_eq!(
+			serde_json::to_value(Command::WorkspaceSourceSetRemove {
+				srcset: "database".to_string(),
+			})
+			.unwrap(),
+			json!({
+				"op": "workspace_source_set_remove",
+				"srcset": "database"
+			}),
+		);
+		assert!(
+			CapabilitySet::default()
+				.commands
+				.iter()
+				.any(|command| command == "workspace.source_set.replace")
+		);
 	}
 }

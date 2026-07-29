@@ -1,15 +1,18 @@
 ---
 name: sql
 lang: sql
-blurb: snake_case SQL objects, v_-prefixed views, and a public schema that keeps out of private
+blurb: SQL naming and relational dependency boundaries across schemas
 published: true
 ---
 
 # SQL / PL/pgSQL starter pack
 
-The SQL sample enforces snake_case names for tables, functions, and
-procedures, a `v_` prefix for views, and a schema boundary: objects in the
-`public` schema must not reach into the `private` schema directly.
+The SQL extractor exposes schemas, tables, columns, constraints, triggers,
+views, routines, and the `uses_type`, `references`, `reads`, `writes`, and
+`calls` relations. This sample enforces snake_case names for tables, triggers,
+functions, and procedures, a `v_` prefix for views, and a schema boundary:
+objects in the `public` schema must not reach into the `private` schema
+directly.
 
 ```toml cm:rules
 default_rules = false
@@ -45,6 +48,12 @@ id = "procedure-snakecase"
 rationale = "Procedures are called from scripts and applications. Snake case avoids quoting surprises."
 expr = "name =~ ^[a-z_][a-z0-9_]*$"
 message = "Procedure `{name}` must use snake_case."
+
+[[sql.trigger.where]]
+id = "trigger-snakecase"
+rationale = "Trigger names appear in DDL diagnostics and migration reviews. Snake case keeps them predictable without quoting."
+expr = "name =~ ^[a-z_][a-z0-9_]*$"
+message = "Trigger `{name}` must use snake_case."
 
 [[sql.refs.where]]
 id = "public-no-private"
@@ -111,6 +120,10 @@ BEGIN
 	DELETE FROM public.user_sessions;
 END;
 $$;
+
+CREATE TRIGGER "AuditSessions"
+AFTER INSERT OR UPDATE ON public.user_sessions
+FOR EACH ROW EXECUTE FUNCTION public.audit_sessions();
 ```
 
 ```cm:expect
@@ -119,4 +132,5 @@ sql.view.view-prefix @ db/public_api.sql:L11-L12
 sql.function.function-snakecase @ db/public_api.sql:L17-L22
 sql.refs.public-no-private @ db/public_api.sql:L25
 sql.procedure.procedure-snakecase @ db/public_api.sql:L28-L33
+sql.trigger.trigger-snakecase @ db/public_api.sql:L35-L37
 ```

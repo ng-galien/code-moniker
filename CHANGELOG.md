@@ -19,7 +19,7 @@ becomes a trustworthy 98.4% (phantom external crates eliminated,
 façade aliases no longer rival definitions, dangling bindings
 surfaced), the vscode extension's TypeScript climbs from 75.7% to
 83.0% explained, and every silent-empty agent surface now fails
-loudly with routing guidance. Daemon protocol 3 → 4.
+loudly with routing guidance. Daemon protocol 3 → 5.
 
 ### Added
 
@@ -41,6 +41,10 @@ loudly with routing guidance. Daemon protocol 3 → 4.
   protocol-mismatched resident daemons once, so stale daemons built
   from older binaries stop serving outdated resolution semantics
   silently.
+- **Daemon protocol 4 → 5.** Clients can atomically replace or remove named,
+  revisioned source sets held entirely in memory. These documents reuse the
+  normal extraction, linkage, `srcset`, query, rule, and MCP pipeline without
+  creating synthetic files or rescanning the filesystem.
 - **Resolution accuracy (agent audit follow-up,
   `evolutions/agent-dogfood-audit-2026-07-26.md`).** Rust: sibling
   modules are no longer classified as external crates,

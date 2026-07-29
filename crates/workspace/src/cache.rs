@@ -264,6 +264,7 @@ fn hash_path(p: &Path) -> u64 {
 fn hash_context(ctx: &extract::Context, path: &Path) -> u64 {
 	let mut h = FxHasher::default();
 	ctx.project.hash(&mut h);
+	ctx.srcset.hash(&mut h);
 	ctx.ts.aliases.len().hash(&mut h);
 	for alias in &ctx.ts.aliases {
 		alias.pattern.hash(&mut h);

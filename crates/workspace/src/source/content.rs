@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use code_moniker_core::core::code_graph::CodeGraph;
-use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
@@ -12,6 +12,10 @@ use crate::path_util::lexical_path;
 use crate::snapshot::{ReferenceId, SourceId, SymbolId};
 
 use super::identity::LocalIdentityResolver;
+
+pub const MEMORY_SOURCE_ROOT: &str = "memory";
+pub const MEMORY_SOURCE_ROOT_LABEL: &str = "memory";
+const MEMORY_SOURCE_PATH_ROOT: &str = ".code-moniker-memory";
 
 #[derive(Clone, Default)]
 pub struct LocalResourceCache {
@@ -96,12 +100,93 @@ impl LocalResourceCache {
 			.get(&generation.value())
 			.cloned()
 	}
+
+	pub fn replace_memory_source_set(&self, source_set: MemorySourceSet) -> MemorySourceSetUpdate {
+		let mut inner = self.lock_material();
+		if inner.memory_source_sets.get(&source_set.srcset) == Some(&source_set) {
+			return MemorySourceSetUpdate {
+				srcset: source_set.srcset,
+				..Default::default()
+			};
+		}
+		let srcset = source_set.srcset.clone();
+		let next_paths = memory_source_paths(&source_set);
+		let previous = inner.memory_source_sets.insert(srcset.clone(), source_set);
+		let mut paths = previous
+			.as_ref()
+			.into_iter()
+			.flat_map(memory_source_paths)
+			.collect::<BTreeSet<_>>();
+		paths.extend(next_paths);
+		MemorySourceSetUpdate {
+			changed: true,
+			paths: paths.into_iter().collect(),
+			srcset,
+			previous,
+		}
+	}
+
+	pub fn remove_memory_source_set(&self, srcset: &str) -> MemorySourceSetUpdate {
+		let mut inner = self.lock_material();
+		let Some(previous) = inner.memory_source_sets.remove(srcset) else {
+			return MemorySourceSetUpdate {
+				srcset: srcset.to_string(),
+				..Default::default()
+			};
+		};
+		MemorySourceSetUpdate {
+			changed: true,
+			paths: memory_source_paths(&previous),
+			srcset: srcset.to_string(),
+			previous: Some(previous),
+		}
+	}
+
+	pub fn restore_memory_source_set(&self, srcset: String, previous: Option<MemorySourceSet>) {
+		let mut inner = self.lock_material();
+		match previous {
+			Some(previous) => {
+				inner.memory_source_sets.insert(srcset, previous);
+			}
+			None => {
+				inner.memory_source_sets.remove(&srcset);
+			}
+		}
+	}
+
+	pub fn memory_source_usage_after_replacing(
+		&self,
+		source_set: &MemorySourceSet,
+	) -> (usize, usize, usize) {
+		let inner = self.lock_material();
+		let mut source_sets = 0usize;
+		let mut documents = 0usize;
+		let mut bytes = 0usize;
+		for (srcset, active) in &inner.memory_source_sets {
+			if srcset == &source_set.srcset {
+				continue;
+			}
+			source_sets = source_sets.saturating_add(1);
+			documents = documents.saturating_add(active.documents.len());
+			bytes = bytes.saturating_add(active.size_bytes());
+		}
+		(
+			source_sets.saturating_add(1),
+			documents.saturating_add(source_set.documents.len()),
+			bytes.saturating_add(source_set.size_bytes()),
+		)
+	}
+
+	pub(crate) fn memory_source_sets(&self) -> BTreeMap<String, MemorySourceSet> {
+		self.lock_material().memory_source_sets.clone()
+	}
 }
 
 struct LocalResourceMaterial {
 	next_generation: u64,
 	sources: BTreeMap<u64, SourceCatalogMaterial>,
 	indexes: BTreeMap<u64, Arc<CodeIndexMaterial>>,
+	memory_source_sets: BTreeMap<String, MemorySourceSet>,
 	index_diffs: BTreeMap<
 		u64,
 		(
@@ -117,15 +202,80 @@ impl Default for LocalResourceMaterial {
 			next_generation: 1,
 			sources: BTreeMap::new(),
 			indexes: BTreeMap::new(),
+			memory_source_sets: BTreeMap::new(),
 			index_diffs: BTreeMap::new(),
 		}
 	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemorySourceSet {
+	pub srcset: String,
+	pub revision: Option<String>,
+	pub documents: Vec<MemorySourceDocument>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemorySourceDocument {
+	pub uri: String,
+	pub lang: Lang,
+	pub content: String,
+}
+
+impl MemorySourceSet {
+	pub fn size_bytes(&self) -> usize {
+		self.srcset
+			.len()
+			.saturating_add(self.revision.as_ref().map_or(0, String::len))
+			.saturating_add(self.documents.iter().fold(0usize, |total, document| {
+				total
+					.saturating_add(document.uri.len())
+					.saturating_add(document.content.len())
+					.saturating_add(document.lang.tag().len())
+			}))
+	}
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MemorySourceSetUpdate {
+	pub changed: bool,
+	pub paths: Vec<PathBuf>,
+	pub srcset: String,
+	pub previous: Option<MemorySourceSet>,
+}
+
+pub(crate) fn memory_source_path(srcset: &str, uri: &str) -> PathBuf {
+	PathBuf::from(MEMORY_SOURCE_PATH_ROOT)
+		.join(srcset)
+		.join(hex_path_component(uri.as_bytes()))
+}
+
+fn hex_path_component(value: &[u8]) -> String {
+	const HEX: &[u8; 16] = b"0123456789abcdef";
+	let mut encoded = String::with_capacity(value.len() * 2);
+	for byte in value {
+		encoded.push(HEX[(byte >> 4) as usize] as char);
+		encoded.push(HEX[(byte & 0x0f) as usize] as char);
+	}
+	encoded
+}
+
+fn memory_source_paths(source_set: &MemorySourceSet) -> Vec<PathBuf> {
+	source_set
+		.documents
+		.iter()
+		.map(|document| memory_source_path(&source_set.srcset, &document.uri))
+		.collect()
 }
 
 #[derive(Clone)]
 pub struct SourceCatalogMaterial {
 	pub(crate) sources: SourceFileSet,
 	pub(crate) identity: LocalIdentityResolver,
+	pub(crate) memory_sources: BTreeMap<PathBuf, String>,
+	pub(crate) memory_srcsets: BTreeMap<PathBuf, String>,
+	pub(crate) memory_slots: BTreeSet<PathBuf>,
+	pub(crate) memory_revisions: BTreeMap<String, Option<String>>,
 }
 
 impl SourceCatalogMaterial {
@@ -135,8 +285,18 @@ impl SourceCatalogMaterial {
 	}
 
 	pub fn source_uri_for_path(&self, path: &Path) -> Option<String> {
-		self.source_rel_path(path)
-			.map(|rel_path| self.identity.source_uri(rel_path))
+		let rel_path = self.source_rel_path(path)?;
+		Some(match self.memory_srcset(path) {
+			Some(srcset) => {
+				let moniker = MonikerBuilder::new()
+					.project(b".")
+					.segment(b"srcset", srcset.as_bytes())
+					.segment(b"file", rel_path.display().to_string().as_bytes())
+					.build();
+				self.identity.moniker_uri(&moniker)
+			}
+			None => self.identity.source_uri(rel_path),
+		})
 	}
 
 	#[allow(dead_code)]
@@ -156,6 +316,18 @@ impl SourceCatalogMaterial {
 				|| normalize_path(&file.rel_path) == normalized
 				|| normalize_path(&file.anchor) == normalized
 		})
+	}
+
+	pub(crate) fn memory_source(&self, path: &Path) -> Option<&str> {
+		self.memory_sources.get(path).map(String::as_str)
+	}
+
+	pub(crate) fn memory_srcset(&self, path: &Path) -> Option<&str> {
+		self.memory_srcsets.get(path).map(String::as_str)
+	}
+
+	pub(crate) fn is_memory_slot(&self, path: &Path) -> bool {
+		self.memory_slots.contains(path)
 	}
 
 	#[allow(dead_code)]
@@ -395,6 +567,10 @@ mod tests {
 					multi: false,
 				},
 				identity: identity.clone(),
+				memory_sources: BTreeMap::new(),
+				memory_srcsets: BTreeMap::new(),
+				memory_slots: BTreeSet::new(),
+				memory_revisions: BTreeMap::new(),
 			},
 			files: vec![Arc::new(file)],
 			identity,

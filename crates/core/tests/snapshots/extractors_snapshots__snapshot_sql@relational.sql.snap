@@ -1,0 +1,363 @@
+---
+source: crates/core/tests/extractors_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
+---
+{
+  "defs": [
+    {
+      "binding": "local",
+      "kind": "schema",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational",
+      "position": [
+        0,
+        33
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "position": [
+        36,
+        252
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "column",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:ID",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        70,
+        121
+      ],
+      "signature": "uuid",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "constraint",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:Orders_PK",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        87,
+        121
+      ],
+      "signature": "primary key",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "column",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:customer_id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        127,
+        152
+      ],
+      "signature": "uuid",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "constraint",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:144",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        144,
+        152
+      ],
+      "signature": "not null",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "constraint",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        158,
+        250
+      ],
+      "signature": "foreign key",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "view",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/view:open_orders",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "position": [
+        255,
+        412
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/function:customer_orders()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "position": [
+        415,
+        538
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:orders_copy",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "position": [
+        597,
+        659
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "trigger",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
+      "position": [
+        662,
+        786
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "procedure",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/procedure:dynamic_refresh(target_table:text)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales",
+      "position": [
+        789,
+        946
+      ],
+      "signature": "target_table:text",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:ID",
+      "kind": "uses_type",
+      "position": [
+        82,
+        86
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:customer_id",
+      "kind": "uses_type",
+      "position": [
+        139,
+        143
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk",
+      "kind": "references",
+      "position": [
+        233,
+        246
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:crm/table:customers"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk",
+      "kind": "references",
+      "position": [
+        247,
+        249
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:crm/table:customers/column:id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/view:open_orders",
+      "kind": "reads",
+      "position": [
+        373,
+        386
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:crm/table:customers"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/view:open_orders",
+      "kind": "reads",
+      "position": [
+        323,
+        337
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/function:customer_orders()",
+      "kind": "uses_type",
+      "position": [
+        463,
+        483
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/type:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/function:customer_orders()",
+      "kind": "reads",
+      "position": [
+        19,
+        33
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational",
+      "kind": "writes",
+      "position": [
+        553,
+        565
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:audit/table:events"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational",
+      "kind": "reads",
+      "position": [
+        580,
+        594
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational",
+      "kind": "writes",
+      "position": [
+        610,
+        627
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:orders_copy"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:orders_copy",
+      "kind": "reads",
+      "position": [
+        645,
+        659
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders",
+      "kind": "references",
+      "position": [
+        716,
+        730
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/trigger:audit_orders",
+      "kind": "calls",
+      "position": [
+        761,
+        776
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:audit/function:log_order()"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/procedure:dynamic_refresh(target_table:text)",
+      "kind": "uses_type",
+      "position": [
+        841,
+        845
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
+    }
+  ],
+  "root": "code+moniker://app/lang:sql/module:relational"
+}

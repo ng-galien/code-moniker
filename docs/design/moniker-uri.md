@@ -67,7 +67,7 @@ by the extractor:
 | C#                 | `lang:cs`      | `dir:<seg>/module:<stem>`  |
 | Java               | `lang:java`    | `package:<seg>/module:<stem>` |
 | Python             | `lang:python`  | `package:<seg>/module:<stem>` |
-| SQL / PL/pgSQL     | `lang:sql`     | `schema:<name>/module:<stem>` |
+| SQL / PL/pgSQL     | `lang:sql`     | `dir:<seg>/module:<stem>/schema:<name>` |
 
 `lang:` is mandatory for source-owned definitions. SDK and external
 package targets have no `lang:` segment.

@@ -12,8 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 use code_moniker_query::{
-	CommandRequest, CommandResponse, DaemonRpcClient, DaemonWorkspaceConfig, HandshakeResponse,
-	PROTOCOL_VERSION, QueryRequest, QueryResponse, current_build_identity,
+	Command, CommandRequest, CommandResponse, DaemonRpcClient, DaemonWorkspaceConfig,
+	HandshakeResponse, PROTOCOL_VERSION, QueryRequest, QueryResponse, current_build_identity,
 };
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
@@ -27,11 +27,12 @@ const DAEMON_READY_CONNECT_ATTEMPTS: usize = 10;
 const DAEMON_READY_POLL: Duration = Duration::from_millis(100);
 
 pub use code_moniker_query::{
-	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
-	canonical_workspace_roots, config_from_roots, config_roots, daemon_workspace_config,
-	list_registry_entries, read_registry_entry, registry_dir, registry_path_for_config,
-	registry_path_for_root, registry_path_for_roots, remove_registry_entry_if_own,
-	validate_daemon_start_config, workspace_label,
+	DaemonRegistryEntry, WorkspaceSourceDocumentDto, WorkspaceSourceSetDto,
+	canonical_workspace_config, canonical_workspace_root, canonical_workspace_roots,
+	config_from_roots, config_roots, daemon_workspace_config, list_registry_entries,
+	read_registry_entry, registry_dir, registry_path_for_config, registry_path_for_root,
+	registry_path_for_roots, remove_registry_entry_if_own, validate_daemon_start_config,
+	workspace_label,
 };
 
 #[derive(Clone)]
@@ -174,6 +175,23 @@ impl DaemonConnection {
 		validate_compatibility(&self.handshake)?;
 		self.block(self.ws.command(request))
 			.map_err(|err| anyhow::anyhow!("{err}"))
+	}
+
+	pub fn replace_source_set(
+		&self,
+		source_set: WorkspaceSourceSetDto,
+	) -> anyhow::Result<CommandResponse> {
+		self.command_response(CommandRequest {
+			command: Command::WorkspaceSourceSetReplace { source_set },
+		})
+	}
+
+	pub fn remove_source_set(&self, srcset: impl Into<String>) -> anyhow::Result<CommandResponse> {
+		self.command_response(CommandRequest {
+			command: Command::WorkspaceSourceSetRemove {
+				srcset: srcset.into(),
+			},
+		})
 	}
 
 	pub fn shutdown(&self) -> anyhow::Result<()> {

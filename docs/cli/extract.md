@@ -33,6 +33,15 @@ The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI p
 
 Unknown extension exits `2`.
 
+For PostgreSQL sources, extraction includes schemas, tables, views, columns,
+constraints, triggers, types, functions and procedures. The graph records
+column `uses_type`, foreign-key and trigger `references`, query `reads`,
+DML/`CREATE TABLE AS` `writes`, and routine/trigger-function `calls`. A trigger
+is nested under its target table or view, references that relation (and the
+`FROM` table of a constraint trigger), and calls its zero-argument trigger
+function. CTEs and aliases are not emitted as physical tables; dynamic SQL
+does not manufacture a certain relation.
+
 ## Filters
 
 | Flag                  | Op   | Semantics                                              |

@@ -12,6 +12,7 @@ pub struct Context {
 	pub c: CBuildContext,
 	pub ts: TsResolution,
 	pub project: Option<String>,
+	pub srcset: Option<String>,
 }
 
 pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
@@ -90,7 +91,12 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 
 fn path_anchor(path: &Path, ctx: &Context) -> Moniker {
 	let project = ctx.project.as_deref().map(str::as_bytes).unwrap_or(b".");
-	anchor_moniker(project, srcset(path).map(str::as_bytes))
+	let srcset = ctx
+		.srcset
+		.as_deref()
+		.or_else(|| srcset(path))
+		.map(str::as_bytes);
+	anchor_moniker(project, srcset)
 }
 
 fn anchor_moniker(project: &[u8], srcset: Option<&[u8]>) -> Moniker {

@@ -494,6 +494,75 @@ fn sql_sdk_links_schema_qualified_overloads_and_classifies_open_calls() {
 }
 
 #[test]
+fn sql_relational_edges_link_across_source_documents() {
+	let snapshot = load_workspace("projects/sql/resolution");
+
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"writes",
+		"module:relation_usage",
+		"schema:public/table:orders",
+		"module:tables/schema:public/table:orders",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:relation_usage",
+		"schema:public/table:open_orders",
+		"module:views/schema:public/view:open_orders",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:views/schema:public/view:open_orders",
+		"schema:public/table:orders",
+		"module:tables/schema:public/table:orders",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"references",
+		"module:tables/schema:public/table:customers",
+		"module:customers/schema:public/table:customers",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"references",
+		"module:tables/schema:public/table:customers/column:id",
+		"module:customers/schema:public/table:customers/column:id",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"references",
+		"module:triggers/schema:public/table:orders/trigger:audit_orders",
+		"module:triggers/schema:public/table:orders",
+		"module:tables/schema:public/table:orders",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:triggers/schema:public/table:orders/trigger:audit_orders",
+		"calls",
+		"audit_order",
+		0,
+		"module:trigger_functions/schema:public/function:audit_order()",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"references",
+		"module:triggers/schema:public/view:open_orders/trigger:route_open_orders",
+		"module:triggers/schema:public/view:open_orders",
+		"module:views/schema:public/view:open_orders",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:triggers/schema:public/view:open_orders/trigger:route_open_orders",
+		"calls",
+		"route_open_order",
+		0,
+		"module:trigger_functions/schema:public/function:route_open_order()",
+	);
+}
+
+#[test]
 fn rust_multiproject_canonicalizes_mod_rs_modules() {
 	let snapshot = load_workspace("projects/rust/multiproject");
 

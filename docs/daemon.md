@@ -100,7 +100,45 @@ verbs; the daemon package version string is informational.
 `symbol.insights`, `symbol.detail`, `symbol.usages`, `symbol.graph`,
 `identity.children`, `identity.graph`, `view.read`, `rules.list`,
 `rules.check`, `rules.applicable`, `change.review`, `change.context`,
-`resolution.audit`, `notes`. Command verbs: `workspace.refresh`.
+`resolution.audit`, `notes`. Command verbs: `workspace.refresh`,
+`workspace.source_set.replace`, `workspace.source_set.remove`.
+
+The command protocol also accepts ephemeral source sets owned by a client:
+
+- Wire operation `workspace_source_set_replace` atomically replaces one named `srcset` with
+  documents shaped as `{ uri, language, content }`; an optional `revision`
+  participates in idempotence.
+- Wire operation `workspace_source_set_remove` removes that source set.
+
+These documents never touch the filesystem. They enter the same source
+catalog, extraction, inventory, linkage and atomic workspace generation as
+discovered files, and their supplied `srcset` uses the existing identity and
+rule facet. Repeating the same logical source set (document order included only
+as input, not identity) or removing an absent set is a no-op and keeps the
+current generation. A later full `workspace.refresh` preserves active
+in-memory sets. The Rust daemon client exposes the corresponding
+`replace_source_set` and `remove_source_set` helpers. A changed set publishes a
+`refreshed` event carrying the same generation returned by the command.
+
+Virtual documents belong to the workspace-level logical root `memory`, not to
+the first configured filesystem root. Unscoped queries and rule checks include
+that root exactly once; selecting one physical workspace root excludes it.
+This keeps identities and extraction context stable when a multi-root daemon is
+started with its roots in a different order.
+
+The document `uri` is its stable identity inside the source set and is forwarded
+to the language extractor for module/path semantics; the daemon never opens it
+as a filesystem path. `language` is one of the tags returned by `code-moniker
+langs` (`rs`, `java`, `ts`, `python`, `go`, `c`, `cs`, `sql`). Source-set state
+is intentionally process-local and disappears when its daemon stops.
+
+The daemon rejects a publication with
+`workspace_source_set_limit_exceeded` before changing active state when it
+exceeds one of these bounds: 128 active source sets, 10,000 documents per set,
+4 KiB per URI, 16 MiB per document, 64 MiB per set, or 256 MiB across all
+active virtual sources. A failed extraction or refresh also restores the
+previous publication, so retrying the same payload is never mistaken for a
+successful no-op.
 
 `query.describe [verb:"..."]` is generated from the canonical capability
 registry. It reports fields, defaults, required values, pagination and

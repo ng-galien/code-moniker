@@ -36,7 +36,7 @@ kinds:
   annotation: comment
   ref:        annotates, calls, di_register, di_require, extends, implements,
               imports_module, imports_symbol, instantiates, method_call, reads,
-              reexports, uses_type
+              references, reexports, uses_type, writes
 visibilities: public, private, module
 ```
 
@@ -55,7 +55,7 @@ Every `kind` an extractor emits belongs to exactly one shape; refs share `ref` a
 | `namespace`  | `module`, `namespace`, `schema`, `impl`                                 |
 | `type`       | `class`, `struct`, `enum`, `interface`, `trait`, `table`, `view`, …     |
 | `callable`   | `function`, `method`, `constructor`, `procedure`, `async_function`      |
-| `value`      | `field`, `const`, `static`, `enum_constant`, `param`, `local`, …        |
+| `value`      | `field`, `column`, `constraint`, `trigger`, `const`, `param`, `local`, … |
 | `annotation` | `comment`                                                               |
 | `ref`        | `calls`, `imports_*`, `extends`, `uses_type`, … (every ref kind)        |
 

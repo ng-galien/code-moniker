@@ -1,6 +1,6 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Code index refresh and graph diffing clone stable IDs into owned snapshots/diffs.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -185,7 +185,7 @@ fn build_local_code_index(
 	let (symbols, references, material) =
 		build_semantic_index(source_material, files, cancellation)?;
 	let semantic_index = semantic_timer.elapsed();
-	let mut sources = source_records(&material.files);
+	let mut sources = source_records(&material);
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
 	sources.shrink_to_fit();
@@ -216,7 +216,7 @@ fn build_code_index_from_extracted(
 	let cancellation = WorkspaceCancellation::default();
 	let (symbols, references, material) =
 		build_semantic_index(source_material, files, &cancellation)?;
-	let mut sources = source_records(&material.files);
+	let mut sources = source_records(&material);
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
 	sources.shrink_to_fit();
@@ -258,7 +258,14 @@ fn build_local_code_index_from_extracted(
 		})
 		.collect();
 	let catalog = SourceCatalog::new(catalog_generation, units);
-	let source_material = SourceCatalogMaterial { sources, identity };
+	let source_material = SourceCatalogMaterial {
+		sources,
+		identity,
+		memory_sources: BTreeMap::new(),
+		memory_srcsets: BTreeMap::new(),
+		memory_slots: BTreeSet::new(),
+		memory_revisions: BTreeMap::new(),
+	};
 	cache.insert_sources(catalog_generation, source_material.clone());
 	let index = build_code_index_from_extracted(
 		cache,
@@ -385,7 +392,7 @@ fn refresh_local_code_index(
 	}
 	let semantic_timer = Instant::now();
 	let material = material_from_files(source_catalog, files, &WorkspaceCancellation::default())?;
-	let sources = source_records(&material.files);
+	let sources = source_records(&material);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
 	let mut symbols = current.symbols.clone();
 	let mut references = current.references.clone();
@@ -531,28 +538,43 @@ fn extract_source_file(
 			format!("source file index {file_idx} is unavailable"),
 		)
 	})?;
-	let ctx = &source_material.sources.roots[file.source].ctx;
-	let (graph, extracted_source) = crate::cache::load_or_extract_workspace_result(
-		path,
-		&file.anchor,
-		file.lang,
-		cache_dir,
-		ctx,
-	)
-	.map_err(|err| {
-		WorkspaceFailure::new(
-			WorkspaceResource::CodeIndex,
-			format!("cannot extract {}: {err}", path.display()),
-		)
-	})?;
-	let source = match extracted_source {
-		Some(source) => source,
-		None => crate::cache::read_source_lossy(path).map_err(|err| {
-			WorkspaceFailure::new(
-				WorkspaceResource::CodeIndex,
-				format!("cannot read {}: {err}", path.display()),
+	let base_ctx = &source_material.sources.roots[file.source].ctx;
+	let memory_ctx = source_material.memory_srcset(path).map(|srcset| {
+		let mut ctx = base_ctx.clone();
+		ctx.srcset = Some(srcset.to_string());
+		ctx
+	});
+	let ctx = memory_ctx.as_ref().unwrap_or(base_ctx);
+	let (graph, source) = match source_material.memory_source(path) {
+		Some(source) => (
+			crate::environment::extract_source_with(file.lang, source, &file.anchor, ctx),
+			source.to_owned(),
+		),
+		None => {
+			let (graph, extracted_source) = crate::cache::load_or_extract_workspace_result(
+				path,
+				&file.anchor,
+				file.lang,
+				cache_dir,
+				ctx,
 			)
-		})?,
+			.map_err(|err| {
+				WorkspaceFailure::new(
+					WorkspaceResource::CodeIndex,
+					format!("cannot extract {}: {err}", path.display()),
+				)
+			})?;
+			let source = match extracted_source {
+				Some(source) => source,
+				None => crate::cache::read_source_lossy(path).map_err(|err| {
+					WorkspaceFailure::new(
+						WorkspaceResource::CodeIndex,
+						format!("cannot read {}: {err}", path.display()),
+					)
+				})?,
+			};
+			(graph, source)
+		}
 	};
 	Ok(IndexedSourceFile {
 		source_root: file.source,
@@ -931,8 +953,9 @@ impl TargetIdentityPool {
 	}
 }
 
-fn source_records(files: &[Arc<IndexedSourceFile>]) -> Vec<SourceFileRecord> {
-	files
+fn source_records(material: &CodeIndexMaterial) -> Vec<SourceFileRecord> {
+	material
+		.files
 		.iter()
 		.map(|file| SourceFileRecord {
 			id: file.source_id,
@@ -942,7 +965,11 @@ fn source_records(files: &[Arc<IndexedSourceFile>]) -> Vec<SourceFileRecord> {
 			rel_path: file.rel_path.display().to_string(),
 			anchor: file.anchor.display().to_string(),
 			language: file.lang.tag().to_string(),
-			text: String::new(),
+			text: if material.source_catalog.is_memory_slot(&file.path) {
+				file.source.to_owned()
+			} else {
+				String::new()
+			},
 		})
 		.collect()
 }
