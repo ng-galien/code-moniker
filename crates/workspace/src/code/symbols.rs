@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::uri::{UriConfig, from_uri};
 use code_moniker_core::lang::Lang;
 
 use crate::environment;
@@ -90,4 +91,37 @@ pub fn last_name(moniker: &Moniker) -> String {
 
 pub fn compact_moniker(moniker: &Moniker) -> String {
 	environment::compact_moniker(moniker, crate::DEFAULT_IDENTITY_SCHEME)
+}
+
+pub fn compact_identity(identity: &str, scheme: &str) -> Option<String> {
+	let moniker = from_uri(identity, &UriConfig { scheme }).ok()?;
+	Some(environment::compact_moniker(&moniker, scheme))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn compact_identity_handles_complex_callable_signatures() {
+		let identity = concat!(
+			"code+moniker://./lang:rs/dir:crates/dir:cli/dir:src/module:mcp/",
+			"module:tools/module:notes/fn:render_notes_result(scheme:&str,",
+			"request:&NoteRequest,result:&NotesResult,",
+			"next:Option<&code_moniker_query::QueryCursor>)"
+		);
+		let parsed = from_uri(
+			identity,
+			&UriConfig {
+				scheme: "code+moniker://",
+			},
+		);
+		assert!(parsed.is_ok(), "{parsed:?}");
+		assert_eq!(
+			compact_identity(identity, "code+moniker://").as_deref(),
+			Some(
+				"rs:crates/cli/src/mcp.tools.notes.fn:render_notes_result(scheme:&str,request:&NoteRequest,result:&NotesResult,next:Option<&code_moniker_query::QueryCursor>)"
+			)
+		);
+	}
 }

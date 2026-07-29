@@ -78,6 +78,36 @@ message = "Domain reaches presentation through {path}."
 rationale = "The domain must remain independent from delivery mechanisms."
 
 [[workspace.path]]
+id = "controller-paths-cross-domain-policy"
+severity = "error"
+from = "uri ~ '**/package:presentation/**' AND kind = 'method' AND name =~ ^submit"
+to = "uri ~ '**/package:infrastructure/**' AND kind = 'method' AND name =~ ^save"
+via = "uri ~ '**/package:domain/**' AND kind = 'method' AND name =~ ^validate"
+expect = "all_paths_via"
+relation = ["calls", "method_call"]
+max_depth = 8
+max_symbols = 1000
+max_edges = 5000
+max_pairs = 100
+message = "A controller-to-infrastructure path bypasses the domain policy: {path}."
+rationale = "Every reachable delivery-to-storage path must cross the selected domain policy."
+
+[[workspace.path]]
+id = "bypass-must-cross-domain-policy"
+severity = "error"
+from = "uri ~ '**/package:presentation/**' AND kind = 'method' AND name =~ ^bypass"
+to = "uri ~ '**/package:infrastructure/**' AND kind = 'method' AND name =~ ^save"
+via = "uri ~ '**/package:domain/**' AND kind = 'method' AND name =~ ^validate"
+expect = "all_paths_via"
+relation = ["calls", "method_call"]
+max_depth = 8
+max_symbols = 1000
+max_edges = 5000
+max_pairs = 100
+message = "A controller-to-infrastructure path bypasses the domain policy: {path}."
+rationale = "The failing witness is the concrete path that remains after removing the boundary."
+
+[[workspace.path]]
 id = "short-budget-is-inconclusive"
 severity = "warn"
 from = "uri ~ '**/package:presentation/**' AND kind = 'method' AND name =~ ^submit"
@@ -100,10 +130,15 @@ The presentation controller calls the application use case:
 package com.acme.presentation;
 
 import com.acme.application.PlaceOrder;
+import com.acme.infrastructure.SqlOrders;
 
 public final class OrderController {
 	public static void submit() {
 		PlaceOrder.place();
+	}
+
+	public static void bypass() {
+		SqlOrders.save();
 	}
 }
 ```
@@ -148,14 +183,18 @@ public final class SqlOrders {
 
 With `--format json --report`, the first rule fails with the minimal
 `PlaceOrder.place -> OrderPolicy.validate -> SqlOrders.save` witness. The
-controller-to-domain rule passes, the reverse domain-to-presentation rule
+controller-to-domain and protected-boundary rules pass, the explicit bypass
+fails with its direct call as witness, the reverse domain-to-presentation rule
 passes after a complete search, and the one-hop budget is reported as
 `inconclusive`.
 
 ```cm:expect
 workspace.path.application-must-not-reach-infrastructure @ src/main/java/com/acme/application/PlaceOrder.java:L6-L8
+workspace.path.bypass-must-cross-domain-policy @ src/main/java/com/acme/presentation/OrderController.java:L11-L13
 verdict workspace.path.application-must-not-reach-infrastructure = fail
 verdict workspace.path.controller-reaches-domain-policy = pass
 verdict workspace.path.domain-must-not-reach-presentation = pass
+verdict workspace.path.controller-paths-cross-domain-policy = pass
+verdict workspace.path.bypass-must-cross-domain-policy = fail
 verdict workspace.path.short-budget-is-inconclusive = inconclusive
 ```

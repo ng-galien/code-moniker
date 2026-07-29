@@ -680,6 +680,7 @@ export interface RulePathReportDto {
   source_symbols: number;
   symbol_limit_reached: boolean;
   target_symbols: number;
+  via_symbols: number;
   witness: RulePathStepDto[];
 }
 export interface RulePathStepDto {

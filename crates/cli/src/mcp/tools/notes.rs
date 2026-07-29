@@ -7,11 +7,12 @@ use code_moniker_query::{
 use code_moniker_workspace::notes::{NoteAuthor, NoteKind, NoteStatus};
 use serde_json::{Value, json};
 
+use super::common::compact_argument;
 use super::scope::{
 	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 const DEFAULT_NOTES_URI: &str = "workspace/notes";
@@ -54,7 +55,7 @@ impl NotesTool {
 				},
 				"moniker": {
 					"type": "string",
-					"description": "Target symbol moniker. Required for create, optional for list and update."
+					"description": "Target compact moniker, canonical URI, or symbol id. Required for create, optional for list and update."
 				},
 				"kind": {
 					"type": "string",
@@ -112,13 +113,13 @@ impl McpTool for NotesTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = NoteRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = run_notes(context, &request).map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		run_notes(context, &request).map_err(ToolError::failed)
 	}
 }
 
@@ -136,6 +137,7 @@ struct NoteRequest {
 	orphan: Option<bool>,
 	include_done: bool,
 	paging: Paging,
+	compact: bool,
 }
 
 impl NoteRequest {
@@ -154,6 +156,7 @@ impl NoteRequest {
 			orphan: bool_argument(arguments, "orphan")?,
 			include_done: bool_argument(arguments, "include_done")?.unwrap_or(false),
 			paging: Paging::from_arguments(arguments)?,
+			compact: compact_argument(arguments)?,
 		})
 	}
 }
@@ -186,21 +189,36 @@ impl NoteAction {
 	}
 }
 
-fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
+fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<ToolResult> {
 	ensure_notes_uri(&request.uri, context.scheme())?;
 	let response = context.query_refreshed(
 		Query::Notes(notes_query(request)),
 		request.paging.daemon_page(),
 	)?;
 	match response.result {
-		QueryResult::Notes(result) => Ok(render_notes_result(
-			context.scheme(),
-			request,
-			&result,
-			response.next_cursor.as_ref(),
-		)),
+		QueryResult::Notes(result) => {
+			let candidates = note_monikers(&result);
+			Ok(ToolResult::success(render_notes_result(
+				context.scheme(),
+				request,
+				&result,
+				response.next_cursor.as_ref(),
+			))
+			.with_monikers(candidates))
+		}
 		other => anyhow::bail!("unexpected daemon notes result: {other:?}"),
 	}
+}
+
+fn note_monikers(result: &NotesResult) -> Vec<&str> {
+	let mut monikers = Vec::new();
+	for note in result.rows.iter().chain(result.deleted.iter()) {
+		monikers.push(note.moniker.as_str());
+		if let NoteResolutionDto::Resolved { target, .. } = &note.resolution {
+			monikers.push(target.as_str());
+		}
+	}
+	monikers
 }
 
 fn notes_query(request: &NoteRequest) -> NotesQuery {

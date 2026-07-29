@@ -226,10 +226,13 @@ fn tools_list_returns_mcp_shape() {
 		"code_moniker_read",
 		"code_moniker_context",
 		"code_moniker_query",
+		"code_moniker_notes",
 		"code_moniker_search",
 		"code_moniker_symbols",
 		"code_moniker_usages",
 		"code_moniker_rules",
+		"code_moniker_diff",
+		"code_moniker_graph",
 	] {
 		let tool = tools
 			.iter()
@@ -340,7 +343,11 @@ fn query_batch_keeps_partial_results_when_one_expression_fails() {
 #[test]
 fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 	let temp = tempfile::tempdir().expect("tempdir");
-	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let literal = "code+moniker://./lang:rs/module:mcp/struct:Server";
+	write_java_app_fixture(
+		temp.path(),
+		&format!("class App {{\n  String uri = \"{literal}\";\n  void run() {{}}\n}}\n"),
+	);
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let registry = ToolRegistry::new();
 
@@ -395,6 +402,8 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 	assert!(graph.text.contains("nodes:"), "{}", graph.text);
 
 	let moniker = app_symbol_moniker(&context);
+	let compact = code_moniker_workspace::code::compact_identity(&moniker, "code+moniker://")
+		.expect("compact moniker");
 	let detail = format!("symbol.detail uri:\"{moniker}\"");
 	let batch = registry
 		.call(
@@ -404,8 +413,13 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		)
 		.expect("query batch");
 	assert!(batch.text.contains("mode: query.batch"), "{}", batch.text);
-	assert!(batch.text.starts_with("aliases:\n"), "{}", batch.text);
-	assert!(batch.text.contains("@1"), "{}", batch.text);
+	assert!(batch.text.contains(&compact), "{}", batch.text);
+	assert!(!batch.text.contains(&moniker), "{}", batch.text);
+	assert!(
+		batch.text.contains(&format!("\"{literal}\"")),
+		"source URI literal was rewritten:\n{}",
+		batch.text
+	);
 
 	let projected = "symbol.search name:\"App\" limit:1\nproject name uri";
 	let projected_batch = registry
@@ -416,12 +430,7 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		)
 		.expect("projected query batch");
 	assert!(
-		projected_batch.text.starts_with("aliases:\n"),
-		"{}",
-		projected_batch.text
-	);
-	assert!(
-		projected_batch.text.contains("uri=@1"),
+		projected_batch.text.contains(&compact),
 		"{}",
 		projected_batch.text
 	);
@@ -443,6 +452,8 @@ fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
 	);
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let moniker = app_symbol_moniker(&context);
+	let compact = code_moniker_workspace::code::compact_identity(&moniker, "code+moniker://")
+		.expect("compact moniker");
 	let result = ToolRegistry::new()
 		.call(
 			&context,
@@ -458,7 +469,8 @@ fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
 	);
 	assert!(result.text.contains("coverage:"), "{}", result.text);
 	assert!(result.text.contains("members:"), "{}", result.text);
-	assert!(result.text.starts_with("aliases:\n"), "{}", result.text);
+	assert!(result.text.contains(&compact), "{}", result.text);
+	assert!(!result.text.contains(&moniker), "{}", result.text);
 	assert!(result.text.contains("suggested_checks:"), "{}", result.text);
 	assert!(
 		result.text.contains("code_moniker_rules uri=\"workspace\""),
@@ -470,6 +482,23 @@ fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
 		"{}",
 		result.text
 	);
+}
+
+#[test]
+fn compact_moniker_from_output_can_be_used_for_symbol_navigation() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let canonical = app_symbol_moniker(&context);
+	let compact = code_moniker_workspace::code::compact_identity(&canonical, "code+moniker://")
+		.expect("compact moniker");
+	let result = ToolRegistry::new()
+		.call(&context, "code_moniker_read", &json!({"uri": compact}))
+		.expect("compact moniker navigation");
+
+	assert!(result.text.contains("name: App"), "{}", result.text);
+	assert!(result.text.contains("uri: java:"), "{}", result.text);
+	assert!(!result.text.contains(&canonical), "{}", result.text);
 }
 
 #[test]
@@ -779,6 +808,45 @@ fn graph_tool_rejects_values_outside_its_schema() {
 }
 
 #[test]
+fn graph_tool_compacts_neighbor_monikers_and_verbose_mode_restores_uris() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(
+		temp.path(),
+		"class App {\n  void run() { helper(); }\n  void helper() {}\n}\n",
+	);
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let run = symbol_moniker(&context, "run()");
+
+	let compact = registry
+		.call(
+			&context,
+			"code_moniker_graph",
+			&json!({"focus": run.clone(), "direction": "outgoing"}),
+		)
+		.expect("compact graph");
+	assert!(compact.text.contains("uri: java:"), "{}", compact.text);
+	assert!(
+		!compact.text.contains("code+moniker://./"),
+		"{}",
+		compact.text
+	);
+
+	let verbose = registry
+		.call(
+			&context,
+			"code_moniker_graph",
+			&json!({"focus": run, "direction": "outgoing", "compact": false}),
+		)
+		.expect("verbose graph");
+	assert!(
+		verbose.text.contains("uri: code+moniker://./"),
+		"{}",
+		verbose.text
+	);
+}
+
+#[test]
 fn usages_tool_rejects_values_outside_its_schema() {
 	let context = empty_context(vec![PathBuf::from(".")]);
 	let registry = ToolRegistry::new();
@@ -808,6 +876,8 @@ fn notes_tool_manages_symbol_notes_with_controlled_transitions() {
 	let registry = ToolRegistry::new();
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let moniker = app_symbol_moniker(&context);
+	let compact = code_moniker_workspace::code::compact_identity(&moniker, "code+moniker://")
+		.expect("compact moniker");
 
 	let created = registry
 		.call(
@@ -816,7 +886,7 @@ fn notes_tool_manages_symbol_notes_with_controlled_transitions() {
 			&json!({
 				"action": "create",
 				"id": "note_acceptance",
-				"moniker": moniker,
+				"moniker": compact,
 				"kind": "todo",
 				"title": "Check App",
 				"body": "Agent should inspect this symbol.",
@@ -832,16 +902,22 @@ fn notes_tool_manages_symbol_notes_with_controlled_transitions() {
 		created.text
 	);
 	assert!(created.text.contains("kind: todo"), "{}", created.text);
+	assert!(created.text.contains(&compact), "{}", created.text);
+	assert!(!created.text.contains(&moniker), "{}", created.text);
 	assert!(
 		temp.path().join(".code-moniker/notes.toml").is_file(),
 		"notes file should be persisted"
 	);
+	let persisted =
+		std::fs::read_to_string(temp.path().join(".code-moniker/notes.toml")).expect("read notes");
+	assert!(persisted.contains(&moniker), "{persisted}");
+	assert!(!persisted.contains(&compact), "{persisted}");
 
 	let list = registry
 		.call(
 			&context,
 			"code_moniker_notes",
-			&json!({"action": "list", "moniker": moniker}),
+			&json!({"action": "list", "moniker": compact}),
 		)
 		.expect("list notes");
 	assert!(list.text.contains("notes: 1"), "{}", list.text);
@@ -1276,6 +1352,12 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 		result.text
 	);
 	assert!(result.text.contains("reason: name"));
+	assert!(result.text.contains("uri: java:"), "{}", result.text);
+	assert!(
+		!result.text.contains("code+moniker://./"),
+		"{}",
+		result.text
+	);
 	assert!(!result.text.contains("code:"));
 	assert!(!result.text.contains("   2 |   void run() {"));
 	assert!(!result.text.contains("src/test/java/AppTest.java"));
@@ -1306,6 +1388,11 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 	assert!(detail.text.contains("include_code=true"));
 	assert!(detail.text.contains("context_lines=0"));
 	assert!(detail.text.contains("compact=false"));
+	assert!(
+		detail.text.contains("uri: code+moniker://./"),
+		"{}",
+		detail.text
+	);
 }
 
 #[test]
@@ -1525,6 +1612,11 @@ fn rules_tool_reports_workspace_path_verdict_coverage_and_witness() {
 	);
 	assert!(result.text.contains("witness:"), "{}", result.text);
 	assert!(result.text.contains("-[calls]->"), "{}", result.text);
+	assert!(
+		!result.text.contains("code+moniker://./"),
+		"{}",
+		result.text
+	);
 }
 
 #[test]
@@ -1973,7 +2065,6 @@ fn symbols_tool_verbose_mode_keeps_canonical_uris_and_next_calls() {
 		},
 		(SymbolAction::List, false),
 	);
-	assert!(!verbose.starts_with("aliases:\n"), "{verbose}");
 	assert!(
 		verbose.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
 		"{verbose}"
@@ -2432,7 +2523,10 @@ fn read_symbol_source_renders_source_slice() {
 		"class App {\n  void before() {}\n  void run() {\n    work();\n  }\n}\n",
 		1,
 	);
-	assert!(text.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"));
+	assert!(
+		text.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
+		"{text}"
+	);
 	assert!(text.contains("file: src/App.java"));
 	assert!(text.contains("slice: 2-6"));
 	assert!(text.contains("   3 |   void run() {"));

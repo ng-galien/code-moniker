@@ -40,7 +40,7 @@ available in the current session before choosing a workflow:
 
 For agent exploration, the `code_moniker_*` MCP tools are the complete and
 canonical interface. They add deterministic output budgets, compact rendering,
-response-local aliases, pagination and safe follow-up calls around the typed
+compact monikers, pagination and safe follow-up calls around the typed
 query engine. When the MCP surface is configured and available, do not repeat
 the same exploration with `code-moniker query`, a daemon client, grep, or a
 script: that duplicates facts and consumes context.
@@ -110,10 +110,10 @@ composition is order-independent: a known false `AND` operand or known true
    workspace identity check. Stop immediately on `workspace_mismatch`. Stop if
    the overview answers the question.
 2. Narrow with `code_moniker_symbols` (`path`, `lang`, `shape`, `name`, small
-   `limit`). Never invent a URI.
+   `limit`). Never invent a moniker.
 3. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
-   canonical URI or file.
-4. Before a structural edit, call `code_moniker_context focus:"<canonical>"`
+   returned compact moniker or file.
+4. Before a structural edit, call `code_moniker_context focus:"<returned>"`
    once. It combines impact, notes, applicable rules, local changes and checks.
 5. Use `code_moniker_query` only for an advanced read-only verb not covered by
    an intent tool. Discover its current grammar with `query.describe`; a batch
@@ -142,17 +142,17 @@ Then go by need:
 
 - **Understand code, trace flows, find entry points** → `references/explore.md`
 - **Health check, coupling, smells, refactor targets, dependency audit** → `references/diagnose.md`
-- **Agent MCP contract, budgets and aliases** → `references/mcp.md`
+- **Agent MCP contract, budgets and compact monikers** → `references/mcp.md`
 - **Developer-only query grammar and dogfood** → `references/query-dsl.md`
 
 ## Rules that save you a failed call
 
-- **Never guess a URI or a focus path.** Get URIs from
+- **Never guess a moniker or a focus path.** Get compact monikers from
   `code_moniker_symbols` and pass them exactly; a guessed one returns
   `symbol_not_found` / `focus_not_found`.
-- **Aliases are display-only.** `@1` exists only inside the response that
-  declares it. Resolve it through that response's `aliases` block before a
-  hand-built call; generated calls already preserve canonical URIs.
+- **Compact monikers are reusable.** The default `rs:...`, `java:...`, etc.
+  form can be passed directly to symbol tools. Canonical URIs and symbol ids
+  remain accepted; generated calls preserve canonical values.
 - **Keep the default small budget.** Set a narrow `limit`/`max_items`; request
   `medium` or `full`, code, wider scope or the next page only when the current
   question requires it. Stop once the evidence is sufficient.

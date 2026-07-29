@@ -199,7 +199,7 @@ fn rejects_a_rule_declared_as_both_demonstrated_and_undemonstrated() {
 fn workspace_path_scenario_checks_exact_rule_verdicts() {
 	let document = include_str!("../../../../samples/catalog/workspace-path.cm.md");
 	let scenario = Scenario::parse(document).expect("parse workspace path scenario");
-	assert_eq!(scenario.verdicts.len(), 4);
+	assert_eq!(scenario.verdicts.len(), 6);
 	let run = scenario
 		.run(std::path::Path::new("."), "code+moniker://")
 		.expect("run workspace path scenario");

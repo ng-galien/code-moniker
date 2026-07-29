@@ -36,16 +36,17 @@ After rebuilding or restarting `cm-mcp`, validate the surface:
 - TUI capture: file tree, then symbol/linkage completion.
 - MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`; partial
   pages expose an optional `next` cursor call.
-- Compact contract: default responses may declare response-local `@N` moniker
-  aliases in descriptive data; generated calls must retain canonical URIs.
-  Verify `compact:false` returns canonical verbose output and pagination keeps
-  that mode.
+- Compact contract: default responses render canonical symbol URIs as reusable
+  compact monikers; generated calls retain canonical URIs. Verify the compact
+  form can be passed back to symbol tools, `compact:false` restores canonical
+  verbose output, and pagination keeps that mode.
 - Budget contract: every non-refresh tool defaults to `budget:"small"`; an
   explicit `max_chars` is a hard ceiling and reports `truncated_by:max_chars`.
-- Parity probes: `code_moniker_query` with `query.describe`, a two-query batch
-  sharing one alias table, and `code_moniker_context` with facts, coverage and
-  canonical suggested checks.
-- Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
+- Parity probes: `code_moniker_query` with `query.describe`, a two-query compact
+  batch, and `code_moniker_context` with facts, coverage and canonical suggested
+  checks.
+- Required probes: scoped read, cursor follow-up, `action:"insights"`, and a
+  symbol read using the returned compact moniker.
 - Workspace-routing probe: the first read passes the current absolute root via
   `expected_roots`; a different root must fail with `workspace_mismatch`.
 - Rules probes: `action:"list"`, bounded `action:"run"`.

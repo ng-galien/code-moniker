@@ -2,7 +2,7 @@
 
 Use only the `code_moniker_*` MCP tools for agent exploration. They preserve
 the typed query model while enforcing compact output, deterministic budgets,
-response-local aliases and canonical follow-up calls.
+compact monikers and canonical follow-up calls.
 
 ## First contact
 
@@ -33,17 +33,17 @@ running server may differ from this reference.
 
 Use `code_moniker_symbols action:"list"` with the narrowest available `path`,
 `lang`, `shape`, `kind` and `name`, plus a small `limit`. Every result carries a
-canonical URI or a response-local alias declared above it. Never guess an URI;
-resolve an alias through that response before constructing a call.
+compact moniker that can be passed directly to other symbol tools. Never guess
+one; canonical URIs and symbol ids remain accepted when already available.
 
 ## Inspect dependencies
 
-Use `code_moniker_graph focus:"<canonical URI or returned file>"` for the ego
+Use `code_moniker_graph focus:"<returned moniker or file>"` for the ego
 view. `direction`, `relation`, `min_count` and `include_internal` keep only the
 edges needed by the question. The result separates callers, callees, internal
 edges and unresolved coverage.
 
-Use `code_moniker_usages uri:"<canonical URI>" direction:"incoming|outgoing|both"`
+Use `code_moniker_usages uri:"<returned moniker>" direction:"incoming|outgoing|both"`
 when individual consumers or producers matter. Its compact default groups
 repeated references by symbolic context and includes only bounded,
 representative source evidence; use `evidence:"none"` for a map without code or
@@ -52,20 +52,20 @@ unless the question explicitly requires more.
 
 ## Prepare a modification
 
-After selecting a target, call `code_moniker_context focus:"<canonical URI>"`
+After selecting a target, call `code_moniker_context focus:"<returned moniker>"`
 once. It combines bounded source context, graph facts, notes, applicable rules,
 worktree changes, coverage and canonical suggested checks. Do not re-fetch the
 same sections separately unless coverage shows that the omitted facts matter.
 
 ## Read code only when necessary
 
-`code_moniker_read uri:"<canonical symbol URI>" context_lines:2` reads the
+`code_moniker_read uri:"<returned compact moniker>" context_lines:2` reads the
 target zone. Source and wider context are opt-in because they dominate token
 cost. Structural questions should stay on symbols, usages and graphs.
 
 ## Failure modes
 
-- `symbol_not_found` or `focus_not_found`: search again; the URI/path was
+- `symbol_not_found` or `focus_not_found`: search again; the moniker/path was
   guessed, stale or outside the workspace.
 - `workspace_loading`: retry the same bounded MCP call. Curated read tools
   refresh stale snapshots automatically; use `code_moniker_refresh` only when

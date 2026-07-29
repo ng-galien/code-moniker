@@ -73,16 +73,16 @@ HTTP remains available for persistent or remote-client dogfood:
 cargo run -p code-moniker --features mcp --no-default-features -- mcp . --transport http --port 3210
 ```
 
-Read, search, symbol, usage, and rules tools default to `compact = true`.
-Repeated canonical monikers in descriptive data may be declared once under
-`aliases` and rendered as response-local references such as `@1`. They are not
-server state and cannot be sent back as tool arguments. Generated calls always
-retain canonical URIs and can be copied directly; resolve an alias from the same
-response only when composing a new call from data. Pass `compact = false` for
-the historical verbose rendering with canonical URIs at every occurrence and
-additional guided follow-up calls. A `next` section is emitted only when useful.
-Compact symbol rows omit duplicated per-row usages calls; invoke
-`code_moniker_usages` with the row URI when needed.
+Agent-facing MCP tools default to `compact = true`; refresh is the small
+operational exception. Canonical symbol URIs in descriptive data are rendered
+in the existing compact moniker form
+(`rs:crates/cli/src/mcp.tools.fn:run()`, for example). That compact form can be
+passed directly to symbol tools; canonical URIs and symbol ids remain accepted.
+Generated calls retain canonical URIs and can be copied directly. Pass
+`compact = false` for the verbose rendering with canonical URIs at every
+occurrence and additional guided follow-up calls. A `next` section is emitted
+only when useful. Compact symbol rows omit duplicated per-row usages calls;
+invoke `code_moniker_usages` with the row moniker when needed.
 
 The HTTP endpoint is `http://127.0.0.1:<port>/mcp`. Both transports expose
 the same compact LMNAV text responses rather than JSON dumps. Start an agent

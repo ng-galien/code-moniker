@@ -75,7 +75,7 @@
 - Post-restart probes: `agents/maps/rust-server.md`.
 
 ```sh
-tmux new-session -d -s cm-mcp 'cargo run -p code-moniker --features mcp --no-default-features -- mcp . --port 3210'
+tmux new-session -d -s cm-mcp 'cargo run -p code-moniker --features mcp --no-default-features -- mcp . --transport http --port 3210'
 tmux capture-pane -t cm-mcp -p
 ```
 

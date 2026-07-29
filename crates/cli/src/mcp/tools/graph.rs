@@ -7,7 +7,7 @@ use code_moniker_query::{
 use serde_json::{Value, json};
 
 use super::scope::string_list;
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 
 use crate::mcp::context::McpContext;
 
@@ -38,7 +38,7 @@ impl GraphTool {
 			"properties": {
 				"focus": {
 					"type": "string",
-					"description": "Symbol URI (code+moniker://...) or workspace-relative file path."
+					"description": "Compact moniker, canonical symbol URI, symbol id, or workspace-relative file path."
 				},
 				"max_items": {
 					"type": "integer",
@@ -84,6 +84,10 @@ impl McpTool for GraphTool {
 			description: Self::DESCRIPTION,
 			input_schema: Self::input_schema(),
 		}
+	}
+
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
 	}
 
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
@@ -151,24 +155,48 @@ fn optional_u64(arguments: &Value, name: &str) -> anyhow::Result<Option<u64>> {
 }
 
 fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<ToolResult> {
+	let GraphRequest {
+		focus,
+		max_items,
+		direction,
+		relation,
+		min_count,
+		include_internal,
+	} = request;
 	let response = context.query_refreshed(
 		Query::SymbolGraph(SymbolGraphQuery {
 			workspace: None,
-			focus: request.focus,
-			direction: request.direction,
-			relation: request.relation,
-			min_count: request.min_count,
-			include_internal: request.include_internal,
+			focus,
+			direction,
+			relation,
+			min_count,
+			include_internal,
 		}),
 		Page::default(),
 	)?;
 	let QueryResult::SymbolGraph(result) = response.result else {
 		anyhow::bail!("unexpected symbol graph response");
 	};
-	Ok(ToolResult {
-		text: render_graph(&result, request.max_items, request.direction),
-		is_error: false,
-	})
+	let candidates = graph_monikers(&result);
+	Ok(ToolResult::success(render_graph(&result, max_items, direction)).with_monikers(candidates))
+}
+
+fn graph_monikers(result: &SymbolGraphResult) -> Vec<&str> {
+	let mut monikers = Vec::new();
+	if let SymbolGraphFocus::Symbol { symbol } = &result.focus {
+		monikers.push(symbol.uri.as_str());
+	}
+	for member in &result.members {
+		monikers.push(member.uri.as_str());
+	}
+	for edge in &result.internal_edges {
+		monikers.push(edge.source.as_str());
+		monikers.push(edge.target.as_str());
+	}
+	for neighbor in result.callers.iter().chain(&result.callees) {
+		monikers.push(neighbor.symbol.uri.as_str());
+	}
+	monikers
 }
 
 fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDirection) -> String {

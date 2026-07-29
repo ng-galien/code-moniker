@@ -66,6 +66,7 @@ pub struct BoundedPathRequest<'a> {
 	pub from: SymbolId,
 	pub to: SymbolId,
 	pub relations: &'a [String],
+	pub avoid: &'a [SymbolId],
 	pub limits: BoundedPathLimits,
 	pub scope: &'a BoundedPathScope,
 }
@@ -205,6 +206,7 @@ impl<'a> BoundedPathEngine<'a> {
 			self.read_index,
 			&self.classifications,
 			request.relations,
+			request.avoid,
 			request.limits,
 			request.scope,
 		)?
@@ -228,6 +230,7 @@ impl WorkspaceSnapshot {
 				from,
 				to,
 				relations,
+				avoid: &[],
 				limits,
 				scope,
 			},
@@ -251,6 +254,7 @@ struct PathTraversal<'a> {
 	max_symbols: usize,
 	max_edges: usize,
 	classifications: &'a ReferenceClassifications,
+	avoided: RoaringBitmap,
 	visited: RoaringBitmap,
 	predecessors: FxHashMap<u32, (u32, ReferenceId)>,
 	search: BoundedPathSearch,
@@ -261,10 +265,15 @@ impl<'a> PathTraversal<'a> {
 		read_index: &'a super::LinkageReadIndex,
 		classifications: &'a ReferenceClassifications,
 		relations: &'a [String],
+		avoid: &'a [SymbolId],
 		limits: BoundedPathLimits,
 		scope: &'a BoundedPathScope,
 	) -> Option<Self> {
 		let mut seen_relations = FxHashSet::default();
+		let avoided = avoid
+			.iter()
+			.filter_map(|symbol| read_index.ordinal(symbol))
+			.collect();
 		Some(Self {
 			read_index,
 			relations: relations
@@ -277,6 +286,7 @@ impl<'a> PathTraversal<'a> {
 			max_symbols: limits.max_symbols,
 			max_edges: limits.max_edges,
 			classifications,
+			avoided,
 			visited: RoaringBitmap::new(),
 			predecessors: FxHashMap::default(),
 			search: BoundedPathSearch::default(),
@@ -289,6 +299,9 @@ impl<'a> PathTraversal<'a> {
 		}
 		let from_ordinal = self.read_index.ordinal(&from)?;
 		let to_ordinal = self.read_index.ordinal(&to)?;
+		if self.avoided.contains(from_ordinal) || self.avoided.contains(to_ordinal) {
+			return None;
+		}
 		let mut frontier = RoaringBitmap::new();
 		self.visited.insert(from_ordinal);
 		frontier.insert(from_ordinal);
@@ -373,6 +386,9 @@ impl<'a> PathTraversal<'a> {
 		self.search.coverage.decided += 1;
 		self.search.explored_edges += 1;
 		if !self.scope.contains(target) {
+			return None;
+		}
+		if self.avoided.contains(target_ordinal) {
 			return None;
 		}
 		if depth >= self.max_depth {
@@ -674,6 +690,7 @@ mod tests {
 				from,
 				to: middle,
 				relations: &relations,
+				avoid: &[],
 				limits,
 				scope: &scope,
 			})
@@ -683,12 +700,24 @@ mod tests {
 				from,
 				to,
 				relations: &relations,
+				avoid: &[],
 				limits,
 				scope: &scope,
 			})
 			.expect("second search");
+		let avoided_search = engine
+			.search(BoundedPathRequest {
+				from,
+				to,
+				relations: &relations,
+				avoid: &[middle],
+				limits,
+				scope: &scope,
+			})
+			.expect("search avoiding the mandatory boundary");
 
 		assert_eq!(first_search.path.len(), 1);
 		assert_eq!(second_search.path.len(), 2);
+		assert!(avoided_search.path.is_empty(), "{avoided_search:?}");
 	}
 }

@@ -4,8 +4,8 @@ use code_moniker_query::{
 };
 use serde_json::{Value, json};
 
-use super::common::{apply_response_aliases, compact_argument};
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::common::compact_argument;
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 pub(super) struct ContextTool;
@@ -17,8 +17,8 @@ impl ContextTool {
 		"When to use: gather the bounded symbolic context required before changing a symbol or file. ",
 		"This combines its graph neighborhood, active notes, applicable rules, worktree changes, ",
 		"coverage counts, and canonical suggested checks in one snapshot-consistent response.\n\n",
-		"Output is compact and hard-budgeted by default. Canonical monikers repeated in the body ",
-		"use response-local aliases only; generated follow-up calls always keep canonical values."
+		"Output is compact and hard-budgeted by default. Body monikers use the compact form; ",
+		"generated follow-up calls keep canonical values."
 	);
 
 	const DEFAULT_MAX_ITEMS: usize = 20;
@@ -29,7 +29,7 @@ impl ContextTool {
 			"properties": {
 				"focus": {
 					"type": "string",
-					"description": "Canonical symbol URI (code+moniker://...) or workspace-relative file path."
+					"description": "Compact moniker, canonical symbol URI, symbol id, or workspace-relative file path."
 				},
 				"profile": {
 					"type": "string",
@@ -41,11 +41,6 @@ impl ContextTool {
 					"maximum": 100,
 					"default": Self::DEFAULT_MAX_ITEMS,
 					"description": "Per-section bound. Coverage reports emitted/total counts."
-				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Compact agent text with response-local aliases; false returns canonical typed JSON."
 				}
 			},
 			"required": ["focus"],
@@ -61,6 +56,10 @@ impl McpTool for ContextTool {
 			description: Self::DESCRIPTION,
 			input_schema: Self::input_schema(),
 		}
+	}
+
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
 	}
 
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
@@ -102,7 +101,7 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 			"unexpected daemon response for change context"
 		)));
 	};
-	let aliases = alias_candidates(result);
+	let monikers = response_monikers(result);
 	let body = if compact {
 		format_query_response(&response)
 	} else {
@@ -111,13 +110,10 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 	let output = format!(
 		"uri: code+moniker://workspace\ncompleteness: bounded (coverage below)\nmode: change.context\n\n{body}"
 	);
-	Ok(ToolResult {
-		text: apply_response_aliases(output, compact, aliases),
-		is_error: false,
-	})
+	Ok(ToolResult::success(output).with_monikers(monikers))
 }
 
-fn alias_candidates(result: &ChangeContextResult) -> Vec<&str> {
+fn response_monikers(result: &ChangeContextResult) -> Vec<&str> {
 	let mut candidates = Vec::new();
 	if let SymbolGraphFocus::Symbol { symbol } = &result.focus {
 		candidates.push(symbol.uri.as_str());

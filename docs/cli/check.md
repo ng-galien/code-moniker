@@ -204,12 +204,14 @@ min_coverage = 99
 message = "Domain reaches infrastructure through {path}."
 ```
 
-`expect` accepts `reachable` or `no_path`. `from` and `to` are ordinary
-workspace-symbol expressions and support aliases. The search is bounded by
-depth, explored symbols, explored edges, and endpoint pairs. A found path is
-conclusive. A missing path only passes `no_path` when all searches completed
-and linkage coverage met the threshold; otherwise the verdict is
-`inconclusive`.
+`expect` accepts `reachable`, `no_path`, or `all_paths_via`. `from` and `to`
+are ordinary workspace-symbol expressions and support aliases.
+`all_paths_via` additionally requires `via`; it proves connectivity and then
+fails with any source-to-target path that remains after the selected boundary
+symbols are removed. The search is bounded by depth, explored symbols,
+explored edges, and search pairs. A found path is conclusive. A missing path
+only passes `no_path` when all searches completed and linkage coverage met the
+threshold; incomplete connectivity or bypass searches are `inconclusive`.
 
 Group predicates support guarded descriptive statistics directly on the hot
 inventory:

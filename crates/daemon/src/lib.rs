@@ -31,6 +31,7 @@ use code_moniker_query::{
 	WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus, current_build_identity,
 	describe_query_capabilities, symbol_is_test_artifact,
 };
+use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
 	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
@@ -3769,10 +3770,17 @@ fn clear_root_payloads(mut root: RulesCheckRootResult) -> RulesCheckRootResult {
 fn notes_response(
 	daemon: &mut WorkspaceDaemon,
 	snapshot: &WorkspaceSnapshot,
-	request: NotesQuery,
+	mut request: NotesQuery,
 	page: Page,
 	generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
+	if let Some(moniker) = request.moniker.as_deref() {
+		match find_symbol(snapshot, moniker) {
+			Ok(symbol) => request.moniker = Some(symbol.identity.to_string()),
+			Err(error) if error.code == "symbol_not_found" => {}
+			Err(error) => return Err(error),
+		}
+	}
 	daemon
 		.notes
 		.reload(&daemon.roots)
@@ -4138,12 +4146,31 @@ mod helpers {
 		snapshot: &'a WorkspaceSnapshot,
 		uri: &str,
 	) -> Result<&'a SymbolRecord, QueryError> {
-		snapshot
+		if let Some(symbol) = snapshot
 			.index
 			.symbols
 			.iter()
 			.find(|symbol| symbol.identity.as_ref() == uri || symbol.id.to_string() == uri)
-			.ok_or_else(|| QueryError::new("symbol_not_found", format!("symbol not found: {uri}")))
+		{
+			return Ok(symbol);
+		}
+		let mut matches = snapshot.index.symbols.iter().filter(|symbol| {
+			compact_identity(symbol.identity.as_ref(), &snapshot.index.identity_scheme).as_deref()
+				== Some(uri)
+		});
+		let Some(symbol) = matches.next() else {
+			return Err(QueryError::new(
+				"symbol_not_found",
+				format!("symbol not found: {uri}"),
+			));
+		};
+		if matches.next().is_some() {
+			return Err(QueryError::new(
+				"symbol_ambiguous",
+				format!("compact moniker matches multiple symbols: {uri}"),
+			));
+		}
+		Ok(symbol)
 	}
 
 	pub(super) fn symbol_dto(
@@ -4373,6 +4400,7 @@ mod helpers {
 			min_coverage: path.min_coverage,
 			source_symbols: path.source_symbols,
 			target_symbols: path.target_symbols,
+			via_symbols: path.via_symbols,
 			evaluated_pairs: path.evaluated_pairs,
 			explored_symbols: path.explored_symbols,
 			explored_edges: path.explored_edges,

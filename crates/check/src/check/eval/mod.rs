@@ -235,6 +235,7 @@ pub struct RulePathReport {
 	pub min_coverage: usize,
 	pub source_symbols: usize,
 	pub target_symbols: usize,
+	pub via_symbols: usize,
 	pub evaluated_pairs: usize,
 	pub explored_symbols: usize,
 	pub explored_edges: usize,

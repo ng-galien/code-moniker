@@ -1,7 +1,7 @@
 use code_moniker_query::{Command, CommandRequest};
 use serde_json::{Value, json};
 
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 pub(in crate::mcp) struct RefreshTool;
@@ -33,6 +33,10 @@ impl McpTool for RefreshTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Plain
+	}
+
 	fn call(&self, context: &McpContext, _arguments: &Value) -> Result<ToolResult, ToolError> {
 		let response = context
 			.command(CommandRequest {
@@ -46,16 +50,13 @@ impl McpTool for RefreshTool {
 		let status = response.status.as_ref().ok_or_else(|| {
 			ToolError::failed("daemon refresh response did not include workspace status")
 		})?;
-		Ok(ToolResult {
-			text: format!(
-				"uri: workspace\ncompleteness: full\n\nrefreshed: generation {generation}\nfiles: {}\ndefs: {}\nrefs: {}\nstale: {}\n{}\n",
-				status.files,
-				status.symbols,
-				status.references,
-				if status.stale { "stale" } else { "fresh" },
-				response.message
-			),
-			is_error: false,
-		})
+		Ok(ToolResult::success(format!(
+			"uri: workspace\ncompleteness: full\n\nrefreshed: generation {generation}\nfiles: {}\ndefs: {}\nrefs: {}\nstale: {}\n{}\n",
+			status.files,
+			status.symbols,
+			status.references,
+			if status.stale { "stale" } else { "fresh" },
+			response.message
+		)))
 	}
 }

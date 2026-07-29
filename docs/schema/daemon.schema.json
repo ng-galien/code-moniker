@@ -3339,6 +3339,7 @@
         "source_symbols",
         "symbol_limit_reached",
         "target_symbols",
+        "via_symbols",
         "witness"
       ],
       "properties": {
@@ -3415,6 +3416,11 @@
           "type": "boolean"
         },
         "target_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "via_symbols": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -5097,5 +5103,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 5
+  "x-code-moniker-protocol-version": 6
 }

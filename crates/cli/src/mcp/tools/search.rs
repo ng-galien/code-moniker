@@ -6,7 +6,7 @@ use super::scope::{
 	Paging, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
 	append_call_number_arg, append_call_string_arg,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 const DEFAULT_CONTEXT_LINES: usize = 0;
@@ -77,11 +77,6 @@ impl SearchTool {
 					"type": "boolean",
 					"description": "Include source lines for each hit. Defaults false for terse search results."
 				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
-				},
 				"context_lines": {
 					"type": "integer",
 					"minimum": 0,
@@ -114,13 +109,13 @@ impl McpTool for SearchTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = SearchRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = search_symbols(context, &request).map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		search_symbols(context, &request).map_err(ToolError::failed)
 	}
 }
 
@@ -161,7 +156,7 @@ impl SearchRequest {
 	}
 }
 
-fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Result<String> {
+fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Result<ToolResult> {
 	let response = context.query_refreshed(
 		Query::SymbolSearch(SymbolSearchQuery {
 			workspace: None,
@@ -205,7 +200,7 @@ fn render_daemon_search_lmnav(
 	next_cursor: Option<&code_moniker_query::QueryCursor>,
 	rows: &[SymbolDto],
 	total: usize,
-) -> String {
+) -> ToolResult {
 	let start = request.paging.cursor.min(total);
 	let end = start.saturating_add(rows.len()).min(total);
 	let mut output = String::new();
@@ -246,7 +241,7 @@ fn render_daemon_search_lmnav(
 	if !request.compact {
 		append_search_next_call(&mut output, request, 50);
 	}
-	output
+	ToolResult::success(output).with_monikers(rows.iter().map(|row| row.uri.as_str()))
 }
 
 #[cfg(test)]
@@ -260,7 +255,7 @@ mod tests {
 		}))
 		.expect("search request");
 
-		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0);
+		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0).text;
 
 		assert!(
 			rendered.contains("hint: search scores symbol names"),

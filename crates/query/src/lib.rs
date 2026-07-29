@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1940,6 +1940,7 @@ pub struct RulePathReportDto {
 	pub min_coverage: usize,
 	pub source_symbols: usize,
 	pub target_symbols: usize,
+	pub via_symbols: usize,
 	pub evaluated_pairs: usize,
 	pub explored_symbols: usize,
 	pub explored_edges: usize,

@@ -25,9 +25,13 @@ pub(super) struct CompiledWorkspacePathRule {
 	to_raw: String,
 	from_expanded: String,
 	to_expanded: String,
+	via_raw: Option<String>,
+	via_expanded: Option<String>,
 	from: Node,
 	to: Node,
+	via: Option<Node>,
 	expect: WorkspacePathExpectation,
+	require_non_empty: bool,
 	relation: Vec<String>,
 	limits: BoundedPathLimits,
 	max_pairs: usize,
@@ -84,9 +88,23 @@ fn compile_path(
 		allowed_kinds,
 		aliases,
 	)?;
+	let (via, via_capabilities, via_expanded) = match entry.via.as_deref() {
+		Some(raw) => {
+			let (selector, capabilities, expanded) = compile_selector(
+				raw,
+				&format!("{rule_id}.via"),
+				scheme,
+				allowed_kinds,
+				aliases,
+			)?;
+			(Some(selector), capabilities, Some(expanded))
+		}
+		None => (None, Vec::new(), None),
+	};
 	let capabilities = from_capabilities
 		.into_iter()
 		.chain(to_capabilities)
+		.chain(via_capabilities)
 		.chain(std::iter::once("graph.path".to_string()))
 		.collect::<BTreeSet<_>>()
 		.into_iter()
@@ -97,9 +115,13 @@ fn compile_path(
 		to_raw: entry.to.to_owned(),
 		from_expanded,
 		to_expanded,
+		via_raw: entry.via.to_owned(),
+		via_expanded,
 		from,
 		to,
+		via,
 		expect: entry.expect,
+		require_non_empty: entry.require_non_empty,
 		relation: entry.relation.to_owned(),
 		limits: BoundedPathLimits {
 			max_depth: entry.max_depth,
@@ -148,17 +170,17 @@ pub(super) fn append_path_specs(
 		group_by: Vec::new(),
 		domain: "workspace paths".to_string(),
 		kind: None,
-		expr: format!(
-			"{}({} -> {})",
-			expectation_name(rule.expect),
-			rule.from_raw,
-			rule.to_raw
+		expr: render_path_expr(
+			rule.expect,
+			&rule.from_raw,
+			&rule.to_raw,
+			rule.via_raw.as_deref(),
 		),
-		expanded_expr: format!(
-			"{}({} -> {})",
-			expectation_name(rule.expect),
-			rule.from_expanded,
-			rule.to_expanded
+		expanded_expr: render_path_expr(
+			rule.expect,
+			&rule.from_expanded,
+			&rule.to_expanded,
+			rule.via_expanded.as_deref(),
 		),
 		message: rule.message.to_owned(),
 		rationale: rule.rationale.to_owned(),
@@ -188,8 +210,18 @@ pub(super) fn evaluate_path_rules(
 	for rule in &compiled.path {
 		let from = super::eval_node(&rule.from, &index.inventory, universe, &mut atom_cache);
 		let to = super::eval_node(&rule.to, &index.inventory, universe, &mut atom_cache);
-		let outcome = evaluate_path_rule(index, engine.as_ref(), &scope, rule, &from, &to);
-		let anchor = path_anchor(index, &outcome, &from);
+		let via = rule
+			.via
+			.as_ref()
+			.map(|selector| super::eval_node(selector, &index.inventory, universe, &mut atom_cache))
+			.unwrap_or_default();
+		let selections = PathSelections {
+			from: &from,
+			to: &to,
+			via: &via,
+		};
+		let outcome = evaluate_path_rule(index, engine.as_ref(), &scope, rule, selections);
+		let anchor = path_anchor(index, &outcome, selections, universe);
 		let witness = witness_steps(index, &outcome.witness);
 		let mut violation_set = SymbolSet::new();
 		if outcome.verdict == Some(RuleVerdict::Fail)
@@ -202,9 +234,14 @@ pub(super) fn evaluate_path_rules(
 			.violation_sets
 			.insert(rule.rule_id.clone(), violation_set);
 		if report {
-			evaluation
-				.reports
-				.push(path_report(rule, from.len(), to.len(), outcome, witness));
+			evaluation.reports.push(path_report(
+				rule,
+				from.len(),
+				to.len(),
+				via.len(),
+				outcome,
+				witness,
+			));
 		}
 	}
 }
@@ -213,25 +250,40 @@ fn prepare_path_engine<T>(has_path_rules: bool, prepare: impl FnOnce() -> T) -> 
 	has_path_rules.then(prepare)
 }
 
+#[derive(Clone, Copy)]
+struct PathSelections<'a> {
+	from: &'a SymbolSet,
+	to: &'a SymbolSet,
+	via: &'a SymbolSet,
+}
+
 fn evaluate_path_rule(
 	index: &CodeIndex,
 	engine: Option<&BoundedPathEngine<'_>>,
 	scope: &BoundedPathScope,
 	rule: &CompiledWorkspacePathRule,
-	from: &SymbolSet,
-	to: &SymbolSet,
+	selections: PathSelections<'_>,
 ) -> PathOutcome {
+	let from = selections.from;
+	let to = selections.to;
 	if from.is_empty() || to.is_empty() {
 		let reason = if from.is_empty() {
 			"empty_source_selector"
 		} else {
 			"empty_target_selector"
 		};
-		return PathOutcome::inconclusive(reason);
+		return if rule.require_non_empty {
+			PathOutcome::failed(reason)
+		} else {
+			PathOutcome::inconclusive(reason)
+		};
 	}
 	let Some(engine) = engine else {
 		return PathOutcome::inconclusive("path_index_unavailable");
 	};
+	if rule.expect == WorkspacePathExpectation::AllPathsVia {
+		return evaluate_all_paths_via(index, engine, scope, rule, selections);
+	}
 	let mut outcome = PathOutcome::default();
 	let total_pairs = from.len().saturating_mul(to.len());
 	for from_ordinal in from.iter() {
@@ -271,6 +323,7 @@ fn evaluate_path_rule(
 				from: from_record.id,
 				to: to_record.id,
 				relations: &rule.relation,
+				avoid: &[],
 				limits,
 				scope,
 			}) else {
@@ -298,6 +351,163 @@ fn evaluate_path_rule(
 	outcome.finish(rule.expect, total_pairs)
 }
 
+fn evaluate_all_paths_via(
+	index: &CodeIndex,
+	engine: &BoundedPathEngine<'_>,
+	scope: &BoundedPathScope,
+	rule: &CompiledWorkspacePathRule,
+	selections: PathSelections<'_>,
+) -> PathOutcome {
+	let PathSelections { from, to, via } = selections;
+	if via.is_empty() {
+		return if rule.require_non_empty {
+			PathOutcome::failed("empty_via_selector")
+		} else {
+			PathOutcome::inconclusive("empty_via_selector")
+		};
+	}
+	if !from.intersection(via).is_empty() || !to.intersection(via).is_empty() {
+		return PathOutcome::inconclusive("via_overlaps_endpoint");
+	}
+	let avoid = via
+		.iter()
+		.filter_map(|ordinal| index.inventory.record(ordinal).map(|record| record.id))
+		.collect::<Vec<_>>();
+	let mut outcome = PathOutcome::default();
+	for from_ordinal in from.iter() {
+		let Some(from_record) = index.inventory.record(from_ordinal) else {
+			outcome.reasons.insert("source_symbol_missing".to_string());
+			outcome.incomplete = true;
+			continue;
+		};
+		let mut source_connected = false;
+		let mut source_complete = true;
+		for to_ordinal in to.iter() {
+			let Some(to_record) = index.inventory.record(to_ordinal) else {
+				outcome.reasons.insert("target_symbol_missing".to_string());
+				source_complete = false;
+				continue;
+			};
+			let Some(limits) = next_search_limits(&mut outcome, rule) else {
+				outcome.verdict = Some(RuleVerdict::Inconclusive);
+				return outcome;
+			};
+			outcome.evaluated_pairs += 1;
+			let Some(search) = engine.search(BoundedPathRequest {
+				from: from_record.id,
+				to: to_record.id,
+				relations: &rule.relation,
+				avoid: &[],
+				limits,
+				scope,
+			}) else {
+				outcome.reasons.insert("path_index_unavailable".to_string());
+				source_complete = false;
+				continue;
+			};
+			let connected = from_record.id == to_record.id || !search.path.is_empty();
+			let complete = search_complete(&search, rule.min_coverage);
+			record_coverage_reason(&mut outcome, &search, rule.min_coverage);
+			outcome.absorb(search);
+			source_complete &= complete;
+			if !connected {
+				continue;
+			}
+			source_connected = true;
+
+			let Some(limits) = next_search_limits(&mut outcome, rule) else {
+				outcome.verdict = Some(RuleVerdict::Inconclusive);
+				return outcome;
+			};
+			outcome.evaluated_pairs += 1;
+			let Some(bypass) = engine.search(BoundedPathRequest {
+				from: from_record.id,
+				to: to_record.id,
+				relations: &rule.relation,
+				avoid: &avoid,
+				limits,
+				scope,
+			}) else {
+				outcome.reasons.insert("path_index_unavailable".to_string());
+				source_complete = false;
+				continue;
+			};
+			let bypass_found = from_record.id == to_record.id || !bypass.path.is_empty();
+			let complete = search_complete(&bypass, rule.min_coverage);
+			record_coverage_reason(&mut outcome, &bypass, rule.min_coverage);
+			if bypass_found {
+				outcome.witness = bypass.path.clone();
+			}
+			outcome.absorb(bypass);
+			source_complete &= complete;
+			if bypass_found {
+				outcome.found = true;
+				outcome.reasons.insert("path_bypasses_via".to_string());
+				outcome.verdict = Some(RuleVerdict::Fail);
+				return outcome;
+			}
+		}
+		if !source_connected {
+			outcome
+				.reasons
+				.insert("source_cannot_reach_target".to_string());
+			outcome.anchor = Some(from_ordinal);
+			outcome.witness.clear();
+			outcome.verdict = Some(if source_complete {
+				RuleVerdict::Fail
+			} else {
+				RuleVerdict::Inconclusive
+			});
+			return outcome;
+		}
+		outcome.incomplete |= !source_complete;
+	}
+	outcome.verdict = Some(if outcome.incomplete {
+		RuleVerdict::Inconclusive
+	} else {
+		RuleVerdict::Pass
+	});
+	outcome
+}
+
+fn next_search_limits(
+	outcome: &mut PathOutcome,
+	rule: &CompiledWorkspacePathRule,
+) -> Option<BoundedPathLimits> {
+	if outcome.evaluated_pairs >= rule.max_pairs {
+		outcome.pair_limit_reached = true;
+		outcome.reasons.insert("pair_limit".to_string());
+		return None;
+	}
+	if outcome.explored_symbols >= rule.limits.max_symbols {
+		outcome.symbol_limit_reached = true;
+		outcome.reasons.insert("symbol_limit".to_string());
+		return None;
+	}
+	if outcome.coverage.total >= rule.limits.max_edges {
+		outcome.edge_limit_reached = true;
+		outcome.reasons.insert("edge_limit".to_string());
+		return None;
+	}
+	Some(BoundedPathLimits {
+		max_depth: rule.limits.max_depth,
+		max_symbols: rule.limits.max_symbols - outcome.explored_symbols,
+		max_edges: rule.limits.max_edges - outcome.coverage.total,
+	})
+}
+
+fn record_coverage_reason(
+	outcome: &mut PathOutcome,
+	search: &code_moniker_workspace::snapshot::BoundedPathSearch,
+	min_coverage: usize,
+) {
+	if search.coverage.percent() < min_coverage {
+		outcome
+			.reasons
+			.insert("coverage_below_threshold".to_string());
+	}
+}
+
 fn search_complete(
 	search: &code_moniker_workspace::snapshot::BoundedPathSearch,
 	min_coverage: usize,
@@ -323,6 +533,7 @@ struct PathOutcome {
 	pair_limit_reached: bool,
 	reasons: BTreeSet<String>,
 	witness: Vec<BoundedPathEdge>,
+	anchor: Option<SymbolOrdinal>,
 }
 
 impl PathOutcome {
@@ -330,6 +541,14 @@ impl PathOutcome {
 		Self {
 			verdict: Some(RuleVerdict::Inconclusive),
 			incomplete: true,
+			reasons: std::iter::once(reason.to_string()).collect(),
+			..Self::default()
+		}
+	}
+
+	fn failed(reason: &str) -> Self {
+		Self {
+			verdict: Some(RuleVerdict::Fail),
 			reasons: std::iter::once(reason.to_string()).collect(),
 			..Self::default()
 		}
@@ -367,6 +586,7 @@ impl PathOutcome {
 			match expect {
 				WorkspacePathExpectation::Reachable => RuleVerdict::Pass,
 				WorkspacePathExpectation::NoPath => RuleVerdict::Fail,
+				WorkspacePathExpectation::AllPathsVia => RuleVerdict::Pass,
 			}
 		} else if self.incomplete {
 			RuleVerdict::Inconclusive
@@ -374,6 +594,7 @@ impl PathOutcome {
 			match expect {
 				WorkspacePathExpectation::Reachable => RuleVerdict::Fail,
 				WorkspacePathExpectation::NoPath => RuleVerdict::Pass,
+				WorkspacePathExpectation::AllPathsVia => RuleVerdict::Fail,
 			}
 		});
 		self
@@ -397,13 +618,21 @@ fn add_coverage(total: &mut BoundedPathCoverage, next: BoundedPathCoverage) {
 fn path_anchor(
 	index: &CodeIndex,
 	outcome: &PathOutcome,
-	from: &SymbolSet,
+	selections: PathSelections<'_>,
+	universe: &SymbolSet,
 ) -> Option<SymbolOrdinal> {
 	outcome
-		.witness
-		.first()
-		.and_then(|edge| index.inventory.catalog().ordinal(&edge.source))
-		.or_else(|| from.iter().next())
+		.anchor
+		.or_else(|| {
+			outcome
+				.witness
+				.first()
+				.and_then(|edge| index.inventory.catalog().ordinal(&edge.source))
+		})
+		.or_else(|| selections.from.iter().next())
+		.or_else(|| selections.to.iter().next())
+		.or_else(|| selections.via.iter().next())
+		.or_else(|| universe.iter().next())
 }
 
 fn append_violation(
@@ -450,6 +679,7 @@ fn path_report(
 	rule: &CompiledWorkspacePathRule,
 	from_count: usize,
 	to_count: usize,
+	via_count: usize,
 	outcome: PathOutcome,
 	witness: Vec<RulePathStep>,
 ) -> RuleReport {
@@ -494,6 +724,7 @@ fn path_report(
 			min_coverage: rule.min_coverage,
 			source_symbols: from_count,
 			target_symbols: to_count,
+			via_symbols: via_count,
 			evaluated_pairs: outcome.evaluated_pairs,
 			explored_symbols: outcome.explored_symbols,
 			explored_edges: outcome.explored_edges,
@@ -546,6 +777,19 @@ fn expectation_name(expect: WorkspacePathExpectation) -> &'static str {
 	match expect {
 		WorkspacePathExpectation::Reachable => "reachable",
 		WorkspacePathExpectation::NoPath => "no_path",
+		WorkspacePathExpectation::AllPathsVia => "all_paths_via",
+	}
+}
+
+fn render_path_expr(
+	expect: WorkspacePathExpectation,
+	from: &str,
+	to: &str,
+	via: Option<&str>,
+) -> String {
+	match via {
+		Some(via) => format!("{}({from} -> {to} via {via})", expectation_name(expect)),
+		None => format!("{}({from} -> {to})", expectation_name(expect)),
 	}
 }
 

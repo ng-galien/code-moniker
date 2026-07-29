@@ -146,6 +146,10 @@ pub struct WorkspacePathRuleEntry {
 	pub from: String,
 	pub to: String,
 	pub expect: WorkspacePathExpectation,
+	#[serde(default)]
+	pub via: Option<String>,
+	#[serde(default)]
+	pub require_non_empty: bool,
 	#[serde(default = "default_path_relations")]
 	pub relation: Vec<String>,
 	#[serde(default = "default_path_max_depth")]
@@ -171,6 +175,7 @@ pub struct WorkspacePathRuleEntry {
 pub enum WorkspacePathExpectation {
 	Reachable,
 	NoPath,
+	AllPathsVia,
 }
 
 fn default_path_relations() -> Vec<String> {
@@ -851,6 +856,12 @@ fn validate_workspace_path(rule: &WorkspacePathRuleEntry, index: usize) -> Resul
 		Some("`from` must not be empty".to_string())
 	} else if rule.to.trim().is_empty() {
 		Some("`to` must not be empty".to_string())
+	} else if rule.expect == WorkspacePathExpectation::AllPathsVia
+		&& rule.via.as_deref().is_none_or(|via| via.trim().is_empty())
+	{
+		Some("`via` is required and must not be empty for `all_paths_via`".to_string())
+	} else if rule.expect != WorkspacePathExpectation::AllPathsVia && rule.via.is_some() {
+		Some("`via` is only valid for `all_paths_via`".to_string())
 	} else if rule.max_depth > 64 {
 		Some("`max_depth` must be at most 64".to_string())
 	} else if !(1..=100_000).contains(&rule.max_symbols) {
@@ -1354,6 +1365,7 @@ mod tests {
 			from = "name = 'service'"
 			to = "name = 'repository'"
 			expect = "reachable"
+			require_non_empty = true
 			relation = ["calls", "method_call"]
 			max_depth = 8
 			max_symbols = 2000
@@ -1369,12 +1381,51 @@ mod tests {
 		let rule = &cfg.workspace.path[0];
 		assert_eq!(rule.id.as_deref(), Some("service-reaches-repository"));
 		assert_eq!(rule.expect, WorkspacePathExpectation::Reachable);
+		assert!(rule.require_non_empty);
 		assert_eq!(rule.relation, ["calls", "method_call"]);
 		assert_eq!(rule.max_depth, 8);
 		assert_eq!(rule.max_symbols, 2000);
 		assert_eq!(rule.max_edges, 4000);
 		assert_eq!(rule.max_pairs, 500);
 		assert_eq!(rule.min_coverage, Some(95));
+	}
+
+	#[test]
+	fn all_paths_via_requires_an_exclusive_via_selector() {
+		let missing = load_from_str(
+			r#"
+			[[workspace.path]]
+			id = "boundary"
+			from = "name = 'entry'"
+			to = "name = 'sink'"
+			expect = "all_paths_via"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect_err("all_paths_via without via must fail");
+		assert!(
+			missing.to_string().contains("`via` is required"),
+			"{missing}"
+		);
+
+		let unexpected = load_from_str(
+			r#"
+			[[workspace.path]]
+			id = "boundary"
+			from = "name = 'entry'"
+			to = "name = 'sink'"
+			via = "name = 'boundary'"
+			expect = "reachable"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect_err("via on reachable must fail");
+		assert!(
+			unexpected.to_string().contains("`via` is only valid"),
+			"{unexpected}"
+		);
 	}
 
 	#[test]

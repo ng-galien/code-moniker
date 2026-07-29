@@ -63,6 +63,12 @@ rust_test_caller = """
   OR source ~ '**/dir:crates/dir:cli/dir:src/module:ui/module:acceptance/**'
   OR source ~ '**/dir:crates/dir:check/dir:src/module:check/module:expr/module:/^(snapshots|fuzz)$/**'
 """
+mcp_tool_contract = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^output_contract"
+mcp_tool_input_schema = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^input_schema"
+mcp_registry_output = "kind = 'method' AND name =~ ^(call|finalize_error) AND uri ~ '**/module:mcp/module:tools/struct:ToolRegistry/**'"
+mcp_output_finalize = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
+mcp_compact_renderer = "kind = 'fn' AND name =~ ^compact_response_monikers AND uri ~ '**/module:mcp/module:tools/module:common/**'"
+mcp_budget_renderer = "kind = 'fn' AND name =~ ^apply_output_budget AND uri ~ '**/module:mcp/module:tools/module:common/**'"
 
 [exclude]
 uris = [
@@ -75,6 +81,102 @@ enable = [".*"]
 
 [profiles.smells]
 enable = ["\\.smell-"]
+
+# ─── Agent output boundary ──────────────────────────────────────────────
+
+[[workspace.path]]
+id        = "mcp-compaction-owned-by-output-boundary"
+severity  = "error"
+from      = "$mcp_registry_output"
+to        = "$mcp_compact_renderer"
+via       = "$mcp_output_finalize"
+expect    = "all_paths_via"
+require_non_empty = true
+relation  = ["calls", "method_call"]
+max_depth = 8
+max_symbols = 200
+max_edges = 500
+max_pairs = 20
+min_coverage = 30
+message   = "MCP compaction bypasses `OutputContract::finalize`: {path}"
+rationale = """
+Agent-facing responses are compact by default. Every registry path to the moniker
+compactor must cross the single output boundary so individual MCP tools cannot drift
+into mixed URI formats or apply transformations in a different order.
+"""
+
+[[workspace.path]]
+id        = "mcp-budget-owned-by-output-boundary"
+severity  = "error"
+from      = "$mcp_registry_output"
+to        = "$mcp_budget_renderer"
+via       = "$mcp_output_finalize"
+expect    = "all_paths_via"
+require_non_empty = true
+relation  = ["calls", "method_call"]
+max_depth = 8
+max_symbols = 200
+max_edges = 500
+max_pairs = 20
+min_coverage = 30
+message   = "MCP output budgeting bypasses `OutputContract::finalize`: {path}"
+rationale = """
+The hard response ceiling belongs to the same boundary as compaction. Central ownership
+keeps the public schema, validation, transformation order, and truncation behavior aligned.
+"""
+
+[[rust.shape.callable.where]]
+id        = "mcp-output-finalizer-applies-compact-before-budget"
+severity  = "error"
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^finalize) OR text =~ '(?s)compact_response_monikers.*apply_output_budget'"
+message   = "`OutputContract::finalize` must apply moniker compaction before the hard output budget."
+rationale = "The boundary contract is incomplete if either transformation disappears or their order is reversed."
+
+[[rust.shape.callable.where]]
+id        = "mcp-output-contract-publishes-agent-options"
+severity  = "error"
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^decorates_schema) OR (any(out_refs, kind = 'calls' AND target.name = 'add_compact_output_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_output_budget_schema'))"
+message   = "`OutputContract` must publish compact and hard-budget options for agent-facing tools."
+rationale = "The public MCP contract must expose the token-economy controls from the same central boundary."
+
+[[rust.shape.callable.where]]
+id        = "mcp-output-contract-validates-agent-options"
+severity  = "error"
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^validate_arguments) OR (any(out_refs, kind = 'calls' AND target.name = 'compact_argument') AND any(out_refs, kind = 'calls' AND target.name = 'validate_output_budget'))"
+message   = "`OutputContract` must validate compact and hard-budget arguments before tool execution."
+rationale = "Central schema ownership is incomplete if individual tools can receive unchecked transport options."
+
+[[rust.shape.callable.where]]
+id        = "mcp-agent-tools-declare-agent-output-contract"
+severity  = "error"
+expr      = "NOT $mcp_tool_contract OR parent.name =~ ^(McpTool|RefreshTool)$ OR text =~ 'OutputContract::Agent'"
+message   = "Every agent-facing MCP tool must explicitly return `OutputContract::Agent`."
+rationale = """
+The trait makes the decision explicit for every tool, while this open selector prevents
+existing and newly added tools from opting out through the plain contract. Refresh is the
+only explicit exception because it returns a small operational acknowledgement.
+"""
+
+[[rust.shape.callable.where]]
+id        = "mcp-tool-schemas-do-not-own-output-contract-options"
+severity  = "error"
+expr      = "NOT $mcp_tool_input_schema OR text !~ '\"(compact|budget|max_chars)\"\\s*:'"
+message   = "Per-tool schemas must not redeclare `compact`, `budget`, or `max_chars`; `OutputContract` owns them."
+rationale = "One schema owner prevents new or renamed MCP tools from losing or redefining token-economy controls."
+
+[[refs.where]]
+id        = "mcp-tools-do-not-bypass-output-finalizer"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = 'compact_response_monikers') OR $rust_test_caller OR source.name =~ ^finalize"
+message   = "Production code may call `compact_response_monikers` only from `OutputContract::finalize`."
+rationale = "Distributed renderer calls recreate mixed canonical and compact URI output."
+
+[[refs.where]]
+id        = "mcp-tools-do-not-bypass-output-budget"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = 'apply_output_budget') OR $rust_test_caller OR source.name =~ ^finalize"
+message   = "Production code may call `apply_output_budget` only from `OutputContract::finalize`."
+rationale = "Distributed budgeting creates inconsistent ceilings and allows error paths to escape the public contract."
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the

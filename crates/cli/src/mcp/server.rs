@@ -125,23 +125,22 @@ impl ServerHandler for CodeMonikerMcp {
 					"repeat an MCP exploration with direct queries. Start with ",
 					"code_moniker_read uri:\"workspace\" and expected_roots set to the current ",
 					"absolute workspace roots for a fail-closed overview, or ",
-					"code_moniker_symbols to find a symbol and obtain its exact URI. ",
-					"Never guess a URI. By default budget=small and compact=true: every tool ",
-					"has a hard response ceiling, and repeated canonical monikers ",
-					"in descriptive data may be declared once under aliases and referenced ",
-					"as @N. Each alias is local to that single response: it is not stored by ",
-					"the server, is invalid as a tool argument, and must never be reused in a ",
-					"later response. Generated tool calls always keep canonical URIs and can ",
-					"be copied verbatim. When composing a call from aliased data, resolve @N ",
-					"through that response's aliases section first. Set compact=false for ",
-					"canonical verbose data and additional guided follow-up calls. ",
+					"code_moniker_symbols to find a symbol and obtain its compact moniker. ",
+					"Never guess a moniker. By default budget=small and compact=true: every tool ",
+					"has a hard response ceiling, and canonical symbol URIs in descriptive data ",
+					"are rendered in the existing compact moniker form, for example ",
+					"rs:crates/cli/src/mcp.tools.fn:run(). Compact monikers returned by the ",
+					"server can be passed directly to symbol tools; canonical URIs and symbol ",
+					"ids remain accepted. Generated tool calls keep canonical URIs and can be ",
+					"copied verbatim. Set compact=false for canonical verbose data and ",
+					"additional guided follow-up calls. ",
 					"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
-					"canonical URI to code_moniker_usages when needed. ",
+					"compact moniker to code_moniker_usages when needed. ",
 					"Prefer scoped filters and stop once the question is answered; paging, ",
 					"budget=full, code, and broader scopes are opt-in. Use code_moniker_query ",
 					"only for a read-only daemon capability not covered by an intent tool; ",
 					"query.describe exposes the live grammar, and queries batches up to four ",
-					"operations at one generation with one response-local alias table. ",
+					"operations at one generation. ",
 					"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
 					"coupling between scopes, or code_moniker_context once before a ",
 					"structural edit to combine graph, notes, applicable rules, local ",
@@ -200,6 +199,23 @@ async fn dispatch_tool_call(
 	tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
 	let (name, arguments, result) = tokio::task::spawn_blocking(move || {
 		let result = registry.call(&context, &name, &arguments);
+		let result = match result {
+			Err(error) if !error.is_unknown_tool() => {
+				let uri = arguments
+					.get("uri")
+					.and_then(Value::as_str)
+					.unwrap_or("workspace");
+				registry
+					.finalize_error(
+						&name,
+						&arguments,
+						problem_lmnav(uri, &name, &error.to_string()),
+					)
+					.map(Ok)
+					.unwrap_or(Err(error))
+			}
+			result => result,
+		};
 		(name, arguments, result)
 	})
 	.await
@@ -261,4 +277,32 @@ fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
 	format!(
 		"uri: {uri}\ncompleteness: partial (error)\n\nproblem: {message}\nwhere: {tool}\nfix_hint: {fix_hint}\n"
 	)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn known_tool_errors_cross_the_agent_output_boundary() {
+		let uri = "x".repeat(1_500);
+		let arguments = serde_json::json!({
+			"uri": uri,
+			"max_chars": 1_000
+		});
+		let result = ToolRegistry::new()
+			.finalize_error(
+				"code_moniker_read",
+				&arguments,
+				problem_lmnav(&uri, "code_moniker_read", "symbol not found"),
+			)
+			.expect("known tool contract");
+		let response = call_result("code_moniker_read", &arguments, Ok(result));
+		let response = serde_json::to_value(response).expect("serialize call result");
+		let text = response["content"][0]["text"].as_str().expect("error text");
+
+		assert_eq!(response["isError"].as_bool(), Some(true));
+		assert!(text.chars().count() <= 1_000, "{}", text.chars().count());
+		assert!(text.contains("truncated_by: max_chars"), "{text}");
+	}
 }

@@ -14,7 +14,7 @@ use super::scope::{
 	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg, path_prefix,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
 use crate::mcp::context::McpContext;
 use crate::views::{self, MonikerDisplay};
@@ -29,13 +29,13 @@ impl ReadTool {
 
 	const DESCRIPTION: &'static str = concat!(
 		"When to use: default entry point to explore the current code-moniker UI workspace. ",
-		"The same verb starts at the workspace root, expands an explorer tree, or reads code from an exact symbol URI.\n",
+		"The same verb starts at the workspace root, expands an explorer tree, or reads code from a returned symbol moniker.\n",
 		"\n",
 		"Read from code-moniker.\n",
 		"  workspace                — workspace summary, language vocabulary, concentration indicators, and explorer page; expected_roots is required\n",
 		"  workspace/views          — project-defined contextual views for agents\n",
 		"  code+moniker://workspace — same root with an explicit URI\n",
-		"  code+moniker://...       — symbol URI returned by code_moniker_symbols; reads the source slice around that symbol\n",
+		"  <compact-or-canonical>   — moniker returned by code_moniker_symbols; reads the source slice around that symbol\n",
 		"Use path/lang to scope discovery, depth to expand the explorer, limit/cursor for paging, and moniker_format when a view should expose resolved monikers. Pair with code_moniker_symbols when you need symbol rows."
 	);
 
@@ -45,7 +45,7 @@ impl ReadTool {
 			"properties": {
 				"uri": {
 					"type": "string",
-					"description": "workspace | code+moniker://workspace | exact symbol URI returned by code_moniker_symbols"
+					"description": "workspace | code+moniker://workspace | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols"
 				},
 				"depth": {
 					"type": "integer",
@@ -98,11 +98,6 @@ impl ReadTool {
 						{ "type": "array", "items": { "type": "string" }, "minItems": 1 }
 					],
 					"description": "Canonical workspace root(s) expected by the client. Workspace reads fail with workspace_mismatch unless the server is bound to exactly this set."
-				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
 				}
 			},
 			"additionalProperties": false
@@ -119,13 +114,13 @@ impl McpTool for ReadTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = ReadRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = read_resource(context, &request).map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		read_resource(context, &request).map_err(ToolError::failed)
 	}
 }
 
@@ -204,7 +199,7 @@ fn read_bool_argument(arguments: &Value, key: &str, default: bool) -> bool {
 		.unwrap_or(default)
 }
 
-fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<String> {
+fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
 	if is_workspace_uri(&request.uri, context.scheme(), DEFAULT_READ_URI) {
 		let expected_roots = request.expected_roots.as_deref().ok_or_else(|| {
 			anyhow::anyhow!(
@@ -219,7 +214,8 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			&request.scope,
 			request.paging,
 			request.compact,
-		);
+		)
+		.map(ToolResult::success);
 	}
 	if views::is_views_uri(&request.uri, context.scheme()) {
 		return read_view(
@@ -229,7 +225,8 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			request.include_code,
 			request.moniker_display,
 			request.compact,
-		);
+		)
+		.map(ToolResult::success);
 	}
 	read_symbol(
 		context,
@@ -278,7 +275,7 @@ fn read_symbol(
 	uri: &str,
 	context_lines: usize,
 	compact: bool,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ToolResult> {
 	let response = context.query_refreshed(
 		Query::SymbolDetail(code_moniker_query::SymbolDetailQuery {
 			workspace: None,
@@ -290,11 +287,12 @@ fn read_symbol(
 	let QueryResult::SymbolDetail(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for symbol read");
 	};
-	Ok(render_daemon_symbol_source_lmnav(
+	Ok(ToolResult::success(render_daemon_symbol_source_lmnav(
 		context.scheme(),
 		&result,
 		compact,
 	))
+	.with_monikers([result.symbol.uri.as_str()]))
 }
 
 fn read_view(

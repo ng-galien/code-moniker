@@ -401,3 +401,337 @@ fn one_shot_suppression_realigns_workspace_path_report() {
 	assert_eq!(report.violations, 0);
 	assert_eq!(report.verdict, Some(RuleVerdict::Pass));
 }
+
+const ALL_PATHS_VIA_RULES: &str = r#"
+default_rules = false
+
+[[workspace.path]]
+id = "protected-through-boundary"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^protected_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+
+[[workspace.path]]
+id = "bypassing-through-boundary"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^bypassing_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+
+[[workspace.path]]
+id = "proof-budget-exhausted"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^protected_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 1
+min_coverage = 100
+
+[[workspace.path]]
+id = "disconnected-target"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^protected_entry"
+to = "shape = 'callable' AND name =~ ^unreachable"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+
+[[workspace.path]]
+id = "symbol-budget-exhausted"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^protected_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 3
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+
+[[workspace.path]]
+id = "overlapping-boundary"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^protected_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^protected_entry"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+"#;
+
+#[test]
+fn all_paths_via_proves_the_boundary_and_reports_a_bypass() {
+	let fixture = tempfile::tempdir().expect("workspace fixture");
+	write(
+		fixture.path(),
+		"src/lib.rs",
+		r#"
+pub fn protected_entry() { boundary(); }
+pub fn bypassing_entry() { boundary(); sink(); }
+fn boundary() { sink(); }
+fn sink() {}
+fn unreachable() {}
+"#,
+	);
+	let rules = fixture.path().join(".code-moniker.toml");
+	fs::write(&rules, ALL_PATHS_VIA_RULES).expect("rules");
+
+	let run = CheckRequest::new(
+		fixture.path(),
+		RuleSetRequest::with_rules(&rules, SCHEME)
+			.with_default_rules(DefaultRulesSelection::Disabled),
+	)
+	.with_report(true)
+	.run()
+	.expect("all-paths-via check");
+	assert!(run.errors.is_empty(), "{:?}", run.errors);
+	let reports = run
+		.reports
+		.iter()
+		.flat_map(|file| &file.rule_reports)
+		.collect::<Vec<_>>();
+	let protected = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.protected-through-boundary")
+		.expect("protected report");
+	assert_eq!(protected.verdict, Some(RuleVerdict::Pass), "{protected:?}");
+	assert_eq!(
+		protected.path.as_ref().map(|path| path.via_symbols),
+		Some(1)
+	);
+	let bypassing = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.bypassing-through-boundary")
+		.expect("bypassing report");
+	assert_eq!(bypassing.verdict, Some(RuleVerdict::Fail), "{bypassing:?}");
+	let path = bypassing.path.as_ref().expect("bypass path");
+	assert_eq!(path.witness.len(), 1, "{path:?}");
+	assert!(
+		path.reasons
+			.iter()
+			.any(|reason| reason == "path_bypasses_via"),
+		"{path:?}"
+	);
+	let exhausted = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.proof-budget-exhausted")
+		.expect("proof budget report");
+	assert_eq!(
+		exhausted.verdict,
+		Some(RuleVerdict::Inconclusive),
+		"{exhausted:?}"
+	);
+	assert!(
+		exhausted
+			.path
+			.as_ref()
+			.is_some_and(|path| path.pair_limit_reached
+				&& path.reasons.iter().any(|reason| reason == "pair_limit")),
+		"{exhausted:?}"
+	);
+	let disconnected = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.disconnected-target")
+		.expect("disconnected report");
+	assert_eq!(
+		disconnected.verdict,
+		Some(RuleVerdict::Fail),
+		"{disconnected:?}"
+	);
+	assert!(
+		disconnected.path.as_ref().is_some_and(|path| path
+			.reasons
+			.iter()
+			.any(|reason| reason == "source_cannot_reach_target")),
+		"{disconnected:?}"
+	);
+	let symbol_exhausted = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.symbol-budget-exhausted")
+		.expect("symbol budget report");
+	assert_eq!(
+		symbol_exhausted.verdict,
+		Some(RuleVerdict::Inconclusive),
+		"{symbol_exhausted:?}"
+	);
+	assert!(
+		symbol_exhausted
+			.path
+			.as_ref()
+			.is_some_and(|path| path.symbol_limit_reached
+				&& path.reasons.iter().any(|reason| reason == "symbol_limit")),
+		"{symbol_exhausted:?}"
+	);
+	let overlap = reports
+		.iter()
+		.find(|report| report.rule_id == "workspace.path.overlapping-boundary")
+		.expect("overlap report");
+	assert_eq!(
+		overlap.verdict,
+		Some(RuleVerdict::Inconclusive),
+		"{overlap:?}"
+	);
+	assert!(
+		overlap.path.as_ref().is_some_and(|path| path
+			.reasons
+			.iter()
+			.any(|reason| reason == "via_overlaps_endpoint")),
+		"{overlap:?}"
+	);
+}
+
+#[test]
+fn all_paths_via_anchors_a_disconnected_later_source() {
+	let fixture = tempfile::tempdir().expect("workspace fixture");
+	write(
+		fixture.path(),
+		"src/lib.rs",
+		r#"
+pub fn connected_source() { boundary(); }
+pub fn disconnected_source() {}
+fn boundary() { sink(); }
+fn sink() {}
+"#,
+	);
+	let rules = fixture.path().join(".code-moniker.toml");
+	fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[workspace.path]]
+id = "sources-cross-boundary"
+severity = "warn"
+from = "shape = 'callable' AND name =~ source"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+relation = ["calls"]
+max_depth = 4
+max_symbols = 100
+max_edges = 100
+max_pairs = 20
+min_coverage = 100
+"#,
+	)
+	.expect("rules");
+
+	let run = CheckRequest::new(
+		fixture.path(),
+		RuleSetRequest::with_rules(&rules, SCHEME)
+			.with_default_rules(DefaultRulesSelection::Disabled),
+	)
+	.with_report(true)
+	.run()
+	.expect("multi-source boundary check");
+	let violation = run
+		.file_violations()
+		.map(|(_, violation)| violation)
+		.find(|violation| violation.rule_id == "workspace.path.sources-cross-boundary")
+		.expect("disconnected source violation");
+	assert!(
+		violation.moniker.contains("fn:disconnected_source"),
+		"{violation:?}"
+	);
+	let report = run
+		.reports
+		.iter()
+		.flat_map(|file| &file.rule_reports)
+		.find(|report| report.rule_id == "workspace.path.sources-cross-boundary")
+		.expect("path report");
+	assert_eq!(report.verdict, Some(RuleVerdict::Fail), "{report:?}");
+	assert!(
+		report
+			.path
+			.as_ref()
+			.is_some_and(|path| path.witness.is_empty()),
+		"{report:?}"
+	);
+}
+
+#[test]
+fn required_path_selectors_fail_closed_when_empty() {
+	let fixture = tempfile::tempdir().expect("workspace fixture");
+	write(
+		fixture.path(),
+		"src/lib.rs",
+		"fn boundary() { sink(); }\nfn sink() {}\n",
+	);
+	let rules = fixture.path().join(".code-moniker.toml");
+	fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[workspace.path]]
+id = "missing-entry"
+severity = "warn"
+from = "shape = 'callable' AND name =~ ^renamed_entry"
+to = "shape = 'callable' AND name =~ ^sink"
+via = "shape = 'callable' AND name =~ ^boundary"
+expect = "all_paths_via"
+require_non_empty = true
+relation = ["calls"]
+"#,
+	)
+	.expect("rules");
+
+	let run = CheckRequest::new(
+		fixture.path(),
+		RuleSetRequest::with_rules(&rules, SCHEME)
+			.with_default_rules(DefaultRulesSelection::Disabled),
+	)
+	.with_report(true)
+	.run()
+	.expect("required selector check");
+	assert!(
+		run.file_violations()
+			.any(|(_, violation)| violation.rule_id == "workspace.path.missing-entry"),
+		"{run:?}"
+	);
+	let report = run
+		.reports
+		.iter()
+		.flat_map(|file| &file.rule_reports)
+		.find(|report| report.rule_id == "workspace.path.missing-entry")
+		.expect("path report");
+	assert_eq!(report.verdict, Some(RuleVerdict::Fail), "{report:?}");
+	assert!(
+		report.path.as_ref().is_some_and(|path| path
+			.reasons
+			.iter()
+			.any(|reason| reason == "empty_source_selector")),
+		"{report:?}"
+	);
+}

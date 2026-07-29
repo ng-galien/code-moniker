@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use code_moniker_query::{
 	Query, QueryResult, SymbolUsagesQuery, SymbolUsagesResult, UsageDto, UsageSummaryDto,
 };
+use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::snapshot::{
 	LinkageSnapshot, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
 	SymbolRecord,
@@ -10,14 +11,13 @@ use code_moniker_workspace::snapshot::{
 use serde_json::{Value, json};
 
 use super::common::{
-	apply_response_aliases, compact_argument, is_workspace_uri, line_range_suffix,
-	sorted_count_rows, symbol_line_suffix,
+	compact_argument, is_workspace_uri, line_range_suffix, sorted_count_rows, symbol_line_suffix,
 };
 use super::scope::{
 	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg, path_prefix,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 mod compact;
@@ -52,17 +52,12 @@ impl UsagesTool {
 			"properties": {
 				"uri": {
 					"type": "string",
-					"description": "Exact symbol URI or symbol id returned by code_moniker_symbols."
+					"description": "Compact moniker, canonical URI, or symbol id returned by code_moniker_symbols."
 				},
 				"direction": {
 					"type": "string",
 					"enum": ["incoming", "outgoing", "both"],
 					"description": "Usage direction to render."
-				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use response-local moniker aliases, one-line facts, and minimal next calls. Defaults true; false preserves canonical verbose output."
 				},
 				"evidence": {
 					"type": "string",
@@ -130,13 +125,13 @@ impl McpTool for UsagesTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = UsageRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = read_usages(context, &request).map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		read_usages(context, &request).map_err(ToolError::failed)
 	}
 }
 
@@ -290,9 +285,9 @@ impl UsageDirection {
 	}
 }
 
-fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<String> {
+fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<ToolResult> {
 	if is_workspace_uri(&request.uri, context.scheme(), "workspace") {
-		anyhow::bail!("usage reads require an exact symbol URI returned by code_moniker_symbols");
+		anyhow::bail!("usage reads require a symbol moniker returned by code_moniker_symbols");
 	}
 	let response = context.query_refreshed(
 		Query::SymbolUsages(SymbolUsagesQuery {
@@ -312,12 +307,14 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 	let QueryResult::SymbolUsages(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for usages");
 	};
-	Ok(render_daemon_usages_lmnav(
+	let candidates = usage_dto_monikers(&result.target.uri, &result.rows);
+	Ok(ToolResult::success(render_daemon_usages_lmnav(
 		context,
 		request,
 		response.next_cursor.as_ref(),
 		&result,
 	))
+	.with_monikers(candidates))
 }
 
 pub(in crate::mcp) struct UsageQuery<'a> {
@@ -400,8 +397,7 @@ fn render_daemon_usages_lmnav(
 		render_daemon_usage_rows(&mut output, &result.rows, false);
 	}
 	render_daemon_usage_next(&mut output, scheme, request, next_cursor, result);
-	let candidates = usage_dto_alias_candidates(&result.target.uri, &result.rows);
-	apply_response_aliases(output, request.compact, candidates)
+	output
 }
 
 fn render_daemon_usage_next(
@@ -603,7 +599,7 @@ fn render_compact_daemon_usage_row(output: &mut String, row: &UsageDto) {
 	output.push('\n');
 }
 
-fn usage_dto_alias_candidates<'a>(target: &'a str, rows: &'a [UsageDto]) -> Vec<&'a str> {
+fn usage_dto_monikers<'a>(target: &'a str, rows: &'a [UsageDto]) -> Vec<&'a str> {
 	let mut candidates = vec![target];
 	for row in rows {
 		candidates.push(&row.context);
@@ -782,8 +778,7 @@ pub(in crate::mcp) fn render_usages_lmnav_mode(
 			},
 		);
 	}
-	let candidates = usage_row_alias_candidates(target.identity.as_ref(), &rows[start..end]);
-	Ok(apply_response_aliases(output, compact, candidates))
+	Ok(output)
 }
 
 fn render_target(output: &mut String, lookup: &UsageLookup<'_>, target: &SymbolRecord) {
@@ -869,18 +864,6 @@ fn render_compact_usage_row(output: &mut String, row: &UsageRow) {
 		output.pop();
 	}
 	output.push('\n');
-}
-
-fn usage_row_alias_candidates<'a>(target: &'a str, rows: &'a [UsageRow]) -> Vec<&'a str> {
-	let mut candidates = vec![target];
-	for row in rows {
-		candidates.push(&row.context);
-		candidates.push(&row.endpoint);
-		if let Some(via) = row.via.as_deref().and_then(via_moniker) {
-			candidates.push(via);
-		}
-	}
-	candidates
 }
 
 fn collect_incoming_rows(
@@ -1260,8 +1243,18 @@ impl<'a> UsageLookup<'a> {
 
 	fn find_symbol(&self, uri: &str) -> Option<&'a SymbolRecord> {
 		self.symbols_by_identity.get(uri).copied().or_else(|| {
-			let id = SymbolId::parse(uri)?;
-			self.symbols.get(&id).copied()
+			SymbolId::parse(uri)
+				.and_then(|id| self.symbols.get(&id).copied())
+				.or_else(|| {
+					self.symbols.values().copied().find(|symbol| {
+						let identity = symbol.identity.as_ref();
+						let scheme_end = identity.find("://").and_then(|end| end.checked_add(3));
+						scheme_end
+							.and_then(|end| identity.get(..end))
+							.and_then(|scheme| compact_identity(identity, scheme))
+							.as_deref() == Some(uri)
+					})
+				})
 		})
 	}
 

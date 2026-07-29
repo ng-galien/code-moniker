@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use code_moniker_workspace::code::compact_identity;
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
@@ -82,14 +83,15 @@ impl MonikerDisplay {
 		match self {
 			Self::None => None,
 			Self::Uri => Some(uri.to_string()),
-			Self::Compact => Some(
-				uri.strip_prefix("code+moniker://./")
-					.or_else(|| uri.strip_prefix("code+moniker://"))
-					.unwrap_or(uri)
-					.to_string(),
-			),
+			Self::Compact => Some(compact_uri(uri).unwrap_or_else(|| uri.to_string())),
 		}
 	}
+}
+
+fn compact_uri(uri: &str) -> Option<String> {
+	let scheme_end = uri.find("://")?.checked_add(3)?;
+	let scheme = uri.get(..scheme_end)?;
+	compact_identity(uri, scheme)
 }
 
 #[derive(Clone, Copy, Debug)]

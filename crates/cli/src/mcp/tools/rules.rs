@@ -11,7 +11,7 @@ use super::scope::{
 	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg, string_list,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use code_moniker_check::RuleSeverity;
 
 use crate::mcp::context::McpContext;
@@ -79,11 +79,6 @@ impl RulesTool {
 					"type": "boolean",
 					"description": "Include per-rule observability when action=run. Defaults true."
 				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
-				},
 				"limit": {
 					"type": "integer",
 					"minimum": 1,
@@ -109,17 +104,17 @@ impl McpTool for RulesTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = rules_request_from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = match request.action {
-			RulesAction::List => list_rules(context, &request),
+		match request.action {
+			RulesAction::List => list_rules(context, &request).map(ToolResult::success),
 			RulesAction::Run => run_rules(context, &request),
 		}
-		.map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		.map_err(ToolError::failed)
 	}
 }
 
@@ -267,7 +262,7 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 	Ok(output)
 }
 
-fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
+fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<ToolResult> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let response = context.query_refreshed(
 		Query::RulesCheck(RulesCheckQuery {
@@ -330,7 +325,13 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Str
 			None,
 		);
 	}
-	Ok(output)
+	let candidates = result
+		.rule_reports
+		.iter()
+		.filter_map(|report| report.path_analysis.as_ref())
+		.flat_map(|path| &path.witness)
+		.flat_map(|step| [step.source.as_str(), step.target.as_str()]);
+	Ok(ToolResult::success(output).with_monikers(candidates))
 }
 
 fn ensure_workspace_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
@@ -525,9 +526,12 @@ fn render_structural_rule_report(output: &mut String, report: &code_moniker_quer
 		return;
 	};
 	output.push_str(&format!(
-		"      path: expect={} relations={} pairs={} explored={} symbols/{} edges limits(depth={}, symbols={}, edges={}, pairs={})\n",
+		"      path: expect={} relations={} selectors={}/{}/{} pairs={} explored={} symbols/{} edges limits(depth={}, symbols={}, edges={}, pairs={})\n",
 		path.expectation,
 		path.relation.join(","),
+		path.source_symbols,
+		path.target_symbols,
+		path.via_symbols,
 		path.evaluated_pairs,
 		path.explored_symbols,
 		path.explored_edges,

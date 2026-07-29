@@ -370,9 +370,12 @@ fn write_path_report_text<W: Write>(
 ) -> std::io::Result<()> {
 	writeln!(
 		w,
-		"  path: expect={}, relations={}, pairs={}, explored={} symbols/{} edges, limits(depth={}, symbols={}, edges={}, pairs={})",
+		"  path: expect={}, relations={}, selectors={}/{}/{}, pairs={}, explored={} symbols/{} edges, limits(depth={}, symbols={}, edges={}, pairs={})",
 		path.expectation,
 		path.relation.join(","),
+		path.source_symbols,
+		path.target_symbols,
+		path.via_symbols,
 		path.evaluated_pairs,
 		path.explored_symbols,
 		path.explored_edges,

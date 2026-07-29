@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use code_moniker_workspace::code::compact_identity;
 use serde_json::Value;
 
 use code_moniker_workspace::snapshot::SymbolRecord;
@@ -33,6 +34,23 @@ pub(in crate::mcp) fn add_output_budget_schema(schema: &mut Value) {
 			"minimum": MIN_OUTPUT_CHARS,
 			"maximum": MAX_OUTPUT_CHARS,
 			"description": "Explicit hard character ceiling overriding budget."
+		}),
+	);
+}
+
+pub(in crate::mcp) fn add_compact_output_schema(schema: &mut Value) {
+	let Some(object) = schema.as_object_mut() else {
+		return;
+	};
+	let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) else {
+		return;
+	};
+	properties.insert(
+		"compact".to_string(),
+		serde_json::json!({
+			"type": "boolean",
+			"default": true,
+			"description": "Render compact agent output by default; false preserves canonical verbose output."
 		}),
 	);
 }
@@ -156,7 +174,7 @@ pub(in crate::mcp) fn compact_argument(arguments: &Value) -> anyhow::Result<bool
 	}
 }
 
-pub(in crate::mcp) fn apply_response_aliases<'a>(
+pub(in crate::mcp) fn compact_response_monikers<'a>(
 	output: String,
 	compact: bool,
 	candidates: impl IntoIterator<Item = &'a str>,
@@ -166,88 +184,47 @@ pub(in crate::mcp) fn apply_response_aliases<'a>(
 	}
 	let mut candidates = candidates
 		.into_iter()
-		.filter(|uri| uri.contains("+moniker://") && !uri.contains("://workspace"))
-		.map(ToOwned::to_owned)
+		.filter_map(|uri| compact_uri(uri).map(|compact| (uri.to_owned(), compact)))
 		.collect::<BTreeSet<_>>()
 		.into_iter()
 		.collect::<Vec<_>>();
-	candidates.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
-	let all_candidates = candidates.clone();
-
-	let (aliasable_output, protected_calls) = protect_generated_calls(&output);
-	let mut shadow = aliasable_output.clone();
-	let mut repeated = Vec::new();
-	for uri in candidates {
-		let escaped = escape_call_fragment(&uri);
-		let mut occurrences = shadow.matches(&uri).count();
-		if escaped != uri {
-			occurrences += shadow.matches(&escaped).count();
-			shadow = shadow.replace(&escaped, "");
-		}
-		shadow = shadow.replace(&uri, "");
-		if occurrences >= 2 && uri.len() >= 32 {
-			repeated.push(uri);
-		}
-	}
-	if repeated.is_empty() {
-		return output;
-	}
-
-	repeated.sort_by(|left, right| {
-		aliasable_output
-			.find(left)
-			.unwrap_or(usize::MAX)
-			.cmp(&aliasable_output.find(right).unwrap_or(usize::MAX))
-			.then_with(|| right.len().cmp(&left.len()))
+	candidates.sort_by(|left, right| {
+		right
+			.0
+			.len()
+			.cmp(&left.0.len())
+			.then_with(|| left.0.cmp(&right.0))
 	});
-	let aliases = repeated
-		.iter()
-		.enumerate()
-		.map(|(index, uri)| (uri.clone(), format!("@{}", index + 1)))
-		.collect::<BTreeMap<_, _>>();
 
-	let mut body = aliasable_output;
-	let mut protected = Vec::new();
-	for (index, uri) in all_candidates.into_iter().enumerate() {
+	let (mut body, protected_lines) = protect_opaque_lines(&output);
+	for (uri, compact) in candidates {
 		let escaped = escape_call_fragment(&uri);
-		if let Some(alias) = aliases.get(&uri) {
-			if escaped != uri {
-				body = body.replace(&escaped, alias);
-			}
-			body = body.replace(&uri, alias);
-			continue;
-		}
 		if escaped != uri {
-			let marker = format!("\u{1f}escaped:{index}\u{1f}");
-			body = body.replace(&escaped, &marker);
-			protected.push((marker, escaped));
+			body = body.replace(&escaped, &escape_call_fragment(&compact));
 		}
-		let marker = format!("\u{1f}raw:{index}\u{1f}");
-		body = body.replace(&uri, &marker);
-		protected.push((marker, uri));
+		body = body.replace(&uri, &compact);
 	}
-	for (marker, value) in protected {
-		body = body.replace(&marker, &value);
+	for (marker, line) in protected_lines {
+		body = body.replace(&marker, &line);
 	}
-	for (marker, call) in protected_calls {
-		body = body.replace(&marker, &call);
-	}
-
-	let mut compacted = String::from("aliases:\n");
-	for uri in repeated {
-		compacted.push_str(&format!("  {}: {uri}\n", aliases[&uri]));
-	}
-	compacted.push('\n');
-	compacted.push_str(&body);
-	compacted
+	body
 }
 
-fn protect_generated_calls(output: &str) -> (String, Vec<(String, String)>) {
+fn compact_uri(uri: &str) -> Option<String> {
+	if !uri.contains("+moniker://") || uri.contains("://workspace") {
+		return None;
+	}
+	let scheme_end = uri.find("://")?.checked_add(3)?;
+	let scheme = uri.get(..scheme_end)?;
+	compact_identity(uri, scheme)
+}
+
+fn protect_opaque_lines(output: &str) -> (String, Vec<(String, String)>) {
 	let mut body = String::with_capacity(output.len());
 	let mut protected = Vec::new();
 	for (index, line) in output.split_inclusive('\n').enumerate() {
-		if line.contains("code_moniker_") {
-			let marker = format!("\u{1e}call:{index}\u{1e}");
+		if is_generated_call_line(line) || is_source_line(line) {
+			let marker = format!("\u{1e}opaque:{index}\u{1e}");
 			body.push_str(&marker);
 			protected.push((marker, line.to_string()));
 		} else {
@@ -255,6 +232,22 @@ fn protect_generated_calls(output: &str) -> (String, Vec<(String, String)>) {
 		}
 	}
 	(body, protected)
+}
+
+fn is_source_line(line: &str) -> bool {
+	let line = line.trim_start();
+	let Some((number, _)) = line.split_once('|') else {
+		return false;
+	};
+	!number.is_empty() && number.trim_end().chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_generated_call_line(line: &str) -> bool {
+	let line = line.trim_start();
+	line.starts_with("- code_moniker_")
+		|| line
+			.split_once(": ")
+			.is_some_and(|(_, call)| call.starts_with("code_moniker_"))
 }
 
 fn escape_call_fragment(value: &str) -> String {
@@ -272,7 +265,7 @@ fn escape_call_fragment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::{
-		apply_output_budget, apply_response_aliases, compact_argument, validate_output_budget,
+		apply_output_budget, compact_argument, compact_response_monikers, validate_output_budget,
 	};
 	use serde_json::json;
 
@@ -316,32 +309,59 @@ mod tests {
 	}
 
 	#[test]
-	fn response_aliases_replace_repeated_monikers_without_state() {
+	fn compact_response_monikers_shorten_each_body_uri_and_preserve_calls() {
 		let parent = "code+moniker://./lang:rs/module:mcp/struct:Server";
 		let child = "code+moniker://./lang:rs/module:mcp/struct:Server/method:run()";
 		let unique = "code+moniker://./lang:rs/module:mcp/fn:unique()";
 		let output = format!(
 			"uri: {parent}\ncontext: {parent}\nchild: {child}\nnext:\n  - code_moniker_read uri=\"{parent}\"\nunique: {unique}\n"
 		);
-		let compacted = apply_response_aliases(output.clone(), true, [parent, child, unique]);
-		assert!(compacted.starts_with("aliases:\n  @1: "));
-		assert!(
-			compacted.contains(&format!("  @1: {parent}\n")),
-			"{compacted}"
-		);
-		assert_eq!(compacted.matches("@1").count(), 3, "{compacted}");
+		let compacted = compact_response_monikers(output.clone(), true, [parent, child, unique]);
+		assert_eq!(compacted.matches("rs:mcp.struct:Server").count(), 3);
+		assert!(compacted.contains("child: rs:mcp.struct:Server/method:run()"));
+		assert!(compacted.contains("unique: rs:mcp.fn:unique()"));
 		assert!(
 			compacted.contains(&format!("code_moniker_read uri=\"{parent}\"")),
 			"{compacted}"
 		);
+		assert_eq!(
+			compact_response_monikers(output.clone(), false, [parent]),
+			output
+		);
+	}
+
+	#[test]
+	fn compact_response_monikers_do_not_mistake_uri_types_for_generated_calls() {
+		let uri = concat!(
+			"code+moniker://./lang:rs/module:mcp/fn:render(",
+			"cursor:&code_moniker_query::QueryCursor)"
+		);
+		let output = format!("uri: {uri}\nnext:\n  - code_moniker_read uri=\"{uri}\"\n");
+		let compacted = compact_response_monikers(output, true, [uri]);
+
 		assert!(
-			compacted.contains(&format!("child: {child}\n")),
+			compacted.contains("uri: rs:mcp.fn:render(cursor:&code_moniker_query::QueryCursor)"),
 			"{compacted}"
 		);
-		assert_eq!(compacted.matches(unique).count(), 1, "{compacted}");
-		assert_eq!(
-			apply_response_aliases(output.clone(), false, [parent]),
-			output
+		assert!(
+			compacted.contains(&format!("code_moniker_read uri=\"{uri}\"")),
+			"{compacted}"
+		);
+	}
+
+	#[test]
+	fn compact_response_monikers_preserve_canonical_uri_literals_in_source_lines() {
+		let uri = "code+moniker://./lang:rs/module:mcp/struct:Server";
+		let output = format!("uri: {uri}\n305 | let value = \"{uri}\";\n");
+		let compacted = compact_response_monikers(output, true, [uri]);
+
+		assert!(
+			compacted.contains("uri: rs:mcp.struct:Server"),
+			"{compacted}"
+		);
+		assert!(
+			compacted.contains(&format!("305 | let value = \"{uri}\";")),
+			"{compacted}"
 		);
 	}
 }

@@ -4,8 +4,8 @@ use code_moniker_query::{
 };
 use serde_json::{Value, json};
 
-use super::common::{apply_response_aliases, compact_argument};
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::common::compact_argument;
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 pub(super) struct QueryTool;
@@ -20,7 +20,7 @@ impl QueryTool {
 		"Executes the daemon Query DSL through MCP, so agents never need a direct ",
 		"daemon or shell fallback. Use query.describe to discover the live grammar. ",
 		"Pass queries for a bounded batch of up to four read-only operations at one ",
-		"workspace generation; repeated monikers share one response-local alias table. ",
+		"workspace generation; compact responses shorten every rendered moniker. ",
 		"Mutating or mixed queries such as notes are rejected here and remain behind ",
 		"their dedicated MCP tool. Output is compact and hard-budgeted by default."
 	);
@@ -39,11 +39,6 @@ impl QueryTool {
 					"minItems": 1,
 					"maxItems": 4,
 					"description": "Bounded read-only batch. Every result must observe the same workspace generation."
-				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Compact agent text by default; false returns the canonical typed JSON response."
 				}
 			},
 			"oneOf": [
@@ -62,6 +57,10 @@ impl McpTool for QueryTool {
 			description: Self::DESCRIPTION,
 			input_schema: Self::input_schema(),
 		}
+	}
+
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
 	}
 
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
@@ -113,10 +112,7 @@ fn execute_query(context: &McpContext, arguments: &Value) -> Result<ToolResult, 
 		outputs.join("\n---\n")
 	);
 	let candidates = moniker_candidates(&output);
-	Ok(ToolResult {
-		text: apply_response_aliases(output, compact, candidates.iter().map(String::as_str)),
-		is_error: false,
-	})
+	Ok(ToolResult::success(output).with_monikers(candidates.iter().map(String::as_str)))
 }
 
 fn run_expression(
@@ -211,7 +207,7 @@ mod tests {
 	use super::moniker_candidates;
 
 	#[test]
-	fn extracts_monikers_for_response_local_compaction() {
+	fn extracts_monikers_for_compact_rendering() {
 		let uri = "code+moniker://./lang:rs/module:lib/fn:run()";
 		assert_eq!(
 			moniker_candidates(&format!("uri: {uri}\ntarget: {uri}\n")),

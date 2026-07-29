@@ -9,14 +9,14 @@ use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, Source
 use serde_json::{Value, json};
 
 use super::common::{
-	apply_response_aliases, compact_argument, is_workspace_uri, line_range_suffix,
-	normalize_workspace_uri, sorted_count_rows, symbol_line_suffix,
+	compact_argument, is_workspace_uri, line_range_suffix, normalize_workspace_uri,
+	sorted_count_rows, symbol_line_suffix,
 };
 use super::scope::{
 	Paging, SymbolMatch, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
 	append_call_number_arg, append_call_string_arg,
 };
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 const DEFAULT_SYMBOL_URI: &str = "workspace";
@@ -34,7 +34,7 @@ impl SymbolsTool {
 		"  action=list     — list navigable symbols in the workspace\n",
 		"  action=insights — summarize languages, kinds, shapes, refs, and concentrated files\n",
 		"Filters are AND-combined: path/lang limit the files, kind/shape/name limit symbols. ",
-		"Use limit and cursor for paging; compact output uses response-local aliases by default."
+		"Use limit and cursor for paging; compact output uses compact monikers by default."
 	);
 
 	fn input_schema() -> Value {
@@ -86,11 +86,6 @@ impl SymbolsTool {
 					"type": "boolean",
 					"description": "Include locals, params, and other non-navigation symbols."
 				},
-				"compact": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use response-local moniker aliases and minimal next calls. Defaults true; false preserves canonical URIs and guided navigation."
-				},
 				"limit": {
 					"type": "integer",
 					"minimum": 1,
@@ -116,13 +111,13 @@ impl McpTool for SymbolsTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = SymbolRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = read_symbols(context, &request).map_err(ToolError::failed)?;
-		Ok(ToolResult {
-			text,
-			is_error: false,
-		})
+		read_symbols(context, &request).map_err(ToolError::failed)
 	}
 }
 
@@ -171,7 +166,7 @@ impl SymbolAction {
 	}
 }
 
-fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result<String> {
+fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result<ToolResult> {
 	let uri = request.uri.as_str();
 	if !is_workspace_uri(uri, context.scheme(), DEFAULT_SYMBOL_URI) {
 		anyhow::bail!(
@@ -188,7 +183,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			let QueryResult::SymbolList(result) = response.result else {
 				anyhow::bail!("unexpected daemon response for symbols list");
 			};
-			Ok(render_daemon_symbol_list_lmnav(
+			Ok(ToolResult::success(render_daemon_symbol_list_lmnav(
 				context.scheme(),
 				uri,
 				&request.scope,
@@ -196,6 +191,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 				response.next_cursor.as_ref(),
 				&result,
 			))
+			.with_monikers(result.rows.iter().map(|symbol| symbol.uri.as_str())))
 		}
 		SymbolAction::Insights => {
 			let response = context.query_refreshed(
@@ -205,14 +201,14 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			let QueryResult::SymbolInsights(result) = response.result else {
 				anyhow::bail!("unexpected daemon response for symbols insights");
 			};
-			Ok(render_daemon_symbol_insights_lmnav(
+			Ok(ToolResult::success(render_daemon_symbol_insights_lmnav(
 				context.scheme(),
 				uri,
 				&request.scope,
 				request.paging,
 				&result,
 				request.compact,
-			))
+			)))
 		}
 	}
 }
@@ -288,11 +284,7 @@ pub(in crate::mcp) fn render_daemon_symbol_list_lmnav(
 		);
 		append_workspace_read_call(&mut output, scheme, scope, 2, compact);
 	}
-	apply_response_aliases(
-		output,
-		compact,
-		result.rows.iter().map(|symbol| symbol.uri.as_str()),
-	)
+	output
 }
 
 fn render_daemon_symbol_row(output: &mut String, symbol: &SymbolDto, compact: bool) {
@@ -549,14 +541,7 @@ fn render_symbol_list_lmnav(
 		);
 		append_workspace_read_call(&mut output, scheme, scope, 2, compact);
 	}
-	apply_response_aliases(
-		output,
-		compact,
-		rows.iter()
-			.take(end)
-			.skip(start)
-			.map(|(symbol, _)| symbol.identity.as_ref()),
-	)
+	output
 }
 
 fn symbol_navigation_cmp(

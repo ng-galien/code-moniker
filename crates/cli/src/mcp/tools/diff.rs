@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use code_moniker_query::{ChangeReviewQuery, ChangeReviewResult, Page, Query, QueryResult};
 use serde_json::{Value, json};
 
-use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 
 use crate::mcp::context::McpContext;
 
@@ -54,6 +54,10 @@ impl McpTool for DiffTool {
 		}
 	}
 
+	fn output_contract(&self) -> OutputContract {
+		OutputContract::Agent
+	}
+
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let detail_refs = arguments
 			.get("refs")
@@ -75,11 +79,22 @@ impl McpTool for DiffTool {
 				"unexpected change review response"
 			)));
 		};
-		Ok(ToolResult {
-			text: render_review(&result, detail_refs, max_items),
-			is_error: false,
-		})
+		let candidates = review_monikers(&result);
+		Ok(
+			ToolResult::success(render_review(&result, detail_refs, max_items))
+				.with_monikers(candidates),
+		)
 	}
+}
+
+fn review_monikers(result: &ChangeReviewResult) -> Vec<&str> {
+	result
+		.symbol_changes
+		.iter()
+		.flat_map(|change| [change.old.as_ref(), change.new.as_ref()])
+		.flatten()
+		.map(|side| side.identity.as_str())
+		.collect()
 }
 
 fn render_review(result: &ChangeReviewResult, detail_refs: bool, max_items: usize) -> String {

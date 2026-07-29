@@ -131,10 +131,33 @@ message = "Forbidden transitive dependency: {path}"
 ```
 
 `from` and `to` use the same workspace-symbol expression parser, aliases and
-facets. `expect` is `reachable` or `no_path`. Traversal delegates to the same
-bounded engine as `graph.path`; defaults are the values shown above, except
-`min_coverage`, which inherits `[workspace].min_linkage_coverage` and otherwise
-defaults to `100`. `relation` defaults to `["calls", "method_call"]`.
+facets. `expect` is `reachable`, `no_path`, or `all_paths_via`.
+`all_paths_via` requires a third `via` selector:
+
+```toml
+[[workspace.path]]
+id = "public-output-crosses-finalizer"
+from = "name =~ ^dispatch"
+to = "name =~ ^render"
+via = "name =~ ^finalize"
+expect = "all_paths_via"
+require_non_empty = true
+relation = ["calls", "method_call"]
+```
+
+For every selected source, `all_paths_via` requires at least one reachable
+target, then searches again with every `via` symbol removed. A remaining path
+is a failing bypass witness. A complete search with no bypass passes; an
+incomplete connectivity or bypass search is inconclusive. `via` cannot overlap
+an endpoint selector. `max_pairs` counts both connectivity and bypass
+searches. Set `require_non_empty = true` on fail-closed guardrails: an empty
+`from`, `to`, or required `via` selector then fails instead of becoming
+inconclusive. The default remains `false` for compatibility.
+
+Traversal delegates to the same bounded engine as `graph.path`; defaults are
+the values shown above, except `min_coverage`, which inherits
+`[workspace].min_linkage_coverage` and otherwise defaults to `100`. `relation`
+defaults to `["calls", "method_call"]`.
 
 A found path is conclusive: it passes `reachable` and fails `no_path`.
 Absence is conclusive only when every selected pair was searched completely
@@ -142,7 +165,7 @@ and linkage coverage meets the configured threshold. Empty selectors,
 insufficient coverage, or any depth/symbol/edge/pair limit produces
 `inconclusive`, never a false `pass`. An index/linkage generation mismatch is
 instead rejected as a technical stale-snapshot error before rule evaluation,
-so it produces no misleading rule verdict. Reports expose endpoint counts,
+so it produces no misleading rule verdict. Reports expose endpoint and `via` counts,
 evaluated pairs, explored symbols/edges, limit flags, reasons, coverage, and
 the witness path with files and line ranges.
 
@@ -161,7 +184,8 @@ Executable catalog coverage:
   exercises stable bitmap grouping;
 - [`workspace-path.cm.md`](../../samples/catalog/workspace-path.cm.md)
   exercises a transitive violation with a witness, a proven reachable path,
-  a proven absence, and a deliberately inconclusive traversal budget.
+  a proven absence, a mandatory boundary with a bypass witness, and a
+  deliberately inconclusive traversal budget.
 
 ## Grammar
 
@@ -818,7 +842,7 @@ rationale = "..."                          # optional; rules-show metadata
 [[<lang>.refs.where]]                      # ref-scoped, lang-specific
 [[workspace.symbol.where]]                 # symbol-scoped, full inventory
 [[workspace.group.where]]                  # grouped full-inventory symbols
-[[workspace.path]]                         # bounded linked source -> target paths
+[[workspace.path]]                         # bounded source -> target paths, optionally via a mandatory boundary
 
 [<lang>.<kind>]
 require_doc_comment = "public"             # spatial rule, outside `where`

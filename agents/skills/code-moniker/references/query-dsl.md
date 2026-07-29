@@ -2,7 +2,7 @@
 
 `code-moniker query '<verb> field:value …'` talks to the workspace daemon.
 This is not the normal agent exploration path when MCP is available; use
-`code_moniker_query` so output budgets, aliases and safety stay enforced.
+`code_moniker_query` so output budgets, compact monikers and safety stay enforced.
 Discover what a daemon supports with `code-moniker daemon status <root>`
 (the `queries:` line) — a long-running daemon may predate newer verbs.
 
@@ -39,7 +39,8 @@ selected daemon's reported index generation.
 
 - Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`. A quoted
   value is atomic: commas and whitespace inside it are literal and never list
-  separators. This lets a canonical URI be passed back unchanged.
+  separators. Canonical URIs, compact monikers returned by MCP, and symbol ids
+  are accepted by symbol-targeting verbs.
 - Numbers bare: `limit:10`.
 - Multi-value fields OR-combine: `shape:callable,type`, `shape:[callable,type]`
   (bracket list sugar on `lang`/`kind`/`shape`/`severity`), or repeat the field.
