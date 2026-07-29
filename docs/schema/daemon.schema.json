@@ -5096,5 +5096,6 @@
         }
       }
     }
-  }
+  },
+  "x-code-moniker-protocol-version": 5
 }

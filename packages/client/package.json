@@ -1,0 +1,49 @@
+{
+	"name": "@code-moniker/client",
+	"version": "0.6.0",
+	"description": "Typed JavaScript and TypeScript client for the Code Moniker workspace daemon.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ng-galien/code-moniker.git",
+		"directory": "packages/client"
+	},
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"generate:types": "json2ts --no-additionalProperties -i ../../docs/schema/daemon.schema.json -o src/generated.ts",
+		"generate:protocol": "node scripts/generate-protocol.mjs",
+		"generate": "npm run generate:types && npm run generate:protocol",
+		"build": "npm run generate && tsc -p tsconfig.build.json && node scripts/build.mjs",
+		"typecheck": "npm run generate && tsc --noEmit -p tsconfig.json",
+		"test:unit": "npm run build && node --test test/client.test.mjs",
+		"test:consumer": "npm run build && tsc --noEmit -p test/consumer/tsconfig.json && tsc --noEmit -p test/consumer/tsconfig.nodenext.json",
+		"test:package": "npm run build && node --test test/package.test.mjs && node scripts/verify-pack.mjs",
+		"test:daemon": "npm run build && node scripts/smoke-daemon.mjs",
+		"test": "npm run typecheck && npm run test:unit && npm run test:consumer && npm run test:package"
+	},
+	"devDependencies": {
+		"@types/ws": "^8.5.10",
+		"esbuild": "^0.28.1",
+		"json-schema-to-typescript": "^15.0.0",
+		"typescript": "^5.4.0",
+		"ws": "^8.18.0"
+	}
+}

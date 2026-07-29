@@ -60,6 +60,32 @@ jobs:
       - name: Generated types match the schema
         run: git diff --exit-code vscode-extension/src/daemon/generated.ts
 
+  typescript-client:
+    name: TypeScript client package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: packages/client
+
+      - name: Test the public API and package
+        run: npm test
+        working-directory: packages/client
+
+      - name: Generated client sources match the daemon schema
+        run: |
+          npm run generate
+          git diff --exit-code src/generated.ts src/protocol.ts
+        working-directory: packages/client
+
   vscode-extension:
     name: VS Code extension tests
     runs-on: ubuntu-latest

@@ -62,6 +62,8 @@ The dist workflow follows five gates:
 - [ ] `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - [ ] `cargo test -p code-moniker --features mcp --no-default-features --lib`
 - [ ] `cargo test -p code-moniker --features tui,mcp --no-default-features --lib`
+- [ ] From `packages/client/`: `npm ci --ignore-scripts`, `npm test`, then
+      `npm run test:daemon -- <daemon-endpoint> <workspace-root>`.
 - [ ] From `vscode-extension/`: `npm test`, `npm run compile`, then
       `npm run test:integration`.
 - [ ] Push `v0.6.0` only after the preceding gates pass.
@@ -71,4 +73,6 @@ The dist workflow follows five gates:
       `cargo binstall code-moniker --version 0.6.0`.
 - [ ] Run `code-moniker --version`, `code-moniker ui --help`,
       `code-moniker mcp --help`, and an agent skill/MCP install smoke test.
+- [ ] Publish `@code-moniker/client@0.6.0` from the verified package and confirm
+      that a clean ESM and CommonJS consumer can install it from npm.
 - [ ] Verify every archive checksum and GitHub attestation.

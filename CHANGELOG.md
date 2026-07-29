@@ -23,6 +23,12 @@ loudly with routing guidance. Daemon protocol 3 → 5.
 
 ### Added
 
+- **Reusable TypeScript client.** The portable `@code-moniker/client` package
+  connects to an explicit workspace-daemon WebSocket endpoint, validates the
+  protocol and workspace identity fail-closed, publishes in-memory source sets,
+  and exposes typed symbol, usage, graph, pagination, and event APIs. Its wire
+  types and protocol version are generated from the daemon schema; both ESM and
+  CommonJS consumers are supported.
 - **Precompiled CLI distribution.** GitHub Releases now ship full-featured
   (`tui,mcp`) macOS arm64, macOS x64, and Linux x64 archives with SHA-256
   checksums and attestations. A universal `curl | sh` installer and
