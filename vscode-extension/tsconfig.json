@@ -2,6 +2,15 @@
 	"compilerOptions": {
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
+		"baseUrl": ".",
+		"paths": {
+			"@code-moniker/client": [
+				"../packages/client/src/index.ts"
+			],
+			"@code-moniker/client/node": [
+				"../packages/client/src/node.ts"
+			]
+		},
 		"target": "ES2022",
 		"lib": [
 			"ES2022",
@@ -13,7 +22,6 @@
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
 		"noEmit": true,
-		"rootDir": ".",
 		"types": [
 			"node",
 			"vscode"

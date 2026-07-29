@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 
 import { daemonIcon } from "../shared/appIcons";
 import { DaemonNode } from "./nodes";
-import { entryMatchesRoots, listDaemons } from "./registry";
+import { daemonRuntime } from "./runtime";
 import { DaemonSession } from "./session";
 
 // Lists every running daemon recorded in the shared registry, flagging the one
@@ -25,9 +25,9 @@ export class DaemonListProvider implements vscode.TreeDataProvider<DaemonNode> {
 		if (node) {
 			return [];
 		}
-		return listDaemons().map((entry) => ({
+		return daemonRuntime.listDaemons().map((entry) => ({
 			entry,
-			current: entryMatchesRoots(entry, this.roots),
+			current: daemonRuntime.entryMatchesRoots(entry, this.roots),
 		}));
 	}
 

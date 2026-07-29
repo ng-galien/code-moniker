@@ -66,6 +66,16 @@ const extensionConfig = {
 	platform: "node",
 	format: "cjs",
 	target: "node18",
+	alias: {
+		"@code-moniker/client/node": path.join(
+			repoRoot,
+			"packages/client/src/node.ts",
+		),
+		"@code-moniker/client": path.join(
+			repoRoot,
+			"packages/client/src/index.ts",
+		),
+	},
 	external: ["vscode", "bufferutil", "utf-8-validate"],
 	loader: { ".md": "text" },
 	plugins: [samplePackPlugin()],

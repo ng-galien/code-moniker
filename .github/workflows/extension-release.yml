@@ -43,7 +43,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
+          cache-dependency-path: |
+            vscode-extension/package-lock.json
+            packages/client/package-lock.json
 
       - name: Verify tag matches extension version
         working-directory: vscode-extension
@@ -63,6 +65,10 @@ jobs:
           mkdir -p vscode-extension/bin release
           cp target/release/${{ matrix.binary }} vscode-extension/bin/${{ matrix.binary }}
           chmod +x vscode-extension/bin/${{ matrix.binary }}
+
+      - name: Install reusable client dependencies
+        working-directory: packages/client
+        run: npm ci
 
       - name: Package the platform-specific VSIX
         working-directory: vscode-extension

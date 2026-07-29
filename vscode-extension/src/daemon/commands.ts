@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { DaemonNode } from "./nodes";
-import { DaemonRpc } from "./rpc";
+import { daemonRuntime } from "./runtime";
 import { DaemonListProvider } from "./tree";
 import { DaemonSession } from "./session";
 import { unwrapWorkspaceNode } from "../shared/treeNodes";
@@ -45,9 +45,7 @@ async function stop(
 		return;
 	}
 	try {
-		const rpc = await DaemonRpc.connect(node.entry.endpoint);
-		await rpc.shutdown();
-		rpc.close();
+		await daemonRuntime.stop(node.entry);
 	} catch (error) {
 		void vscode.window.showErrorMessage(`Could not stop daemon: ${(error as Error).message}`);
 	}

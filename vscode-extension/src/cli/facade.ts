@@ -1,8 +1,6 @@
 import {
 	CliOutcome,
-	DetachedProcess,
 	binaryCandidates,
-	launchDetached,
 	missingBinaryMessage,
 	runCli,
 } from "./runner";
@@ -11,23 +9,6 @@ import { CheckReport } from "./model";
 export type CheckResult =
 	| { ok: true; report: CheckReport }
 	| { ok: false; error: string };
-
-export async function launchWorkspaceDaemon(roots: string[]): Promise<DetachedProcess> {
-	const probe = await runCli(["--version"]);
-	const error = cliError(probe);
-	if (error) {
-		throw new Error(error);
-	}
-	return launchDetached([
-		"daemon",
-		"start",
-		...roots,
-		"--supervisor-pid",
-		String(process.pid),
-		"--supervisor-fd",
-		"3",
-	]);
-}
 
 // Runs `code-moniker check <root> --rules <file> [--profile p]` over the project.
 export async function runCheckProject(

@@ -53,6 +53,14 @@ async function run() {
 	await testExplorer();
 	await testRulesDaemon();
 	await teardownDaemon();
+	writeSuccessMarker();
+	console.log("integration suite: ok");
+}
+
+function writeSuccessMarker() {
+	const marker = process.env.CODE_MONIKER_TEST_SUCCESS_MARKER;
+	assert.ok(marker, "CODE_MONIKER_TEST_SUCCESS_MARKER must be configured");
+	fs.writeFileSync(marker, "ok\n");
 }
 
 function seedStaleDaemonRegistry() {

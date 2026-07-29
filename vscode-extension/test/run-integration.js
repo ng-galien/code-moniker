@@ -11,6 +11,7 @@ async function main() {
 	const binaryPath = path.join(repoRoot, "target", "debug", binaryName);
 	const bundledBinary = path.join(extensionRoot, "bin", binaryName);
 	const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-moniker-vscode-"));
+	const successMarker = path.join(workspaceRoot, ".integration-success");
 
 	execFileSync("cargo", ["build", "-p", "code-moniker"], {
 		cwd: repoRoot,
@@ -40,12 +41,19 @@ async function main() {
 				CODE_MONIKER_REPO: repoRoot,
 				CODE_MONIKER_BINARY: bundledBinary,
 				CODE_MONIKER_TEST_WORKSPACE: workspaceRoot,
+				CODE_MONIKER_TEST_SUCCESS_MARKER: successMarker,
 			},
 		});
+		if (!fs.existsSync(successMarker)) {
+			throw new Error(
+				"VS Code integration host exited before the full suite and daemon teardown completed",
+			);
+		}
 	} finally {
 		if (stagedBundle) {
 			fs.rmSync(path.dirname(bundledBinary), { recursive: true, force: true });
 		}
+		fs.rmSync(workspaceRoot, { recursive: true, force: true });
 	}
 }
 

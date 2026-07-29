@@ -168,6 +168,10 @@ export class CodeMonikerClient {
 		this.rpc.close();
 	}
 
+	onDidClose(listener: () => void): () => void {
+		return this.rpc.onDidClose(listener);
+	}
+
 	async queryData<Kind extends QueryKind>(
 		query: Query,
 		expected: Kind,

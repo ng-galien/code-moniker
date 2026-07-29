@@ -3,19 +3,21 @@
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
 		"target": "ES2022",
+		"lib": [
+			"ES2022",
+			"DOM"
+		],
 		"strict": true,
 		"noEmit": true,
+		"types": [],
 		"baseUrl": "../..",
 		"paths": {
-			"@code-moniker/client": [
-				"dist/index.d.ts"
-			],
 			"@code-moniker/client/node": [
 				"dist/node.d.ts"
 			]
 		}
 	},
 	"include": [
-		"consumer.ts"
+		"node-types-free.ts"
 	]
 }

@@ -557,11 +557,11 @@
 		"compile": "node esbuild.js",
 		"watch": "node esbuild.js --watch",
 		"typecheck": "tsc --noEmit",
-		"generate:daemon-types": "json2ts --no-additionalProperties -i ../docs/schema/daemon.schema.json -o src/daemon/generated.ts",
 		"validate": "node scripts/validate-samples.mjs",
+		"test:unit": "node --test test/unit/shutdown.test.mjs",
 		"test:integration": "npm run compile && node test/run-integration.js",
-		"test": "npm run typecheck && npm run validate",
-		"package": "vsce package",
+		"test": "npm run typecheck && npm run validate && npm run test:unit",
+		"package": "vsce package --no-dependencies",
 		"vscode:prepublish": "npm run compile"
 	},
 	"devDependencies": {
@@ -569,14 +569,13 @@
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
 		"@types/vscode": "^1.120.0",
-		"@types/ws": "^8.5.10",
 		"@vscode/test-electron": "^3.0.0",
 		"@vscode/vsce": "^3.9.2",
 		"esbuild": "^0.28.1",
-		"json-schema-to-typescript": "^15.0.0",
 		"typescript": "^5.4.0"
 	},
 	"dependencies": {
+		"@code-moniker/client": "file:../packages/client",
 		"@shikijs/core": "^4.3.1",
 		"@shikijs/engine-javascript": "^4.3.1",
 		"@shikijs/langs": "^4.3.1",
@@ -585,7 +584,6 @@
 		"elkjs": "^0.11.1",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
-		"toml-eslint-parser": "^1.0.3",
-		"ws": "^8.18.0"
+		"toml-eslint-parser": "^1.0.3"
 	}
 }

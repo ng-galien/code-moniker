@@ -39,27 +39,6 @@ jobs:
           cargo run -p code-moniker-query --features schema --bin export-schema > schema.actual.json
           diff -u docs/schema/daemon.schema.json schema.actual.json
 
-  daemon-schema-types:
-    name: generated daemon types up to date
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 20
-
-      - name: Install extension dependencies
-        run: npm ci
-        working-directory: vscode-extension
-
-      - name: Regenerate daemon types from the committed schema
-        run: npm run generate:daemon-types
-        working-directory: vscode-extension
-
-      - name: Generated types match the schema
-        run: git diff --exit-code vscode-extension/src/daemon/generated.ts
-
   typescript-client:
     name: TypeScript client package
     runs-on: ubuntu-latest
@@ -105,11 +84,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
+          cache-dependency-path: |
+            vscode-extension/package-lock.json
+            packages/client/package-lock.json
 
       - name: Install extension dependencies
         run: npm ci
         working-directory: vscode-extension
+
+      - name: Install reusable client dependencies
+        run: npm ci
+        working-directory: packages/client
 
       - name: Test and compile the extension
         run: |
@@ -120,6 +105,10 @@ jobs:
       - name: Run extension integration tests with the bundled CLI
         run: xvfb-run -a npm run test:integration
         working-directory: vscode-extension
+
+      - name: Run external Node consumer against an owned daemon
+        run: npm run test:daemon:owned -- ../../target/debug/code-moniker
+        working-directory: packages/client
 
       - name: Package and inspect an autonomous Linux VSIX
         run: |

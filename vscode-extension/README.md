@@ -109,6 +109,7 @@ cargo install --path ../crates/cli --features tui,mcp
 ```
 
 ```sh
+npm --prefix ../packages/client ci
 npm ci
 npm run typecheck   # tsc --noEmit
 npm run validate    # catalog sample import/shape checks

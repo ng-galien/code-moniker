@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 
 import { registerDaemonCommands } from "./commands";
 import { themeColor } from "../shared/appIcons";
-import { registryDir } from "./registry";
+import { daemonRuntime } from "./runtime";
 import { DaemonSession } from "./session";
 import { DaemonListProvider } from "./tree";
 
@@ -104,7 +104,7 @@ function watchRegistry(onChange: () => void): vscode.Disposable {
 		}
 		timer = setTimeout(onChange, 150);
 	};
-	const dir = registryDir();
+	const dir = daemonRuntime.registryDirectory;
 	try {
 		fs.mkdirSync(dir, { recursive: true });
 		watcher = fs.watch(dir, () => fire());

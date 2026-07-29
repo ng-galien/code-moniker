@@ -40,5 +40,37 @@ deliberately wants the daemon's pinned indexed snapshot can pass
 `{ consistency: "stale_ok" }`; a consumer that wants the filesystem refreshed
 first can pass `{ consistency: "refresh_if_stale" }`.
 
-The portable client does not discover, start, stop, or own daemon processes. A
-runtime without a standard global `WebSocket` must provide `webSocketFactory`.
+The portable entry point does not discover, start, stop, or own daemon
+processes. A runtime without a standard global `WebSocket` must provide
+`webSocketFactory`.
+
+Node.js consumers can opt into those responsibilities through the dedicated
+subpath:
+
+```ts
+import { NodeDaemonRuntime } from "@code-moniker/client/node";
+
+const runtime = new NodeDaemonRuntime();
+const entry = runtime.findDaemon(["/workspace/project"]);
+const owned =
+	entry === undefined
+		? await runtime.launch({
+				workspaceRoots: ["/workspace/project"],
+				binaryCandidates: ["/usr/local/bin/code-moniker"],
+			})
+		: undefined;
+const daemon = entry ?? owned!.entry;
+const client = await runtime.connect(daemon);
+
+client.close();
+if (owned) {
+	await runtime.stopOwned(owned);
+}
+```
+
+`stopOwned` verifies both the registered PID and claim token before requesting
+shutdown, so a replaced registry claim cannot stop another consumer's daemon.
+Stopping a daemon that was not launched by the caller remains the explicit
+`runtime.stop(entry)` operation. `runtime.restart(entry, options)` confirms
+that the old PID has exited before removing its claim and launching a
+replacement.

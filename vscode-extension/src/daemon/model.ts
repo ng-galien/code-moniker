@@ -1,9 +1,6 @@
-// Public wire-model surface for the extension. The DTOs are generated from the
-// daemon's JSON Schema (`npm run generate:daemon-types`) so they can never drift
-// from `crates/query`. This façade re-exports them and adds the few things the
-// schema cannot carry: the line-range tuple alias and the protocol version.
-export * from "./generated";
+// Public wire-model surface for the extension. The reusable client owns the
+// schema-generated DTOs and protocol version; this façade keeps existing
+// feature imports stable while the extension consumes that single source.
+export * from "@code-moniker/client";
 
 export type LineRange = [number, number];
-
-export const PROTOCOL_VERSION = 5;

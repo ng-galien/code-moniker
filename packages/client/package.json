@@ -17,6 +17,11 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
 			"require": "./dist/index.cjs"
+		},
+		"./node": {
+			"types": "./dist/node.d.ts",
+			"import": "./dist/node.js",
+			"require": "./dist/node.cjs"
 		}
 	},
 	"files": [
@@ -33,17 +38,21 @@
 		"generate": "npm run generate:types && npm run generate:protocol",
 		"build": "npm run generate && tsc -p tsconfig.build.json && node scripts/build.mjs",
 		"typecheck": "npm run generate && tsc --noEmit -p tsconfig.json",
-		"test:unit": "npm run build && node --test test/client.test.mjs",
-		"test:consumer": "npm run build && tsc --noEmit -p test/consumer/tsconfig.json && tsc --noEmit -p test/consumer/tsconfig.nodenext.json",
+		"test:unit": "npm run build && node --test test/client.test.mjs test/node.test.mjs",
+		"test:consumer": "npm run build && tsc --noEmit -p test/consumer/tsconfig.json && tsc --noEmit -p test/consumer/tsconfig.nodenext.json && tsc --noEmit -p test/consumer/tsconfig.node-types-free.json",
 		"test:package": "npm run build && node --test test/package.test.mjs && node scripts/verify-pack.mjs",
 		"test:daemon": "npm run build && node scripts/smoke-daemon.mjs",
+		"test:daemon:owned": "npm run build && node scripts/smoke-owned-daemon.mjs",
 		"test": "npm run typecheck && npm run test:unit && npm run test:consumer && npm run test:package"
 	},
 	"devDependencies": {
+		"@types/node": "^20.11.0",
 		"@types/ws": "^8.5.10",
 		"esbuild": "^0.28.1",
 		"json-schema-to-typescript": "^15.0.0",
-		"typescript": "^5.4.0",
+		"typescript": "^5.4.0"
+	},
+	"dependencies": {
 		"ws": "^8.18.0"
 	}
 }

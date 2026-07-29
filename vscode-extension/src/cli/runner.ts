@@ -12,12 +12,6 @@ export type CliOutcome =
 	| { kind: "missing"; tried: string }
 	| { kind: "spawnError"; message: string };
 
-export interface DetachedProcess {
-	pid: number;
-	isRunning(): boolean;
-	terminate(): void;
-}
-
 function configuredBinary(): string | undefined {
 	const setting = vscode.workspace.getConfiguration("codeMoniker");
 	const inspected = setting.inspect<string>("binaryPath");
@@ -47,10 +41,6 @@ export function binaryCandidates(): string[] {
 	return [bundledBinary(), "code-moniker", cargoFallback()].filter(
 		(candidate): candidate is string => candidate !== undefined,
 	);
-}
-
-export function launchDetached(args: string[]): Promise<DetachedProcess> {
-	return tryLaunchDetached(binaryCandidates(), 0, args);
 }
 
 export function missingBinaryMessage(tried: string): string {
@@ -110,49 +100,5 @@ function spawnOnce(binary: string, args: string[], input?: string): Promise<CliO
 		} else {
 			child.stdin.end();
 		}
-	});
-}
-
-function tryLaunchDetached(
-	candidates: string[],
-	index: number,
-	args: string[],
-): Promise<DetachedProcess> {
-	if (index >= candidates.length) {
-		return Promise.reject(new Error(`Could not launch code-moniker (tried: ${candidates.join(", ")})`));
-	}
-	return new Promise((resolve, reject) => {
-		const child = spawn(candidates[index], args, {
-			detached: true,
-			stdio: ["ignore", "ignore", "ignore", "pipe"],
-		});
-		child.once("spawn", () => {
-			const pid = child.pid;
-			const supervisorPipe = child.stdio[3] as
-				| (NodeJS.ReadableStream & { unref?: () => void })
-				| null;
-			supervisorPipe?.unref?.();
-			child.unref();
-			if (pid === undefined) {
-				reject(new Error(`code-moniker launched without a process id: ${candidates[index]}`));
-				return;
-			}
-			resolve({
-				pid,
-				isRunning: () => child.exitCode === null && child.signalCode === null,
-				terminate: () => {
-					if (child.exitCode === null && child.signalCode === null) {
-						child.kill("SIGTERM");
-					}
-				},
-			});
-		});
-		child.once("error", (err: NodeJS.ErrnoException) => {
-			if (err.code === "ENOENT") {
-				void tryLaunchDetached(candidates, index + 1, args).then(resolve, reject);
-				return;
-			}
-			reject(err);
-		});
 	});
 }

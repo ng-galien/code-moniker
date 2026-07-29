@@ -3,6 +3,10 @@ import {
 	type IdentityGraphResult,
 	type WorkspaceSourceSetDto,
 } from "@code-moniker/client";
+import {
+	NodeDaemonRuntime,
+	type OwnedDaemon,
+} from "@code-moniker/client/node";
 import WebSocket from "ws";
 
 declare const client: CodeMonikerClient;
@@ -24,6 +28,11 @@ const graph: Promise<IdentityGraphResult> =
 	client.graph.identity("sql/schema:public");
 void graph;
 void client.symbols.search({ text: "account" }).then(readFirstPage);
+
+const runtime = new NodeDaemonRuntime();
+const owned: OwnedDaemon | undefined = undefined;
+void runtime;
+void owned;
 
 void CodeMonikerClient.connect("127.0.0.1:3210", {
 	acceptAnyWorkspace: true,

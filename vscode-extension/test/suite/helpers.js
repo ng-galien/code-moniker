@@ -43,7 +43,12 @@ async function getApi() {
 
 // Waits until the workspace daemon is connected and indexed.
 async function waitForReady(api) {
-	await waitFor(() => api.session.status === "ready", "daemon to reach ready");
+	await waitFor(() => {
+		if (api.session.status === "error") {
+			throw new Error(api.session.lastError || "daemon session entered error state");
+		}
+		return api.session.status === "ready";
+	}, "daemon to reach ready");
 	return api;
 }
 

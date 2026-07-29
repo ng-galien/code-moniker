@@ -49,6 +49,7 @@ From the repository root:
 
 ```sh
 cargo install --path crates/cli --features tui,mcp
+npm --prefix packages/client ci
 cd vscode-extension
 npm ci
 npm run package
