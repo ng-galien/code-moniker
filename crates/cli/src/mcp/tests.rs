@@ -6,8 +6,8 @@ use std::thread::{self, JoinHandle};
 
 use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_query::{
-	Command, CommandRequest, Query, QueryRequest, QueryResult, SymbolListResult, SymbolSearchQuery,
-	query_capability_specs,
+	Command, CommandRequest, DaemonWorkspaceConfig, Query, QueryRequest, QueryResult,
+	SymbolListResult, SymbolSearchQuery, query_capability_specs,
 };
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
@@ -34,6 +34,28 @@ fn empty_context(paths: Vec<PathBuf>) -> McpContext {
 
 fn loaded_context(paths: Vec<PathBuf>) -> McpContext {
 	daemon_context(paths)
+}
+
+fn preloading_context(paths: Vec<PathBuf>) -> McpContext {
+	let opts = SessionOptions {
+		paths: paths.clone(),
+		project: None,
+		cache_dir: None,
+	};
+	let config = DaemonWorkspaceConfig {
+		roots: paths
+			.iter()
+			.map(|path| path.display().to_string())
+			.collect(),
+		project: None,
+		cache_dir: None,
+		live_refresh: None,
+	};
+	McpContext::new(
+		opts,
+		"code+moniker://".to_string(),
+		DaemonRuntime::in_process_preload(config).expect("preloading daemon"),
+	)
 }
 
 fn daemon_context(paths: Vec<PathBuf>) -> McpContext {
@@ -72,6 +94,10 @@ impl Drop for HttpTestServer {
 
 fn start_http_test_server(opts: SessionOptions) -> HttpTestServer {
 	let context = daemon_context(opts.paths);
+	start_http_test_server_with_context(context)
+}
+
+fn start_http_test_server_with_context(context: McpContext) -> HttpTestServer {
 	let shutdown = CancellationToken::new();
 	let thread_shutdown = shutdown.child_token();
 	let (ready_tx, ready_rx) = mpsc::channel();
@@ -503,6 +529,100 @@ fn read_tool_returns_a_bounded_ast_only_when_requested() {
 		error.to_string().contains("max_nodes must be between 1"),
 		"{error}"
 	);
+}
+
+#[test]
+fn read_tool_parses_source_text_without_indexing_it() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let context = preloading_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+	let tree = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"language": "plpgsql",
+				"source": "DECLARE total numeric; BEGIN total := 1; RETURN total; END;",
+				"include_text": true,
+				"max_depth": 12,
+				"max_nodes": 200
+			}),
+		)
+		.expect("stateless PL/pgSQL AST");
+	assert!(!tree.is_error);
+	assert!(tree.text.contains("uri: syntax.parse"), "{}", tree.text);
+	assert!(tree.text.contains("file: snippet.plpgsql"), "{}", tree.text);
+	assert!(tree.text.contains("- decl_statement "), "{}", tree.text);
+	assert!(tree.text.contains("- stmt_assign "), "{}", tree.text);
+	assert!(tree.text.contains("- stmt_return "), "{}", tree.text);
+	assert!(
+		!temp.path().join("snippet.plpgsql").exists(),
+		"stateless parse must not persist the source"
+	);
+
+	let rust = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"language": "rs",
+				"source": "fn answer() -> u32 { 42 }",
+				"uri": "virtual.rs",
+				"include_text": true
+			}),
+		)
+		.expect("stateless Rust AST");
+	assert!(rust.text.contains("file: virtual.rs"), "{}", rust.text);
+	assert!(rust.text.contains("- function_item "), "{}", rust.text);
+
+	for arguments in [
+		json!({"ast": true, "source": "fn main() {}"}),
+		json!({"ast": true, "language": "rs"}),
+	] {
+		let error = registry
+			.call(&context, "code_moniker_read", &arguments)
+			.expect_err("invalid stateless AST contract must fail");
+		assert!(error.to_string().contains("source and language"), "{error}");
+	}
+}
+
+#[test]
+fn read_tool_renders_embedded_plpgsql_from_the_language_sdk_document() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::write(
+		temp.path().join("account.sql"),
+		"CREATE FUNCTION account_balance(p_id bigint) RETURNS numeric\n\
+		 LANGUAGE plpgsql AS $$\n\
+		 DECLARE total numeric;\n\
+		 BEGIN\n\
+		   SELECT sum(amount) INTO total FROM ledger_entry WHERE account_id = p_id;\n\
+		   IF total IS NULL THEN RETURN 0; END IF;\n\
+		   RETURN total;\n\
+		 END;\n\
+		 $$;\n",
+	)
+	.expect("write PL/pgSQL fixture");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let tree = ToolRegistry::new()
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "account.sql",
+				"ast": true,
+				"max_depth": 20,
+				"max_nodes": 500
+			}),
+		)
+		.expect("PL/pgSQL AST read");
+	assert!(!tree.is_error);
+	assert!(
+		tree.text.contains("- source_file") && tree.text.contains("[plpgsql]"),
+		"{}",
+		tree.text
+	);
+	assert!(tree.text.contains("- stmt_if "), "{}", tree.text);
+	assert!(tree.text.contains("- sql_expression "), "{}", tree.text);
 }
 
 #[test]
@@ -2709,6 +2829,41 @@ fn http_tool_call_reads_workspace_explorer() {
 	assert!(response.contains("HTTP/1.1 200 OK"));
 	assert!(response.contains("uri: code+moniker://workspace"));
 	assert!(response.contains("App.java [java]"));
+}
+
+#[test]
+fn http_tool_call_parses_stateless_source_text() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let server =
+		start_http_test_server_with_context(preloading_context(vec![temp.path().to_path_buf()]));
+	let response = post_rpc(
+		server.addr,
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 9,
+			"method": "tools/call",
+			"params": {
+				"name": "code_moniker_read",
+				"arguments": {
+					"language": "plpgsql",
+					"source": "DECLARE total numeric; BEGIN total := 1; RETURN total; END;",
+					"include_text": true,
+					"max_depth": 12,
+					"max_nodes": 200
+				}
+			}
+		}),
+	);
+	assert!(response.contains("HTTP/1.1 200 OK"), "{response}");
+	assert!(response.contains("uri: syntax.parse"), "{response}");
+	assert!(response.contains("file: snippet.plpgsql"), "{response}");
+	assert!(response.contains("decl_statement"), "{response}");
+	assert!(response.contains("stmt_assign"), "{response}");
+	assert!(response.contains("stmt_return"), "{response}");
+	assert!(
+		!temp.path().join("snippet.plpgsql").exists(),
+		"HTTP stateless parse must not persist source"
+	);
 }
 
 #[test]

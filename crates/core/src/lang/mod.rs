@@ -2,6 +2,7 @@ pub mod build_manifest;
 pub mod c;
 pub mod callable;
 pub mod cs;
+mod document;
 pub mod extractor;
 pub mod go;
 pub mod java;
@@ -13,9 +14,10 @@ pub mod sql;
 pub mod tree_util;
 pub mod ts;
 
+pub use document::{ParsedDocument, SyntaxInjection};
 #[doc(hidden)]
 pub use extractor::assert_conformance;
-pub use extractor::{KindSpec, LangExtractor};
+pub use extractor::{ExtractionContext, KindSpec, LangExtractor};
 
 /// Adding a row registers the language for `Lang::from_tag` / `tag` /
 /// `allowed_kinds` / `allowed_visibilities` and the conformance tests.
@@ -102,7 +104,7 @@ macro_rules! define_languages {
 				}
 			}
 
-			pub fn parse(self, uri: &str, source: &str) -> tree_sitter::Tree {
+			pub fn parse(self, uri: &str, source: &str) -> $crate::lang::ParsedDocument {
 				match self {
 					$(
 						$(#[$attr])*
@@ -151,6 +153,17 @@ define_languages! {
 	Sql    => crate::lang::sql::Lang,
 }
 
+/// Parse source text without indexing it.
+///
+/// Canonical language tags are the tags returned by [`Lang::tag`]. PL/pgSQL
+/// is also accepted as a standalone embedded language.
+pub fn parse_source(language: &str, uri: &str, source: &str) -> Option<ParsedDocument> {
+	if language.eq_ignore_ascii_case("plpgsql") {
+		return Some(sql::parse_plpgsql(source));
+	}
+	Lang::from_tag(language).map(|lang| lang.parse(uri, source))
+}
+
 #[cfg(test)]
 pub(crate) use _conformance_dispatch::for_each_language;
 
@@ -180,13 +193,26 @@ mod language_registry_tests {
 	#[test]
 	fn every_registered_language_parses_on_demand() {
 		for lang in super::Lang::ALL {
-			let tree = lang.parse("empty", "");
+			let document = lang.parse("empty", "");
 			assert!(
-				!tree.root_node().kind().is_empty(),
+				!document.primary().root_node().kind().is_empty(),
 				"{} returned an empty root kind",
 				lang.tag()
 			);
 		}
+	}
+
+	#[test]
+	fn stateless_parser_accepts_standalone_plpgsql() {
+		let document = super::parse_source(
+			"plpgsql",
+			"snippet.plpgsql",
+			"DECLARE total numeric; BEGIN total := 1; RETURN total; END;",
+		)
+		.expect("PL/pgSQL parser");
+		let root = document.primary().root_node();
+		assert_eq!(root.kind(), "source_file");
+		assert!(!root.has_error());
 	}
 }
 

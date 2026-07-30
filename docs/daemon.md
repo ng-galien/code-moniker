@@ -97,7 +97,7 @@ verbs; the daemon package version string is informational.
 ### Query verbs (DSL)
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
-`symbol.insights`, `symbol.detail`, `syntax.tree`, `symbol.usages`, `symbol.graph`,
+`symbol.insights`, `symbol.detail`, `syntax.tree`, `syntax.parse`, `symbol.usages`, `symbol.graph`,
 `identity.children`, `identity.graph`, `view.read`, `rules.list`,
 `rules.check`, `rules.applicable`, `change.review`, `change.context`,
 `resolution.audit`, `notes`. Command verbs: `workspace.refresh`,
@@ -146,14 +146,25 @@ projectable result fields. MCP agents normally reach this through the
 read-only `code_moniker_query` escape hatch; direct daemon queries remain a
 developer and protocol-diagnostic surface.
 
-`syntax.tree focus:"<relative or absolute source path or symbol URI>"` reparses
-the current indexed source on demand. It does not persist syntax trees in the
-workspace snapshot. In a multi-root workspace, `workspace:` scopes a relative
-path and an absolute path or symbol URI disambiguates duplicate relative paths.
+`syntax.tree focus:"<relative or absolute source path or symbol URI>"` asks the
+registered language SDK for its parsed document on demand. Semantic extraction
+and AST rendering consume this same contract; the daemon does not maintain a
+parallel parser. It does not persist syntax trees in the workspace snapshot.
+In a multi-root workspace, `workspace:` scopes a relative path and an absolute
+path or symbol URI disambiguates duplicate relative paths.
 The default projection keeps only named Tree-sitter nodes, six levels and at
 most 100 nodes; `named_only:false` exposes the concrete tree, including
 punctuation. Leaf source text is opt-in with `include_text:true` and is bounded
-independently.
+independently. See [On-demand syntax tree](cli/mcp-syntax-tree.md) for the MCP
+and TypeScript client contracts. Embedded-language regions supported by the
+SDK, currently PostgreSQL `LANGUAGE plpgsql` and `LANGUAGE sql` bodies, are
+returned as language-marked child trees with source-file-relative positions.
+
+`syntax.parse language:"<tag>" source:"<text>"` is the stateless counterpart.
+It is dispatched before snapshot loading, does not read or mutate the index,
+and returns the same bounded `SyntaxTreeResult`. `uri:` is an optional parser
+filename hint. In addition to registered language tags, it accepts standalone
+`plpgsql`; direct source is limited to 1 MiB.
 
 `change.context focus:"<symbol URI or rel path>" max_items:20` returns a
 bounded pre-change view: graph neighborhood and resolution coverage, active

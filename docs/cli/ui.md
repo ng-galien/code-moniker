@@ -101,7 +101,13 @@ preserve the verified roots.
   absolute source path returns a bounded on-demand syntax tree; an absolute
   path disambiguates duplicate relative paths in a multi-root workspace, while
   a symbol moniker narrows the tree to its declaration. Named nodes are the
-  default, source text is opt-in, and no AST is stored in the index.
+  default, source text is opt-in, and no AST is stored in the index. The AST
+  and graph extractor consume the same parsed document supplied by the
+  registered language SDK, including supported embedded-language trees.
+  Supplying `source` and `language` instead performs a stateless
+  parse without a file lookup, index mutation, or snapshot dependency.
+  See [On-demand syntax tree](mcp-syntax-tree.md) for the complete client
+  request, response, limits, and error contract.
 - `code_moniker_symbols`: paged symbol rows. It accepts `path`, `lang`,
   `kind`, `shape`, `name`, `limit`, and `cursor` so agents can narrow the
   read before loading broad symbol output. Use `action = "insights"` for

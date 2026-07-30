@@ -3,12 +3,13 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use code_moniker_query::{
-	Page, Query, QueryResult, SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_NODES,
+	Page, Query, QueryRequest, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES,
+	SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_NODES,
 	SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_DEPTH, SYNTAX_TREE_MAX_NODES,
-	SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult, SyntaxNodeDto, SyntaxTreeQuery,
-	SyntaxTreeResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto, ViewDetailResult,
-	ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery, ViewReadResult, ViewRuleDto,
-	ViewRuleRefDto,
+	SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult, SyntaxNodeDto, SyntaxParseQuery,
+	SyntaxTreeQuery, SyntaxTreeResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto,
+	ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery,
+	ViewReadResult, ViewRuleDto, ViewRuleRefDto,
 };
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
@@ -41,6 +42,7 @@ impl ReadTool {
 		"  code+moniker://workspace — same root with an explicit URI\n",
 		"  <compact-or-canonical>   — moniker returned by code_moniker_symbols; reads the source slice around that symbol\n",
 		"  <file-or-moniker> ast:true — parses the current source on demand and returns a bounded syntax tree; a moniker narrows the tree to its declaration\n",
+		"  language:<tag> source:<text> — parses source text directly without indexing or workspace lookup\n",
 		"Use path/lang to scope discovery, depth to expand the explorer, limit/cursor for paging, and moniker_format when a view should expose resolved monikers. AST reads are named-node-only by default and never populate the workspace index."
 	);
 
@@ -55,7 +57,16 @@ fn read_input_schema() -> Value {
 		"properties": {
 			"uri": {
 				"type": "string",
-				"description": "workspace | code+moniker://workspace | relative or absolute source path for ast:true (absolute disambiguates duplicate multi-root paths) | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols"
+				"description": "workspace | code+moniker://workspace | relative or absolute source path for ast:true (absolute disambiguates duplicate multi-root paths) | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols. With source+language, this is an optional parser filename hint such as snippet.tsx."
+			},
+			"source": {
+				"type": "string",
+				"maxLength": SYNTAX_PARSE_MAX_SOURCE_BYTES,
+				"description": "Source text to parse directly. Requires language, implies syntax.parse, and is not indexed or persisted."
+			},
+			"language": {
+				"type": "string",
+				"description": "Canonical parser tag for direct source parsing: ts, rs, java, python, go, c, cs, sql, or plpgsql. Requires source."
 			},
 			"depth": {
 				"type": "integer",
@@ -104,7 +115,7 @@ fn read_input_schema() -> Value {
 			},
 			"ast": {
 				"type": "boolean",
-				"description": "Parse the current source on demand and return a bounded Tree-sitter syntax tree. A symbol moniker focuses the tree on its declaration."
+				"description": "Return a bounded Tree-sitter syntax tree. Use uri for indexed source, or source+language for stateless parsing."
 			},
 			"max_depth": {
 				"type": "integer",
@@ -201,6 +212,9 @@ impl ReadRequest {
 
 struct SyntaxReadOptions {
 	enabled: bool,
+	source: Option<String>,
+	language: Option<String>,
+	uri: Option<String>,
 	max_depth: usize,
 	max_nodes: usize,
 	named_only: bool,
@@ -209,8 +223,17 @@ struct SyntaxReadOptions {
 }
 
 fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
+	let ast_requested = strict_bool_argument(arguments, "ast", false)?;
+	let source = read_string_argument(arguments, "source").map(ToOwned::to_owned);
+	let language = read_string_argument(arguments, "language").map(ToOwned::to_owned);
+	if source.is_some() != language.is_some() {
+		anyhow::bail!("source and language must be provided together");
+	}
 	Ok(SyntaxReadOptions {
-		enabled: strict_bool_argument(arguments, "ast", false)?,
+		enabled: ast_requested || source.is_some(),
+		source,
+		language,
+		uri: read_string_argument(arguments, "uri").map(ToOwned::to_owned),
 		max_depth: strict_usize_argument(
 			arguments,
 			"max_depth",
@@ -347,6 +370,28 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 }
 
 fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
+	if let (Some(source), Some(language)) = (
+		request.syntax.source.as_ref(),
+		request.syntax.language.as_ref(),
+	) {
+		let response = context.query(QueryRequest::new(Query::SyntaxParse(SyntaxParseQuery {
+			language: language.clone(),
+			source: source.clone(),
+			uri: request.syntax.uri.as_deref().map(str::to_owned),
+			max_depth: request.syntax.max_depth,
+			max_nodes: request.syntax.max_nodes,
+			named_only: request.syntax.named_only,
+			include_text: request.syntax.include_text,
+			max_text_chars: request.syntax.max_text_chars,
+		})))?;
+		let QueryResult::SyntaxTree(result) = response.result else {
+			anyhow::bail!("daemon returned an unexpected result for syntax.parse");
+		};
+		return Ok(ToolResult::success(render_syntax_tree_lmnav(
+			&result,
+			"syntax.parse",
+		)));
+	}
 	let response = context.query_refreshed(
 		Query::SyntaxTree(SyntaxTreeQuery {
 			workspace: None,
@@ -362,13 +407,15 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 	let QueryResult::SyntaxTree(result) = response.result else {
 		anyhow::bail!("daemon returned an unexpected result for syntax.tree");
 	};
-	Ok(ToolResult::success(render_syntax_tree_lmnav(&result))
-		.with_monikers([result.focus.as_str()]))
+	Ok(
+		ToolResult::success(render_syntax_tree_lmnav(&result, "syntax.tree"))
+			.with_monikers([result.focus.as_str()]),
+	)
 }
 
-fn render_syntax_tree_lmnav(result: &SyntaxTreeResult) -> String {
+fn render_syntax_tree_lmnav(result: &SyntaxTreeResult, operation: &str) -> String {
 	let mut output = String::new();
-	let _ = writeln!(output, "uri: syntax.tree");
+	let _ = writeln!(output, "uri: {operation}");
 	let _ = writeln!(
 		output,
 		"completeness: {}",
@@ -392,6 +439,9 @@ fn render_syntax_tree_lmnav(result: &SyntaxTreeResult) -> String {
 
 fn render_syntax_node_lmnav(output: &mut String, node: &SyntaxNodeDto, depth: usize) {
 	let mut flags = Vec::new();
+	if let Some(language) = &node.language {
+		flags.push(language.as_str());
+	}
 	if !node.named {
 		flags.push("anonymous");
 	}

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use code_moniker_core::lang::Lang;
+use code_moniker_core::lang::{Lang, ParsedDocument, SyntaxInjection, parse_source};
 use code_moniker_query::{
-	QueryError, QueryResponse, QueryResult, SYNTAX_TREE_MAX_DEPTH, SYNTAX_TREE_MAX_NODES,
-	SYNTAX_TREE_MAX_TEXT_CHARS, SyntaxNodeDto, SyntaxPointDto, SyntaxTreeQuery, SyntaxTreeResult,
-	WorkspaceGeneration,
+	QueryError, QueryResponse, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES, SYNTAX_TREE_MAX_DEPTH,
+	SYNTAX_TREE_MAX_NODES, SYNTAX_TREE_MAX_TEXT_CHARS, SyntaxNodeDto, SyntaxParseQuery,
+	SyntaxPointDto, SyntaxTreeQuery, SyntaxTreeResult, WorkspaceGeneration,
 };
 use code_moniker_workspace::snapshot::{
 	SourceFileRecord, SymbolRecord, WorkspaceSnapshot, WorkspaceView,
@@ -18,7 +18,8 @@ pub(super) fn syntax_tree_response(
 	query: SyntaxTreeQuery,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
-	validate_limits(&query)?;
+	let options = SyntaxRenderOptions::from(&query);
+	validate_limits(options)?;
 	let selected_roots = selected_roots(roots, query.workspace.as_deref())?;
 	let (source, symbol) = resolve_focus(snapshot, roots, &selected_roots, &query.focus)?;
 	let source_text = load_source_text(source)?;
@@ -31,61 +32,184 @@ pub(super) fn syntax_tree_response(
 			),
 		)
 	})?;
-	let tree = lang.parse(&source.rel_path, &source_text);
+	let document = lang.parse(&source.rel_path, &source_text);
+	let primary = document.primary();
 	let focus_line_range = symbol.and_then(|symbol| symbol.line_range);
 	let root_node = symbol
 		.and_then(|symbol| {
-			symbol
-				.line_range
-				.and_then(|range| find_symbol_node(tree.root_node(), range, symbol, &source_text))
+			symbol.line_range.and_then(|range| {
+				find_symbol_node(primary.root_node(), range, symbol, &source_text)
+			})
 		})
-		.or_else(|| focus_line_range.and_then(|range| find_focus_node(tree.root_node(), range)))
-		.unwrap_or_else(|| tree.root_node());
-	let total_nodes = count_nodes(root_node, query.named_only);
-	let mut emitted_nodes = 0;
-	let root =
-		build_node(root_node, &source_text, &query, 0, &mut emitted_nodes).ok_or_else(|| {
-			QueryError::new("syntax_tree_empty", "syntax tree has no renderable root")
-		})?;
-
-	Ok(QueryResponse {
-		generation: current_generation,
-		result: QueryResult::SyntaxTree(SyntaxTreeResult {
+		.or_else(|| focus_line_range.and_then(|range| find_focus_node(primary.root_node(), range)))
+		.unwrap_or_else(|| primary.root_node());
+	render_document(
+		&document,
+		root_node,
+		&source_text,
+		SyntaxResponseMetadata {
 			file: source.rel_path.clone(),
 			language: source.language.clone(),
 			focus: query.focus,
 			focus_line_range,
+			generation: current_generation,
+		},
+		options,
+	)
+}
+
+pub(super) fn syntax_parse_response(query: SyntaxParseQuery) -> Result<QueryResponse, QueryError> {
+	let options = SyntaxRenderOptions::from(&query);
+	validate_limits(options)?;
+	if query.source.len() > SYNTAX_PARSE_MAX_SOURCE_BYTES {
+		return Err(QueryError::new(
+			"syntax_source_too_large",
+			format!("source must be at most {SYNTAX_PARSE_MAX_SOURCE_BYTES} bytes"),
+		));
+	}
+	let uri = query
+		.uri
+		.unwrap_or_else(|| default_source_uri(&query.language));
+	let document = parse_source(&query.language, &uri, &query.source).ok_or_else(|| {
+		QueryError::new(
+			"syntax_language_unsupported",
+			format!("unsupported language tag `{}`", query.language),
+		)
+	})?;
+	let root_node = document.primary().root_node();
+	render_document(
+		&document,
+		root_node,
+		&query.source,
+		SyntaxResponseMetadata {
+			file: uri.clone(),
+			language: query.language,
+			focus: uri,
+			focus_line_range: None,
+			generation: None,
+		},
+		options,
+	)
+}
+
+#[derive(Clone, Copy)]
+struct SyntaxRenderOptions {
+	max_depth: usize,
+	max_nodes: usize,
+	named_only: bool,
+	include_text: bool,
+	max_text_chars: usize,
+}
+
+impl From<&SyntaxTreeQuery> for SyntaxRenderOptions {
+	fn from(query: &SyntaxTreeQuery) -> Self {
+		Self {
+			max_depth: query.max_depth,
+			max_nodes: query.max_nodes,
+			named_only: query.named_only,
+			include_text: query.include_text,
+			max_text_chars: query.max_text_chars,
+		}
+	}
+}
+
+impl From<&SyntaxParseQuery> for SyntaxRenderOptions {
+	fn from(query: &SyntaxParseQuery) -> Self {
+		Self {
+			max_depth: query.max_depth,
+			max_nodes: query.max_nodes,
+			named_only: query.named_only,
+			include_text: query.include_text,
+			max_text_chars: query.max_text_chars,
+		}
+	}
+}
+
+struct SyntaxResponseMetadata {
+	file: String,
+	language: String,
+	focus: String,
+	focus_line_range: Option<(u32, u32)>,
+	generation: Option<WorkspaceGeneration>,
+}
+
+fn render_document(
+	document: &ParsedDocument,
+	root_node: tree_sitter::Node<'_>,
+	source: &str,
+	metadata: SyntaxResponseMetadata,
+	options: SyntaxRenderOptions,
+) -> Result<QueryResponse, QueryError> {
+	let total_nodes = count_document_nodes(document, root_node, options.named_only);
+	let mut emitted_nodes = 0;
+	let root = build_document_node(document, root_node, source, options, 0, &mut emitted_nodes)
+		.ok_or_else(|| {
+			QueryError::new("syntax_tree_empty", "syntax tree has no renderable root")
+		})?;
+	let has_error = root_node.has_error()
+		|| document
+			.injections()
+			.iter()
+			.filter(|injection| {
+				let range = injection.host_byte_range();
+				range.start >= root_node.start_byte() && range.end <= root_node.end_byte()
+			})
+			.any(|injection| injection.tree().root_node().has_error());
+
+	Ok(QueryResponse {
+		generation: metadata.generation,
+		result: QueryResult::SyntaxTree(SyntaxTreeResult {
+			file: metadata.file,
+			language: metadata.language,
+			focus: metadata.focus,
+			focus_line_range: metadata.focus_line_range,
 			root,
 			emitted_nodes,
 			total_nodes,
-			max_depth: query.max_depth,
+			max_depth: options.max_depth,
 			truncated: emitted_nodes < total_nodes,
-			has_error: root_node.has_error(),
+			has_error,
 		}),
 		next_cursor: None,
 	})
 }
 
-fn validate_limits(query: &SyntaxTreeQuery) -> Result<(), QueryError> {
-	if query.max_depth > SYNTAX_TREE_MAX_DEPTH {
+fn validate_limits(options: SyntaxRenderOptions) -> Result<(), QueryError> {
+	if options.max_depth > SYNTAX_TREE_MAX_DEPTH {
 		return Err(QueryError::new(
 			"invalid_syntax_depth",
 			format!("max_depth must be <= {SYNTAX_TREE_MAX_DEPTH}"),
 		));
 	}
-	if query.max_nodes == 0 || query.max_nodes > SYNTAX_TREE_MAX_NODES {
+	if options.max_nodes == 0 || options.max_nodes > SYNTAX_TREE_MAX_NODES {
 		return Err(QueryError::new(
 			"invalid_syntax_node_limit",
 			format!("max_nodes must be between 1 and {SYNTAX_TREE_MAX_NODES}"),
 		));
 	}
-	if query.max_text_chars > SYNTAX_TREE_MAX_TEXT_CHARS {
+	if options.max_text_chars > SYNTAX_TREE_MAX_TEXT_CHARS {
 		return Err(QueryError::new(
 			"invalid_syntax_text_limit",
 			format!("max_text_chars must be <= {SYNTAX_TREE_MAX_TEXT_CHARS}"),
 		));
 	}
 	Ok(())
+}
+
+fn default_source_uri(language: &str) -> String {
+	let extension = match language {
+		"rs" => "rs",
+		"ts" => "ts",
+		"java" => "java",
+		"python" => "py",
+		"go" => "go",
+		"c" => "c",
+		"cs" => "cs",
+		"sql" => "sql",
+		"plpgsql" => "plpgsql",
+		other => other,
+	};
+	format!("snippet.{extension}")
 }
 
 fn resolve_focus<'a>(
@@ -136,7 +260,7 @@ fn is_symbol_focus(focus: &str) -> bool {
 		|| focus.starts_with("symbol:")
 		|| focus
 			.split_once(':')
-			.is_some_and(|(tag, rest)| Lang::from_tag(tag).is_some() && rest.contains('/'))
+			.is_some_and(|(tag, _)| Lang::from_tag(tag).is_some())
 }
 
 fn find_focus_node(
@@ -267,6 +391,25 @@ fn node_line_range(node: tree_sitter::Node<'_>) -> (u32, u32) {
 	)
 }
 
+fn count_document_nodes(
+	document: &ParsedDocument,
+	node: tree_sitter::Node<'_>,
+	named_only: bool,
+) -> usize {
+	let mut count = 0usize;
+	let mut pending = vec![node];
+	while let Some(node) = pending.pop() {
+		count = count.saturating_add(1);
+		if node.kind() == "dollar_quoted_string"
+			&& let Some(injection) = document.injection_for_host(node.start_byte()..node.end_byte())
+		{
+			count = count.saturating_add(count_nodes(injection.tree().root_node(), named_only));
+		}
+		pending.extend(children(node, named_only));
+	}
+	count
+}
+
 fn count_nodes(node: tree_sitter::Node<'_>, named_only: bool) -> usize {
 	let mut count = 0usize;
 	let mut pending = vec![node];
@@ -277,25 +420,37 @@ fn count_nodes(node: tree_sitter::Node<'_>, named_only: bool) -> usize {
 	count
 }
 
-fn build_node(
+fn build_document_node(
+	document: &ParsedDocument,
 	node: tree_sitter::Node<'_>,
 	source: &str,
-	query: &SyntaxTreeQuery,
+	options: SyntaxRenderOptions,
 	depth: usize,
 	emitted: &mut usize,
 ) -> Option<SyntaxNodeDto> {
-	if *emitted >= query.max_nodes {
+	let injection = (node.kind() == "dollar_quoted_string")
+		.then(|| document.injection_for_host(node.start_byte()..node.end_byte()))
+		.flatten();
+	if *emitted >= options.max_nodes {
 		return None;
 	}
 	*emitted += 1;
-	let eligible_children = children(node, query.named_only);
-	let text = (query.include_text && eligible_children.is_empty())
-		.then(|| bounded_text(node, source, query.max_text_chars))
+	let eligible_children = children(node, options.named_only);
+	let text = (options.include_text && eligible_children.is_empty() && injection.is_none())
+		.then(|| bounded_text(node, source, options.max_text_chars))
 		.flatten();
 	let mut rendered_children = Vec::new();
-	if depth < query.max_depth {
+	if depth < options.max_depth {
+		if let Some(injection) = injection
+			&& let Some(child) =
+				build_injection_node(injection, source, options, depth + 1, emitted)
+		{
+			rendered_children.push(child);
+		}
 		for child in eligible_children {
-			let Some(child) = build_node(child, source, query, depth + 1, emitted) else {
+			let Some(child) =
+				build_document_node(document, child, source, options, depth + 1, emitted)
+			else {
 				break;
 			};
 			rendered_children.push(child);
@@ -305,6 +460,7 @@ fn build_node(
 	let end = node.end_position();
 	Some(SyntaxNodeDto {
 		kind: node.kind().to_string(),
+		language: None,
 		named: node.is_named(),
 		error: node.is_error(),
 		missing: node.is_missing(),
@@ -320,6 +476,106 @@ fn build_node(
 		text,
 		children: rendered_children,
 	})
+}
+
+fn build_injection_node(
+	injection: &SyntaxInjection,
+	host_source: &str,
+	options: SyntaxRenderOptions,
+	depth: usize,
+	emitted: &mut usize,
+) -> Option<SyntaxNodeDto> {
+	let content_range = injection.content_byte_range();
+	let content = host_source.get(content_range.clone())?;
+	let origin = source_origin(host_source, content_range.start, injection.language());
+	build_injected_tree_node(
+		injection.tree().root_node(),
+		content,
+		options,
+		depth,
+		emitted,
+		origin,
+	)
+}
+
+#[derive(Clone, Copy)]
+struct SourceOrigin {
+	byte: usize,
+	row: usize,
+	column: usize,
+	language: &'static str,
+}
+
+fn source_origin(source: &str, byte: usize, language: &'static str) -> SourceOrigin {
+	let prefix = source.get(..byte).unwrap_or_default();
+	let row = prefix.bytes().filter(|byte| *byte == b'\n').count();
+	let column = prefix
+		.rsplit_once('\n')
+		.map(|(_, tail)| tail.len())
+		.unwrap_or(prefix.len());
+	SourceOrigin {
+		byte,
+		row,
+		column,
+		language,
+	}
+}
+
+fn build_injected_tree_node(
+	node: tree_sitter::Node<'_>,
+	source: &str,
+	options: SyntaxRenderOptions,
+	depth: usize,
+	emitted: &mut usize,
+	origin: SourceOrigin,
+) -> Option<SyntaxNodeDto> {
+	if *emitted >= options.max_nodes {
+		return None;
+	}
+	*emitted += 1;
+	let eligible_children = children(node, options.named_only);
+	let text = (options.include_text && eligible_children.is_empty())
+		.then(|| bounded_text(node, source, options.max_text_chars))
+		.flatten();
+	let mut rendered_children = Vec::new();
+	if depth < options.max_depth {
+		for child in eligible_children {
+			let Some(child) =
+				build_injected_tree_node(child, source, options, depth + 1, emitted, origin)
+			else {
+				break;
+			};
+			rendered_children.push(child);
+		}
+	}
+	let start = translated_point(node.start_position(), origin);
+	let end = translated_point(node.end_position(), origin);
+	Some(SyntaxNodeDto {
+		kind: node.kind().to_string(),
+		language: node.parent().is_none().then(|| origin.language.to_string()),
+		named: node.is_named(),
+		error: node.is_error(),
+		missing: node.is_missing(),
+		byte_range: (
+			origin.byte.saturating_add(node.start_byte()),
+			origin.byte.saturating_add(node.end_byte()),
+		),
+		start,
+		end,
+		text,
+		children: rendered_children,
+	})
+}
+
+fn translated_point(point: tree_sitter::Point, origin: SourceOrigin) -> SyntaxPointDto {
+	SyntaxPointDto {
+		line: saturating_u32(origin.row.saturating_add(point.row)).saturating_add(1),
+		column: saturating_u32(if point.row == 0 {
+			origin.column.saturating_add(point.column)
+		} else {
+			point.column
+		}),
+	}
 }
 
 fn children(node: tree_sitter::Node<'_>, named_only: bool) -> Vec<tree_sitter::Node<'_>> {

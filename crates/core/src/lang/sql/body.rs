@@ -1,13 +1,146 @@
-use tree_sitter::{Node, Parser};
+use std::ops::Range;
+
+use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::moniker::Moniker;
+use crate::lang::tree_util::find_descendant;
+use crate::lang::{ParsedDocument, SyntaxInjection};
 
 use super::sdk_pipeline::discover::{
 	CallableSearchPaths, SqlBuilder, new_sql_parser, run_inner_sql,
 };
 
+pub(super) fn parse_document(primary: Tree, source: &str) -> ParsedDocument {
+	let mut injections = Vec::new();
+	collect_routine_injections(primary.root_node(), source, &mut injections);
+	ParsedDocument::with_injections(primary, injections)
+}
+
+fn collect_routine_injections(node: Node<'_>, source: &str, injections: &mut Vec<SyntaxInjection>) {
+	if node.kind() == "CreateFunctionStmt"
+		&& let Some(body) = routine_body(node, source)
+		&& let Some(tree) = parse_embedded(&body.language, body.text)
+	{
+		injections.push(SyntaxInjection::new(
+			body.language_tag(),
+			body.host_byte_range,
+			body.content_byte_range,
+			tree,
+		));
+		return;
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		collect_routine_injections(child, source, injections);
+	}
+}
+
+fn parse_embedded(language: &[u8], source: &str) -> Option<Tree> {
+	let grammar = if language.eq_ignore_ascii_case(b"plpgsql") {
+		tree_sitter_postgres::LANGUAGE_PLPGSQL
+	} else if language.eq_ignore_ascii_case(b"sql") {
+		tree_sitter_postgres::LANGUAGE
+	} else {
+		return None;
+	};
+	let mut parser = Parser::new();
+	parser.set_language(&grammar.into()).unwrap_or_else(|err| {
+		panic!("failed to load tree-sitter-postgres embedded grammar: {err}");
+	});
+	parser.parse(source, None)
+}
+
+pub(super) fn parse_plpgsql(source: &str) -> Tree {
+	let Some(tree) = parse_embedded(b"plpgsql", source) else {
+		unreachable!("PL/pgSQL is a supported embedded grammar");
+	};
+	tree
+}
+
+struct RoutineBody<'a> {
+	language: Vec<u8>,
+	text: &'a str,
+	host_byte_range: Range<usize>,
+	content_byte_range: Range<usize>,
+}
+
+impl RoutineBody<'_> {
+	fn language_tag(&self) -> &'static str {
+		if self.language.eq_ignore_ascii_case(b"plpgsql") {
+			"plpgsql"
+		} else {
+			"sql"
+		}
+	}
+}
+
+fn routine_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> {
+	let language = function_language(node, source.as_bytes());
+	let dollar = find_descendant(node, "dollar_quoted_string")?;
+	let full = source.get(dollar.start_byte()..dollar.end_byte())?;
+	let first = full.find('$')?;
+	let end_delim = full[first + 1..].find('$')? + first + 2;
+	let close = full.rfind(&full[first..end_delim])?;
+	if close <= end_delim {
+		return None;
+	}
+	let content_byte_range = dollar.start_byte() + end_delim..dollar.start_byte() + close;
+	Some(RoutineBody {
+		language,
+		text: source.get(content_byte_range.clone())?,
+		host_byte_range: dollar.start_byte()..dollar.end_byte(),
+		content_byte_range,
+	})
+}
+
+fn function_language(node: Node<'_>, src: &[u8]) -> Vec<u8> {
+	if let Some(opts) = find_descendant(node, "createfunc_opt_list")
+		&& let Some(language) = find_language_in(opts, src)
+	{
+		return language;
+	}
+	let mut after_language = false;
+	let Some(node_source) = src.get(node.start_byte()..node.end_byte()) else {
+		return Vec::new();
+	};
+	for token in node_source
+		.split(|byte| !(byte.is_ascii_alphanumeric() || *byte == b'_'))
+		.filter(|token| !token.is_empty())
+	{
+		if after_language {
+			return token.to_vec();
+		}
+		after_language = token.eq_ignore_ascii_case(b"language");
+	}
+	Vec::new()
+}
+
+fn find_language_in(node: Node<'_>, src: &[u8]) -> Option<Vec<u8>> {
+	if node.kind() == "createfunc_opt_item" {
+		let mut has_lang = false;
+		let mut cursor = node.walk();
+		for child in node.named_children(&mut cursor) {
+			if child.kind() == "kw_language" {
+				has_lang = true;
+			} else if has_lang && let Some(identifier) = find_descendant(child, "identifier") {
+				return src
+					.get(identifier.start_byte()..identifier.end_byte())
+					.map(<[u8]>::to_vec);
+			}
+		}
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if let Some(found) = find_language_in(child, src) {
+			return Some(found);
+		}
+	}
+	None
+}
+
 pub(super) fn walk_plpgsql_body(
 	body: &str,
+	tree: &Tree,
 	source_def: &Moniker,
 	module: &Moniker,
 	search_paths: &CallableSearchPaths,
@@ -16,15 +149,6 @@ pub(super) fn walk_plpgsql_body(
 	if body.trim().is_empty() {
 		return;
 	}
-	let mut plpgsql_parser = Parser::new();
-	plpgsql_parser
-		.set_language(&tree_sitter_postgres::LANGUAGE_PLPGSQL.into())
-		.unwrap_or_else(|err| {
-			panic!("failed to load tree-sitter-postgres PL/pgSQL grammar: {err}");
-		});
-	let Some(tree) = plpgsql_parser.parse(body, None) else {
-		return;
-	};
 	let mut sql_parser = new_sql_parser();
 	for_each_sql_expression(tree.root_node(), &mut |expr| {
 		if inside_dynamic_execute(expr) {

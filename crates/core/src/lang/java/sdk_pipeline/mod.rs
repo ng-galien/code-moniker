@@ -1,5 +1,6 @@
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::lang::ParsedDocument;
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 use tree_sitter::Node;
 
@@ -14,25 +15,25 @@ mod type_resolution;
 
 use discover::JavaDiscover;
 
+use super::Presets;
 use super::kinds;
-use super::{Presets, parse};
 
 pub fn extract(
 	uri: &str,
 	source: &str,
+	document: &ParsedDocument,
 	anchor: &Moniker,
 	deep: bool,
 	_presets: &Presets,
 ) -> CodeGraph {
-	let tree = parse(source);
-	let pkg = read_package_name(tree.root_node(), source.as_bytes());
+	let root = document.primary().root_node();
+	let pkg = read_package_name(root, source.as_bytes());
 	let pieces = pkg
 		.split('.')
 		.filter(|piece| !piece.is_empty())
 		.collect::<Vec<_>>();
 	let module = compute_module_moniker(anchor, uri, &pieces);
-	let discovered_parts =
-		JavaDiscover::run(module.clone(), source.as_bytes(), deep, tree.root_node());
+	let discovered_parts = JavaDiscover::run(module.clone(), source.as_bytes(), deep, root);
 	let discovered = DiscoveredFile::new(
 		module,
 		kinds::MODULE,
@@ -113,7 +114,7 @@ mod tests {
 		let windows_uri = r"src\main\java\com\acme\java\util\Read.java";
 		let windows =
 			standard_path_module_moniker(&anchor, windows_uri).expect("standard Windows Java path");
-		let graph = extract(
+		let graph = crate::lang::java::extract(
 			windows_uri,
 			"package com.acme.java.util; class Read {}",
 			&anchor,

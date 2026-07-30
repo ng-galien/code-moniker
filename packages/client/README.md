@@ -40,6 +40,12 @@ deliberately wants the daemon's pinned indexed snapshot can pass
 `{ consistency: "stale_ok" }`; a consumer that wants the filesystem refreshed
 first can pass `{ consistency: "refresh_if_stale" }`.
 
+The generated query union includes bounded `syntax_tree` and stateless
+`syntax_parse` operations. See
+[On-demand syntax tree](../../docs/cli/mcp-syntax-tree.md) for its TypeScript
+request, result, limits, and error contract. Nodes at the root of an embedded
+language tree expose the optional `language` field, for example `plpgsql`.
+
 The portable entry point does not discover, start, stop, or own daemon
 processes. A runtime without a standard global `WebSocket` must provide
 `webSocketFactory`.

@@ -940,6 +940,9 @@ fn handle_query(
 	daemon: &mut WorkspaceDaemon,
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
+	if let Query::SyntaxParse(query) = &request.query {
+		return syntax::syntax_parse_response(query.clone());
+	}
 	drain_live_events(daemon)?;
 	if let Query::QueryDescribe(query) = &request.query {
 		return query_describe_response(query.verb.as_deref());
@@ -991,6 +994,9 @@ fn dispatch_loaded_query(
 	match request.query {
 		Query::QueryDescribe(_) => unreachable!("query describe handled before snapshot load"),
 		Query::WorkspaceStatus => unreachable!("workspace status handled before snapshot load"),
+		Query::SyntaxParse(_) => {
+			unreachable!("stateless syntax parse handled before snapshot load")
+		}
 		Query::TreeChildren(query) => tree_children_response(
 			&snapshot,
 			&daemon.roots,
@@ -5346,6 +5352,126 @@ message = "every selected function is observable"
 	}
 
 	#[test]
+	fn stateless_syntax_parse_does_not_require_a_loaded_snapshot() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "plpgsql".to_string(),
+				source: "DECLARE total numeric; BEGIN total := 1; RETURN total; END;".to_string(),
+				uri: None,
+				max_depth: 12,
+				max_nodes: 200,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 40,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected stateless syntax response, got {response:?}");
+		};
+		assert_eq!(response.generation, None);
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected syntax tree, got {:?}", response.result);
+		};
+		assert_eq!(tree.file, "snippet.plpgsql");
+		assert_eq!(tree.language, "plpgsql");
+		assert_eq!(tree.root.kind, "source_file");
+		assert!(syntax_node_contains(&tree.root, "decl_statement", None));
+		assert!(syntax_node_contains(&tree.root, "stmt_assign", None));
+		assert!(syntax_node_contains(&tree.root, "stmt_return", None));
+	}
+
+	#[test]
+	fn stateless_syntax_parse_rejects_unsupported_languages_and_large_sources() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		for (query, expected_code) in [
+			(
+				code_moniker_query::SyntaxParseQuery {
+					language: "brainfuck".to_string(),
+					source: "+++".to_string(),
+					uri: None,
+					max_depth: 6,
+					max_nodes: 100,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 80,
+				},
+				"syntax_language_unsupported",
+			),
+			(
+				code_moniker_query::SyntaxParseQuery {
+					language: "rs".to_string(),
+					source: "x".repeat(code_moniker_query::SYNTAX_PARSE_MAX_SOURCE_BYTES + 1),
+					uri: None,
+					max_depth: 6,
+					max_nodes: 100,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 80,
+				},
+				"syntax_source_too_large",
+			),
+		] {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::SyntaxParse(query)),
+			)));
+			let ProtocolResponse::Error(error) = response else {
+				panic!("expected {expected_code}, got {response:?}");
+			};
+			assert_eq!(error.code, expected_code);
+		}
+	}
+
+	#[test]
+	fn stateless_syntax_parse_does_not_drain_or_refresh_live_workspace_events() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let changed = temp.path().join("later.rs");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("auto".to_string()),
+		})
+		.expect("auto daemon");
+		daemon
+			.live
+			.tx
+			.send(WorkspaceLiveEvent::SourcesChanged(vec![changed.clone()]))
+			.expect("queue live event");
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "rs".to_string(),
+				source: "fn answer() -> u32 { 42 }".to_string(),
+				uri: None,
+				max_depth: 6,
+				max_nodes: 100,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 80,
+			}),
+		))));
+		assert!(
+			matches!(response, ProtocolResponse::Query(_)),
+			"{response:?}"
+		);
+		let queued = daemon
+			.live
+			.rx
+			.try_recv()
+			.expect("live event remains queued");
+		assert!(
+			matches!(queued, WorkspaceLiveEvent::SourcesChanged(paths) if paths == vec![changed])
+		);
+		assert!(
+			daemon.registry.queries().snapshot().is_none(),
+			"stateless parse must not create a workspace snapshot"
+		);
+	}
+
+	#[test]
 	fn applicable_rules_and_change_context_are_symbol_scoped() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let src = temp.path().join("src");
@@ -6453,6 +6579,75 @@ pub fn production_entry() {}
 	}
 
 	#[test]
+	fn daemon_syntax_tree_uses_language_sdk_injections_for_plpgsql() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(
+			temp.path().join("account.sql"),
+			"CREATE FUNCTION account_balance(p_id bigint) RETURNS numeric\n\
+			 LANGUAGE plpgsql AS $$\n\
+			 DECLARE total numeric;\n\
+			 BEGIN\n\
+			   SELECT sum(amount) INTO total FROM ledger_entry WHERE account_id = p_id;\n\
+			   IF total IS NULL THEN RETURN 0; END IF;\n\
+			   RETURN total;\n\
+			 EXCEPTION WHEN OTHERS THEN RETURN -1;\n\
+			 END;\n\
+			 $$;\n",
+		)
+		.expect("write PL/pgSQL fixture");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refresh, ProtocolResponse::Command(_)));
+
+		let QueryResult::SymbolList(symbols) = search_symbols(&mut daemon, "account_balance")
+		else {
+			panic!("expected SQL symbol list");
+		};
+		let function = symbols
+			.rows
+			.iter()
+			.find(|symbol| symbol.kind == "function")
+			.expect("account_balance function");
+		let compact =
+			code_moniker_workspace::code::compact_identity(&function.uri, "code+moniker://")
+				.expect("compact SQL moniker");
+		assert!(
+			!compact.contains('/'),
+			"fixture must cover root-level compact monikers: {compact}"
+		);
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxTree(SyntaxTreeQuery {
+				workspace: None,
+				focus: compact,
+				max_depth: 20,
+				max_nodes: 500,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 40,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected PL/pgSQL syntax response, got {response:?}");
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected PL/pgSQL syntax tree result");
+		};
+		assert_eq!(tree.root.kind, "toplevel_stmt");
+		assert!(syntax_node_contains(&tree.root, "CreateFunctionStmt", None));
+		assert!(syntax_node_contains_language(
+			&tree.root,
+			"source_file",
+			"plpgsql"
+		));
+		assert!(syntax_node_contains(&tree.root, "stmt_if", None));
+		assert!(syntax_node_contains(&tree.root, "stmt_return", None));
+		assert!(syntax_node_contains(&tree.root, "sql_expression", None));
+		assert_eq!(syntax_node_language_count(&tree.root, "plpgsql"), 1);
+	}
+
+	#[test]
 	fn syntax_tree_disambiguates_one_line_csharp_symbols() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		fs::write(
@@ -6572,6 +6767,23 @@ pub fn production_entry() {}
 				.children
 				.iter()
 				.any(|child| syntax_node_contains(child, kind, text))
+	}
+
+	fn syntax_node_contains_language(node: &SyntaxNodeDto, kind: &str, language: &str) -> bool {
+		(node.kind == kind && node.language.as_deref() == Some(language))
+			|| node
+				.children
+				.iter()
+				.any(|child| syntax_node_contains_language(child, kind, language))
+	}
+
+	fn syntax_node_language_count(node: &SyntaxNodeDto, language: &str) -> usize {
+		usize::from(node.language.as_deref() == Some(language))
+			+ node
+				.children
+				.iter()
+				.map(|child| syntax_node_language_count(child, language))
+				.sum::<usize>()
 	}
 
 	#[test]

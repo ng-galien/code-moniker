@@ -4,7 +4,7 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
-use crate::lang::KindSpec;
+use crate::lang::{ExtractionContext, KindSpec, LangExtractor, ParsedDocument};
 
 pub mod cargo_manifest;
 mod kinds;
@@ -31,7 +31,7 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	extract_sdk(uri, source, anchor, deep, presets)
+	<Lang as LangExtractor>::extract(uri, source, anchor, deep, presets)
 }
 
 pub fn extract_sdk(
@@ -41,7 +41,7 @@ pub fn extract_sdk(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	sdk_pipeline::extract(uri, source, anchor, deep, presets)
+	<Lang as LangExtractor>::extract(uri, source, anchor, deep, presets)
 }
 
 pub fn is_common_std_method(name: &str) -> bool {
@@ -89,21 +89,25 @@ impl crate::lang::LangExtractor for Lang {
 	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "private", "module"];
 
-	fn parse(_uri: &str, source: &str) -> Tree {
-		parse(source)
+	fn parse(_uri: &str, source: &str) -> ParsedDocument {
+		ParsedDocument::new(parse(source))
 	}
 
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
 		Some(sdk_pipeline::compute_module_moniker(anchor, uri))
 	}
 
-	fn extract(
-		uri: &str,
-		source: &str,
-		anchor: &Moniker,
-		deep: bool,
-		presets: &Self::Presets,
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
 	) -> CodeGraph {
-		extract(uri, source, anchor, deep, presets)
+		sdk_pipeline::extract(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
 	}
 }

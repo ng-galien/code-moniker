@@ -80,6 +80,17 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      include_text: boolean;
+      language: string;
+      max_depth: number;
+      max_nodes: number;
+      max_text_chars: number;
+      named_only: boolean;
+      op: "syntax_parse";
+      source: string;
+      uri?: string | null;
+    }
+  | {
       direction: UsageDirection;
       lang: string[];
       op: "symbol_usages";
@@ -537,6 +548,7 @@ export interface SyntaxNodeDto {
   end: SyntaxPointDto;
   error: boolean;
   kind: string;
+  language?: string | null;
   missing: boolean;
   named: boolean;
   start: SyntaxPointDto;

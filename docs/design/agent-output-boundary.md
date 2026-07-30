@@ -39,15 +39,33 @@ shape, but they never perform URI compaction or output truncation themselves.
 
 ### On-demand syntax trees
 
-`syntax.tree` applies this decision beyond final string truncation. It reparses
-the current indexed source only when requested, never retains a Tree-sitter
-tree in the workspace snapshot, and bounds depth, node count, grammar-node
-detail, and optional leaf text before rendering. The MCP intent surface is
-`code_moniker_read` with `ast=true`; named nodes, depth 6, 100 nodes, and no
-leaf text are the defaults.
+`syntax.tree` applies this decision beyond final string truncation. It requests
+a `ParsedDocument` from the common language SDK only when asked, never retains
+a Tree-sitter tree in the workspace snapshot, and bounds depth, node count,
+grammar-node detail, and optional leaf text before rendering. Semantic
+extraction consumes the same parsed document contract, including any
+embedded-language trees; the daemon cannot grow a parallel language parser.
+The MCP intent surface is `code_moniker_read` with `ast=true`; named nodes,
+depth 6, 100 nodes, and no leaf text are the defaults.
 
-The root rule set proves three fail-closed paths:
+The same surface accepts only `source` plus `language` for direct input and
+routes that request to `syntax.parse`; `ast=true` remains necessary only for
+indexed URI reads. This operation runs before workspace snapshot loading,
+never indexes or persists its input, and uses the same `ParsedDocument` and
+bounded renderer as indexed `syntax.tree`. Direct source has an independent
+1 MiB input ceiling.
 
+The root rule set proves the shared language pipeline plus three fail-closed
+output paths:
+
+- `LangExtractor::extract` parses once and delegates to `extract_parsed`;
+- every language SDK extraction pipeline consumes `ParsedDocument` and does
+  not parse the source again;
+- the daemon response consumes the SDK `ParsedDocument`;
+- the stateless response consumes `SyntaxParseQuery` and calls the shared
+  language SDK parser;
+- the query contract marks `syntax.parse` as snapshot-free, the MCP runtime
+  skips preload, and the daemon dispatches it before live-index work;
 - the daemon response consumes the typed `SyntaxTreeQuery`;
 - the response enters the daemon hard-limit validator;
 - `ReadTool::input_schema` delegates to the bounded AST schema renderer.

@@ -4,23 +4,24 @@ pub(super) mod discover;
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::lang::ParsedDocument;
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 
 use super::Presets;
 use super::canonicalize::compute_module_moniker;
 use super::kinds;
-use discover::{SqlDiscover, parse};
+use discover::SqlDiscover;
 
 pub(super) fn extract(
 	uri: &str,
 	source: &str,
+	document: &ParsedDocument,
 	anchor: &Moniker,
 	_deep: bool,
 	_presets: &Presets,
 ) -> CodeGraph {
-	let tree = parse(source);
 	let module = compute_module_moniker(anchor, uri);
-	let parts = SqlDiscover::run(module, source, tree.root_node());
+	let parts = SqlDiscover::run(module, source, document);
 	let discovered = DiscoveredFile::new(
 		parts.root.clone(),
 		kinds::MODULE,

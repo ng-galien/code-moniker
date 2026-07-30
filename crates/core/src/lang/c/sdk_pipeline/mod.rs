@@ -1,5 +1,6 @@
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::lang::ParsedDocument;
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 
 mod builtins;
@@ -12,23 +13,23 @@ mod type_resolution;
 
 use discover::CDiscover;
 
+use super::Presets;
 use super::kinds;
-use super::{Presets, parse};
 
 pub fn extract(
 	uri: &str,
 	source: &str,
+	document: &ParsedDocument,
 	anchor: &Moniker,
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	let tree = parse(source);
 	let module = compute_module_moniker(anchor, uri);
 	let discovered_parts = CDiscover::run(
 		module.clone(),
 		source.as_bytes(),
 		deep,
-		tree.root_node(),
+		document.primary().root_node(),
 		presets,
 	);
 	let discovered = DiscoveredFile::new(

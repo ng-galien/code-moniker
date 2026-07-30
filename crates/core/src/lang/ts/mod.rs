@@ -4,7 +4,7 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
-use crate::lang::KindSpec;
+use crate::lang::{ExtractionContext, KindSpec, LangExtractor, ParsedDocument};
 
 pub mod build;
 mod kinds;
@@ -56,7 +56,7 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	sdk_pipeline::extract(uri, source, anchor, deep, presets)
+	<Lang as LangExtractor>::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;
@@ -97,22 +97,26 @@ impl crate::lang::LangExtractor for Lang {
 	const ALLOWED_VISIBILITIES: &'static [&'static str] =
 		&["public", "private", "protected", "module"];
 
-	fn parse(uri: &str, source: &str) -> Tree {
-		parse_with_uri(source, uri)
+	fn parse(uri: &str, source: &str) -> ParsedDocument {
+		ParsedDocument::new(parse_with_uri(source, uri))
 	}
 
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
 		Some(sdk_pipeline::compute_module_moniker(anchor, uri))
 	}
 
-	fn extract(
-		uri: &str,
-		source: &str,
-		anchor: &Moniker,
-		deep: bool,
-		presets: &Self::Presets,
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
 	) -> CodeGraph {
-		extract(uri, source, anchor, deep, presets)
+		sdk_pipeline::extract(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
 	}
 }
 

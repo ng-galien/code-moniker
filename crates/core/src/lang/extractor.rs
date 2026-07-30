@@ -11,7 +11,8 @@
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
-use tree_sitter::Tree;
+
+use super::ParsedDocument;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct KindSpec {
@@ -32,6 +33,32 @@ impl KindSpec {
 	}
 }
 
+pub struct ExtractionContext<'a, P> {
+	pub uri: &'a str,
+	pub source: &'a str,
+	pub anchor: &'a Moniker,
+	pub deep: bool,
+	pub presets: &'a P,
+}
+
+impl<'a, P> ExtractionContext<'a, P> {
+	pub fn new(
+		uri: &'a str,
+		source: &'a str,
+		anchor: &'a Moniker,
+		deep: bool,
+		presets: &'a P,
+	) -> Self {
+		Self {
+			uri,
+			source,
+			anchor,
+			deep,
+			presets,
+		}
+	}
+}
+
 pub trait LangExtractor {
 	type Presets: Default;
 
@@ -47,7 +74,12 @@ pub trait LangExtractor {
 		None
 	}
 
-	fn parse(uri: &str, source: &str) -> Tree;
+	fn parse(uri: &str, source: &str) -> ParsedDocument;
+
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
+	) -> CodeGraph;
 
 	fn extract(
 		uri: &str,
@@ -55,7 +87,11 @@ pub trait LangExtractor {
 		anchor: &Moniker,
 		deep: bool,
 		presets: &Self::Presets,
-	) -> CodeGraph;
+	) -> CodeGraph {
+		let document = Self::parse(uri, source);
+		let context = ExtractionContext::new(uri, source, anchor, deep, presets);
+		Self::extract_parsed(context, &document)
+	}
 }
 
 mod conformance {

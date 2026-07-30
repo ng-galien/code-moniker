@@ -2115,6 +2115,63 @@
         {
           "type": "object",
           "required": [
+            "include_text",
+            "language",
+            "max_depth",
+            "max_nodes",
+            "max_text_chars",
+            "named_only",
+            "op",
+            "source"
+          ],
+          "properties": {
+            "include_text": {
+              "type": "boolean"
+            },
+            "language": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 32.0,
+              "minimum": 0.0
+            },
+            "max_nodes": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 2000.0,
+              "minimum": 1.0
+            },
+            "max_text_chars": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 1000.0,
+              "minimum": 0.0
+            },
+            "named_only": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "syntax_parse"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "uri": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "direction",
             "lang",
             "op",
@@ -4306,6 +4363,12 @@
         "kind": {
           "type": "string"
         },
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "missing": {
           "type": "boolean"
         },
@@ -5326,5 +5389,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 7
+  "x-code-moniker-protocol-version": 9
 }

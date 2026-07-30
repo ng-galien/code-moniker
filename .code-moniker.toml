@@ -71,7 +71,16 @@ mcp_compact_renderer = "kind = 'fn' AND name =~ ^compact_response_monikers AND u
 mcp_budget_renderer = "kind = 'fn' AND name =~ ^apply_output_budget AND uri ~ '**/module:mcp/module:tools/module:common/**'"
 syntax_tree_query = "kind = 'struct' AND name = 'SyntaxTreeQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
 syntax_tree_response = "kind = 'fn' AND name =~ ^syntax_tree_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+syntax_parse_query = "kind = 'struct' AND name = 'SyntaxParseQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
+syntax_parse_response = "kind = 'fn' AND name =~ ^syntax_parse_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+query_snapshot_requirement = "kind = 'method' AND name =~ ^requires_workspace_snapshot AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
+mcp_daemon_runtime_query = "kind = 'method' AND name =~ ^query AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/enum:DaemonRuntime/**'"
+daemon_handle_query = "kind = 'fn' AND name =~ ^handle_query AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lib/**'"
+language_parse_source = "kind = 'fn' AND name =~ ^parse_source AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**'"
 syntax_tree_limit_validator = "kind = 'fn' AND name =~ ^validate_limits AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+language_extractor_contract = "kind = 'trait' AND name = 'LangExtractor' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/module:extractor/**'"
+parsed_document_contract = "kind = 'struct' AND name = 'ParsedDocument' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/module:document/**'"
+language_sdk_pipeline_extract = "kind = 'fn' AND name = 'extract' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**/module:sdk_pipeline/**'"
 mcp_read_input_schema = "kind = 'method' AND name =~ ^input_schema AND moniker ~ '**/module:read/**'"
 mcp_read_ast_schema = "kind = 'fn' AND name =~ ^read_input_schema AND moniker ~ '**/module:read/**'"
 
@@ -185,6 +194,66 @@ rationale = "Distributed budgeting creates inconsistent ceilings and allows erro
 
 # ─── On-demand syntax tree boundary ─────────────────────────────────
 
+[[rust.shape.type.where]]
+id        = "language-sdk-owns-shared-parsed-document"
+severity  = "error"
+expr      = "NOT $language_extractor_contract OR text =~ '(?s)fn parse\\(.*-> ParsedDocument.*fn extract_parsed\\(.*document: &ParsedDocument.*let document = Self::parse\\(.*Self::extract_parsed\\('"
+message   = "`LangExtractor` must parse once into `ParsedDocument` and pass that document to semantic extraction."
+rationale = """
+AST rendering and graph extraction are consumers of one language SDK pipeline.
+Returning a raw tree to one consumer while allowing another to parse privately
+recreates divergent syntax behavior, especially for embedded languages.
+"""
+
+[[rust.shape.type.where]]
+id        = "parsed-document-supports-language-injections"
+severity  = "error"
+expr      = "NOT $parsed_document_contract OR text =~ '(?s)primary: Tree.*injections: Vec<SyntaxInjection>'"
+message   = "`ParsedDocument` must retain both the primary tree and embedded-language injections."
+rationale = "Embedded syntax is part of the common language SDK contract, not a daemon- or extractor-specific side channel."
+
+[[rust.shape.callable.where]]
+id        = "language-sdk-pipelines-consume-parsed-document"
+severity  = "error"
+expr      = "NOT $language_sdk_pipeline_extract OR (text =~ 'document: &ParsedDocument' AND NOT text =~ '(?s)let tree = .*parse')"
+message   = "Every language SDK extraction pipeline must consume `ParsedDocument` without reparsing the source."
+rationale = "This makes the shared parse result mandatory for all registered language pipelines and catches a private second parser before it reaches MCP."
+
+[[rust.shape.callable.where]]
+id        = "syntax-tree-response-consumes-language-sdk-document"
+severity  = "error"
+expr      = "NOT $syntax_tree_response OR text =~ '(?s)let document = lang\\.parse\\(.*document\\.primary\\(.*render_document\\(.*&document'"
+message   = "The daemon AST response must consume the parsed document returned by the language SDK."
+rationale = "This rule would catch a regression back to a raw generic parser or a daemon-only embedded-language pipeline."
+
+[[rust.shape.callable.where]]
+id        = "stateless-syntax-response-consumes-language-sdk"
+severity  = "error"
+expr      = "NOT $syntax_parse_response OR (text =~ '(?s)parse_source\\(.*render_document\\(' AND NOT text =~ 'WorkspaceSnapshot')"
+message   = "The stateless AST response must parse through the shared language SDK and shared renderer."
+rationale = "Direct source parsing must not introduce a second language pipeline or a different AST representation."
+
+[[rust.shape.callable.where]]
+id        = "syntax-parse-does-not-require-workspace-snapshot"
+severity  = "error"
+expr      = "NOT $query_snapshot_requirement OR text =~ '(?s)!matches!\\(.*SyntaxParse'"
+message   = "`Query::requires_workspace_snapshot` must classify `SyntaxParse` as stateless."
+rationale = "The MCP in-process runtime uses this protocol property to bypass workspace preload for direct source parsing."
+
+[[rust.shape.callable.where]]
+id        = "mcp-runtime-honors-stateless-query-contract"
+severity  = "error"
+expr      = "NOT $mcp_daemon_runtime_query OR text =~ '(?s)requires_workspace_snapshot\\(\\).*ensure_preload_ready'"
+message   = "The MCP in-process runtime must consult the query snapshot contract before waiting for preload."
+rationale = "Otherwise source-plus-language parsing can block on or fail because of an unrelated workspace index."
+
+[[rust.shape.callable.where]]
+id        = "daemon-dispatches-syntax-parse-before-live-index-work"
+severity  = "error"
+expr      = "NOT $daemon_handle_query OR text =~ '(?s)SyntaxParse.*syntax_parse_response.*drain_live_events'"
+message   = "The daemon must dispatch `SyntaxParse` before draining live events or refreshing the workspace."
+rationale = "Stateless parsing must not read, mutate, or fail because of live workspace indexing."
+
 [[workspace.path]]
 id        = "syntax-tree-response-uses-typed-contract"
 severity  = "error"
@@ -202,6 +271,38 @@ message   = "The daemon AST response no longer consumes the typed `SyntaxTreeQue
 rationale = "This fail-closed path proves both the public query contract and its daemon execution boundary still exist and remain connected."
 
 [[workspace.path]]
+id        = "syntax-parse-response-uses-typed-contract"
+severity  = "error"
+from      = "$syntax_parse_response"
+to        = "$syntax_parse_query"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["uses_type"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "The stateless AST response no longer consumes the typed `SyntaxParseQuery` contract: {path}"
+rationale = "This fail-closed path keeps source-plus-language parsing explicit in the public protocol."
+
+[[workspace.path]]
+id        = "syntax-parse-response-uses-language-sdk"
+severity  = "error"
+from      = "$syntax_parse_response"
+to        = "$language_parse_source"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["calls"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "The stateless AST response bypasses the shared language SDK parser: {path}"
+rationale = "The same registered language parsers must serve extraction, indexed AST reads, and direct source parsing."
+
+[[workspace.path]]
 id        = "syntax-tree-response-calls-limit-validator"
 severity  = "error"
 from      = "$syntax_tree_response"
@@ -216,6 +317,22 @@ max_pairs = 1
 min_coverage = 100
 message   = "The daemon AST response bypasses its hard-limit validator: {path}"
 rationale = "This fail-closed path proves the validator exists and every on-demand syntax-tree response enters it."
+
+[[workspace.path]]
+id        = "syntax-parse-response-calls-limit-validator"
+severity  = "error"
+from      = "$syntax_parse_response"
+to        = "$syntax_tree_limit_validator"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["calls"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "The stateless AST response bypasses its hard-limit validator: {path}"
+rationale = "Direct source parsing must share the same output bounds as indexed syntax trees."
 
 [[workspace.path]]
 id        = "mcp-read-delegates-bounded-ast-schema"
@@ -244,6 +361,13 @@ volume dimension in the typed protocol prevents a single source file from floodi
 agent context or forcing the daemon to retain syntax trees.
 """
 
+[[rust.shape.type.where]]
+id        = "syntax-parse-query-is-explicitly-bounded"
+severity  = "error"
+expr      = "NOT $syntax_parse_query OR text =~ '(?s)language.*source.*uri.*max_depth.*max_nodes.*named_only.*include_text.*max_text_chars'"
+message   = "`SyntaxParseQuery` must keep source identity and every AST output bound explicit."
+rationale = "Stateless parsing is public protocol input and must remain both self-contained and bounded."
+
 [[rust.shape.callable.where]]
 id        = "syntax-tree-daemon-enforces-hard-bounds"
 severity  = "error"
@@ -254,9 +378,9 @@ rationale = "Schema defaults are advisory; the daemon boundary must reject overs
 [[rust.shape.callable.where]]
 id        = "mcp-read-publishes-bounded-ast-options"
 severity  = "error"
-expr      = "NOT $mcp_read_ast_schema OR text =~ '(?s)\"ast\".*\"max_depth\".*\"max_nodes\".*\"named_only\".*\"include_text\".*\"max_text_chars\"'"
+expr      = "NOT $mcp_read_ast_schema OR text =~ '(?s)\"source\".*\"language\".*\"ast\".*\"max_depth\".*\"max_nodes\".*\"named_only\".*\"include_text\".*\"max_text_chars\"'"
 message   = "`code_moniker_read` must publish the complete bounded AST request contract."
-rationale = "The agent surface must make AST opt-in and expose the same bounds enforced by the typed daemon query."
+rationale = "The agent surface must expose direct source-plus-language parsing and the same bounds enforced by the typed daemon query."
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the

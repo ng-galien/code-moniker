@@ -6,6 +6,7 @@ use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
+use crate::lang::ParsedDocument;
 use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
@@ -222,6 +223,7 @@ struct PendingComment {
 struct SqlWalker<'a> {
 	module: &'a Moniker,
 	source_str: &'a str,
+	document: Option<&'a ParsedDocument>,
 	emit_comments: bool,
 	search_paths: &'a CallableSearchPaths,
 }
@@ -326,15 +328,7 @@ impl SqlWalker<'_> {
 			}
 			self.walk(body, &symbol.moniker, builder);
 		}
-		on_symbol_emitted(
-			node,
-			symbol.kind,
-			&symbol.moniker,
-			self.module,
-			self.source_str,
-			self.search_paths,
-			builder,
-		);
+		self.on_symbol_emitted(node, symbol.kind, &symbol.moniker, builder);
 	}
 
 	fn extend_or_flush(
@@ -376,13 +370,19 @@ impl SqlWalker<'_> {
 }
 
 impl SqlDiscover {
-	pub(super) fn run(module: Moniker, source: &str, root: Node<'_>) -> DiscoveredSqlFile {
+	pub(super) fn run(
+		module: Moniker,
+		source: &str,
+		document: &ParsedDocument,
+	) -> DiscoveredSqlFile {
+		let root = document.primary().root_node();
 		let (callable_metadata, search_paths) =
 			collect_callable_metadata(root, source.as_bytes(), &module);
 		let mut builder = SqlBuilder::new(module.clone());
 		SqlWalker {
 			module: &module,
 			source_str: source,
+			document: Some(document),
 			emit_comments: true,
 			search_paths: &search_paths,
 		}
@@ -392,43 +392,54 @@ impl SqlDiscover {
 	}
 }
 
-fn on_symbol_emitted(
-	node: Node<'_>,
-	sym_kind: &[u8],
-	sym_moniker: &Moniker,
-	module: &Moniker,
-	source_str: &str,
-	search_paths: &CallableSearchPaths,
-	builder: &mut SqlBuilder,
-) {
-	let source = source_str.as_bytes();
-	if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
-		emit_function_type_refs(node, source, sym_moniker, module, builder);
-		if let Some(body_text) = dollar_body(node, source_str) {
-			let language = function_language(node, source);
-			if language.eq_ignore_ascii_case(b"plpgsql") {
-				super::super::body::walk_plpgsql_body(
-					body_text,
-					sym_moniker,
-					module,
-					search_paths,
-					builder,
-				);
-			} else if language.eq_ignore_ascii_case(b"sql") {
-				run_inner_sql(
-					&mut new_sql_parser(),
-					body_text,
-					sym_moniker,
-					module,
-					search_paths,
-					builder,
-				);
+impl SqlWalker<'_> {
+	fn on_symbol_emitted(
+		&self,
+		node: Node<'_>,
+		sym_kind: &[u8],
+		sym_moniker: &Moniker,
+		builder: &mut SqlBuilder,
+	) {
+		let source = self.source_str.as_bytes();
+		if matches!(sym_kind, kinds::FUNCTION | kinds::PROCEDURE) {
+			emit_function_type_refs(node, source, sym_moniker, self.module, builder);
+			if let Some(injection) = self
+				.document
+				.and_then(|document| document.injection_within(node.start_byte()..node.end_byte()))
+				&& let Some(body_text) = self.source_str.get(injection.content_byte_range())
+			{
+				if injection.language() == "plpgsql" {
+					super::super::body::walk_plpgsql_body(
+						body_text,
+						injection.tree(),
+						sym_moniker,
+						self.module,
+						self.search_paths,
+						builder,
+					);
+				} else if injection.language() == "sql" {
+					run_inner_sql_tree(
+						injection.tree(),
+						body_text,
+						sym_moniker,
+						self.module,
+						self.search_paths,
+						builder,
+					);
+				}
 			}
+		} else if sym_kind == kinds::TABLE {
+			emit_table_members(node, source, sym_moniker, self.module, builder);
+		} else if sym_kind == kinds::TRIGGER {
+			emit_trigger_refs(
+				node,
+				source,
+				sym_moniker,
+				self.module,
+				self.search_paths,
+				builder,
+			);
 		}
-	} else if sym_kind == kinds::TABLE {
-		emit_table_members(node, source, sym_moniker, module, builder);
-	} else if sym_kind == kinds::TRIGGER {
-		emit_trigger_refs(node, source, sym_moniker, module, search_paths, builder);
 	}
 }
 
@@ -441,9 +452,21 @@ pub(in crate::lang::sql) fn run_inner_sql(
 	builder: &mut SqlBuilder,
 ) {
 	let tree = parse_with(parser, source);
+	run_inner_sql_tree(&tree, source, scope, module, search_paths, builder);
+}
+
+fn run_inner_sql_tree(
+	tree: &Tree,
+	source: &str,
+	scope: &Moniker,
+	module: &Moniker,
+	search_paths: &CallableSearchPaths,
+	builder: &mut SqlBuilder,
+) {
 	SqlWalker {
 		module,
 		source_str: source,
+		document: None,
 		emit_comments: false,
 		search_paths,
 	}
@@ -1281,58 +1304,6 @@ fn normalize_type(raw: &[u8]) -> Vec<u8> {
 		b"double precision" => b"float8".to_vec(),
 		_ => canonical,
 	}
-}
-
-fn function_language<'src>(node: Node<'src>, src: &'src [u8]) -> &'src [u8] {
-	if let Some(opts) = find_descendant(node, "createfunc_opt_list")
-		&& let Some(language) = find_language_in(opts, src)
-	{
-		return language;
-	}
-	let mut after_language = false;
-	for token in node_slice(node, src)
-		.split(|byte| !(byte.is_ascii_alphanumeric() || *byte == b'_'))
-		.filter(|token| !token.is_empty())
-	{
-		if after_language {
-			return token;
-		}
-		after_language = token.eq_ignore_ascii_case(b"language");
-	}
-	&[]
-}
-
-fn find_language_in<'src>(node: Node<'src>, src: &'src [u8]) -> Option<&'src [u8]> {
-	if node.kind() == "createfunc_opt_item" {
-		let mut has_lang = false;
-		let mut cur = node.walk();
-		for c in node.named_children(&mut cur) {
-			if c.kind() == "kw_language" {
-				has_lang = true;
-			} else if has_lang && let Some(id) = find_descendant(c, "identifier") {
-				return Some(node_slice(id, src));
-			}
-		}
-	}
-	let mut cur = node.walk();
-	for c in node.named_children(&mut cur) {
-		if let Some(found) = find_language_in(c, src) {
-			return Some(found);
-		}
-	}
-	None
-}
-
-fn dollar_body<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
-	let dollar = find_descendant(node, "dollar_quoted_string")?;
-	let full = source.get(dollar.start_byte()..dollar.end_byte())?;
-	let first = full.find('$')?;
-	let end_delim = full[first + 1..].find('$')? + first + 2;
-	let close = full.rfind(&full[first..end_delim])?;
-	if close <= end_delim {
-		return None;
-	}
-	source.get(dollar.start_byte() + end_delim..dollar.start_byte() + close)
 }
 
 fn emit_function_type_refs(

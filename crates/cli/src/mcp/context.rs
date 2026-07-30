@@ -200,7 +200,9 @@ impl DaemonRuntime {
 				preload_config: _,
 				preload_status,
 			} => {
-				ensure_preload_ready(preload_status)?;
+				if request.query.requires_workspace_snapshot() {
+					ensure_preload_ready(preload_status)?;
+				}
 				let mut daemon = lock_daemon_bounded(daemon)?;
 				let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(request)));
 				match response {

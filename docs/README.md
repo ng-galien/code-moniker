@@ -17,6 +17,7 @@ then drop into the reference pages only when you need exact grammar details.
 | Review local code smell warnings | [Code smell review](cli/code-smell-review.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
 | Install the agent skill, MCP, hooks, or connect `check` to CI | [Agent integration and hooks](cli/agent.md) |
+| Request a bounded syntax tree through MCP or the TypeScript client | [On-demand syntax tree](cli/mcp-syntax-tree.md) |
 | Run or query a resident workspace service | [Daemon](daemon.md) |
 
 ## Design

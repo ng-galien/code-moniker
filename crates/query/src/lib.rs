@@ -46,13 +46,14 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 9;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
 pub const SYNTAX_TREE_MAX_DEPTH: usize = 32;
 pub const SYNTAX_TREE_MAX_NODES: usize = 2_000;
 pub const SYNTAX_TREE_MAX_TEXT_CHARS: usize = 1_000;
+pub const SYNTAX_PARSE_MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -256,6 +257,27 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		projection: false,
 		paginated: false,
 		example: "syntax.tree focus:\"src/service.ts\" max_depth:6 max_nodes:100",
+	},
+	QueryCapabilitySpec {
+		name: "syntax.parse",
+		category: "syntax",
+		read_only: true,
+		mcp_tool: "code_moniker_read",
+		fields: &[
+			"language",
+			"source",
+			"uri",
+			"max_depth",
+			"max_nodes",
+			"named_only",
+			"include_text",
+			"max_text_chars",
+		],
+		required_fields: &["language", "source"],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "syntax.parse language:\"rs\" source:\"fn main() {}\"",
 	},
 	QueryCapabilitySpec {
 		name: "symbol.usages",
@@ -579,11 +601,11 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		(_, "consistency") => Some("current"),
 		("tree.children", "depth") => Some("1"),
 		("symbol.detail" | "view.read", "context_lines") => Some("2"),
-		("syntax.tree", "max_depth") => Some("6"),
-		("syntax.tree", "max_nodes") => Some("100"),
-		("syntax.tree", "named_only") => Some("true"),
-		("syntax.tree", "include_text") => Some("false"),
-		("syntax.tree", "max_text_chars") => Some("80"),
+		("syntax.tree" | "syntax.parse", "max_depth") => Some("6"),
+		("syntax.tree" | "syntax.parse", "max_nodes") => Some("100"),
+		("syntax.tree" | "syntax.parse", "named_only") => Some("true"),
+		("syntax.tree" | "syntax.parse", "include_text") => Some("false"),
+		("syntax.tree" | "syntax.parse", "max_text_chars") => Some("80"),
 		("symbol.search", "context_lines") => Some("0"),
 		("symbol.usages", "direction") => Some("incoming"),
 		("symbol.graph", "direction") => Some("both"),
@@ -632,6 +654,7 @@ pub enum Query {
 	SymbolInsights(SymbolSearchQuery),
 	SymbolDetail(SymbolDetailQuery),
 	SyntaxTree(SyntaxTreeQuery),
+	SyntaxParse(SyntaxParseQuery),
 	SymbolUsages(SymbolUsagesQuery),
 	ViewRead(ViewReadQuery),
 	RulesList(RulesListQuery),
@@ -657,6 +680,7 @@ impl Query {
 			Self::SymbolInsights(_) => "symbol.insights",
 			Self::SymbolDetail(_) => "symbol.detail",
 			Self::SyntaxTree(_) => "syntax.tree",
+			Self::SyntaxParse(_) => "syntax.parse",
 			Self::SymbolUsages(_) => "symbol.usages",
 			Self::ViewRead(_) => "view.read",
 			Self::RulesList(_) => "rules.list",
@@ -671,6 +695,13 @@ impl Query {
 			Self::ResolutionAudit(_) => "resolution.audit",
 			Self::Notes(_) => "notes",
 		}
+	}
+
+	pub fn requires_workspace_snapshot(&self) -> bool {
+		!matches!(
+			self,
+			Self::QueryDescribe(_) | Self::WorkspaceStatus | Self::SyntaxParse(_)
+		)
 	}
 }
 
@@ -759,6 +790,22 @@ pub struct SymbolDetailQuery {
 pub struct SyntaxTreeQuery {
 	pub workspace: Option<String>,
 	pub focus: String,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 32)))]
+	pub max_depth: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 2000)))]
+	pub max_nodes: usize,
+	pub named_only: bool,
+	pub include_text: bool,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 1000)))]
+	pub max_text_chars: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SyntaxParseQuery {
+	pub language: String,
+	pub source: String,
+	pub uri: Option<String>,
 	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 32)))]
 	pub max_depth: usize,
 	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 2000)))]
@@ -1711,6 +1758,8 @@ pub struct SyntaxTreeResult {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SyntaxNodeDto {
 	pub kind: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub language: Option<String>,
 	pub named: bool,
 	pub error: bool,
 	pub missing: bool,
@@ -2281,6 +2330,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 				.usize("max_text_chars")?
 				.unwrap_or(SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS),
 		}),
+		"syntax.parse" => Query::SyntaxParse(syntax_parse_query(&fields)?),
 		"symbol.usages" => Query::SymbolUsages(SymbolUsagesQuery {
 			workspace: fields.one("workspace"),
 			uri: fields
@@ -2476,6 +2526,29 @@ fn symbol_search_query(fields: &FieldBag) -> Result<SymbolSearchQuery, QueryPars
 		include_code: fields.bool("include_code")?.unwrap_or(false),
 		context_lines: fields.usize("context_lines")?.unwrap_or(0),
 		projection: fields.projection.clone(),
+	})
+}
+
+fn syntax_parse_query(fields: &FieldBag) -> Result<SyntaxParseQuery, QueryParseError> {
+	Ok(SyntaxParseQuery {
+		language: fields
+			.one("language")
+			.ok_or(QueryParseError::MissingRequired("language"))?,
+		source: fields
+			.one("source")
+			.ok_or(QueryParseError::MissingRequired("source"))?,
+		uri: fields.one("uri"),
+		max_depth: fields
+			.usize("max_depth")?
+			.unwrap_or(SYNTAX_TREE_DEFAULT_MAX_DEPTH),
+		max_nodes: fields
+			.usize("max_nodes")?
+			.unwrap_or(SYNTAX_TREE_DEFAULT_MAX_NODES),
+		named_only: fields.bool("named_only")?.unwrap_or(true),
+		include_text: fields.bool("include_text")?.unwrap_or(false),
+		max_text_chars: fields
+			.usize("max_text_chars")?
+			.unwrap_or(SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS),
 	})
 }
 
@@ -2735,6 +2808,11 @@ fn format_syntax_tree(out: &mut String, result: &SyntaxTreeResult) {
 }
 
 fn format_syntax_node(out: &mut String, node: &SyntaxNodeDto, depth: usize) {
+	let language = node
+		.language
+		.as_deref()
+		.map(|language| format!(" lang:{language}"))
+		.unwrap_or_default();
 	let marker = if node.error {
 		" error"
 	} else if node.missing {
@@ -2749,9 +2827,10 @@ fn format_syntax_node(out: &mut String, node: &SyntaxNodeDto, depth: usize) {
 		.unwrap_or_default();
 	let _ = writeln!(
 		out,
-		"{}- {} {}:{}-{}:{}{}{}",
+		"{}- {}{} {}:{}-{}:{}{}{}",
 		"  ".repeat(depth),
 		node.kind,
+		language,
 		node.start.line,
 		node.start.column,
 		node.end.line,
@@ -3706,6 +3785,16 @@ mod tests {
 				include_text: false,
 				max_text_chars: 0,
 			}),
+			"syntax.parse" => serialized_fields(SyntaxParseQuery {
+				language: String::new(),
+				source: String::new(),
+				uri: None,
+				max_depth: 0,
+				max_nodes: 0,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 0,
+			}),
 			"symbol.usages" => serialized_fields(SymbolUsagesQuery {
 				workspace: None,
 				uri: String::new(),
@@ -3813,6 +3902,28 @@ mod tests {
 				max_text_chars: 40,
 			})
 		);
+	}
+
+	#[test]
+	fn parses_stateless_syntax_contract() {
+		let request = parse_query(
+			"syntax.parse language:\"rs\" source:\"fn main() {}\" uri:\"snippet.rs\" max_depth:4 max_nodes:120",
+		)
+		.expect("stateless syntax query");
+		assert_eq!(
+			request.query,
+			Query::SyntaxParse(SyntaxParseQuery {
+				language: "rs".to_string(),
+				source: "fn main() {}".to_string(),
+				uri: Some("snippet.rs".to_string()),
+				max_depth: 4,
+				max_nodes: 120,
+				named_only: true,
+				include_text: false,
+				max_text_chars: SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS,
+			})
+		);
+		assert!(!request.query.requires_workspace_snapshot());
 	}
 
 	#[test]

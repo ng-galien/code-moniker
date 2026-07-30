@@ -9,7 +9,7 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
-use crate::lang::KindSpec;
+use crate::lang::{ExtractionContext, KindSpec, LangExtractor, ParsedDocument};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -20,6 +20,10 @@ pub fn parse(source: &str) -> Tree {
 	sdk_pipeline::discover::parse(source)
 }
 
+pub fn parse_plpgsql(source: &str) -> ParsedDocument {
+	ParsedDocument::new(body::parse_plpgsql(source))
+}
+
 pub fn extract(
 	uri: &str,
 	source: &str,
@@ -27,7 +31,7 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	sdk_pipeline::extract(uri, source, anchor, deep, presets)
+	<Lang as LangExtractor>::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;
@@ -63,22 +67,26 @@ impl crate::lang::LangExtractor for Lang {
 	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &[];
 
-	fn parse(_uri: &str, source: &str) -> Tree {
-		parse(source)
+	fn parse(_uri: &str, source: &str) -> ParsedDocument {
+		body::parse_document(parse(source), source)
 	}
 
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
 		Some(canonicalize::compute_module_moniker(anchor, uri))
 	}
 
-	fn extract(
-		uri: &str,
-		source: &str,
-		anchor: &Moniker,
-		deep: bool,
-		presets: &Self::Presets,
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
 	) -> CodeGraph {
-		extract(uri, source, anchor, deep, presets)
+		sdk_pipeline::extract(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
 	}
 }
 
@@ -120,6 +128,39 @@ mod tests {
 				)
 			})
 			.collect()
+	}
+
+	#[test]
+	fn parsed_document_keeps_plpgsql_as_shared_syntax() {
+		let source = "CREATE FUNCTION account_balance(p_id bigint) RETURNS numeric \
+			LANGUAGE plpgsql AS $$\n\
+			DECLARE total numeric;\n\
+			BEGIN\n\
+			  SELECT sum(amount) INTO total FROM ledger_entry WHERE account_id = p_id;\n\
+			  IF total IS NULL THEN RETURN 0; END IF;\n\
+			  RETURN total;\n\
+			END;\n\
+			$$;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("account.sql", source);
+		assert_eq!(document.primary().root_node().kind(), "source_file");
+		let injection = document
+			.injections()
+			.iter()
+			.find(|injection| injection.language() == "plpgsql")
+			.expect("PL/pgSQL injection");
+		assert_eq!(injection.tree().root_node().kind(), "source_file");
+		assert!(!injection.tree().root_node().has_error());
+
+		let sql_source = "CREATE FUNCTION recent_accounts() RETURNS SETOF account LANGUAGE sql AS \
+			 $$ SELECT * FROM account ORDER BY created_at DESC $$;";
+		let sql_document = <Lang as crate::lang::LangExtractor>::parse("account.sql", sql_source);
+		let sql_injection = sql_document
+			.injections()
+			.iter()
+			.find(|injection| injection.language() == "sql")
+			.expect("SQL-language injection");
+		assert_eq!(sql_injection.tree().root_node().kind(), "source_file");
+		assert!(!sql_injection.tree().root_node().has_error());
 	}
 
 	#[test]
