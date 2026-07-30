@@ -87,6 +87,9 @@ mcp_read_ast_schema = "kind = 'fn' AND name =~ ^read_input_schema AND moniker ~ 
 [exclude]
 uris = [
   "**/crates/core/tests/fixtures/**",
+  "**/crates/tree-sitter-plpgsql/src/parser.c",
+  "**/crates/tree-sitter-plpgsql/src/scanner.c",
+  "**/crates/tree-sitter-plpgsql/src/tree_sitter/**",
   "**/vscode-extension/**",
 ]
 

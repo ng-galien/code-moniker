@@ -1,0 +1,33 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "code_moniker_plpgsql",
+      "camelcase": "PLpgSQL",
+      "scope": "source.plpgsql",
+      "path": ".",
+      "file-types": [
+        "plpgsql"
+      ],
+      "injection-regex": "^plpgsql$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "BSD-3-Clause",
+    "description": "PL/pgSQL grammar used by Code Moniker",
+    "links": {
+      "repository": "https://github.com/ng-galien/code-moniker"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": false,
+    "java": false,
+    "node": false,
+    "python": false,
+    "rust": true,
+    "swift": false,
+    "zig": false
+  }
+}

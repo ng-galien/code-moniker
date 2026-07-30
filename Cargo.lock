@@ -481,6 +481,7 @@ dependencies = [
 name = "code-moniker-core"
 version = "0.6.0"
 dependencies = [
+ "code-moniker-tree-sitter-plpgsql",
  "insta",
  "proptest",
  "roaring",
@@ -550,6 +551,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "code-moniker-tree-sitter-plpgsql"
+version = "0.6.0"
+dependencies = [
+ "cc",
+ "tree-sitter",
+ "tree-sitter-language",
 ]
 
 [[package]]

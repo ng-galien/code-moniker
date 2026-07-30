@@ -1,0 +1,846 @@
+// grammar.js — PL/pgSQL tree-sitter grammar
+// Derived from tree-sitter-postgres 1.2.4. Code Moniker carries this focused
+// grammar so parser fixes can be versioned with their consumers.
+// Regenerate the C parser with the command documented in README.md.
+//
+// Source: src/pl/plpgsql/src/pl_gram.y + keyword lists
+//
+// PL/pgSQL's Bison grammar uses C action code to consume SQL expressions
+// at runtime (read_sql_expression, read_sql_construct, etc.). Tree-sitter
+// can't replicate that, so SQL fragments are captured as opaque nodes
+// and delegated to the postgres grammar via tree-sitter language injection.
+
+'use strict';
+
+module.exports = grammar({
+  name: 'code_moniker_plpgsql',
+
+  extras: $ => [
+    /\s+/,
+    $.comment,
+  ],
+
+  word: $ => $.identifier,
+
+  externals: $ => [
+    $._sql_statement,
+    $._sql_until_semicolon,
+    $._sql_until_then,
+    $._sql_until_when,
+    $._sql_until_loop,
+    $._sql_until_assignment,
+    $._sql_until_range,
+    $._sql_until_by_or_loop,
+    $._sql_until_into_using_or_semicolon,
+    $._sql_until_using_or_semicolon,
+    $._sql_until_using_or_loop,
+    $._sql_until_comma_or_semicolon,
+    $._sql_until_comma_using_or_semicolon,
+    $._sql_until_comma_or_loop,
+    $._sql_until_comma_or_rparen,
+    $._sql_until_from_or_into,
+    $._sql_until_semicolon_guarded,
+  ],
+
+  conflicts: $ => [
+    [$.raise_level, $.unreserved_keyword],
+    [$.decl_statement, $.unreserved_keyword],
+  ],
+
+  rules: {
+
+    // ── Entry point ───────────────────────────────────────────────────────────
+    // A PL/pgSQL function body is: optional compiler options, a block, optional semicolon.
+    source_file: $ => seq(
+      optional($.comp_options),
+      $.pl_block,
+      optional(';')
+    ),
+
+    // ── Compiler options ──────────────────────────────────────────────────────
+    // #option dump / #print_strict_params on|off / #variable_conflict ...
+    comp_options: $ => repeat1($.comp_option),
+
+    comp_option: $ => choice(
+      seq('#', $.kw_option, $.kw_dump),
+      seq('#', $.kw_print_strict_params, $.option_value),
+      seq('#', $.kw_variable_conflict, $.kw_error),
+      seq('#', $.kw_variable_conflict, $.kw_use_variable),
+      seq('#', $.kw_variable_conflict, $.kw_use_column)
+    ),
+
+    option_value: $ => choice(
+      $.identifier,
+      $.unreserved_keyword
+    ),
+
+    // ── Block structure ───────────────────────────────────────────────────────
+    pl_block: $ => seq(
+      optional($.block_label),
+      optional($.decl_sect),
+      $.kw_begin,
+      optional($.proc_sect),
+      optional($.exception_sect),
+      $.kw_end,
+      optional($.end_label)
+    ),
+
+    block_label: $ => seq('<<', $.any_identifier, '>>'),
+
+    end_label: $ => $.any_identifier,
+
+    // ── Declaration section ───────────────────────────────────────────────────
+    decl_sect: $ => seq(
+      $.kw_declare,
+      repeat($.decl_stmt)
+    ),
+
+    decl_stmt: $ => choice(
+      $.decl_statement,
+      $.kw_declare  // extra DECLARE is allowed
+    ),
+
+    decl_statement: $ => choice(
+      // Alias declaration: name ALIAS FOR target ;
+      // Must precede variable declaration so ALIAS is not consumed as a type name.
+      // The target may be an identifier or a positional parameter ($1, $2, ...).
+      seq($.decl_varname, $.kw_alias, $.kw_for, choice($.any_identifier, $.param), ';'),
+      // Variable declaration: name [CONSTANT] type [COLLATE collation] [NOT NULL] [DEFAULT|:=|= expr] ;
+      seq(
+        $.decl_varname,
+        optional($.kw_constant),
+        $.decl_datatype,
+        optional($.decl_collate),
+        optional(seq($.kw_not, $.kw_null)),
+        optional($.decl_defval),
+        ';'
+      ),
+      // Cursor declaration: name [NO SCROLL | SCROLL] CURSOR [(args)] FOR|IS query ;
+      seq(
+        $.decl_varname,
+        optional($.opt_scrollable),
+        $.kw_cursor,
+        optional($.decl_cursor_args),
+        choice($.kw_is, $.kw_for),
+        $._sql_semicolon_expr,
+        ';'
+      )
+    ),
+
+    decl_varname: $ => choice(
+      $.identifier,
+      $.unreserved_keyword
+    ),
+
+    decl_datatype: $ => $.type_name,
+
+    // Type names — simplified; covers most PL/pgSQL usage
+    type_name: $ => choice(
+      // variable%TYPE / table.column%TYPE
+      seq($.dotted_name, '%', $.kw_type),
+      // variable%ROWTYPE / table%ROWTYPE
+      seq($.dotted_name, '%', $.kw_rowtype),
+      // Regular type: name or schema.name, with optional multi-word modifiers
+      // (e.g. `character varying`, `double precision`, `timestamp with time
+      // zone`), precision specifiers, and array modifiers. Trailing words are
+      // plain identifiers, so this stops at keyword terminators such as
+      // DEFAULT, NOT NULL, and COLLATE.
+      seq(
+        $.dotted_name,
+        repeat(choice(
+          $.identifier,
+          seq('(', $.integer_literal, optional(seq(',', $.integer_literal)), ')')
+        )),
+        repeat(seq('[', optional($.integer_literal), ']'))
+      )
+    ),
+
+    dotted_name: $ => seq(
+      $.any_identifier,
+      repeat(seq('.', $.any_identifier))
+    ),
+
+    decl_collate: $ => seq($.kw_collate, $.dotted_name),
+
+    decl_defval: $ => seq(
+      choice('=', ':=', $.kw_default),
+      $._sql_semicolon_expr
+    ),
+
+    opt_scrollable: $ => choice(
+      seq($.kw_no, $.kw_scroll),
+      $.kw_scroll
+    ),
+
+    decl_cursor_args: $ => seq(
+      '(',
+      $.decl_cursor_arg,
+      repeat(seq(',', $.decl_cursor_arg)),
+      ')'
+    ),
+
+    decl_cursor_arg: $ => seq($.decl_varname, $.decl_datatype),
+
+    // ── Procedure section (statements) ────────────────────────────────────────
+    proc_sect: $ => repeat1($.proc_stmt),
+
+    proc_stmt: $ => choice(
+      seq($.pl_block, ';'),
+      $.stmt_assign,
+      $.stmt_if,
+      $.stmt_case,
+      $.stmt_loop,
+      $.stmt_while,
+      $.stmt_for,
+      $.stmt_foreach_a,
+      $.stmt_exit,
+      $.stmt_return,
+      $.stmt_raise,
+      $.stmt_assert,
+      $.stmt_execsql,
+      $.stmt_dynexecute,
+      $.stmt_perform,
+      $.stmt_call,
+      $.stmt_getdiag,
+      $.stmt_open,
+      $.stmt_fetch,
+      $.stmt_move,
+      $.stmt_close,
+      $.stmt_null,
+      $.stmt_commit,
+      $.stmt_rollback
+    ),
+
+    // ── Assignment ────────────────────────────────────────────────────────────
+    // The target is consumed by the external scanner (it stops at := and =).
+    // We use prec.dynamic to prefer assignments over exec SQL.
+    stmt_assign: $ => prec.dynamic(10, seq(
+      $._sql_assignment_expr,
+      choice(':=', '='),
+      $._sql_semicolon_expr,
+      ';'
+    )),
+
+    // ── IF/ELSIF/ELSE ─────────────────────────────────────────────────────────
+    stmt_if: $ => seq(
+      $.kw_if, $._sql_then_expr, $.kw_then,
+      optional($.proc_sect),
+      repeat($.elsif_clause),
+      optional($.else_clause),
+      $.kw_end, $.kw_if, ';'
+    ),
+
+    elsif_clause: $ => seq(
+      $.kw_elsif, $._sql_then_expr, $.kw_then,
+      optional($.proc_sect)
+    ),
+
+    else_clause: $ => seq(
+      $.kw_else,
+      optional($.proc_sect)
+    ),
+
+    // ── CASE ──────────────────────────────────────────────────────────────────
+    stmt_case: $ => seq(
+      $.kw_case,
+      optional($._sql_when_expr),
+      repeat1($.case_when),
+      optional(seq($.kw_else, optional($.proc_sect))),
+      $.kw_end, $.kw_case, ';'
+    ),
+
+    case_when: $ => seq(
+      $.kw_when, $._sql_then_expr, $.kw_then,
+      optional($.proc_sect)
+    ),
+
+    // ── LOOP ──────────────────────────────────────────────────────────────────
+    stmt_loop: $ => seq(
+      optional($.loop_label),
+      $.kw_loop,
+      $.loop_body
+    ),
+
+    // ── WHILE ─────────────────────────────────────────────────────────────────
+    stmt_while: $ => seq(
+      optional($.loop_label),
+      $.kw_while, $._sql_loop_expr, $.kw_loop,
+      $.loop_body
+    ),
+
+    // ── FOR ───────────────────────────────────────────────────────────────────
+    stmt_for: $ => seq(
+      optional($.loop_label),
+      $.kw_for, $.for_variable, $.kw_in,
+      choice(
+        $.for_integer_range,
+        $.for_query,
+        $.for_cursor,
+        $.for_dynamic
+      ),
+      $.loop_body
+    ),
+
+    for_variable: $ => seq(
+      $.any_identifier,
+      repeat(seq(',', $.any_identifier))
+    ),
+
+    for_integer_range: $ => seq(
+      optional($.kw_reverse),
+      $._sql_range_expr, '..', $._sql_by_or_loop_expr,
+      optional(seq($.kw_by, $._sql_loop_expr)),
+      $.kw_loop
+    ),
+
+    for_query: $ => seq(
+      $._sql_loop_expr,
+      $.kw_loop
+    ),
+
+    for_cursor: $ => seq(
+      $.any_identifier,
+      optional(seq('(', $._sql_comma_rparen_expr, repeat(seq(',', $._sql_comma_rparen_expr)), ')')),
+      $.kw_loop
+    ),
+
+    for_dynamic: $ => seq(
+      $.kw_execute, $._sql_using_or_loop_expr,
+      optional(seq($.kw_using, $._sql_comma_or_loop_expr, repeat(seq(',', $._sql_comma_or_loop_expr)))),
+      $.kw_loop
+    ),
+
+    // ── FOREACH ───────────────────────────────────────────────────────────────
+    stmt_foreach_a: $ => seq(
+      optional($.loop_label),
+      $.kw_foreach, $.for_variable,
+      optional(seq($.kw_slice, $.integer_literal)),
+      $.kw_in, $.kw_array,
+      $._sql_loop_expr, $.kw_loop,
+      $.loop_body
+    ),
+
+    loop_label: $ => seq('<<', $.any_identifier, '>>'),
+    loop_body: $ => seq(
+      optional($.proc_sect),
+      $.kw_end, $.kw_loop,
+      optional($.any_identifier),
+      ';'
+    ),
+
+    // ── EXIT/CONTINUE ─────────────────────────────────────────────────────────
+    stmt_exit: $ => seq(
+      choice($.kw_exit, $.kw_continue),
+      optional($.any_identifier),
+      optional(seq($.kw_when, $._sql_semicolon_expr)),
+      ';'
+    ),
+
+    // ── RETURN ────────────────────────────────────────────────────────────────
+    stmt_return: $ => choice(
+      // RETURN expression ; — guarded so NEXT/QUERY lex as keywords below
+      seq($.kw_return, optional($._sql_semicolon_guarded_expr), ';'),
+      // RETURN NEXT [expression] ; — expression omitted with OUT parameters
+      seq($.kw_return, $.kw_next, optional($._sql_semicolon_expr), ';'),
+      // RETURN QUERY sql ; — guarded so EXECUTE lexes as a keyword below
+      seq($.kw_return, $.kw_query, $._sql_semicolon_guarded_expr, ';'),
+      // RETURN QUERY EXECUTE expression [USING ...] ;
+      seq($.kw_return, $.kw_query, $.kw_execute, $._sql_using_or_semicolon_expr,
+          optional(seq($.kw_using, $._sql_comma_or_semicolon_expr, repeat(seq(',', $._sql_comma_or_semicolon_expr)))),
+          ';')
+    ),
+
+    // ── RAISE ─────────────────────────────────────────────────────────────────
+    stmt_raise: $ => seq(
+      $.kw_raise,
+      optional($.raise_level),
+      optional(choice(
+        // Format string with parameters
+        seq($.string_literal, repeat(seq(',', $._sql_comma_using_or_semicolon_expr))),
+        // Condition name
+        $.any_identifier,
+        // SQLSTATE 'xxxxx'
+        seq($.kw_sqlstate, $.string_literal)
+      )),
+      optional(seq($.kw_using, $.raise_option, repeat(seq(',', $.raise_option)))),
+      ';'
+    ),
+
+    raise_level: $ => choice(
+      $.kw_exception,
+      $.kw_warning,
+      $.kw_notice,
+      $.kw_info,
+      $.kw_log,
+      $.kw_debug
+    ),
+
+    raise_option: $ => seq(
+      choice(
+        $.kw_message,
+        $.kw_detail,
+        $.kw_hint,
+        $.kw_errcode,
+        $.kw_column,
+        $.kw_constraint,
+        $.kw_datatype,
+        $.kw_table,
+        $.kw_schema
+      ),
+      '=',
+      $._sql_comma_or_semicolon_expr
+    ),
+
+    // ── ASSERT ────────────────────────────────────────────────────────────────
+    stmt_assert: $ => seq(
+      $.kw_assert,
+      $._sql_comma_or_semicolon_expr,
+      optional(seq(',', $._sql_semicolon_expr)),
+      ';'
+    ),
+
+    // ── EXECUTE (dynamic SQL) ─────────────────────────────────────────────────
+    stmt_dynexecute: $ => seq(
+      $.kw_execute, $._sql_into_using_or_semicolon_expr,
+      optional(seq($.kw_into, optional($.kw_strict), $.into_target)),
+      optional(seq($.kw_using, $._sql_comma_or_semicolon_expr, repeat(seq(',', $._sql_comma_or_semicolon_expr)))),
+      ';'
+    ),
+
+    // ── PERFORM ───────────────────────────────────────────────────────────────
+    stmt_perform: $ => seq(
+      $.kw_perform, $._sql_semicolon_expr, ';'
+    ),
+
+    // ── CALL / DO ─────────────────────────────────────────────────────────────
+    stmt_call: $ => seq(
+      choice($.kw_call, $.kw_do), $._sql_semicolon_expr, ';'
+    ),
+
+    // ── GET DIAGNOSTICS ───────────────────────────────────────────────────────
+    stmt_getdiag: $ => seq(
+      $.kw_get,
+      optional(choice($.kw_current, $.kw_stacked)),
+      $.kw_diagnostics,
+      $.getdiag_list_item,
+      repeat(seq(',', $.getdiag_list_item)),
+      ';'
+    ),
+
+    getdiag_list_item: $ => seq(
+      $.any_identifier,
+      choice('=', ':='),
+      $.getdiag_item
+    ),
+
+    getdiag_item: $ => choice(
+      $.kw_row_count,
+      $.kw_pg_routine_oid,
+      $.kw_pg_context,
+      $.kw_pg_exception_detail,
+      $.kw_pg_exception_hint,
+      $.kw_pg_exception_context,
+      $.kw_column_name,
+      $.kw_constraint_name,
+      $.kw_pg_datatype_name,
+      $.kw_message_text,
+      $.kw_table_name,
+      $.kw_schema_name,
+      $.kw_returned_sqlstate
+    ),
+
+    // ── OPEN cursor ───────────────────────────────────────────────────────────
+    stmt_open: $ => seq(
+      $.kw_open,
+      $.any_identifier,
+      optional(choice(
+        // Unbound cursor: OPEN cur [NO SCROLL | SCROLL] FOR query|EXECUTE expr
+        seq(
+          optional($.opt_scrollable),
+          $.kw_for,
+          choice(
+            seq($.kw_execute, $._sql_using_or_semicolon_expr,
+                optional(seq($.kw_using, $._sql_comma_or_semicolon_expr, repeat(seq(',', $._sql_comma_or_semicolon_expr))))),
+            // guarded so EXECUTE lexes as the keyword above
+            $._sql_semicolon_guarded_expr
+          )
+        ),
+        // Bound cursor: OPEN cur (args)
+        seq('(', $._sql_comma_rparen_expr, repeat(seq(',', $._sql_comma_rparen_expr)), ')')
+      )),
+      ';'
+    ),
+
+    // ── FETCH ─────────────────────────────────────────────────────────────────
+    // FETCH [direction] [FROM] cursor INTO target ;
+    stmt_fetch: $ => seq(
+      $.kw_fetch,
+      optional($.fetch_direction),
+      optional($.kw_from),
+      $.any_identifier,
+      $.kw_into,
+      $.into_target,
+      ';'
+    ),
+
+    // ── MOVE ──────────────────────────────────────────────────────────────────
+    stmt_move: $ => seq(
+      $.kw_move,
+      optional($.fetch_direction),
+      $.any_identifier,
+      ';'
+    ),
+
+    fetch_direction: $ => choice(
+      $.kw_next,
+      $.kw_prior,
+      $.kw_first,
+      $.kw_last,
+      seq($.kw_absolute, $._sql_from_or_into_expr),
+      seq($.kw_relative, $._sql_from_or_into_expr),
+      $.kw_forward,
+      $.kw_backward,
+      seq($.kw_forward, choice($.integer_literal, $.kw_all)),
+      seq($.kw_backward, choice($.integer_literal, $.kw_all))
+    ),
+
+    // ── CLOSE ─────────────────────────────────────────────────────────────────
+    stmt_close: $ => seq($.kw_close, $.any_identifier, ';'),
+
+    // ── NULL statement ────────────────────────────────────────────────────────
+    stmt_null: $ => seq($.kw_null, ';'),
+
+    // ── COMMIT/ROLLBACK ───────────────────────────────────────────────────────
+    stmt_commit: $ => seq(
+      $.kw_commit,
+      optional($.opt_transaction_chain),
+      ';'
+    ),
+
+    stmt_rollback: $ => seq(
+      $.kw_rollback,
+      optional($.opt_transaction_chain),
+      ';'
+    ),
+
+    opt_transaction_chain: $ => choice(
+      seq($.kw_and, $.kw_chain),
+      seq($.kw_and, $.kw_no, $.kw_chain)
+    ),
+
+    // ── Exec SQL (pass-through SQL statement) ─────────────────────────────────
+    stmt_execsql: $ => seq(
+      $._sql_statement_expr,
+      ';'
+    ),
+
+    into_target: $ => seq(
+      $.any_identifier,
+      repeat(seq(',', $.any_identifier))
+    ),
+
+    // ── Exception handling ────────────────────────────────────────────────────
+    exception_sect: $ => seq(
+      $.kw_exception,
+      repeat1($.proc_exception)
+    ),
+
+    proc_exception: $ => seq(
+      $.kw_when,
+      $.proc_conditions,
+      $.kw_then,
+      optional($.proc_sect)
+    ),
+
+    proc_conditions: $ => seq(
+      $.proc_condition,
+      repeat(seq($.kw_or, $.proc_condition))
+    ),
+
+    proc_condition: $ => choice(
+      $.any_identifier,
+      seq($.kw_sqlstate, $.string_literal)
+    ),
+
+    // ── SQL fragments ────────────────────────────────────────────────────────
+    // Opaque nodes that capture SQL fragments. PostgreSQL's real PL/pgSQL
+    // parser reads embedded SQL with context-specific terminators: IF reads
+    // until THEN, WHILE/FOR reads until LOOP, dynamic EXECUTE reads until
+    // INTO/USING/;, and plain SQL statements read until ;. Mirroring that
+    // split here keeps words like NULL and INTO valid inside SQL when the
+    // current PL/pgSQL context does not use them as delimiters.
+    //
+    // The hidden wrapper rules alias every external token to the same visible
+    // node name, `sql_expression`, so existing injections and editor queries
+    // can continue to target one node type.
+    _sql_statement_expr: $ => alias($._sql_statement, $.sql_expression),
+    _sql_semicolon_expr: $ => alias($._sql_until_semicolon, $.sql_expression),
+    _sql_then_expr: $ => alias($._sql_until_then, $.sql_expression),
+    _sql_when_expr: $ => alias($._sql_until_when, $.sql_expression),
+    _sql_loop_expr: $ => alias($._sql_until_loop, $.sql_expression),
+    _sql_assignment_expr: $ => alias($._sql_until_assignment, $.sql_expression),
+    _sql_range_expr: $ => alias($._sql_until_range, $.sql_expression),
+    _sql_by_or_loop_expr: $ => alias($._sql_until_by_or_loop, $.sql_expression),
+    _sql_into_using_or_semicolon_expr: $ => alias($._sql_until_into_using_or_semicolon, $.sql_expression),
+    _sql_using_or_semicolon_expr: $ => alias($._sql_until_using_or_semicolon, $.sql_expression),
+    _sql_using_or_loop_expr: $ => alias($._sql_until_using_or_loop, $.sql_expression),
+    _sql_comma_or_semicolon_expr: $ => alias($._sql_until_comma_or_semicolon, $.sql_expression),
+    _sql_comma_using_or_semicolon_expr: $ => alias($._sql_until_comma_using_or_semicolon, $.sql_expression),
+    _sql_comma_or_loop_expr: $ => alias($._sql_until_comma_or_loop, $.sql_expression),
+    _sql_comma_rparen_expr: $ => alias($._sql_until_comma_or_rparen, $.sql_expression),
+    _sql_from_or_into_expr: $ => alias($._sql_until_from_or_into, $.sql_expression),
+    _sql_semicolon_guarded_expr: $ => alias($._sql_until_semicolon_guarded, $.sql_expression),
+
+    // ── Common helpers ────────────────────────────────────────────────────────
+    any_identifier: $ => choice(
+      $.identifier,
+      $.quoted_identifier,
+      $.unreserved_keyword
+    ),
+
+    // ── Keyword category lists ────────────────────────────────────────────────
+
+    reserved_keyword: $ => choice(
+      $.kw_all,
+      $.kw_begin,
+      $.kw_by,
+      $.kw_case,
+      $.kw_declare,
+      $.kw_else,
+      $.kw_end,
+      $.kw_execute,
+      $.kw_for,
+      $.kw_foreach,
+      $.kw_from,
+      $.kw_if,
+      $.kw_in,
+      $.kw_into,
+      $.kw_loop,
+      $.kw_not,
+      $.kw_null,
+      $.kw_or,
+      $.kw_strict,
+      $.kw_then,
+      $.kw_to,
+      $.kw_using,
+      $.kw_when,
+      $.kw_while
+    ),
+
+    unreserved_keyword: $ => choice(
+      $.kw_absolute,
+      $.kw_alias,
+      $.kw_and,
+      $.kw_array,
+      $.kw_assert,
+      $.kw_backward,
+      $.kw_call,
+      $.kw_chain,
+      $.kw_close,
+      $.kw_collate,
+      $.kw_column,
+      $.kw_column_name,
+      $.kw_commit,
+      $.kw_constant,
+      $.kw_constraint,
+      $.kw_constraint_name,
+      $.kw_continue,
+      $.kw_current,
+      $.kw_cursor,
+      $.kw_datatype,
+      $.kw_debug,
+      $.kw_default,
+      $.kw_detail,
+      $.kw_diagnostics,
+      $.kw_do,
+      $.kw_dump,
+      $.kw_elsif,
+      $.kw_errcode,
+      $.kw_error,
+      $.kw_exception,
+      $.kw_exit,
+      $.kw_fetch,
+      $.kw_first,
+      $.kw_forward,
+      $.kw_get,
+      $.kw_hint,
+      $.kw_import,
+      $.kw_info,
+      $.kw_insert,
+      $.kw_is,
+      $.kw_last,
+      $.kw_log,
+      $.kw_merge,
+      $.kw_message,
+      $.kw_message_text,
+      $.kw_move,
+      $.kw_next,
+      $.kw_no,
+      $.kw_notice,
+      $.kw_open,
+      $.kw_option,
+      $.kw_perform,
+      $.kw_pg_context,
+      $.kw_pg_datatype_name,
+      $.kw_pg_exception_context,
+      $.kw_pg_exception_detail,
+      $.kw_pg_exception_hint,
+      $.kw_pg_routine_oid,
+      $.kw_print_strict_params,
+      $.kw_prior,
+      $.kw_query,
+      $.kw_raise,
+      $.kw_relative,
+      $.kw_return,
+      $.kw_returned_sqlstate,
+      $.kw_reverse,
+      $.kw_rollback,
+      $.kw_row_count,
+      $.kw_rowtype,
+      $.kw_schema,
+      $.kw_schema_name,
+      $.kw_scroll,
+      $.kw_slice,
+      $.kw_sqlstate,
+      $.kw_stacked,
+      $.kw_table,
+      $.kw_table_name,
+      $.kw_type,
+      $.kw_use_column,
+      $.kw_use_variable,
+      $.kw_variable_conflict,
+      $.kw_warning
+    ),
+
+    // ── Keyword tokens (case-insensitive) ─────────────────────────────────────
+
+    kw_all: _ => token(prec(1, /[aA][lL][lL]/)),
+    kw_begin: _ => token(prec(1, /[bB][eE][gG][iI][nN]/)),
+    kw_by: _ => token(prec(1, /[bB][yY]/)),
+    kw_case: _ => token(prec(1, /[cC][aA][sS][eE]/)),
+    kw_declare: _ => token(prec(1, /[dD][eE][cC][lL][aA][rR][eE]/)),
+    kw_else: _ => token(prec(1, /[eE][lL][sS][eE]/)),
+    kw_end: _ => token(prec(1, /[eE][nN][dD]/)),
+    kw_execute: _ => token(prec(1, /[eE][xX][eE][cC][uU][tT][eE]/)),
+    kw_for: _ => token(prec(1, /[fF][oO][rR]/)),
+    kw_foreach: _ => token(prec(1, /[fF][oO][rR][eE][aA][cC][hH]/)),
+    kw_from: _ => token(prec(1, /[fF][rR][oO][mM]/)),
+    kw_if: _ => token(prec(1, /[iI][fF]/)),
+    kw_in: _ => token(prec(1, /[iI][nN]/)),
+    kw_into: _ => token(prec(1, /[iI][nN][tT][oO]/)),
+    kw_loop: _ => token(prec(1, /[lL][oO][oO][pP]/)),
+    kw_not: _ => token(prec(1, /[nN][oO][tT]/)),
+    kw_null: _ => token(prec(1, /[nN][uU][lL][lL]/)),
+    kw_or: _ => token(prec(1, /[oO][rR]/)),
+    kw_strict: _ => token(prec(1, /[sS][tT][rR][iI][cC][tT]/)),
+    kw_then: _ => token(prec(1, /[tT][hH][eE][nN]/)),
+    kw_to: _ => token(prec(1, /[tT][oO]/)),
+    kw_using: _ => token(prec(1, /[uU][sS][iI][nN][gG]/)),
+    kw_when: _ => token(prec(1, /[wW][hH][eE][nN]/)),
+    kw_while: _ => token(prec(1, /[wW][hH][iI][lL][eE]/)),
+    kw_absolute: _ => token(prec(1, /[aA][bB][sS][oO][lL][uU][tT][eE]/)),
+    kw_alias: _ => token(prec(1, /[aA][lL][iI][aA][sS]/)),
+    kw_and: _ => token(prec(1, /[aA][nN][dD]/)),
+    kw_array: _ => token(prec(1, /[aA][rR][rR][aA][yY]/)),
+    kw_assert: _ => token(prec(1, /[aA][sS][sS][eE][rR][tT]/)),
+    kw_backward: _ => token(prec(1, /[bB][aA][cC][kK][wW][aA][rR][dD]/)),
+    kw_call: _ => token(prec(1, /[cC][aA][lL][lL]/)),
+    kw_chain: _ => token(prec(1, /[cC][hH][aA][iI][nN]/)),
+    kw_close: _ => token(prec(1, /[cC][lL][oO][sS][eE]/)),
+    kw_collate: _ => token(prec(1, /[cC][oO][lL][lL][aA][tT][eE]/)),
+    kw_column: _ => token(prec(1, /[cC][oO][lL][uU][mM][nN]/)),
+    kw_column_name: _ => token(prec(1, /[cC][oO][lL][uU][mM][nN]_[nN][aA][mM][eE]/)),
+    kw_commit: _ => token(prec(1, /[cC][oO][mM][mM][iI][tT]/)),
+    kw_constant: _ => token(prec(1, /[cC][oO][nN][sS][tT][aA][nN][tT]/)),
+    kw_constraint: _ => token(prec(1, /[cC][oO][nN][sS][tT][rR][aA][iI][nN][tT]/)),
+    kw_constraint_name: _ => token(prec(1, /[cC][oO][nN][sS][tT][rR][aA][iI][nN][tT]_[nN][aA][mM][eE]/)),
+    kw_continue: _ => token(prec(1, /[cC][oO][nN][tT][iI][nN][uU][eE]/)),
+    kw_current: _ => token(prec(1, /[cC][uU][rR][rR][eE][nN][tT]/)),
+    kw_cursor: _ => token(prec(1, /[cC][uU][rR][sS][oO][rR]/)),
+    kw_datatype: _ => token(prec(1, /[dD][aA][tT][aA][tT][yY][pP][eE]/)),
+    kw_debug: _ => token(prec(1, /[dD][eE][bB][uU][gG]/)),
+    kw_default: _ => token(prec(1, /[dD][eE][fF][aA][uU][lL][tT]/)),
+    kw_detail: _ => token(prec(1, /[dD][eE][tT][aA][iI][lL]/)),
+    kw_diagnostics: _ => token(prec(1, /[dD][iI][aA][gG][nN][oO][sS][tT][iI][cC][sS]/)),
+    kw_do: _ => token(prec(1, /[dD][oO]/)),
+    kw_dump: _ => token(prec(1, /[dD][uU][mM][pP]/)),
+    kw_elsif: _ => token(prec(1, choice(/[eE][lL][sS][eE][iI][fF]/, /[eE][lL][sS][iI][fF]/))),
+    kw_errcode: _ => token(prec(1, /[eE][rR][rR][cC][oO][dD][eE]/)),
+    kw_error: _ => token(prec(1, /[eE][rR][rR][oO][rR]/)),
+    kw_exception: _ => token(prec(1, /[eE][xX][cC][eE][pP][tT][iI][oO][nN]/)),
+    kw_exit: _ => token(prec(1, /[eE][xX][iI][tT]/)),
+    kw_fetch: _ => token(prec(1, /[fF][eE][tT][cC][hH]/)),
+    kw_first: _ => token(prec(1, /[fF][iI][rR][sS][tT]/)),
+    kw_forward: _ => token(prec(1, /[fF][oO][rR][wW][aA][rR][dD]/)),
+    kw_get: _ => token(prec(1, /[gG][eE][tT]/)),
+    kw_hint: _ => token(prec(1, /[hH][iI][nN][tT]/)),
+    kw_import: _ => token(prec(1, /[iI][mM][pP][oO][rR][tT]/)),
+    kw_info: _ => token(prec(1, /[iI][nN][fF][oO]/)),
+    kw_insert: _ => token(prec(1, /[iI][nN][sS][eE][rR][tT]/)),
+    kw_is: _ => token(prec(1, /[iI][sS]/)),
+    kw_last: _ => token(prec(1, /[lL][aA][sS][tT]/)),
+    kw_log: _ => token(prec(1, /[lL][oO][gG]/)),
+    kw_merge: _ => token(prec(1, /[mM][eE][rR][gG][eE]/)),
+    kw_message: _ => token(prec(1, /[mM][eE][sS][sS][aA][gG][eE]/)),
+    kw_message_text: _ => token(prec(1, /[mM][eE][sS][sS][aA][gG][eE]_[tT][eE][xX][tT]/)),
+    kw_move: _ => token(prec(1, /[mM][oO][vV][eE]/)),
+    kw_next: _ => token(prec(1, /[nN][eE][xX][tT]/)),
+    kw_no: _ => token(prec(1, /[nN][oO]/)),
+    kw_notice: _ => token(prec(1, /[nN][oO][tT][iI][cC][eE]/)),
+    kw_open: _ => token(prec(1, /[oO][pP][eE][nN]/)),
+    kw_option: _ => token(prec(1, /[oO][pP][tT][iI][oO][nN]/)),
+    kw_perform: _ => token(prec(1, /[pP][eE][rR][fF][oO][rR][mM]/)),
+    kw_pg_context: _ => token(prec(1, /[pP][gG]_[cC][oO][nN][tT][eE][xX][tT]/)),
+    kw_pg_datatype_name: _ => token(prec(1, /[pP][gG]_[dD][aA][tT][aA][tT][yY][pP][eE]_[nN][aA][mM][eE]/)),
+    kw_pg_exception_context: _ => token(prec(1, /[pP][gG]_[eE][xX][cC][eE][pP][tT][iI][oO][nN]_[cC][oO][nN][tT][eE][xX][tT]/)),
+    kw_pg_exception_detail: _ => token(prec(1, /[pP][gG]_[eE][xX][cC][eE][pP][tT][iI][oO][nN]_[dD][eE][tT][aA][iI][lL]/)),
+    kw_pg_exception_hint: _ => token(prec(1, /[pP][gG]_[eE][xX][cC][eE][pP][tT][iI][oO][nN]_[hH][iI][nN][tT]/)),
+    kw_pg_routine_oid: _ => token(prec(1, /[pP][gG]_[rR][oO][uU][tT][iI][nN][eE]_[oO][iI][dD]/)),
+    kw_print_strict_params: _ => token(prec(1, /[pP][rR][iI][nN][tT]_[sS][tT][rR][iI][cC][tT]_[pP][aA][rR][aA][mM][sS]/)),
+    kw_prior: _ => token(prec(1, /[pP][rR][iI][oO][rR]/)),
+    kw_query: _ => token(prec(1, /[qQ][uU][eE][rR][yY]/)),
+    kw_raise: _ => token(prec(1, /[rR][aA][iI][sS][eE]/)),
+    kw_relative: _ => token(prec(1, /[rR][eE][lL][aA][tT][iI][vV][eE]/)),
+    kw_return: _ => token(prec(1, /[rR][eE][tT][uU][rR][nN]/)),
+    kw_returned_sqlstate: _ => token(prec(1, /[rR][eE][tT][uU][rR][nN][eE][dD]_[sS][qQ][lL][sS][tT][aA][tT][eE]/)),
+    kw_reverse: _ => token(prec(1, /[rR][eE][vV][eE][rR][sS][eE]/)),
+    kw_rollback: _ => token(prec(1, /[rR][oO][lL][lL][bB][aA][cC][kK]/)),
+    kw_row_count: _ => token(prec(1, /[rR][oO][wW]_[cC][oO][uU][nN][tT]/)),
+    kw_rowtype: _ => token(prec(1, /[rR][oO][wW][tT][yY][pP][eE]/)),
+    kw_schema: _ => token(prec(1, /[sS][cC][hH][eE][mM][aA]/)),
+    kw_schema_name: _ => token(prec(1, /[sS][cC][hH][eE][mM][aA]_[nN][aA][mM][eE]/)),
+    kw_scroll: _ => token(prec(1, /[sS][cC][rR][oO][lL][lL]/)),
+    kw_slice: _ => token(prec(1, /[sS][lL][iI][cC][eE]/)),
+    kw_sqlstate: _ => token(prec(1, /[sS][qQ][lL][sS][tT][aA][tT][eE]/)),
+    kw_stacked: _ => token(prec(1, /[sS][tT][aA][cC][kK][eE][dD]/)),
+    kw_table: _ => token(prec(1, /[tT][aA][bB][lL][eE]/)),
+    kw_table_name: _ => token(prec(1, /[tT][aA][bB][lL][eE]_[nN][aA][mM][eE]/)),
+    kw_type: _ => token(prec(1, /[tT][yY][pP][eE]/)),
+    kw_use_column: _ => token(prec(1, /[uU][sS][eE]_[cC][oO][lL][uU][mM][nN]/)),
+    kw_use_variable: _ => token(prec(1, /[uU][sS][eE]_[vV][aA][rR][iI][aA][bB][lL][eE]/)),
+    kw_variable_conflict: _ => token(prec(1, /[vV][aA][rR][iI][aA][bB][lL][eE]_[cC][oO][nN][fF][lL][iI][cC][tT]/)),
+    kw_warning: _ => token(prec(1, /[wW][aA][rR][nN][iI][nN][gG]/)),
+
+    // ── Lexer rules ───────────────────────────────────────────────────────────
+    // Only tokens referenced by grammar rules are included here.
+    // SQL fragment tokens (float, escape strings, etc.) are handled by the
+    // external scanner and parsed via injection into the postgres grammar.
+
+    identifier: _ => token(prec(0, /[a-zA-Z_\u0080-\u00ff][a-zA-Z0-9_$\u0080-\u00ff]*/)),
+
+    quoted_identifier: _ => token(seq('"', repeat1(choice(/[^"\u0000]/, '""')), '"')),
+
+    // Positional parameter reference ($1, $2, ...) \u2014 used as an ALIAS target.
+    param: _ => token(/\$[0-9]+/),
+
+    integer_literal: _ => token(/[0-9](_?[0-9])*/),
+
+    string_literal: _ => token(/'([^']|'')*'/),
+
+    comment: _ => token(choice(
+      /--[^\r\n]*/,
+      /\/\*[^*]*\*+([^/*][^*]*\*+)*\//
+    )),
+
+  }, // end rules
+}); // end grammar

@@ -5383,6 +5383,57 @@ message = "every selected function is observable"
 	}
 
 	#[test]
+	fn stateless_syntax_parse_accepts_quoted_plpgsql_labels() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let source = r#"BEGIN
+  <<"outer ""loop">>
+  FOR i IN 1..10 LOOP
+    EXIT "outer ""loop";
+  END LOOP "outer ""loop";
+END;"#;
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "plpgsql".to_string(),
+				source: source.to_string(),
+				uri: Some("quoted-label.plpgsql".to_string()),
+				max_depth: 16,
+				max_nodes: 300,
+				named_only: false,
+				include_text: true,
+				max_text_chars: 80,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected stateless syntax response, got {response:?}");
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected syntax tree, got {:?}", response.result);
+		};
+		assert!(
+			!tree.has_error,
+			"quoted PL/pgSQL label must parse: {tree:#?}"
+		);
+		assert!(syntax_node_contains(&tree.root, "loop_label", None));
+		assert!(syntax_node_contains(
+			&tree.root,
+			"quoted_identifier",
+			Some("\"outer \"\"loop\""),
+		));
+		let quoted_label =
+			syntax_node_find(&tree.root, "quoted_identifier", Some("\"outer \"\"loop\""))
+				.expect("quoted loop label");
+		let label_text = "\"outer \"\"loop\"";
+		let label_start = source.find(label_text).expect("label text in source");
+		assert_eq!(
+			quoted_label.byte_range,
+			(label_start, label_start + label_text.len())
+		);
+		assert_eq!((quoted_label.start.line, quoted_label.start.column), (2, 4));
+		assert_eq!((quoted_label.end.line, quoted_label.end.column), (2, 18));
+	}
+
+	#[test]
 	fn stateless_syntax_parse_rejects_unsupported_languages_and_large_sources() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
@@ -6581,20 +6632,18 @@ pub fn production_entry() {}
 	#[test]
 	fn daemon_syntax_tree_uses_language_sdk_injections_for_plpgsql() {
 		let temp = tempfile::tempdir().expect("tempdir");
-		fs::write(
-			temp.path().join("account.sql"),
-			"CREATE FUNCTION account_balance(p_id bigint) RETURNS numeric\n\
+		let source = "CREATE FUNCTION account_balance(p_id bigint) RETURNS numeric\n\
 			 LANGUAGE plpgsql AS $$\n\
+			 <<\"account block\">>\n\
 			 DECLARE total numeric;\n\
 			 BEGIN\n\
 			   SELECT sum(amount) INTO total FROM ledger_entry WHERE account_id = p_id;\n\
 			   IF total IS NULL THEN RETURN 0; END IF;\n\
 			   RETURN total;\n\
 			 EXCEPTION WHEN OTHERS THEN RETURN -1;\n\
-			 END;\n\
-			 $$;\n",
-		)
-		.expect("write PL/pgSQL fixture");
+			 END \"account block\";\n\
+			 $$;\n";
+		fs::write(temp.path().join("account.sql"), source).expect("write PL/pgSQL fixture");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
 			command: Command::WorkspaceRefresh,
@@ -6634,6 +6683,10 @@ pub fn production_entry() {}
 		let QueryResult::SyntaxTree(tree) = response.result else {
 			panic!("expected PL/pgSQL syntax tree result");
 		};
+		assert!(
+			!tree.has_error,
+			"indexed quoted PL/pgSQL label must parse: {tree:#?}"
+		);
 		assert_eq!(tree.root.kind, "toplevel_stmt");
 		assert!(syntax_node_contains(&tree.root, "CreateFunctionStmt", None));
 		assert!(syntax_node_contains_language(
@@ -6644,6 +6697,21 @@ pub fn production_entry() {}
 		assert!(syntax_node_contains(&tree.root, "stmt_if", None));
 		assert!(syntax_node_contains(&tree.root, "stmt_return", None));
 		assert!(syntax_node_contains(&tree.root, "sql_expression", None));
+		assert!(syntax_node_contains(&tree.root, "block_label", None));
+		assert!(syntax_node_contains(
+			&tree.root,
+			"quoted_identifier",
+			Some("\"account block\""),
+		));
+		let quoted_label =
+			syntax_node_find(&tree.root, "quoted_identifier", Some("\"account block\""))
+				.expect("quoted block label");
+		let label_text = "\"account block\"";
+		let label_start = source.find(label_text).expect("label text in source");
+		assert_eq!(
+			quoted_label.byte_range,
+			(label_start, label_start + label_text.len())
+		);
 		assert_eq!(syntax_node_language_count(&tree.root, "plpgsql"), 1);
 	}
 
@@ -6762,11 +6830,20 @@ pub fn production_entry() {}
 	}
 
 	fn syntax_node_contains(node: &SyntaxNodeDto, kind: &str, text: Option<&str>) -> bool {
-		(node.kind == kind && text.is_none_or(|text| node.text.as_deref() == Some(text)))
-			|| node
-				.children
-				.iter()
-				.any(|child| syntax_node_contains(child, kind, text))
+		syntax_node_find(node, kind, text).is_some()
+	}
+
+	fn syntax_node_find<'a>(
+		node: &'a SyntaxNodeDto,
+		kind: &str,
+		text: Option<&str>,
+	) -> Option<&'a SyntaxNodeDto> {
+		if node.kind == kind && text.is_none_or(|text| node.text.as_deref() == Some(text)) {
+			return Some(node);
+		}
+		node.children
+			.iter()
+			.find_map(|child| syntax_node_find(child, kind, text))
 	}
 
 	fn syntax_node_contains_language(node: &SyntaxNodeDto, kind: &str, language: &str) -> bool {

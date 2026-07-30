@@ -34,6 +34,7 @@ tree-sitter-go         = { workspace = true }
 tree-sitter-c          = { workspace = true }
 tree-sitter-c-sharp    = { workspace = true }
 tree-sitter-postgres   = { workspace = true }
+code-moniker-tree-sitter-plpgsql = { workspace = true }
 
 # Manifest parsers for the build/* primitives.
 toml       = { workspace = true }

@@ -40,6 +40,24 @@ metadata published with the `code-moniker` crate. Its crate metadata disables
 third-party QuickInstall artifacts and implicit source compilation: an
 unsupported platform fails explicitly.
 
+### One-time grammar crate bootstrap
+
+Trusted Publishing cannot allocate a new crates.io package name. Before the
+first release containing `code-moniker-tree-sitter-plpgsql`:
+
+1. From the exact validated `main` commit, publish
+   `code-moniker-tree-sitter-plpgsql` manually with a crates.io account token.
+2. On crates.io, configure its Trusted Publisher for repository
+   `ng-galien/code-moniker`, workflow `publish-crates.yml`, and environment
+   `release`.
+3. Confirm that the published package version matches the intended release,
+   then push the release tag.
+
+The release workflow fails early with bootstrap guidance while the package name
+does not exist. For the bootstrap release, it detects the manually published
+version and skips it; subsequent versions use the same OIDC path as the other
+workspace crates.
+
 The dist workflow follows five gates:
 
 1. `plan` validates the tag, package, targets, features, and artifacts.
@@ -48,13 +66,15 @@ The dist workflow follows five gates:
 4. `host` consolidates the release artifacts without making the GitHub release
    public yet.
 5. `publish` calls `.github/workflows/publish-crates.yml`, which verifies the
-   tag and publishes the seven crates in dependency order through crates.io
+   tag and publishes the eight crates in dependency order through crates.io
    OIDC. `announce` creates the GitHub release only after that job succeeds.
 
 ## `0.6.0` acceptance checklist
 
 - [ ] `main` is clean, CI is green, and no `v0.6.0` tag exists.
 - [ ] All workspace crates that are published share version `0.6.0`.
+- [ ] `code-moniker-tree-sitter-plpgsql@0.6.0` has completed the one-time
+      manual bootstrap and its Trusted Publisher is configured before tagging.
 - [ ] `dist plan --tag=v0.6.0` lists exactly the three supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `tui,mcp`.
 - [ ] `cargo fmt --all -- --check`
@@ -69,7 +89,7 @@ The dist workflow follows five gates:
       `npm run test:integration`.
 - [ ] Push `v0.6.0` only after the preceding gates pass.
 - [ ] Confirm the Release workflow completes through `announce` and that all
-      seven crates exist on crates.io at `0.6.0`.
+      eight crates exist on crates.io at `0.6.0`.
 - [ ] On clean macOS and Linux environments, exercise the direct installer and
       `cargo binstall code-moniker --version 0.6.0`.
 - [ ] Run `code-moniker --version`, `code-moniker ui --help`,
