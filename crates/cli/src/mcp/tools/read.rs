@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::PathBuf;
 
 use code_moniker_query::{
-	Query, QueryResult, SymbolDetailResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto,
-	ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery,
-	ViewReadResult, ViewRuleDto, ViewRuleRefDto,
+	Page, Query, QueryResult, SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_NODES,
+	SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_DEPTH, SYNTAX_TREE_MAX_NODES,
+	SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult, SyntaxNodeDto, SyntaxTreeQuery,
+	SyntaxTreeResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto, ViewDetailResult,
+	ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery, ViewReadResult, ViewRuleDto,
+	ViewRuleRefDto,
 };
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
@@ -36,73 +40,108 @@ impl ReadTool {
 		"  workspace/views          — project-defined contextual views for agents\n",
 		"  code+moniker://workspace — same root with an explicit URI\n",
 		"  <compact-or-canonical>   — moniker returned by code_moniker_symbols; reads the source slice around that symbol\n",
-		"Use path/lang to scope discovery, depth to expand the explorer, limit/cursor for paging, and moniker_format when a view should expose resolved monikers. Pair with code_moniker_symbols when you need symbol rows."
+		"  <file-or-moniker> ast:true — parses the current source on demand and returns a bounded syntax tree; a moniker narrows the tree to its declaration\n",
+		"Use path/lang to scope discovery, depth to expand the explorer, limit/cursor for paging, and moniker_format when a view should expose resolved monikers. AST reads are named-node-only by default and never populate the workspace index."
 	);
 
 	fn input_schema() -> Value {
-		json!({
-			"type": "object",
-			"properties": {
-				"uri": {
-					"type": "string",
-					"description": "workspace | code+moniker://workspace | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols"
-				},
-				"depth": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": MAX_DEPTH,
-					"description": "Explorer depth to render."
-				},
-				"path": {
-					"oneOf": [
-						{ "type": "string" },
-						{ "type": "array", "items": { "type": "string" } }
-					],
-					"description": "Relative file glob(s), OR-combined. Example: crates/cli/src/mcp/**"
-				},
-				"lang": {
-					"oneOf": [
-						{ "type": "string" },
-						{ "type": "array", "items": { "type": "string" } }
-					],
-					"description": "Language tag(s), OR-combined. Example: rs, java"
-				},
-				"limit": {
-					"type": "integer",
-					"minimum": 1,
-					"maximum": super::scope::MAX_LIMIT,
-					"description": "Maximum explorer rows to emit."
-				},
-				"cursor": {
-					"oneOf": [{ "type": "integer" }, { "type": "string" }],
-					"description": "Opaque row offset returned in next calls."
-				},
-				"context_lines": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": 20,
-					"description": "Extra lines around a symbol source slice."
-				},
-				"moniker_format": {
-					"type": "string",
-					"enum": ["none", "compact", "uri"],
-					"description": "For workspace/views reads, optionally display resolved evidence monikers."
-				},
-				"include_code": {
-					"type": "boolean",
-					"description": "For workspace/views reads, include source snippets for resolved evidence."
-				},
-				"expected_roots": {
-					"oneOf": [
-						{ "type": "string" },
-						{ "type": "array", "items": { "type": "string" }, "minItems": 1 }
-					],
-					"description": "Canonical workspace root(s) expected by the client. Workspace reads fail with workspace_mismatch unless the server is bound to exactly this set."
-				}
-			},
-			"additionalProperties": false
-		})
+		read_input_schema()
 	}
+}
+
+fn read_input_schema() -> Value {
+	json!({
+		"type": "object",
+		"properties": {
+			"uri": {
+				"type": "string",
+				"description": "workspace | code+moniker://workspace | relative or absolute source path for ast:true (absolute disambiguates duplicate multi-root paths) | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols"
+			},
+			"depth": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": MAX_DEPTH,
+				"description": "Explorer depth to render."
+			},
+			"path": {
+				"oneOf": [
+					{ "type": "string" },
+					{ "type": "array", "items": { "type": "string" } }
+				],
+				"description": "Relative file glob(s), OR-combined. Example: crates/cli/src/mcp/**"
+			},
+			"lang": {
+				"oneOf": [
+					{ "type": "string" },
+					{ "type": "array", "items": { "type": "string" } }
+				],
+				"description": "Language tag(s), OR-combined. Example: rs, java"
+			},
+			"limit": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": super::scope::MAX_LIMIT,
+				"description": "Maximum explorer rows to emit."
+			},
+			"cursor": {
+				"oneOf": [{ "type": "integer" }, { "type": "string" }],
+				"description": "Opaque row offset returned in next calls."
+			},
+			"context_lines": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": 20,
+				"description": "Extra lines around a symbol source slice."
+			},
+			"moniker_format": {
+				"type": "string",
+				"enum": ["none", "compact", "uri"],
+				"description": "For workspace/views reads, optionally display resolved evidence monikers."
+			},
+			"include_code": {
+				"type": "boolean",
+				"description": "For workspace/views reads, include source snippets for resolved evidence."
+			},
+			"ast": {
+				"type": "boolean",
+				"description": "Parse the current source on demand and return a bounded Tree-sitter syntax tree. A symbol moniker focuses the tree on its declaration."
+			},
+			"max_depth": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": SYNTAX_TREE_MAX_DEPTH,
+				"description": "Maximum AST depth below the selected root. Defaults to 6."
+			},
+			"max_nodes": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": SYNTAX_TREE_MAX_NODES,
+				"description": "Maximum AST nodes to emit. Defaults to 100."
+			},
+			"named_only": {
+				"type": "boolean",
+				"description": "Return only named grammar nodes by default; false exposes the concrete syntax tree including punctuation."
+			},
+			"include_text": {
+				"type": "boolean",
+				"description": "Attach bounded normalized source text to leaf nodes. Defaults false."
+			},
+			"max_text_chars": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": SYNTAX_TREE_MAX_TEXT_CHARS,
+				"description": "Maximum source characters attached to each leaf when include_text is true. Defaults to 80."
+			},
+			"expected_roots": {
+				"oneOf": [
+					{ "type": "string" },
+					{ "type": "array", "items": { "type": "string" }, "minItems": 1 }
+				],
+				"description": "Canonical workspace root(s) expected by the client. Workspace reads fail with workspace_mismatch unless the server is bound to exactly this set."
+			}
+		},
+		"additionalProperties": false
+	})
 }
 
 impl McpTool for ReadTool {
@@ -129,6 +168,7 @@ struct ReadRequest {
 	depth: usize,
 	context_lines: usize,
 	include_code: bool,
+	syntax: SyntaxReadOptions,
 	moniker_display: MonikerDisplay,
 	scope: ScopeFilter,
 	paging: Paging,
@@ -146,6 +186,7 @@ impl ReadRequest {
 			depth: bounded_usize_argument(arguments, "depth", 2, MAX_DEPTH),
 			context_lines: bounded_usize_argument(arguments, "context_lines", 2, 20),
 			include_code: read_bool_argument(arguments, "include_code", false),
+			syntax: read_syntax_options(arguments)?,
 			moniker_display: MonikerDisplay::parse(read_string_argument(
 				arguments,
 				"moniker_format",
@@ -156,6 +197,72 @@ impl ReadRequest {
 			expected_roots: read_path_list_argument(arguments, "expected_roots")?,
 		})
 	}
+}
+
+struct SyntaxReadOptions {
+	enabled: bool,
+	max_depth: usize,
+	max_nodes: usize,
+	named_only: bool,
+	include_text: bool,
+	max_text_chars: usize,
+}
+
+fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
+	Ok(SyntaxReadOptions {
+		enabled: strict_bool_argument(arguments, "ast", false)?,
+		max_depth: strict_usize_argument(
+			arguments,
+			"max_depth",
+			SYNTAX_TREE_DEFAULT_MAX_DEPTH,
+			0,
+			SYNTAX_TREE_MAX_DEPTH,
+		)?,
+		max_nodes: strict_usize_argument(
+			arguments,
+			"max_nodes",
+			SYNTAX_TREE_DEFAULT_MAX_NODES,
+			1,
+			SYNTAX_TREE_MAX_NODES,
+		)?,
+		named_only: strict_bool_argument(arguments, "named_only", true)?,
+		include_text: strict_bool_argument(arguments, "include_text", false)?,
+		max_text_chars: strict_usize_argument(
+			arguments,
+			"max_text_chars",
+			SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS,
+			0,
+			SYNTAX_TREE_MAX_TEXT_CHARS,
+		)?,
+	})
+}
+
+fn strict_bool_argument(arguments: &Value, key: &str, default: bool) -> anyhow::Result<bool> {
+	match arguments.get(key) {
+		None => Ok(default),
+		Some(Value::Bool(value)) => Ok(*value),
+		Some(_) => anyhow::bail!("{key} must be a boolean"),
+	}
+}
+
+fn strict_usize_argument(
+	arguments: &Value,
+	key: &str,
+	default: usize,
+	min: usize,
+	max: usize,
+) -> anyhow::Result<usize> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(default);
+	};
+	let value = value
+		.as_u64()
+		.and_then(|value| usize::try_from(value).ok())
+		.ok_or_else(|| anyhow::anyhow!("{key} must be an unsigned integer"))?;
+	if !(min..=max).contains(&value) {
+		anyhow::bail!("{key} must be between {min} and {max}");
+	}
+	Ok(value)
 }
 
 fn read_path_list_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<Vec<PathBuf>>> {
@@ -200,6 +307,9 @@ fn read_bool_argument(arguments: &Value, key: &str, default: bool) -> bool {
 }
 
 fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
+	if request.syntax.enabled {
+		return read_syntax_tree(context, request);
+	}
 	if is_workspace_uri(&request.uri, context.scheme(), DEFAULT_READ_URI) {
 		let expected_roots = request.expected_roots.as_deref().ok_or_else(|| {
 			anyhow::anyhow!(
@@ -234,6 +344,88 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 		request.context_lines,
 		request.compact,
 	)
+}
+
+fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
+	let response = context.query_refreshed(
+		Query::SyntaxTree(SyntaxTreeQuery {
+			workspace: None,
+			focus: request.uri.clone(),
+			max_depth: request.syntax.max_depth,
+			max_nodes: request.syntax.max_nodes,
+			named_only: request.syntax.named_only,
+			include_text: request.syntax.include_text,
+			max_text_chars: request.syntax.max_text_chars,
+		}),
+		Page::default(),
+	)?;
+	let QueryResult::SyntaxTree(result) = response.result else {
+		anyhow::bail!("daemon returned an unexpected result for syntax.tree");
+	};
+	Ok(ToolResult::success(render_syntax_tree_lmnav(&result))
+		.with_monikers([result.focus.as_str()]))
+}
+
+fn render_syntax_tree_lmnav(result: &SyntaxTreeResult) -> String {
+	let mut output = String::new();
+	let _ = writeln!(output, "uri: syntax.tree");
+	let _ = writeln!(
+		output,
+		"completeness: {}",
+		if result.truncated { "bounded" } else { "full" }
+	);
+	let _ = writeln!(output, "file: {}", result.file);
+	let _ = writeln!(output, "language: {}", result.language);
+	let _ = writeln!(output, "focus: {}", result.focus);
+	if let Some((start, end)) = result.focus_line_range {
+		let _ = writeln!(output, "focus_lines: {start}-{end}");
+	}
+	let _ = writeln!(
+		output,
+		"nodes: {}/{} max_depth:{} parse_error:{}",
+		result.emitted_nodes, result.total_nodes, result.max_depth, result.has_error
+	);
+	output.push_str("tree:\n");
+	render_syntax_node_lmnav(&mut output, &result.root, 0);
+	output
+}
+
+fn render_syntax_node_lmnav(output: &mut String, node: &SyntaxNodeDto, depth: usize) {
+	let mut flags = Vec::new();
+	if !node.named {
+		flags.push("anonymous");
+	}
+	if node.error {
+		flags.push("error");
+	}
+	if node.missing {
+		flags.push("missing");
+	}
+	let flags = if flags.is_empty() {
+		String::new()
+	} else {
+		format!(" [{}]", flags.join(","))
+	};
+	let text = node
+		.text
+		.as_deref()
+		.map(|text| format!(" text={text:?}"))
+		.unwrap_or_default();
+	let _ = writeln!(
+		output,
+		"{}- {} {}:{}-{}:{}{}{}",
+		"  ".repeat(depth),
+		node.kind,
+		node.start.line,
+		node.start.column,
+		node.end.line,
+		node.end.column,
+		flags,
+		text
+	);
+	for child in &node.children {
+		render_syntax_node_lmnav(output, child, depth + 1);
+	}
 }
 
 fn read_workspace(

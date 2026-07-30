@@ -11,6 +11,7 @@
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
+use tree_sitter::Tree;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct KindSpec {
@@ -45,6 +46,8 @@ pub trait LangExtractor {
 	fn file_root(_uri: &str, _anchor: &Moniker) -> Option<Moniker> {
 		None
 	}
+
+	fn parse(uri: &str, source: &str) -> Tree;
 
 	fn extract(
 		uri: &str,

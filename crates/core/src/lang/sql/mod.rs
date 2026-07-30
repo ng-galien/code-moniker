@@ -3,6 +3,8 @@ mod canonicalize;
 mod kinds;
 mod sdk_pipeline;
 
+use tree_sitter::Tree;
+
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
@@ -12,6 +14,10 @@ use crate::lang::KindSpec;
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
 	pub external_schemas: Vec<String>,
+}
+
+pub fn parse(source: &str) -> Tree {
+	sdk_pipeline::discover::parse(source)
 }
 
 pub fn extract(
@@ -56,6 +62,10 @@ impl crate::lang::LangExtractor for Lang {
 	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
 	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &[];
+
+	fn parse(_uri: &str, source: &str) -> Tree {
+		parse(source)
+	}
 
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
 		Some(canonicalize::compute_module_moniker(anchor, uri))

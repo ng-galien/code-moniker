@@ -34,7 +34,7 @@ needed.
 
 | Intent | Tool | Notes |
 |---|---|---|
-| Orient / expand tree / read a symbol's code | `code_moniker_read` | `uri:"workspace"` for the summary + explorer; a returned compact moniker reads its source zone (`context_lines`) |
+| Orient / expand tree / read code or AST | `code_moniker_read` | `uri:"workspace"` for the summary + explorer; a returned compact moniker reads its source zone. Add `ast:true` to a relative or absolute file or returned moniker for a bounded on-demand syntax tree; absolute paths disambiguate duplicate multi-root paths. |
 | List/filter symbols, workspace metrics | `code_moniker_symbols` | `action:"list"` with `path`/`lang`/`kind`/`shape`/`name` (name is a regex here); `action:"insights"` |
 | Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; compact mode groups references by symbolic context, summarizes technical noise, and samples bounded source evidence |
 | Ego neighborhood before editing | `code_moniker_graph` | `focus` = returned moniker or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal` |
@@ -67,7 +67,9 @@ needed.
    keep one symbolic context group intact; generated cursors always start at a
    group boundary.
 4. **Bound everything**: keep `budget:"small"`, a narrow `limit` or
-   `max_items`, and `compact:true`. Truncation is reported, never silent.
+   `max_items`, and `compact:true`. For AST reads, keep the defaults
+   `max_depth:6`, `max_nodes:100`, `named_only:true`; leaf text and punctuation
+   are explicit opt-ins. Truncation is reported, never silent.
 5. **Stop progressively**: do not page, broaden scope, request source code or
    switch to `medium`/`full` unless the current evidence is insufficient for
    the question. Never fetch a second rendering of facts you already have.
@@ -96,6 +98,11 @@ Projections keep expensive collections narrow, for example:
 ```text
 code_moniker_query query:'symbol.search name:"parse_query" limit:5 project name file line_range uri'
 ```
+
+The same typed protocol exposes
+`syntax.tree focus:"src/service.ts" max_depth:6 max_nodes:100`. Prefer the
+intent form `code_moniker_read uri:"src/service.ts" ast:true`; use the generic
+query only when testing the daemon contract.
 
 The default response renders projected URIs as reusable compact monikers.
 `compact:false` returns canonical typed JSON and is intentionally more

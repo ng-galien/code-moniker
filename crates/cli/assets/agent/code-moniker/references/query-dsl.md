@@ -24,6 +24,7 @@ selected daemon's reported index generation.
 | `identity.graph` | `prefix:""` | that level as a graph: nodes, rolled-up edges (kinds + counts), ports_in/out, unresolved count |
 | `symbol.search` | `name:`, `shape:`, `path:`, `limit:` | matching symbols with exact URIs |
 | `symbol.detail` | `uri:`, `context_lines:` | one symbol + its source zone |
+| `syntax.tree` | `focus:`, `max_depth:`, `max_nodes:`, `named_only:`, `include_text:` | bounded on-demand Tree-sitter tree for a file or symbol |
 | `symbol.usages` | `uri:`, `limit:` | incoming references with kinds and locations |
 | `symbol.graph` | `focus:`, `direction:`, `relation:`, `min_count:` | filtered ego view: members, internal edges, callers `<`, callees `>` |
 | `symbol.insights` | `limit:` | languages, kinds, concentration |
@@ -42,6 +43,9 @@ selected daemon's reported index generation.
   separators. Canonical URIs, compact monikers returned by MCP, and symbol ids
   are accepted by symbol-targeting verbs.
 - Numbers bare: `limit:10`.
+- `syntax.tree` defaults to named nodes, depth 6 and 100 nodes. Set
+  `named_only:false` only when punctuation or anonymous grammar nodes matter;
+  `include_text:true max_text_chars:80` attaches normalized text to leaves.
 - Multi-value fields OR-combine: `shape:callable,type`, `shape:[callable,type]`
   (bracket list sugar on `lang`/`kind`/`shape`/`severity`), or repeat the field.
   Lists must be unquoted; no spaces are allowed inside an unquoted list, and an

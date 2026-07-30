@@ -2062,6 +2062,59 @@
         {
           "type": "object",
           "required": [
+            "focus",
+            "include_text",
+            "max_depth",
+            "max_nodes",
+            "max_text_chars",
+            "named_only",
+            "op"
+          ],
+          "properties": {
+            "focus": {
+              "type": "string"
+            },
+            "include_text": {
+              "type": "boolean"
+            },
+            "max_depth": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 32.0,
+              "minimum": 0.0
+            },
+            "max_nodes": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 2000.0,
+              "minimum": 1.0
+            },
+            "max_text_chars": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 1000.0,
+              "minimum": 0.0
+            },
+            "named_only": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "syntax_tree"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "direction",
             "lang",
             "op",
@@ -2879,6 +2932,24 @@
               "type": "string",
               "enum": [
                 "symbol_detail"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SyntaxTreeResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "syntax_tree"
               ]
             }
           }
@@ -4190,6 +4261,158 @@
         }
       }
     },
+    "SyntaxNodeDto": {
+      "type": "object",
+      "required": [
+        "byte_range",
+        "children",
+        "end",
+        "error",
+        "kind",
+        "missing",
+        "named",
+        "start"
+      ],
+      "properties": {
+        "byte_range": {
+          "type": "array",
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SyntaxNodeDto"
+          }
+        },
+        "end": {
+          "$ref": "#/definitions/SyntaxPointDto"
+        },
+        "error": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "missing": {
+          "type": "boolean"
+        },
+        "named": {
+          "type": "boolean"
+        },
+        "start": {
+          "$ref": "#/definitions/SyntaxPointDto"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SyntaxPointDto": {
+      "type": "object",
+      "required": [
+        "column",
+        "line"
+      ],
+      "properties": {
+        "column": {
+          "description": "Zero-based UTF-8 byte column, matching Tree-sitter.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "line": {
+          "description": "One-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SyntaxTreeResult": {
+      "type": "object",
+      "required": [
+        "emitted_nodes",
+        "file",
+        "focus",
+        "has_error",
+        "language",
+        "max_depth",
+        "root",
+        "total_nodes",
+        "truncated"
+      ],
+      "properties": {
+        "emitted_nodes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "file": {
+          "type": "string"
+        },
+        "focus": {
+          "type": "string"
+        },
+        "focus_line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "has_error": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string"
+        },
+        "max_depth": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "root": {
+          "$ref": "#/definitions/SyntaxNodeDto"
+        },
+        "total_nodes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
     "TreeChildrenResult": {
       "type": "object",
       "required": [
@@ -5103,5 +5326,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 6
+  "x-code-moniker-protocol-version": 7
 }

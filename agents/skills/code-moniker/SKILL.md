@@ -113,9 +113,11 @@ composition is order-independent: a known false `AND` operand or known true
    `limit`). Never invent a moniker.
 3. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
    returned compact moniker or file.
-4. Before a structural edit, call `code_moniker_context focus:"<returned>"`
+4. Request `code_moniker_read uri:"<file-or-returned>" ast:true` only when the
+   parser shape itself is required; keep the bounded named-node defaults.
+5. Before a structural edit, call `code_moniker_context focus:"<returned>"`
    once. It combines impact, notes, applicable rules, local changes and checks.
-5. Use `code_moniker_query` only for an advanced read-only verb not covered by
+6. Use `code_moniker_query` only for an advanced read-only verb not covered by
    an intent tool. Discover its current grammar with `query.describe`; a batch
    is limited to four queries at one workspace generation.
 

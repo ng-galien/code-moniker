@@ -97,7 +97,11 @@ preserve the verified roots.
   totals, language distribution, concentration by path prefix, language kind
   hints, a paged explorer tree, and follow-up calls. When called with an exact
   symbol URI returned by `code_moniker_symbols`, it reads the source slice for
-  that symbol with optional `context_lines`.
+  that symbol with optional `context_lines`. With `ast = true`, a relative or
+  absolute source path returns a bounded on-demand syntax tree; an absolute
+  path disambiguates duplicate relative paths in a multi-root workspace, while
+  a symbol moniker narrows the tree to its declaration. Named nodes are the
+  default, source text is opt-in, and no AST is stored in the index.
 - `code_moniker_symbols`: paged symbol rows. It accepts `path`, `lang`,
   `kind`, `shape`, `name`, `limit`, and `cursor` so agents can narrow the
   read before loading broad symbol output. Use `action = "insights"` for

@@ -69,6 +69,11 @@ mcp_registry_output = "kind = 'method' AND name =~ ^(call|finalize_error) AND ur
 mcp_output_finalize = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
 mcp_compact_renderer = "kind = 'fn' AND name =~ ^compact_response_monikers AND uri ~ '**/module:mcp/module:tools/module:common/**'"
 mcp_budget_renderer = "kind = 'fn' AND name =~ ^apply_output_budget AND uri ~ '**/module:mcp/module:tools/module:common/**'"
+syntax_tree_query = "kind = 'struct' AND name = 'SyntaxTreeQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
+syntax_tree_response = "kind = 'fn' AND name =~ ^syntax_tree_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+syntax_tree_limit_validator = "kind = 'fn' AND name =~ ^validate_limits AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+mcp_read_input_schema = "kind = 'method' AND name =~ ^input_schema AND moniker ~ '**/module:read/**'"
+mcp_read_ast_schema = "kind = 'fn' AND name =~ ^read_input_schema AND moniker ~ '**/module:read/**'"
 
 [exclude]
 uris = [
@@ -177,6 +182,81 @@ severity  = "error"
 expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = 'apply_output_budget') OR $rust_test_caller OR source.name =~ ^finalize"
 message   = "Production code may call `apply_output_budget` only from `OutputContract::finalize`."
 rationale = "Distributed budgeting creates inconsistent ceilings and allows error paths to escape the public contract."
+
+# ─── On-demand syntax tree boundary ─────────────────────────────────
+
+[[workspace.path]]
+id        = "syntax-tree-response-uses-typed-contract"
+severity  = "error"
+from      = "$syntax_tree_response"
+to        = "$syntax_tree_query"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["uses_type"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "The daemon AST response no longer consumes the typed `SyntaxTreeQuery` contract: {path}"
+rationale = "This fail-closed path proves both the public query contract and its daemon execution boundary still exist and remain connected."
+
+[[workspace.path]]
+id        = "syntax-tree-response-calls-limit-validator"
+severity  = "error"
+from      = "$syntax_tree_response"
+to        = "$syntax_tree_limit_validator"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["calls"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "The daemon AST response bypasses its hard-limit validator: {path}"
+rationale = "This fail-closed path proves the validator exists and every on-demand syntax-tree response enters it."
+
+[[workspace.path]]
+id        = "mcp-read-delegates-bounded-ast-schema"
+severity  = "error"
+from      = "$mcp_read_input_schema"
+to        = "$mcp_read_ast_schema"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["calls"]
+max_depth = 2
+max_symbols = 20
+max_edges = 20
+max_pairs = 1
+min_coverage = 100
+message   = "`code_moniker_read` no longer delegates to its bounded AST schema: {path}"
+rationale = "This fail-closed path proves the public MCP method and its reviewed AST schema renderer both still exist and remain connected."
+
+[[rust.shape.type.where]]
+id        = "syntax-tree-query-is-explicitly-bounded"
+severity  = "error"
+expr      = "NOT $syntax_tree_query OR text =~ '(?s)max_depth.*max_nodes.*named_only.*include_text.*max_text_chars'"
+message   = "`SyntaxTreeQuery` must keep explicit depth, node, grammar-node, and source-text bounds."
+rationale = """
+An AST is an opt-in diagnostic payload, not an unbounded index projection. Keeping every
+volume dimension in the typed protocol prevents a single source file from flooding an
+agent context or forcing the daemon to retain syntax trees.
+"""
+
+[[rust.shape.callable.where]]
+id        = "syntax-tree-daemon-enforces-hard-bounds"
+severity  = "error"
+expr      = "NOT $syntax_tree_limit_validator OR text =~ '(?s)SYNTAX_TREE_MAX_DEPTH.*SYNTAX_TREE_MAX_NODES.*SYNTAX_TREE_MAX_TEXT_CHARS'"
+message   = "`validate_limits` must enforce the shared hard depth, node, and leaf-text limits."
+rationale = "Schema defaults are advisory; the daemon boundary must reject oversized direct protocol requests."
+
+[[rust.shape.callable.where]]
+id        = "mcp-read-publishes-bounded-ast-options"
+severity  = "error"
+expr      = "NOT $mcp_read_ast_schema OR text =~ '(?s)\"ast\".*\"max_depth\".*\"max_nodes\".*\"named_only\".*\"include_text\".*\"max_text_chars\"'"
+message   = "`code_moniker_read` must publish the complete bounded AST request contract."
+rationale = "The agent surface must make AST opt-in and expose the same bounds enforced by the typed daemon query."
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the

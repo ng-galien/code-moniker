@@ -17,6 +17,10 @@ pub const MEMORY_SOURCE_ROOT: &str = "memory";
 pub const MEMORY_SOURCE_ROOT_LABEL: &str = "memory";
 const MEMORY_SOURCE_PATH_ROOT: &str = ".code-moniker-memory";
 
+pub fn is_memory_source_path(path: &Path) -> bool {
+	path.starts_with(MEMORY_SOURCE_PATH_ROOT)
+}
+
 #[derive(Clone, Default)]
 pub struct LocalResourceCache {
 	inner: Arc<Mutex<LocalResourceMaterial>>,

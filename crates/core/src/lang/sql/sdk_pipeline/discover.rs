@@ -29,7 +29,7 @@ pub(in crate::lang::sql) fn new_sql_parser() -> Parser {
 	parser
 }
 
-pub(super) fn parse(source: &str) -> Tree {
+pub(in crate::lang::sql) fn parse(source: &str) -> Tree {
 	parse_with(&mut new_sql_parser(), source)
 }
 

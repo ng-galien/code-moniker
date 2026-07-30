@@ -97,6 +97,10 @@ impl crate::lang::LangExtractor for Lang {
 	const ALLOWED_VISIBILITIES: &'static [&'static str] =
 		&["public", "private", "protected", "module"];
 
+	fn parse(uri: &str, source: &str) -> Tree {
+		parse_with_uri(source, uri)
+	}
+
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
 		Some(sdk_pipeline::compute_module_moniker(anchor, uri))
 	}

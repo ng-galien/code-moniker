@@ -97,7 +97,7 @@ verbs; the daemon package version string is informational.
 ### Query verbs (DSL)
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
-`symbol.insights`, `symbol.detail`, `symbol.usages`, `symbol.graph`,
+`symbol.insights`, `symbol.detail`, `syntax.tree`, `symbol.usages`, `symbol.graph`,
 `identity.children`, `identity.graph`, `view.read`, `rules.list`,
 `rules.check`, `rules.applicable`, `change.review`, `change.context`,
 `resolution.audit`, `notes`. Command verbs: `workspace.refresh`,
@@ -145,6 +145,15 @@ registry. It reports fields, defaults, required values, pagination and
 projectable result fields. MCP agents normally reach this through the
 read-only `code_moniker_query` escape hatch; direct daemon queries remain a
 developer and protocol-diagnostic surface.
+
+`syntax.tree focus:"<relative or absolute source path or symbol URI>"` reparses
+the current indexed source on demand. It does not persist syntax trees in the
+workspace snapshot. In a multi-root workspace, `workspace:` scopes a relative
+path and an absolute path or symbol URI disambiguates duplicate relative paths.
+The default projection keeps only named Tree-sitter nodes, six levels and at
+most 100 nodes; `named_only:false` exposes the concrete tree, including
+punctuation. Leaf source text is opt-in with `include_text:true` and is bounded
+independently.
 
 `change.context focus:"<symbol URI or rel path>" max_items:20` returns a
 bounded pre-change view: graph neighborhood and resolution coverage, active

@@ -33,6 +33,29 @@ shape, but they never perform URI compaction or output truncation themselves.
 5. Schema publication, argument validation, compaction, and budgeting have one
    owner: `OutputContract`.
 6. Adding a new `McpTool` requires an explicit output contract at compile time.
+7. Diagnostic payloads whose size follows source complexity, such as syntax
+   trees, are opt-in and carry explicit structural bounds in the typed query
+   contract. Their hard caps have one shared protocol-level definition.
+
+### On-demand syntax trees
+
+`syntax.tree` applies this decision beyond final string truncation. It reparses
+the current indexed source only when requested, never retains a Tree-sitter
+tree in the workspace snapshot, and bounds depth, node count, grammar-node
+detail, and optional leaf text before rendering. The MCP intent surface is
+`code_moniker_read` with `ast=true`; named nodes, depth 6, 100 nodes, and no
+leaf text are the defaults.
+
+The root rule set proves three fail-closed paths:
+
+- the daemon response consumes the typed `SyntaxTreeQuery`;
+- the response enters the daemon hard-limit validator;
+- `ReadTool::input_schema` delegates to the bounded AST schema renderer.
+
+Field-level rules additionally require every volume control in the typed query,
+the shared hard caps in daemon validation, and the complete opt-in contract in
+the MCP schema. Moving or deleting any selected boundary makes the path rule
+fail because all endpoints use `require_non_empty = true`.
 
 ## Executable enforcement
 

@@ -22,22 +22,20 @@ pub use extractor::{KindSpec, LangExtractor};
 macro_rules! define_languages {
 	($($(#[$attr:meta])* $variant:ident => $module:ty),* $(,)?) => {
 		#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-		pub enum Lang {
+			pub enum Lang {
 			$(
 				$(#[$attr])*
 				$variant,
-			)*
-		}
-
-		impl Lang {
+				)*
+			}
+			impl Lang {
 			pub const ALL: &'static [Lang] = &[
 				$(
 					$(#[$attr])*
 					Self::$variant,
 				)*
-			];
-
-			pub fn from_tag(s: &str) -> Option<Self> {
+				];
+				pub fn from_tag(s: &str) -> Option<Self> {
 				$(
 					$(#[$attr])*
 					if s == <$module as $crate::lang::LangExtractor>::LANG_TAG {
@@ -100,6 +98,15 @@ macro_rules! define_languages {
 					$(
 						$(#[$attr])*
 						Self::$variant => <$module as $crate::lang::LangExtractor>::file_root(uri, anchor),
+					)*
+				}
+			}
+
+			pub fn parse(self, uri: &str, source: &str) -> tree_sitter::Tree {
+				match self {
+					$(
+						$(#[$attr])*
+						Self::$variant => <$module as $crate::lang::LangExtractor>::parse(uri, source),
 					)*
 				}
 			}
@@ -168,6 +175,18 @@ mod language_registry_tests {
 			"for_each_language visited {visited} languages but Lang::ALL contains {}; the cfg gates of the dispatch table and the macro variants are out of sync",
 			super::Lang::ALL.len()
 		);
+	}
+
+	#[test]
+	fn every_registered_language_parses_on_demand() {
+		for lang in super::Lang::ALL {
+			let tree = lang.parse("empty", "");
+			assert!(
+				!tree.root_node().kind().is_empty(),
+				"{} returned an empty root kind",
+				lang.tag()
+			);
+		}
 	}
 }
 

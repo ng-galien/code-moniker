@@ -48,7 +48,7 @@ use code_moniker_workspace::snapshot::{
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
-	MemorySourceSet, MemorySourceSetUpdate,
+	MemorySourceSet, MemorySourceSetUpdate, is_memory_source_path,
 };
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
@@ -87,6 +87,7 @@ use code_moniker_query::{
 
 use helpers::*;
 
+mod syntax;
 pub mod views;
 
 pub use code_moniker_workspace::snapshot::WorkspaceCancellation;
@@ -1015,6 +1016,9 @@ fn dispatch_loaded_query(
 			query.context_lines,
 			current_generation,
 		),
+		Query::SyntaxTree(query) => {
+			syntax::syntax_tree_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::SymbolUsages(query) => symbol_usages_response(
 			&snapshot,
 			&daemon.roots,
@@ -4259,16 +4263,7 @@ mod helpers {
 		};
 		let first = start.saturating_sub(context_lines as u32).max(1);
 		let last = end.saturating_add(context_lines as u32);
-		let source_text = if source.text.is_empty() {
-			std::fs::read_to_string(&source.path).map_err(|err| {
-				QueryError::new(
-					"source_read_failed",
-					format!("cannot read source {}: {err}", source.path),
-				)
-			})?
-		} else {
-			source.text.to_string()
-		};
+		let source_text = load_source_text(source)?;
 		let lines = source_text
 			.lines()
 			.enumerate()
@@ -4286,6 +4281,19 @@ mod helpers {
 			last_line: last,
 			lines,
 		}))
+	}
+
+	pub(super) fn load_source_text(source: &SourceFileRecord) -> Result<String, QueryError> {
+		if source.text.is_empty() && !is_memory_source_path(Path::new(&source.path)) {
+			std::fs::read_to_string(&source.path).map_err(|err| {
+				QueryError::new(
+					"source_read_failed",
+					format!("cannot read source {}: {err}", source.path),
+				)
+			})
+		} else {
+			Ok(source.text.to_string())
+		}
 	}
 
 	pub(super) fn workspace_langs(
@@ -4842,7 +4850,8 @@ mod tests {
 
 	use code_moniker_query::{
 		Page, ProtocolRequest, ProtocolResponse, Query, QueryCursor, QueryRequest, QueryResult,
-		RulesCheckQuery, WorkspaceGeneration, WorkspaceSourceDocumentDto,
+		RulesCheckQuery, SyntaxNodeDto, SyntaxTreeQuery, WorkspaceGeneration,
+		WorkspaceSourceDocumentDto,
 	};
 
 	use super::*;
@@ -6368,6 +6377,201 @@ pub fn production_entry() {}
 			},
 			other => panic!("unexpected response: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn daemon_returns_bounded_syntax_trees_for_files_and_symbols() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(
+			temp.path().join("lib.rs"),
+			"pub fn greet(name: &str) -> String {\n    format!(\"hello {name}\")\n}\n",
+		)
+		.expect("write fixture");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refresh, ProtocolResponse::Command(_)));
+
+		let file_response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+			QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
+				workspace: None,
+				focus: "lib.rs".to_string(),
+				max_depth: 8,
+				max_nodes: 100,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 40,
+			})),
+		)));
+		let ProtocolResponse::Query(file_response) = file_response else {
+			panic!("expected syntax query response, got {file_response:?}");
+		};
+		let QueryResult::SyntaxTree(file_tree) = file_response.result else {
+			panic!("expected syntax tree result");
+		};
+		assert_eq!(file_tree.file, "lib.rs");
+		assert_eq!(file_tree.language, "rs");
+		assert_eq!(file_tree.root.kind, "source_file");
+		assert!(!file_tree.truncated);
+		assert!(syntax_node_contains(&file_tree.root, "function_item", None));
+		assert!(syntax_node_contains(
+			&file_tree.root,
+			"identifier",
+			Some("greet")
+		));
+
+		let QueryResult::SymbolList(symbols) = search_symbols(&mut daemon, "greet") else {
+			panic!("expected symbol list");
+		};
+		let symbol = symbols
+			.rows
+			.iter()
+			.find(|symbol| symbol.name.starts_with("greet"))
+			.expect("greet symbol");
+		let symbol_response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+			QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
+				workspace: None,
+				focus: symbol.uri.clone(),
+				max_depth: 1,
+				max_nodes: 2,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 0,
+			})),
+		)));
+		let ProtocolResponse::Query(symbol_response) = symbol_response else {
+			panic!("expected symbol syntax response, got {symbol_response:?}");
+		};
+		let QueryResult::SyntaxTree(symbol_tree) = symbol_response.result else {
+			panic!("expected symbol syntax tree result");
+		};
+		assert_eq!(symbol_tree.root.kind, "function_item");
+		assert_eq!(symbol_tree.emitted_nodes, 2);
+		assert!(symbol_tree.truncated);
+		assert!(symbol_tree.focus_line_range.is_some());
+	}
+
+	#[test]
+	fn syntax_tree_disambiguates_one_line_csharp_symbols() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(
+			temp.path().join("App.cs"),
+			"class App { App() {} void Run() {} }\n",
+		)
+		.expect("write one-line nested fixture");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refresh, ProtocolResponse::Command(_)));
+		let QueryResult::SymbolList(symbols) = search_symbols(&mut daemon, "App") else {
+			panic!("expected C# symbol list");
+		};
+		for (symbol_kind, expected_node_kind) in [
+			("class", "class_declaration"),
+			("constructor", "constructor_declaration"),
+		] {
+			let symbol = symbols
+				.rows
+				.iter()
+				.find(|symbol| symbol.kind == symbol_kind)
+				.unwrap_or_else(|| panic!("missing {symbol_kind} symbol: {symbols:?}"));
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
+					workspace: None,
+					focus: symbol.uri.clone(),
+					max_depth: 4,
+					max_nodes: 20,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 0,
+				})),
+			)));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("expected {symbol_kind} syntax response, got {response:?}");
+			};
+			let QueryResult::SyntaxTree(tree) = response.result else {
+				panic!("expected {symbol_kind} syntax tree result");
+			};
+			assert_eq!(tree.root.kind, expected_node_kind);
+		}
+
+		let QueryResult::SymbolList(symbols) = search_symbols(&mut daemon, "Run") else {
+			panic!("expected C# symbol list");
+		};
+		let method = symbols
+			.rows
+			.iter()
+			.find(|symbol| symbol.name.starts_with("Run"))
+			.expect("Run method");
+		let nested_response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+			QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
+				workspace: None,
+				focus: method.uri.clone(),
+				max_depth: 4,
+				max_nodes: 20,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 0,
+			})),
+		)));
+		let ProtocolResponse::Query(nested_response) = nested_response else {
+			panic!("expected nested syntax response, got {nested_response:?}");
+		};
+		let QueryResult::SyntaxTree(nested_tree) = nested_response.result else {
+			panic!("expected nested syntax tree result");
+		};
+		assert_eq!(nested_tree.root.kind, "method_declaration");
+	}
+
+	#[test]
+	fn syntax_tree_accepts_an_empty_memory_source() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refresh, ProtocolResponse::Command(_)));
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "empty".to_string(),
+				revision: None,
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "empty.rs".to_string(),
+					language: "rs".to_string(),
+					content: String::new(),
+				}],
+			},
+		);
+		let empty_response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+			QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
+				workspace: None,
+				focus: "empty.rs".to_string(),
+				max_depth: 4,
+				max_nodes: 20,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 40,
+			})),
+		)));
+		let ProtocolResponse::Query(empty_response) = empty_response else {
+			panic!("expected empty memory syntax response, got {empty_response:?}");
+		};
+		let QueryResult::SyntaxTree(empty_tree) = empty_response.result else {
+			panic!("expected empty memory syntax tree result");
+		};
+		assert_eq!(empty_tree.file, "empty.rs");
+		assert_eq!(empty_tree.root.kind, "source_file");
+	}
+
+	fn syntax_node_contains(node: &SyntaxNodeDto, kind: &str, text: Option<&str>) -> bool {
+		(node.kind == kind && text.is_none_or(|text| node.text.as_deref() == Some(text)))
+			|| node
+				.children
+				.iter()
+				.any(|child| syntax_node_contains(child, kind, text))
 	}
 
 	#[test]

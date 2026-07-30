@@ -9,5 +9,5 @@ pub use identity::LocalIdentityResolver;
 pub use content::{
 	CodeIndexMaterial, IndexedSourceFile, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL,
 	MemorySourceDocument, MemorySourceSet, MemorySourceSetUpdate, ResolvedSourceResource,
-	SourceCatalogMaterial,
+	SourceCatalogMaterial, is_memory_source_path,
 };

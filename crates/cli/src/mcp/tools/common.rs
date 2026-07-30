@@ -223,7 +223,7 @@ fn protect_opaque_lines(output: &str) -> (String, Vec<(String, String)>) {
 	let mut body = String::with_capacity(output.len());
 	let mut protected = Vec::new();
 	for (index, line) in output.split_inclusive('\n').enumerate() {
-		if is_generated_call_line(line) || is_source_line(line) {
+		if is_generated_call_line(line) || is_source_line(line) || is_syntax_text_line(line) {
 			let marker = format!("\u{1e}opaque:{index}\u{1e}");
 			body.push_str(&marker);
 			protected.push((marker, line.to_string()));
@@ -240,6 +240,11 @@ fn is_source_line(line: &str) -> bool {
 		return false;
 	};
 	!number.is_empty() && number.trim_end().chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_syntax_text_line(line: &str) -> bool {
+	let line = line.trim_start();
+	line.starts_with("- ") && line.contains(" text=\"")
 }
 
 fn is_generated_call_line(line: &str) -> bool {
@@ -361,6 +366,22 @@ mod tests {
 		);
 		assert!(
 			compacted.contains(&format!("305 | let value = \"{uri}\";")),
+			"{compacted}"
+		);
+	}
+
+	#[test]
+	fn compact_response_monikers_preserve_canonical_uri_literals_in_syntax_leaf_text() {
+		let uri = "code+moniker://./lang:rs/module:mcp/struct:Server";
+		let output = format!("uri: {uri}\ntree:\n  - string_literal 1:0-1:42 text=\"{uri}\"\n");
+		let compacted = compact_response_monikers(output, true, [uri]);
+
+		assert!(
+			compacted.contains("uri: rs:mcp.struct:Server"),
+			"{compacted}"
+		);
+		assert!(
+			compacted.contains(&format!("text=\"{uri}\"")),
 			"{compacted}"
 		);
 	}

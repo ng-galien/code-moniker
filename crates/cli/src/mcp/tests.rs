@@ -444,6 +444,68 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 }
 
 #[test]
+fn read_tool_returns_a_bounded_ast_only_when_requested() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	std::fs::create_dir_all(&src).expect("create src");
+	std::fs::write(
+		src.join("lib.rs"),
+		"pub fn greet(name: &str) -> String {\n    format!(\"hello {name}\")\n}\n",
+	)
+	.expect("write fixture");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+
+	let tree = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "src/lib.rs",
+				"ast": true,
+				"include_text": true,
+				"max_depth": 8,
+				"max_nodes": 100
+			}),
+		)
+		.expect("AST read");
+	assert!(!tree.is_error);
+	assert!(tree.text.contains("uri: syntax.tree"), "{}", tree.text);
+	assert!(tree.text.contains("file: src/lib.rs"), "{}", tree.text);
+	assert!(tree.text.contains("- function_item "), "{}", tree.text);
+	assert!(
+		tree.text.contains("identifier") && tree.text.contains("text=\"greet\""),
+		"{}",
+		tree.text
+	);
+
+	let bounded = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({"uri": "src/lib.rs", "ast": true, "max_nodes": 2}),
+		)
+		.expect("bounded AST read");
+	assert!(
+		bounded.text.contains("completeness: bounded"),
+		"{}",
+		bounded.text
+	);
+	assert!(bounded.text.contains("nodes: 2/"), "{}", bounded.text);
+
+	let invalid = registry.call(
+		&context,
+		"code_moniker_read",
+		&json!({"uri": "src/lib.rs", "ast": true, "max_nodes": 0}),
+	);
+	let error = invalid.expect_err("zero AST node limit must fail");
+	assert!(
+		error.to_string().contains("max_nodes must be between 1"),
+		"{error}"
+	);
+}
+
+#[test]
 fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(

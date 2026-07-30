@@ -70,6 +70,16 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      focus: string;
+      include_text: boolean;
+      max_depth: number;
+      max_nodes: number;
+      max_text_chars: number;
+      named_only: boolean;
+      op: "syntax_tree";
+      workspace?: string | null;
+    }
+  | {
       direction: UsageDirection;
       lang: string[];
       op: "symbol_usages";
@@ -198,6 +208,10 @@ export type QueryResult =
   | {
       data: SymbolDetailResult;
       kind: "symbol_detail";
+    }
+  | {
+      data: SyntaxTreeResult;
+      kind: "syntax_tree";
     }
   | {
       data: SymbolUsagesResult;
@@ -496,6 +510,47 @@ export interface SymbolInsightsResult {
 export interface SymbolDetailResult {
   source?: SourceSnippet | null;
   symbol: SymbolDto;
+}
+export interface SyntaxTreeResult {
+  emitted_nodes: number;
+  file: string;
+  focus: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  focus_line_range?: [number, number] | null;
+  has_error: boolean;
+  language: string;
+  max_depth: number;
+  root: SyntaxNodeDto;
+  total_nodes: number;
+  truncated: boolean;
+}
+export interface SyntaxNodeDto {
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  byte_range: [number, number];
+  children: SyntaxNodeDto[];
+  end: SyntaxPointDto;
+  error: boolean;
+  kind: string;
+  missing: boolean;
+  named: boolean;
+  start: SyntaxPointDto;
+  text?: string | null;
+}
+export interface SyntaxPointDto {
+  /**
+   * Zero-based UTF-8 byte column, matching Tree-sitter.
+   */
+  column: number;
+  /**
+   * One-based line number.
+   */
+  line: number;
 }
 export interface SymbolUsagesResult {
   direction: UsageDirection;
