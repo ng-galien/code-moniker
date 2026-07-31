@@ -11,6 +11,7 @@ import {
 	type QueryResponse,
 	type RpcSubscription,
 	type WorkspaceEventDto,
+	type WorkspacePhase,
 	type WorkspaceStatus,
 } from "@code-moniker/client";
 import type { OwnedDaemon } from "@code-moniker/client/node";
@@ -25,10 +26,12 @@ import {
 } from "./sessionSupport";
 
 // The single live connection to the workspace daemon. Every feature (symbols,
-// rules) talks to the daemon through this session, never to the raw client —
-// it owns connect-or-start, the loading/ready phase, reconnection and events.
+// rules) talks to the daemon through this session, never to the raw client. It
+// owns connection/reconnection and projects the protocol-owned WorkspacePhase
+// into UI state without recreating workspace lifecycle policy.
 
 export type DaemonStatus = "disconnected" | "connecting" | "loading" | "ready" | "error";
+export type DaemonConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 // User-facing freshness policy (codeMoniker.daemon.consistency):
 // - fresh: every query carries refresh_if_stale, so answers never lag the
@@ -39,10 +42,6 @@ export type DaemonStatus = "disconnected" | "connecting" | "loading" | "ready" |
 // - current: stale_ok reads only; reindexing happens on explicit command.
 export type ConsistencyMode = "fresh" | "hybrid" | "current";
 
-const READY_POLL_ATTEMPTS = 300;
-const READY_POLL_INTERVAL_MS = 200;
-const QUERY_RETRY_ATTEMPTS = 60;
-const QUERY_RETRY_INTERVAL_MS = 200;
 const HYBRID_REFRESH_DEBOUNCE_MS = 300;
 const RECONNECT_DELAY_MS = 500;
 
@@ -64,8 +63,8 @@ export class DaemonSession implements vscode.Disposable {
 	private shuttingDown = false;
 	private ownedDaemon?: OwnedDaemon;
 
-	status: DaemonStatus = "disconnected";
-	ready = false;
+	connectionStatus: DaemonConnectionStatus = "disconnected";
+	workspacePhase?: WorkspacePhase;
 	lastError?: string;
 	// Sticky installation fault: the extension and the installed CLI do not
 	// speak the same protocol. While set, connectOrStart fails fast instead of
@@ -76,6 +75,29 @@ export class DaemonSession implements vscode.Disposable {
 	generation?: number;
 	capabilities?: CapabilitySet;
 	readonly workspaceRoots: string[];
+
+	get status(): DaemonStatus {
+		switch (this.connectionStatus) {
+			case "connected":
+				if (this.workspacePhase === "failed") {
+					return "error";
+				}
+				return this.workspacePhase === "ready" || this.workspacePhase === "refreshing"
+					? "ready"
+					: "loading";
+			case "connecting":
+			case "error":
+			case "disconnected":
+				return this.connectionStatus;
+		}
+	}
+
+	get ready(): boolean {
+		return (
+			this.connectionStatus === "connected" &&
+			(this.workspacePhase === "ready" || this.workspacePhase === "refreshing")
+		);
+	}
 
 	// The protocol version guards the wire shape. Query capabilities still guard
 	// individual verbs because the package version string is only informational.
@@ -103,7 +125,7 @@ export class DaemonSession implements vscode.Disposable {
 		}
 		if (this.protocolFault) {
 			this.lastError = this.protocolFault;
-			this.setStatus("error");
+			this.setConnectionStatus("error");
 			return Promise.resolve(false);
 		}
 		this.reconnectEnabled = true;
@@ -129,26 +151,20 @@ export class DaemonSession implements vscode.Disposable {
 			consistency:
 				options?.consistency ?? (mode === "fresh" ? ("refresh_if_stale" as const) : ("stale_ok" as const)),
 		};
-		for (let attempt = 0; ; attempt++) {
-			try {
-				const response = await this.rpc.query(query, queryOptions);
-				this.noteGeneration(response.generation);
-				return response;
-			} catch (error) {
-				if (shouldRetryLoadingQuery(error, attempt)) {
-					await delay(QUERY_RETRY_INTERVAL_MS);
-					continue;
-				}
-				if (shouldRefreshStaleSnapshot(error, attempt)) {
-					const response = await this.rpc.query(query, {
-						...queryOptions,
-						consistency: "refresh_if_stale",
-					});
-					this.noteGeneration(response.generation);
-					return response;
-				}
+		try {
+			const response = await this.rpc.query(query, queryOptions);
+			this.noteGeneration(response.generation);
+			return response;
+		} catch (error) {
+			if (!isStaleError(error)) {
 				throw error;
 			}
+			const response = await this.rpc.query(query, {
+				...queryOptions,
+				consistency: "refresh_if_stale",
+			});
+			this.noteGeneration(response.generation);
+			return response;
 		}
 	}
 
@@ -191,7 +207,7 @@ export class DaemonSession implements vscode.Disposable {
 			() => {
 				this.clearOwnership();
 				this.teardown();
-				this.setStatus("disconnected");
+				this.setConnectionStatus("disconnected");
 				this.shuttingDown = false;
 			},
 		);
@@ -212,7 +228,7 @@ export class DaemonSession implements vscode.Disposable {
 			() => {
 				this.clearOwnership();
 				this.teardown();
-				this.setStatus("disconnected");
+				this.setConnectionStatus("disconnected");
 				this.shuttingDown = false;
 			},
 		);
@@ -231,7 +247,7 @@ export class DaemonSession implements vscode.Disposable {
 		if (this.roots.length === 0) {
 			return false;
 		}
-		this.setStatus("connecting");
+		this.setConnectionStatus("connecting");
 		try {
 			let entry = daemonRuntime.findDaemon(this.roots);
 			let launched: OwnedDaemon | undefined;
@@ -270,13 +286,13 @@ export class DaemonSession implements vscode.Disposable {
 				this.handleEvent(event),
 			);
 			this.ensureActive();
-			await this.waitUntilReady();
+			await this.syncWorkspaceStatus();
 			this.ensureActive();
 			return true;
 		} catch (error) {
 			if (this.disposed || this.shuttingDown) {
 				this.teardown();
-				this.setStatus("disconnected");
+				this.setConnectionStatus("disconnected");
 				return false;
 			}
 			if (error instanceof ProtocolMismatchError) {
@@ -284,7 +300,7 @@ export class DaemonSession implements vscode.Disposable {
 			}
 			this.lastError = (error as Error).message;
 			this.teardown();
-			this.setStatus("error");
+			this.setConnectionStatus("error");
 			return false;
 		}
 	}
@@ -372,17 +388,17 @@ export class DaemonSession implements vscode.Disposable {
 		this.ownedDaemon = undefined;
 	}
 
-	private async waitUntilReady(): Promise<void> {
-		this.setStatus("loading");
-		for (let attempt = 0; attempt < READY_POLL_ATTEMPTS; attempt++) {
-			this.ensureActive();
-			const status = await this.workspaceStatus();
-			this.ensureActive();
-			if (status?.phase === "ready") {
-				this.setStatus("ready");
-				return;
-			}
-			await delay(READY_POLL_INTERVAL_MS);
+	private async syncWorkspaceStatus(): Promise<void> {
+		this.setWorkspacePhase("loading");
+		this.setConnectionStatus("connected");
+		this.ensureActive();
+		const status = await this.workspaceStatus();
+		this.ensureActive();
+		if (status?.phase === "failed") {
+			this.lastError = status.failure?.message ?? "Workspace index failed";
+		}
+		if (status) {
+			this.setWorkspacePhase(status.phase);
 		}
 	}
 
@@ -391,8 +407,12 @@ export class DaemonSession implements vscode.Disposable {
 		if (event.kind === "refreshed") {
 			this.generation = undefined;
 		}
-		if (event.kind === "refreshed" && this.status === "loading") {
-			this.setStatus("ready");
+		if (event.kind === "refreshed") {
+			this.setWorkspacePhase("ready");
+		}
+		if (event.kind === "failed") {
+			this.lastError = event.stale_summary ?? "Workspace index failed";
+			this.setWorkspacePhase("failed");
 		}
 		if (event.kind === "stale" && this.ready && consistencyMode() === "hybrid") {
 			this.scheduleHybridRefresh();
@@ -418,7 +438,7 @@ export class DaemonSession implements vscode.Disposable {
 
 	private onConnectionClosed(): void {
 		this.teardown();
-		this.setStatus("disconnected");
+		this.setConnectionStatus("disconnected");
 		if (!this.disposed && this.reconnectEnabled && !this.reconnectTimer) {
 			this.reconnectTimer = setTimeout(() => {
 				this.reconnectTimer = undefined;
@@ -446,16 +466,34 @@ export class DaemonSession implements vscode.Disposable {
 		this.endpoint = undefined;
 		this.generation = undefined;
 		this.capabilities = undefined;
+		this.workspacePhase = undefined;
 	}
 
-	private setStatus(status: DaemonStatus): void {
-		if (this.status === status) {
-			return;
+	private setConnectionStatus(status: DaemonConnectionStatus): void {
+		const previous = this.status;
+		this.connectionStatus = status;
+		if (status !== "connected") {
+			this.workspacePhase = undefined;
 		}
-		this.status = status;
-		this.ready = status === "ready";
 		if (status !== "error") {
 			this.lastError = undefined;
+		}
+		this.emitStatusChange(previous);
+	}
+
+	private setWorkspacePhase(phase: WorkspacePhase): void {
+		const previous = this.status;
+		this.workspacePhase = phase;
+		if (phase !== "failed") {
+			this.lastError = undefined;
+		}
+		this.emitStatusChange(previous);
+	}
+
+	private emitStatusChange(previous: DaemonStatus): void {
+		const status = this.status;
+		if (previous === status) {
+			return;
 		}
 		this.statusEmitter.fire(status);
 	}
@@ -474,22 +512,6 @@ async function connectEntry(
 	return { client };
 }
 
-function isLoadingError(error: unknown): boolean {
-	return error instanceof DaemonRpcError && error.code === "workspace_loading";
-}
-
 function isStaleError(error: unknown): boolean {
 	return error instanceof DaemonRpcError && error.code === "workspace_stale";
-}
-
-function shouldRetryLoadingQuery(error: unknown, attempt: number): boolean {
-	return attempt < QUERY_RETRY_ATTEMPTS && isLoadingError(error);
-}
-
-function shouldRefreshStaleSnapshot(error: unknown, attempt: number): boolean {
-	return attempt === 0 && isStaleError(error);
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

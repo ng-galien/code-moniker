@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use std::ffi::CString;
+use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
@@ -308,12 +309,7 @@ fn supervised_daemon_exits_if_supervisor_dies_during_initial_index() {
 	let supervisor_pid = supervisor.child_mut().id();
 	let mut daemon = spawn_supervised_daemon(&root, supervisor_pid);
 
-	wait_for_registry_state(
-		&config,
-		daemon.child_mut().id(),
-		code_moniker_query::DaemonRegistryState::Indexing,
-		Duration::from_secs(10),
-	);
+	wait_for_registry_entry(&config, daemon.child_mut().id(), Duration::from_secs(10));
 	supervisor.child_mut().kill().expect("terminate supervisor");
 	supervisor.wait().expect("reap supervisor");
 	wait_for_exit(daemon.child_mut(), Duration::from_secs(15));
@@ -339,12 +335,7 @@ fn supervised_daemon_exits_while_a_source_read_is_blocked() {
 	let config = config_from_roots([root.clone()]).expect("daemon config");
 	let mut supervisor = spawn_supervisor();
 	let mut daemon = spawn_supervised_daemon(&root, supervisor.child_mut().id());
-	wait_for_registry_state(
-		&config,
-		daemon.child_mut().id(),
-		code_moniker_query::DaemonRegistryState::Indexing,
-		Duration::from_secs(10),
-	);
+	wait_for_registry_entry(&config, daemon.child_mut().id(), Duration::from_secs(10));
 
 	supervisor.child_mut().kill().expect("terminate supervisor");
 	supervisor.wait().expect("reap supervisor");
@@ -377,7 +368,7 @@ fn daemon_exits_if_its_live_registry_claim_disappears() {
 	let root = workspace.path().canonicalize().expect("canonical root");
 	let config = config_from_roots([root.clone()]).expect("daemon config");
 	let mut supervisor = spawn_supervisor();
-	let mut daemon = spawn_supervised_daemon(&root, supervisor.child_mut().id());
+	let mut daemon = spawn_supervised_daemon_with_stderr(&root, supervisor.child_mut().id());
 	wait_for_ready_registry(&config, daemon.child_mut().id(), Duration::from_secs(15));
 	let entry = read_registry_entry(&config)
 		.expect("registry read")
@@ -389,7 +380,21 @@ fn daemon_exits_if_its_live_registry_claim_disappears() {
 	// Claim ownership is polled every 250 ms. Keep CI scheduling headroom here;
 	// the blocked-read shutdown contract has its own strict two-second test.
 	wait_for_exit(daemon.child_mut(), Duration::from_secs(15));
-	assert!(daemon.wait().expect("reap daemon").success());
+	let mut diagnostic = String::new();
+	daemon
+		.child_mut()
+		.stderr
+		.take()
+		.expect("daemon stderr")
+		.read_to_string(&mut diagnostic)
+		.expect("read daemon diagnostic");
+	let status = daemon.wait().expect("reap daemon");
+	assert!(!status.success(), "claim loss must be an abnormal exit");
+	assert!(
+		diagnostic.contains("daemon registry claim lost")
+			&& diagnostic.contains("registry entry disappeared"),
+		"missing claim-loss diagnostic:\n{diagnostic}"
+	);
 }
 
 #[test]
@@ -407,12 +412,7 @@ fn daemon_honors_rpc_shutdown_during_initial_index() {
 	let config = config_from_roots([root.clone()]).expect("daemon config");
 	let mut supervisor = spawn_supervisor();
 	let mut daemon = spawn_supervised_daemon(&root, supervisor.child_mut().id());
-	wait_for_registry_state(
-		&config,
-		daemon.child_mut().id(),
-		code_moniker_query::DaemonRegistryState::Indexing,
-		Duration::from_secs(10),
-	);
+	wait_for_registry_entry(&config, daemon.child_mut().id(), Duration::from_secs(10));
 	let client = DaemonClient::connect_config(config.clone()).expect("connect indexing daemon");
 	client.shutdown().expect("request shutdown during index");
 	drop(client);
@@ -439,7 +439,6 @@ fn expired_claim_with_a_reused_live_pid_does_not_block_startup() {
 		pid: std::process::id(),
 		build: code_moniker_query::BuildIdentity::default(),
 		heartbeat_unix_ms: 0,
-		state: code_moniker_query::DaemonRegistryState::Ready,
 	};
 	write_registry_entry(&config, &stale).expect("stale registry fixture");
 	let mut supervisor = spawn_supervisor();
@@ -453,32 +452,150 @@ fn expired_claim_with_a_reused_live_pid_does_not_block_startup() {
 }
 
 #[test]
-fn repeated_auto_spawned_clients_leave_no_daemons_or_registry_entries() {
+fn auto_spawned_daemon_survives_the_client_that_started_it() {
 	let _lifecycle = lifecycle_test_lock();
-	for iteration in 0..3 {
-		let workspace = tempfile::tempdir().expect("workspace");
-		std::fs::write(
-			workspace.path().join("App.java"),
-			format!("class App{iteration} {{}}\n"),
-		)
-		.expect("fixture");
-		let root = workspace.path().canonicalize().expect("canonical root");
-		let config = config_from_roots([root.clone()]).expect("daemon config");
-		let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let config = config_from_roots([root.clone()]).expect("daemon config");
+	let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["query", "-r"])
+		.arg(&root)
+		.arg("workspace.status")
+		.output()
+		.expect("run auto-spawned client");
+	assert!(
+		output.status.success(),
+		"query status: {}\nstdout:\n{}\nstderr:\n{}",
+		output.status,
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let entry = read_registry_entry(&config)
+		.expect("registry read")
+		.expect("auto-spawned daemon must remain registered");
+	assert!(
+		code_moniker_query::pid_is_alive(entry.pid),
+		"auto-spawned daemon must outlive its first client"
+	);
+	let client = DaemonClient::connect_config(config.clone()).expect("reconnect persistent daemon");
+	client.shutdown().expect("stop persistent test daemon");
+	drop(client);
+	wait_for_registry_removal(&config, Duration::from_secs(5));
+}
+
+#[test]
+fn loading_index_returns_to_clients_and_keeps_building_in_the_same_daemon() {
+	let _lifecycle = lifecycle_test_lock();
+	let workspace = tempfile::tempdir().expect("workspace");
+	let fifo = workspace.path().join("Blocked.rs");
+	let fifo_name = CString::new(fifo.as_os_str().as_bytes()).expect("FIFO path");
+	// SAFETY: fifo_name is a valid, NUL-terminated path owned for this call.
+	let created = unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) };
+	assert_eq!(
+		created,
+		0,
+		"create FIFO: {}",
+		std::io::Error::last_os_error()
+	);
+	let root = fifo.canonicalize().expect("canonical FIFO");
+	let config = config_from_roots([root.clone()]).expect("daemon config");
+
+	let started = Instant::now();
+	let status = bounded_command_output(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
 			.args(["query", "-r"])
 			.arg(&root)
-			.arg("workspace.status")
-			.output()
-			.expect("run auto-spawned client");
-		assert!(
-			output.status.success(),
-			"query status: {}\nstdout:\n{}\nstderr:\n{}",
-			output.status,
-			String::from_utf8_lossy(&output.stdout),
-			String::from_utf8_lossy(&output.stderr)
+			.arg("workspace.status"),
+		Duration::from_secs(3),
+	);
+	assert!(
+		status.status.success(),
+		"{}",
+		String::from_utf8_lossy(&status.stderr)
+	);
+	assert!(started.elapsed() < Duration::from_secs(3));
+	assert!(String::from_utf8_lossy(&status.stdout).contains("phase: loading"));
+
+	let entry = read_registry_entry(&config)
+		.expect("registry read")
+		.expect("serving daemon registration");
+	assert!(code_moniker_query::pid_is_alive(entry.pid));
+	let heartbeat_deadline = Instant::now() + Duration::from_secs(5);
+	loop {
+		let current = read_registry_entry(&config)
+			.expect("heartbeat registry read")
+			.expect("daemon remains registered while indexing");
+		assert_eq!(
+			current.pid, entry.pid,
+			"heartbeat must keep the same daemon"
 		);
-		wait_for_registry_removal(&config, Duration::from_secs(5));
+		if current.heartbeat_unix_ms > entry.heartbeat_unix_ms {
+			break;
+		}
+		assert!(
+			Instant::now() < heartbeat_deadline,
+			"serving daemon heartbeat did not advance during the blocked index"
+		);
+		thread::sleep(Duration::from_millis(50));
 	}
+
+	let loading = bounded_command_output(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["query", "-r"])
+			.arg(&root)
+			.arg("symbol.search name:Blocked"),
+		Duration::from_secs(2),
+	);
+	assert!(!loading.status.success(), "data query must expose loading");
+	assert!(
+		String::from_utf8_lossy(&loading.stderr).contains("workspace_loading"),
+		"{}",
+		String::from_utf8_lossy(&loading.stderr)
+	);
+	assert_eq!(
+		read_registry_entry(&config)
+			.expect("registry read after retry")
+			.expect("same daemon")
+			.pid,
+		entry.pid
+	);
+
+	let mut writer = ChildGuard(Some(
+		Command::new("sh")
+			.args([
+				"-c",
+				"while :; do printf 'pub struct Blocked;\\n' > \"$1\"; done",
+				"fifo-writer",
+			])
+			.arg(&fifo)
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.spawn()
+			.expect("release blocked source reads"),
+	));
+	wait_for_ready_registry(&config, entry.pid, Duration::from_secs(15));
+	writer.child_mut().kill().expect("stop FIFO writer");
+	writer.wait().expect("reap FIFO writer");
+	let ready = bounded_command_output(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["query", "-r"])
+			.arg(&root)
+			.arg("symbol.search name:Blocked"),
+		Duration::from_secs(3),
+	);
+	assert!(
+		ready.status.success(),
+		"{}",
+		String::from_utf8_lossy(&ready.stderr)
+	);
+	assert!(String::from_utf8_lossy(&ready.stdout).contains("Blocked"));
+
+	let client = DaemonClient::connect_config(config.clone()).expect("connect persistent daemon");
+	client.shutdown().expect("stop persistent test daemon");
+	drop(client);
+	wait_for_registry_removal(&config, Duration::from_secs(5));
 }
 
 fn lifecycle_test_lock() -> MutexGuard<'static, ()> {
@@ -497,35 +614,37 @@ fn wait_for_ready_registry(
 	while Instant::now() < deadline {
 		if let Some(entry) = read_registry_entry(config).expect("registry read")
 			&& entry.pid == expected_pid
-			&& entry.state == code_moniker_query::DaemonRegistryState::Ready
 		{
-			return;
+			let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+				.args(["daemon", "status", "--daemon", &entry.endpoint])
+				.output()
+				.expect("probe daemon status");
+			if output.status.success()
+				&& String::from_utf8_lossy(&output.stdout).contains("state: ready")
+			{
+				return;
+			}
 		}
 		thread::sleep(Duration::from_millis(50));
 	}
 	panic!("daemon did not become ready for {}", root_label(config));
 }
 
-fn wait_for_registry_state(
+fn wait_for_registry_entry(
 	config: &code_moniker_query::DaemonWorkspaceConfig,
 	expected_pid: u32,
-	expected_state: code_moniker_query::DaemonRegistryState,
 	timeout: Duration,
 ) {
 	let deadline = Instant::now() + timeout;
 	while Instant::now() < deadline {
 		if let Some(entry) = read_registry_entry(config).expect("registry read")
 			&& entry.pid == expected_pid
-			&& entry.state == expected_state
 		{
 			return;
 		}
 		thread::sleep(Duration::from_millis(5));
 	}
-	panic!(
-		"daemon did not reach {expected_state:?} for {}",
-		root_label(config)
-	);
+	panic!("daemon did not register for {}", root_label(config));
 }
 
 fn spawn_supervisor() -> ChildGuard {
@@ -551,6 +670,20 @@ fn spawn_supervised_daemon(root: &Path, supervisor_pid: u32) -> ChildGuard {
 			.stderr(Stdio::null())
 			.spawn()
 			.expect("spawn supervised daemon"),
+	))
+}
+
+fn spawn_supervised_daemon_with_stderr(root: &Path, supervisor_pid: u32) -> ChildGuard {
+	ChildGuard(Some(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["daemon", "start"])
+			.arg(root)
+			.args(["--supervisor-pid", &supervisor_pid.to_string()])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::piped())
+			.spawn()
+			.expect("spawn observable supervised daemon"),
 	))
 }
 
@@ -606,6 +739,30 @@ fn wait_for_exit(child: &mut Child, timeout: Duration) {
 	panic!(
 		"supervised daemon did not exit within {}s",
 		timeout.as_secs()
+	);
+}
+
+fn bounded_command_output(command: &mut Command, timeout: Duration) -> std::process::Output {
+	command.stdout(Stdio::piped()).stderr(Stdio::piped());
+	let mut child = command.spawn().expect("spawn bounded command");
+	let deadline = Instant::now() + timeout;
+	while Instant::now() < deadline {
+		if child.try_wait().expect("poll bounded command").is_some() {
+			return child
+				.wait_with_output()
+				.expect("collect bounded command output");
+		}
+		thread::sleep(Duration::from_millis(20));
+	}
+	let _ = child.kill();
+	let output = child
+		.wait_with_output()
+		.expect("collect timed-out command output");
+	panic!(
+		"command did not finish within {}ms\nstdout:\n{}\nstderr:\n{}",
+		timeout.as_millis(),
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
 	);
 }
 

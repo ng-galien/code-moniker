@@ -262,7 +262,6 @@ fn build_local_code_index_from_extracted(
 		sources,
 		identity,
 		memory_sources: BTreeMap::new(),
-		memory_srcsets: BTreeMap::new(),
 		memory_slots: BTreeSet::new(),
 		memory_revisions: BTreeMap::new(),
 	};
@@ -538,16 +537,20 @@ fn extract_source_file(
 			format!("source file index {file_idx} is unavailable"),
 		)
 	})?;
-	let base_ctx = &source_material.sources.roots[file.source].ctx;
-	let memory_ctx = source_material.memory_srcset(path).map(|srcset| {
-		let mut ctx = base_ctx.clone();
-		ctx.srcset = Some(srcset.to_string());
-		ctx
-	});
-	let ctx = memory_ctx.as_ref().unwrap_or(base_ctx);
+	let root = source_material
+		.sources
+		.roots
+		.get(file.source)
+		.ok_or_else(|| {
+			WorkspaceFailure::new(
+				WorkspaceResource::CodeIndex,
+				format!("source root {} is unavailable", file.source),
+			)
+		})?;
+	let ctx = file.extraction_context(root);
 	let (graph, source) = match source_material.memory_source(path) {
 		Some(source) => (
-			crate::environment::extract_source_with(file.lang, source, &file.anchor, ctx),
+			crate::environment::extract_source_with(file.lang, source, &file.anchor, &ctx),
 			source.to_owned(),
 		),
 		None => {
@@ -556,7 +559,7 @@ fn extract_source_file(
 				&file.anchor,
 				file.lang,
 				cache_dir,
-				ctx,
+				&ctx,
 			)
 			.map_err(|err| {
 				WorkspaceFailure::new(

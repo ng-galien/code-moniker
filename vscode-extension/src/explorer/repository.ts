@@ -48,11 +48,13 @@ export class ExplorerRepository {
 
 	async scopeGraph(prefix: string): Promise<IdentityGraphResult | undefined> {
 		return this.cache.fetch(`scope:${prefix}`, async () => {
-			const response = await this.session.query({
-				op: "identity_graph",
-				workspace: null,
-				prefix,
-			});
+		const response = await this.session.query({
+			op: "identity_graph",
+			workspace: null,
+			prefix,
+			path: [],
+			min_count: 1,
+		});
 			return response.result.kind === "identity_graph" ? response.result.data : undefined;
 		});
 	}

@@ -37,6 +37,15 @@ wire types and `PROTOCOL_VERSION` are generated from
 them first; CI then rejects any generated diff, so a protocol change cannot be
 merged with a stale client.
 
+Connection readiness and workspace readiness are separate. A successful
+connection means the endpoint is serving and the handshake is valid; it does
+not imply that the initial index is complete. Inspect `client.workspace.status()`
+for the typed `loading | ready | refreshing | failed` phase. Data calls made
+during initial loading reject immediately with `DaemonRpcError.code ===
+"workspace_loading"`; the library does not hide index duration behind a polling
+timeout. Subscribe to `refreshed` or `failed`, or retry according to the
+consumer's own UX policy.
+
 `client.graph.identity()` returns a `QueryPage<IdentityGraphResult>` because
 identity graphs are generation-aware and paginated. Pass `path` to scope files
 before identity aggregation and `minCount` to filter weak edges while retaining

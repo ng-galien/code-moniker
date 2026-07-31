@@ -71,7 +71,7 @@ test("forgetting a daemon claim is guarded by pid and token", () => {
 });
 
 test("the Node runtime connects with the portable handshake and can stop an explicit daemon", async () => {
-	const daemon = new FakeDaemon({ loadingResponses: 1 });
+	const daemon = new FakeDaemon();
 	const runtime = new NodeDaemonRuntime({
 		webSocketFactory: daemon.factory,
 	});
@@ -90,14 +90,6 @@ test("the Node runtime connects with the portable handshake and can stop an expl
 		params: ["node-test"],
 	});
 	client.close();
-
-	const readyClient = await runtime.connect(entry);
-	const status = await runtime.waitUntilReady(readyClient, {
-		timeoutMs: 100,
-		pollIntervalMs: 1,
-	});
-	assert.equal(status.phase, "ready");
-	readyClient.close();
 
 	await runtime.stop(entry, { exitTimeoutMs: 5, pollIntervalMs: 1 });
 	assert.equal(daemon.requests.at(-1).method, "moniker_shutdown");
@@ -265,7 +257,6 @@ function daemonEntry({
 		pid,
 		build: { version: "0.6.0", fingerprint: "test" },
 		heartbeat_unix_ms: Date.now(),
-		state: "ready",
 	};
 }
 
@@ -293,17 +284,15 @@ writeFileSync(join(registry, "owned.json"), JSON.stringify({
 	token: \`owned-\${process.pid}\`,
 	pid: process.pid,
 	build: { version: "0.6.0", fingerprint: "fake" },
-	heartbeat_unix_ms: Date.now(),
-	state: "ready"
+	heartbeat_unix_ms: Date.now()
 }));
 setInterval(() => {}, 1000);
 `;
 }
 
 class FakeDaemon {
-	constructor(options = {}) {
+	constructor() {
 		this.requests = [];
-		this.loadingResponses = options.loadingResponses ?? 0;
 		this.factory = this.createSocket.bind(this);
 	}
 
@@ -315,26 +304,6 @@ class FakeDaemon {
 	receive(payload) {
 		const request = JSON.parse(payload);
 		this.requests.push(request);
-		if (
-			request.method === "moniker_query" &&
-			this.loadingResponses > 0
-		) {
-			this.loadingResponses--;
-			this.socket.emit("message", {
-				data: JSON.stringify({
-					jsonrpc: "2.0",
-					id: request.id,
-					error: {
-						message: "workspace loading",
-						data: {
-							code: "workspace_loading",
-							message: "workspace loading",
-						},
-					},
-				}),
-			});
-			return;
-		}
 		let result;
 		if (request.method === "moniker_handshake") {
 			result = {

@@ -204,6 +204,7 @@ fn parse_fragment(path: &Path) -> Result<FragmentFile, ConfigError> {
 	let enabled = raw.enabled;
 	validate_fragment_id(path, &fragment)?;
 	let mut config = raw.into_config();
+	super::ensure_source_groups_owned_by_project_root(&config, &path.display().to_string(), false)?;
 	let local_aliases = namespace_aliases(&mut config, path, &fragment)?;
 	let rules = count_rules(&config);
 	ensure_no_require_doc(&config, path, &fragment)?;

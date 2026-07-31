@@ -125,9 +125,10 @@ export class SymbolRepository {
 			const response = await this.session.query({
 				op: "symbol_usages",
 				workspace: null,
-				uri,
-				direction: "both",
-				path: [],
+			uri,
+			direction: "both",
+			include_descendants: false,
+			path: [],
 				lang: [],
 				projection: [],
 			});

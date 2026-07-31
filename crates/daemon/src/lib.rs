@@ -27,9 +27,10 @@ use code_moniker_query::{
 	SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto, SymbolInsightsResult,
 	SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
 	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
-	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
-	WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto,
-	current_build_identity, describe_query_capabilities, symbol_is_test_artifact,
+	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceFailureDto,
+	WorkspaceGeneration, WorkspaceLifecycle, WorkspacePhase, WorkspaceRootStatus,
+	WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto, current_build_identity,
+	describe_query_capabilities, symbol_is_test_artifact,
 };
 use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::glob::FilePathFilter;
@@ -43,8 +44,8 @@ use code_moniker_workspace::notes::{
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
 	BoundedPathLimits, BoundedPathScope, ExternalReferenceOrigin, ReferenceId, ReferenceRecord,
-	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceSnapshot,
-	WorkspaceTransition, WorkspaceView,
+	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceResource,
+	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
@@ -94,7 +95,7 @@ pub mod views;
 pub use code_moniker_workspace::snapshot::WorkspaceCancellation;
 
 pub use code_moniker_query::{
-	DaemonRegistryEntry, DaemonRegistryState, canonical_workspace_config, canonical_workspace_root,
+	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
 	canonical_workspace_roots, claim_registry_entry, config_from_roots, config_roots,
 	daemon_workspace_config, list_registry_entries, pid_is_alive, registry_dir,
 	registry_path_for_config, registry_path_for_root, registry_path_for_roots,
@@ -150,11 +151,13 @@ async fn serve_async(
 	let shutdown = Arc::new(tokio::sync::Notify::new());
 	let daemon = Arc::new(Mutex::new(daemon));
 	let published = Arc::new(RwLock::new(None));
+	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
 	let service = DaemonRpcService {
 		daemon: daemon.clone(),
 		published: published.clone(),
+		lifecycle: lifecycle.clone(),
 		roots: Arc::from(config_roots(&config)),
-		events,
+		events: events.clone(),
 		shutdown: shutdown.clone(),
 		handshake: HandshakeResponse {
 			protocol_version: code_moniker_query::PROTOCOL_VERSION,
@@ -179,7 +182,6 @@ async fn serve_async(
 		pid: std::process::id(),
 		build,
 		heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
-		state: DaemonRegistryState::Indexing,
 	};
 	reject_conflicting_daemons(&config)?;
 	if !claim_registry_entry(&config, &entry)? {
@@ -195,7 +197,7 @@ async fn serve_async(
 		anyhow::bail!("a daemon registry claim appeared while starting {workspace_root}");
 	}
 	let handle = server.start(service.into_rpc());
-	println!(
+	eprintln!(
 		"code-moniker daemon: indexing {} endpoint={} pid={} live_refresh={}",
 		entry.workspace_root,
 		entry.endpoint,
@@ -203,9 +205,10 @@ async fn serve_async(
 		entry.live_refresh.as_deref().unwrap_or("on-demand")
 	);
 
-	let (preload_cancellation, mut preload) = spawn_initial_preload(daemon.clone(), published);
-	let status = tokio::select! {
-		result = &mut preload => result??,
+	let (preload_cancellation, mut preload) =
+		spawn_initial_preload(daemon.clone(), published, lifecycle.clone(), events.clone());
+	let preload_result = tokio::select! {
+		result = &mut preload => result,
 		_ = shutdown.notified() => {
 			preload_cancellation.cancel();
 			preload.abort();
@@ -218,40 +221,60 @@ async fn serve_async(
 			stop_server(handle.clone(), &registry_path, &entry).await;
 			return Ok(());
 		}
-		_ = maintain_registry_claim(&config, &entry) => {
+		failure = maintain_registry_claim(&config, &entry) => {
 			preload_cancellation.cancel();
 			preload.abort();
 			stop_server(handle.clone(), &registry_path, &entry).await;
-			return Ok(());
+			anyhow::bail!("daemon registry claim lost for {workspace_root}: {failure}");
 		}
 	};
-	let ready_entry = DaemonRegistryEntry {
-		state: DaemonRegistryState::Ready,
-		heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
-		..entry.clone()
+	report_initial_preload(preload_result, &lifecycle, &events, &workspace_root);
+	let claim_failure = tokio::select! {
+		_ = shutdown.notified() => None,
+		_ = handle.clone().stopped() => None,
+		_ = supervisor.wait() => None,
+		failure = maintain_registry_claim(&config, &entry) => Some(failure),
 	};
-	if !update_registry_entry_if_own(&config, &ready_entry)? {
-		let _ = handle.stop();
-		handle.stopped().await;
-		anyhow::bail!("daemon registry claim disappeared while indexing {workspace_root}");
-	}
-	println!(
-		"code-moniker daemon: index ready — files={} symbols={} references={}",
-		status.files, status.symbols, status.references
-	);
-	tokio::select! {
-		_ = shutdown.notified() => {}
-		_ = handle.clone().stopped() => {}
-		_ = supervisor.wait() => {}
-		_ = maintain_registry_claim(&config, &ready_entry) => {}
-	}
 	stop_server(handle, &registry_path, &entry).await;
+	if let Some(failure) = claim_failure {
+		anyhow::bail!("daemon registry claim lost for {workspace_root}: {failure}");
+	}
 	Ok(())
+}
+
+fn report_initial_preload(
+	result: Result<anyhow::Result<WorkspaceStatus>, tokio::task::JoinError>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
+	events: &tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	workspace_root: &str,
+) {
+	match result {
+		Ok(Ok(status)) => eprintln!(
+			"code-moniker daemon: index ready — files={} symbols={} references={}",
+			status.files, status.symbols, status.references
+		),
+		Ok(Err(error)) => {
+			eprintln!("code-moniker daemon: initial index failed for {workspace_root}: {error:#}")
+		}
+		Err(error) => {
+			let message = format!("workspace preload worker failed: {error}");
+			*lifecycle.write().unwrap_or_else(|err| err.into_inner()) =
+				WorkspaceLifecycle::failed(message.clone());
+			let _ = events.send(WorkspaceEventDto {
+				kind: WorkspaceEventKind::Failed,
+				generation: None,
+				stale_summary: Some(message.clone()),
+			});
+			eprintln!("code-moniker daemon: initial index failed for {workspace_root}: {message}");
+		}
+	}
 }
 
 fn spawn_initial_preload(
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
 	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
+	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
 ) -> (
 	WorkspaceCancellation,
 	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
@@ -260,18 +283,52 @@ fn spawn_initial_preload(
 	let worker_cancellation = cancellation.clone();
 	let worker = tokio::task::spawn_blocking(move || {
 		let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
-		if daemon.registry.queries().snapshot().is_none() {
-			refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
-				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
-			anyhow::ensure!(
-				!worker_cancellation.is_cancelled(),
-				"workspace preload cancelled"
-			);
-			restart_live_watcher(&mut daemon)
-				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+		let result = (|| {
+			if daemon.registry.queries().snapshot().is_none() {
+				refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
+					.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+				anyhow::ensure!(
+					!worker_cancellation.is_cancelled(),
+					"workspace preload cancelled"
+				);
+				restart_live_watcher(&mut daemon)
+					.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+			}
+			Ok(())
+		})();
+		if let Err(error) = result {
+			let failure = daemon
+				.registry
+				.queries()
+				.last_failure()
+				.map(workspace_failure_dto);
+			let failure = failure.unwrap_or_else(|| WorkspaceFailureDto {
+				resource: None,
+				message: format!("{error:#}"),
+			});
+			*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
+				phase: WorkspacePhase::Failed,
+				failure: Some(failure.clone()),
+			};
+			let _ = events.send(WorkspaceEventDto {
+				kind: WorkspaceEventKind::Failed,
+				generation: None,
+				stale_summary: Some(failure.message),
+			});
+			return Err(error);
 		}
 		publish_current_snapshot(&daemon, &published);
-		Ok(workspace_status_result(&daemon.roots, &daemon.registry))
+		let status = workspace_status_result(&daemon.roots, &daemon.registry);
+		*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
+			phase: status.phase,
+			failure: status.failure.clone(),
+		};
+		let _ = events.send(WorkspaceEventDto {
+			kind: WorkspaceEventKind::Refreshed,
+			generation: status.generation,
+			stale_summary: None,
+		});
+		Ok(status)
 	});
 	(cancellation, worker)
 }
@@ -359,25 +416,49 @@ async fn wait_for_supervisor_pid(supervisor_pid: u32) {
 	}
 }
 
-async fn maintain_registry_claim(config: &DaemonWorkspaceConfig, entry: &DaemonRegistryEntry) {
+#[derive(Debug, thiserror::Error)]
+enum RegistryClaimFailure {
+	#[error("cannot read the registry entry: {0}")]
+	Read(String),
+	#[error("the registry entry disappeared")]
+	Missing,
+	#[error("the registry entry was replaced by daemon pid {pid}")]
+	Replaced { pid: u32 },
+	#[error("cannot write the registry heartbeat: {0}")]
+	HeartbeatWrite(String),
+	#[error("the registry heartbeat was rejected because this daemon no longer owns the claim")]
+	HeartbeatRejected,
+}
+
+async fn maintain_registry_claim(
+	config: &DaemonWorkspaceConfig,
+	entry: &DaemonRegistryEntry,
+) -> RegistryClaimFailure {
 	let mut ownership_checks = tokio::time::interval(std::time::Duration::from_millis(250));
 	let mut heartbeats = tokio::time::interval(std::time::Duration::from_secs(2));
 	loop {
 		tokio::select! {
 			_ = ownership_checks.tick() => {
-				let owns_claim = code_moniker_query::read_registry_entry(config)
-					.ok()
-					.flatten()
-					.is_some_and(|current| current.pid == entry.pid && current.token == entry.token);
-				if !owns_claim {
-					return;
+				match code_moniker_query::read_registry_entry(config) {
+					Err(error) => return RegistryClaimFailure::Read(format!("{error:#}")),
+					Ok(None) => return RegistryClaimFailure::Missing,
+					Ok(Some(current))
+						if current.pid != entry.pid || current.token != entry.token =>
+					{
+						return RegistryClaimFailure::Replaced { pid: current.pid };
+					}
+					Ok(Some(_)) => {}
 				}
 			}
 			_ = heartbeats.tick() => {
 				let mut heartbeat = entry.clone();
 				heartbeat.heartbeat_unix_ms = code_moniker_query::registry_heartbeat_unix_ms();
-				if !update_registry_entry_if_own(config, &heartbeat).unwrap_or(false) {
-					return;
+				match update_registry_entry_if_own(config, &heartbeat) {
+					Err(error) => {
+						return RegistryClaimFailure::HeartbeatWrite(format!("{error:#}"));
+					}
+					Ok(false) => return RegistryClaimFailure::HeartbeatRejected,
+					Ok(true) => {}
 				}
 			}
 		}
@@ -403,6 +484,7 @@ struct PublishedSnapshot {
 struct DaemonRpcService {
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
 	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
 	roots: Arc<[PathBuf]>,
 	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
 	shutdown: Arc<tokio::sync::Notify>,
@@ -436,8 +518,8 @@ impl DaemonRpcService {
 		if let Some(response) = stateless_protocol_response(&request) {
 			return Ok(response);
 		}
-		if request_needs_initial_snapshot(&request, &self.published) {
-			return Ok(workspace_loading_response(request));
+		if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
+			return Ok(workspace_unavailable_response(request, &self.lifecycle));
 		}
 		if concurrent_snapshot_request(&request) {
 			return dispatch_published_snapshot(self.published.clone(), request).await;
@@ -445,6 +527,7 @@ impl DaemonRpcService {
 		dispatch_workspace_request(
 			self.daemon.clone(),
 			self.published.clone(),
+			self.lifecycle.clone(),
 			self.roots.clone(),
 			request,
 		)
@@ -455,14 +538,22 @@ impl DaemonRpcService {
 fn request_needs_initial_snapshot(
 	request: &ProtocolRequest,
 	published: &RwLock<Option<PublishedSnapshot>>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
 ) -> bool {
-	matches!(
-		request,
-		ProtocolRequest::Query(request) if request.query.requires_workspace_snapshot()
-	) && published
-		.read()
-		.unwrap_or_else(|err| err.into_inner())
-		.is_none()
+	let needs_snapshot = match request {
+		ProtocolRequest::Query(request) => request.query.requires_workspace_snapshot(),
+		ProtocolRequest::Command(_) => {
+			lifecycle
+				.read()
+				.unwrap_or_else(|err| err.into_inner())
+				.phase == WorkspacePhase::Loading
+		}
+	};
+	needs_snapshot
+		&& published
+			.read()
+			.unwrap_or_else(|err| err.into_inner())
+			.is_none()
 }
 
 fn concurrent_snapshot_request(request: &ProtocolRequest) -> bool {
@@ -495,11 +586,12 @@ async fn dispatch_published_snapshot(
 async fn dispatch_workspace_request(
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
 	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
 	roots: Arc<[PathBuf]>,
 	request: ProtocolRequest,
 ) -> Result<ProtocolResponse, ErrorObjectOwned> {
 	tokio::task::spawn_blocking(move || {
-		handle_workspace_request(&daemon, &published, &roots, request)
+		handle_workspace_request(&daemon, &published, &lifecycle, &roots, request)
 	})
 	.await
 	.map_err(|err| internal_error(err.to_string()))
@@ -508,6 +600,7 @@ async fn dispatch_workspace_request(
 fn handle_workspace_request(
 	daemon: &Mutex<WorkspaceDaemon>,
 	published: &RwLock<Option<PublishedSnapshot>>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
 	roots: &[PathBuf],
 	request: ProtocolRequest,
 ) -> ProtocolResponse {
@@ -516,24 +609,35 @@ fn handle_workspace_request(
 		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus)
 	) {
 		return match daemon.try_lock() {
-			Ok(mut guard) => handle_and_publish(&mut guard, published, request),
-			Err(TryLockError::WouldBlock) => workspace_busy_response(request, roots, published),
+			Ok(mut guard) => handle_and_publish(&mut guard, published, lifecycle, request),
+			Err(TryLockError::WouldBlock) => {
+				workspace_busy_response(request, roots, published, lifecycle)
+			}
 			Err(TryLockError::Poisoned(err)) => {
-				handle_and_publish(&mut err.into_inner(), published, request)
+				handle_and_publish(&mut err.into_inner(), published, lifecycle, request)
 			}
 		};
 	}
 	let mut guard = daemon.lock().unwrap_or_else(|err| err.into_inner());
-	handle_and_publish(&mut guard, published, request)
+	handle_and_publish(&mut guard, published, lifecycle, request)
 }
 
 fn handle_and_publish(
 	daemon: &mut WorkspaceDaemon,
 	published: &RwLock<Option<PublishedSnapshot>>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
 	request: ProtocolRequest,
 ) -> ProtocolResponse {
+	let updates_lifecycle = matches!(&request, ProtocolRequest::Command(_));
 	let response = daemon.handle_protocol(request);
 	publish_current_snapshot(daemon, published);
+	if updates_lifecycle {
+		let status = workspace_status_result(&daemon.roots, &daemon.registry);
+		*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
+			phase: status.phase,
+			failure: status.failure,
+		};
+	}
 	response
 }
 
@@ -2626,6 +2730,7 @@ fn workspace_busy_response(
 	request: ProtocolRequest,
 	roots: &[PathBuf],
 	published: &RwLock<Option<PublishedSnapshot>>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
 ) -> ProtocolResponse {
 	match request {
 		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus) => {
@@ -2634,7 +2739,13 @@ fn workspace_busy_response(
 				.unwrap_or_else(|err| err.into_inner())
 				.clone();
 			let Some(mut published) = published else {
-				return ProtocolResponse::Query(Box::new(workspace_status_loading(roots)));
+				let lifecycle = lifecycle
+					.read()
+					.unwrap_or_else(|err| err.into_inner())
+					.clone();
+				return ProtocolResponse::Query(Box::new(workspace_status_without_snapshot(
+					roots, lifecycle,
+				)));
 			};
 			let summary = format!(
 				"workspace refresh in progress; stale-ok reads continue on generation {}",
@@ -2642,6 +2753,7 @@ fn workspace_busy_response(
 			);
 			published.status.stale = true;
 			published.status.stale_summary = summary.clone();
+			published.status.phase = WorkspacePhase::Refreshing;
 			for root in &mut published.status.roots {
 				root.stale = true;
 				root.stale_summary = summary.clone();
@@ -2659,17 +2771,33 @@ fn workspace_busy_response(
 	}
 }
 
-fn workspace_loading_response(request: ProtocolRequest) -> ProtocolResponse {
-	match request {
-		ProtocolRequest::Query(_) => ProtocolResponse::Error(QueryError::new(
-			"workspace_loading",
-			"workspace snapshot is still indexing; retry after workspace.status reports phase ready",
-		)),
-		ProtocolRequest::Command(_) => ProtocolResponse::Error(QueryError::new(
-			"workspace_loading",
-			"workspace snapshot is still indexing; commands are available after workspace.status reports phase ready",
-		)),
-	}
+fn workspace_unavailable_response(
+	request: ProtocolRequest,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
+) -> ProtocolResponse {
+	let lifecycle = lifecycle
+		.read()
+		.unwrap_or_else(|err| err.into_inner())
+		.clone();
+	let error = match lifecycle.phase {
+		WorkspacePhase::Failed => QueryError::new(
+			"workspace_load_failed",
+			lifecycle
+				.failure
+				.map(|failure| failure.message)
+				.unwrap_or_else(|| "workspace initial index failed".to_string()),
+		),
+		WorkspacePhase::Loading | WorkspacePhase::Refreshing | WorkspacePhase::Ready => {
+			let subject = match request {
+				ProtocolRequest::Query(_) => "workspace snapshot is still indexing",
+				ProtocolRequest::Command(_) => {
+					"workspace snapshot is still indexing; commands are not available yet"
+				}
+			};
+			QueryError::new("workspace_loading", subject)
+		}
+	};
+	ProtocolResponse::Error(error)
 }
 
 // A second start for the same workspace must be refused while the first
@@ -2803,11 +2931,20 @@ fn workspace_status(
 	})
 }
 
-fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
+fn workspace_status_without_snapshot(
+	roots: &[PathBuf],
+	lifecycle: WorkspaceLifecycle,
+) -> QueryResponse {
+	let summary = lifecycle
+		.failure
+		.as_ref()
+		.map(|failure| failure.message.clone())
+		.unwrap_or_else(|| lifecycle.phase.to_string());
 	let status = WorkspaceStatus {
 		producer: producer_identity(),
 		root: workspace_label(roots),
-		phase: "loading".to_string(),
+		phase: lifecycle.phase,
+		failure: lifecycle.failure,
 		roots: roots
 			.iter()
 			.map(|root| WorkspaceRootStatus {
@@ -2817,7 +2954,7 @@ fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
 				symbols: 0,
 				references: 0,
 				stale: false,
-				stale_summary: "loading".to_string(),
+				stale_summary: summary.clone(),
 			})
 			.collect(),
 		generation: None,
@@ -2825,7 +2962,7 @@ fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
 		symbols: 0,
 		references: 0,
 		stale: false,
-		stale_summary: "loading".to_string(),
+		stale_summary: summary,
 		timings: WorkspaceTimingsDto::default(),
 	};
 	QueryResponse {
@@ -2878,14 +3015,18 @@ fn workspace_status_result(
 	let files = root_statuses.iter().map(|root| root.files).sum();
 	let symbols = root_statuses.iter().map(|root| root.symbols).sum();
 	let references = root_statuses.iter().map(|root| root.references).sum();
+	let failure = registry.queries().last_failure().map(workspace_failure_dto);
 	WorkspaceStatus {
 		producer: producer_identity(),
 		root: workspace_label(roots),
 		phase: if generation.is_some() {
-			"ready".to_string()
+			WorkspacePhase::Ready
+		} else if failure.is_some() {
+			WorkspacePhase::Failed
 		} else {
-			"loading".to_string()
+			WorkspacePhase::Loading
 		},
+		failure,
 		roots: root_statuses,
 		generation,
 		files,
@@ -2898,6 +3039,23 @@ fn workspace_status_result(
 			.snapshot()
 			.map(workspace_timings_dto)
 			.unwrap_or_default(),
+	}
+}
+
+fn workspace_failure_dto(
+	failure: &code_moniker_workspace::snapshot::WorkspaceFailure,
+) -> WorkspaceFailureDto {
+	WorkspaceFailureDto {
+		resource: Some(
+			match failure.resource {
+				WorkspaceResource::SourceCatalog => "source_catalog",
+				WorkspaceResource::CodeIndex => "code_index",
+				WorkspaceResource::LinkageSnapshot => "linkage_snapshot",
+				WorkspaceResource::ChangeOverlay => "change_overlay",
+			}
+			.to_string(),
+		),
+		message: failure.message.clone(),
 	}
 }
 
@@ -5378,6 +5536,7 @@ mod tests {
 		DaemonRpcService {
 			daemon: Arc::new(Mutex::new(daemon)),
 			published: Arc::new(RwLock::new(None)),
+			lifecycle: Arc::new(RwLock::new(WorkspaceLifecycle::ready())),
 			roots: Arc::from(roots),
 			events,
 			shutdown: Arc::new(tokio::sync::Notify::new()),
@@ -6052,7 +6211,7 @@ message = "every selected function is observable"
 		let QueryResult::WorkspaceStatus(status) = response.result else {
 			panic!("expected workspace status, got {:?}", response.result);
 		};
-		assert_eq!(status.phase, "ready");
+		assert_eq!(status.phase, WorkspacePhase::Refreshing);
 		assert!(status.stale);
 		assert!(status.stale_summary.contains("refresh in progress"));
 		release_lock.send(()).expect("release workspace lock");
@@ -7239,6 +7398,58 @@ END;"#;
 		let value: serde_json::Value = serde_json::from_str(data.get()).unwrap();
 		assert_eq!(value["code"], "workspace_loading");
 		assert_eq!(value["message"], "still loading");
+	}
+
+	#[test]
+	fn initial_refresh_failure_is_a_typed_observable_workspace_state() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let workspace = temp.path().join("workspace");
+		let unavailable = temp.path().join("workspace-unavailable");
+		fs::create_dir_all(&workspace).expect("workspace");
+		let mut daemon = WorkspaceDaemon::new(vec![workspace.clone()]).expect("daemon");
+		fs::rename(&workspace, &unavailable).expect("make workspace unavailable");
+
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect_err("initial refresh must fail");
+		let status = workspace_status_result(&daemon.roots, &daemon.registry);
+
+		assert_eq!(status.phase, WorkspacePhase::Failed);
+		let failure = status.failure.expect("typed failure");
+		assert_eq!(failure.resource.as_deref(), Some("source_catalog"));
+		assert!(!failure.message.is_empty());
+	}
+
+	#[test]
+	fn failed_initial_index_rejects_data_queries_without_a_restart_loop() {
+		let lifecycle = RwLock::new(WorkspaceLifecycle::failed("broken corpus"));
+		let response = workspace_unavailable_response(
+			ProtocolRequest::Query(Box::new(QueryRequest::new(Query::SymbolSearch(
+				SymbolSearchQuery::default(),
+			)))),
+			&lifecycle,
+		);
+
+		let ProtocolResponse::Error(error) = response else {
+			panic!("expected typed workspace failure")
+		};
+		assert_eq!(error.code, "workspace_load_failed");
+		assert_eq!(error.message, "broken corpus");
+	}
+
+	#[test]
+	fn failed_workspace_status_without_snapshot_carries_the_failure_summary() {
+		let response = workspace_status_without_snapshot(
+			&[PathBuf::from("/workspace")],
+			WorkspaceLifecycle::failed("broken corpus"),
+		);
+		let QueryResult::WorkspaceStatus(status) = response.result else {
+			panic!("expected workspace status")
+		};
+
+		assert_eq!(status.phase, WorkspacePhase::Failed);
+		assert_eq!(status.stale_summary, "broken corpus");
+		assert_eq!(status.roots[0].stale_summary, "broken corpus");
 	}
 
 	#[test]

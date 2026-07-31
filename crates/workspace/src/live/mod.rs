@@ -194,6 +194,24 @@ mod tests {
 	}
 
 	#[test]
+	fn source_group_config_changes_require_a_full_rescan() {
+		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
+			path: PathBuf::from("/repo"),
+			git_root: None,
+			ignored_paths: Vec::new(),
+			notes_path: None,
+		}]);
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(
+				&[PathBuf::from("/repo/.code-moniker.toml")],
+				true,
+			),
+			Some(WorkspaceLiveEvent::RescanRequired)
+		);
+	}
+
+	#[test]
 	fn classifies_source_create_remove_as_incremental_source_changes() {
 		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
 			path: PathBuf::from("/repo"),

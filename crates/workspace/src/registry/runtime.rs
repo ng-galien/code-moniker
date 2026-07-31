@@ -593,6 +593,140 @@ mod tests {
 	}
 
 	#[test]
+	fn refresh_paths_classifies_new_files_with_declared_srcset() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let production = temp.path().join("src/java/com/acme/Production.java");
+		fs::create_dir_all(production.parent().expect("production parent"))
+			.expect("production dirs");
+		fs::write(
+			temp.path().join(".code-moniker.toml"),
+			r#"
+[[workspace.source_group]]
+roots = [
+  { path = "src/java", srcset = "main" },
+  { path = "test", srcset = "test" },
+]
+"#,
+		)
+		.expect("source group config");
+		fs::write(
+			&production,
+			"package com.acme; public class Production {}\n",
+		)
+		.expect("production source");
+		let mut registry = crate::LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+			vec![temp.path().to_path_buf()],
+			None,
+		));
+		assert!(matches!(
+			registry
+				.commands()
+				.load_index(WorkspaceRequest::new("source-group-initial")),
+			WorkspaceTransition::Ready { .. }
+		));
+
+		let test = temp.path().join("test/unit/com/acme/AddedTest.java");
+		fs::create_dir_all(test.parent().expect("test parent")).expect("test dirs");
+		fs::write(&test, "package com.acme; public class AddedTest {}\n").expect("test source");
+		assert!(matches!(
+			registry
+				.commands()
+				.refresh_paths(WorkspaceRequest::new("source-group-new-file"), vec![test],),
+			WorkspaceTransition::Ready { .. }
+		));
+
+		assert!(snapshot_has_identity(
+			&registry,
+			"srcset:test/lang:java/package:com/package:acme/module:AddedTest/class:AddedTest"
+		));
+	}
+
+	#[test]
+	fn full_rescan_reclassifies_cached_files_after_source_group_config_change() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let source = temp.path().join("custom/com/acme/Reclassified.java");
+		fs::create_dir_all(source.parent().expect("source parent")).expect("source dirs");
+		let config = temp.path().join(".code-moniker.toml");
+		fs::write(
+			&config,
+			r#"
+[[workspace.source_group]]
+roots = [{ path = "custom", srcset = "main" }]
+"#,
+		)
+		.expect("initial config");
+		fs::write(&source, "package com.acme; public class Reclassified {}\n").expect("source");
+		let cache_dir = temp.path().join(".cache");
+		let mut registry = crate::LocalWorkspaceRegistry::local(
+			LocalWorkspaceOptions::new(vec![temp.path().to_path_buf()], None)
+				.with_cache_dir(Some(cache_dir)),
+		);
+		assert!(matches!(
+			registry
+				.commands()
+				.load_index(WorkspaceRequest::new("source-group-main")),
+			WorkspaceTransition::Ready { .. }
+		));
+		assert!(snapshot_has_identity(&registry, "srcset:main/lang:java"));
+
+		fs::write(
+			&config,
+			r#"
+[[workspace.source_group]]
+roots = [{ path = "custom", srcset = "test" }]
+"#,
+		)
+		.expect("updated config");
+		registry
+			.live_commands()
+			.mark_stale(WorkspaceLiveRefreshPlan::from_event(
+				crate::live::WorkspaceLiveEvent::RescanRequired,
+			));
+		let live = registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("source-group-test"));
+		assert!(matches!(
+			live.transition(),
+			WorkspaceTransition::Ready { .. }
+		));
+
+		assert!(snapshot_has_identity(&registry, "srcset:test/lang:java"));
+		assert!(!snapshot_has_identity(&registry, "srcset:main/lang:java"));
+	}
+
+	#[test]
+	fn invalid_source_group_config_fails_with_the_mapping_diagnostic() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(temp.path().join("lib.rs"), "pub fn source() {}\n").expect("source");
+		fs::write(
+			temp.path().join(".code-moniker.toml"),
+			r#"
+[[workspace.source_group]]
+roots = ["src"]
+
+[[workspace.source_group]]
+roots = ["src/generated"]
+"#,
+		)
+		.expect("invalid config");
+		let mut registry = crate::LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+			vec![temp.path().to_path_buf()],
+			None,
+		));
+
+		let transition = registry
+			.commands()
+			.load_index(WorkspaceRequest::new("invalid-source-group"));
+
+		assert!(matches!(
+			transition,
+			WorkspaceTransition::Failed { failure, .. }
+				if failure.message.contains("invalid source groups")
+					&& failure.message.contains("overlap")
+		));
+	}
+
+	#[test]
 	fn mark_stale_records_staleness_without_touching_snapshot() {
 		let (temp, source, mut registry) = indexed_registry("pub fn before_stale() {}\n");
 		let _ = &temp;
@@ -746,6 +880,16 @@ mod tests {
 				.symbols
 				.iter()
 				.any(|symbol| symbol.name.contains(name))
+		})
+	}
+
+	fn snapshot_has_identity(registry: &crate::LocalWorkspaceRegistry, identity: &str) -> bool {
+		registry.queries().snapshot().is_some_and(|snapshot| {
+			snapshot
+				.index
+				.symbols
+				.iter()
+				.any(|symbol| symbol.identity.contains(identity))
 		})
 	}
 }

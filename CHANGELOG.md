@@ -26,6 +26,13 @@ in `0.y.z`.
 
 ### Changed
 
+- **Daemon protocol 11 → 12.** Process discovery no longer carries workspace
+  readiness. `workspace.status` is the canonical typed `loading`, `ready`,
+  `refreshing`, or `failed` lifecycle with an optional failure cause; clients
+  return transient loading immediately while the same daemon keeps indexing.
+  Connect-or-start restarts an older daemon once, preserves a newer daemon for
+  newer clients, and no longer binds shared daemon lifetime to the first Rust
+  client that launched it.
 - **Daemon protocol 9 → 10.** `workspace.status` now exposes catalog,
   extraction, semantic-index, linkage, change-overlay and total build timings.
   Full builds run linkage and change-overlay construction concurrently.
@@ -42,6 +49,19 @@ in `0.y.z`.
   update as an actionable skill update.
 
 ### Fixed
+
+- **Daemon lifecycle failures remain coherent and observable.** Stdio MCP now
+  projects the same typed preload lifecycle to `workspace.status` and data
+  queries, including the initial failure cause. Registry claim read,
+  decode, replacement, and heartbeat failures terminate with an explicit diagnostic,
+  detached Rust launch captures stderr in a per-workspace diagnostic file, and
+  the owned Node launch preserves the same stream.
+- **Source-group configuration has one structural owner.**
+  `workspace.source_group` is accepted only from the canonical project
+  `.code-moniker.toml`; rule fragments, standalone rule files, and inline
+  overlays reject it. Checks bind this owner to the exact analyzed root, so an
+  external `--rules .../.code-moniker.toml` cannot produce a structural mapping
+  ignored by scanning and linkage.
 
 - **Concurrent daemon reads remain usable during refresh.** Stateless
   `syntax.parse` bypasses the workspace lock; `stale-ok` queries use the last

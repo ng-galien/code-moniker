@@ -1,10 +1,8 @@
 #![cfg(unix)]
 
 use std::future::Future;
+use std::io::{Read, Seek, SeekFrom};
 use std::ops::Deref;
-use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
@@ -20,21 +18,19 @@ use jsonrpsee::core::ClientError;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
 
-use code_moniker_query::{
-	DaemonRegistryState, daemon_registry_heartbeat_expired, list_registry_files, pid_is_alive,
-};
+use code_moniker_query::{daemon_registry_heartbeat_expired, list_registry_files, pid_is_alive};
 
-const DAEMON_READY_ATTEMPTS: usize = 300;
-const DAEMON_READY_CONNECT_ATTEMPTS: usize = 10;
-const DAEMON_READY_POLL: Duration = Duration::from_millis(100);
+const DAEMON_SERVING_ATTEMPTS: usize = 50;
+const DAEMON_SERVING_CONNECT_ATTEMPTS: usize = 10;
+const DAEMON_SERVING_POLL: Duration = Duration::from_millis(100);
 
 pub use code_moniker_query::{
 	DaemonRegistryEntry, WorkspaceSourceDocumentDto, WorkspaceSourceSetDto,
 	canonical_workspace_config, canonical_workspace_root, canonical_workspace_roots,
-	config_from_roots, config_roots, daemon_workspace_config, list_registry_entries,
-	read_registry_entry, registry_dir, registry_path_for_config, registry_path_for_root,
-	registry_path_for_roots, remove_registry_entry_if_own, validate_daemon_start_config,
-	workspace_label,
+	config_from_roots, config_roots, daemon_log_path_for_config, daemon_workspace_config,
+	list_registry_entries, read_registry_entry, registry_dir, registry_path_for_config,
+	registry_path_for_root, registry_path_for_roots, remove_registry_entry_if_own,
+	validate_daemon_start_config, workspace_label,
 };
 
 #[derive(Clone)]
@@ -48,7 +44,6 @@ struct DaemonEndpoint {
 	config: DaemonWorkspaceConfig,
 	roots: Vec<PathBuf>,
 	address: String,
-	_supervisor_guard: Option<Arc<UnixStream>>,
 }
 
 #[derive(Clone)]
@@ -72,10 +67,7 @@ impl DaemonClient {
 	pub fn connect_config(config: DaemonWorkspaceConfig) -> anyhow::Result<Self> {
 		let config = canonical_workspace_config(config)?;
 		let Some(entry) = read_registry_entry(&config)? else {
-			anyhow::bail!(
-				"no daemon registered for {}",
-				workspace_label(&config_roots(&config))
-			);
+			return Err(no_daemon_registered_error(&config));
 		};
 		connect_entry(config, entry)
 	}
@@ -125,6 +117,14 @@ impl DaemonClient {
 	pub fn endpoint(&self) -> &str {
 		&self.endpoint.address
 	}
+}
+
+pub fn no_daemon_registered_error(config: &DaemonWorkspaceConfig) -> anyhow::Error {
+	anyhow::anyhow!(
+		"no daemon registered for {}{}",
+		workspace_label(&config_roots(config)),
+		daemon_diagnostic_suffix(config)
+	)
 }
 
 pub fn registry_entry_for_endpoint(endpoint: &str) -> anyhow::Result<DaemonRegistryEntry> {
@@ -226,7 +226,6 @@ fn connect_entry(
 			roots: config_roots(&config),
 			config,
 			address: entry.endpoint,
-			_supervisor_guard: None,
 		},
 	};
 	Ok(client)
@@ -256,10 +255,18 @@ fn validate_protocol(handshake: &HandshakeResponse) -> anyhow::Result<()> {
 	if handshake.protocol_version == PROTOCOL_VERSION {
 		return Ok(());
 	}
+	if handshake.protocol_version < PROTOCOL_VERSION {
+		anyhow::bail!(
+			"daemon protocol {} is older than client protocol {} (daemon version {}); reconnect-or-start must recycle the daemon once so it can rebuild the index",
+			handshake.protocol_version,
+			PROTOCOL_VERSION,
+			handshake.daemon_version
+		)
+	}
 	anyhow::bail!(
-		"daemon protocol {} does not match client protocol {} (daemon version {}); reinstall code-moniker so the client and daemon versions match",
-		handshake.protocol_version,
+		"client protocol {} is older than daemon protocol {} (daemon version {}); update the client, the newer daemon was left running",
 		PROTOCOL_VERSION,
+		handshake.protocol_version,
 		handshake.daemon_version
 	)
 }
@@ -328,8 +335,12 @@ fn connect_registered_daemon(
 	};
 	let handshake = client.handshake("daemon-client")?;
 	let client_build = current_build_identity(env!("CARGO_PKG_VERSION"))?;
-	if handshake.protocol_version == PROTOCOL_VERSION && handshake.build == client_build {
-		return Ok(Some(client));
+	match compatibility_action(&handshake, &client_build) {
+		CompatibilityAction::Reuse => return Ok(Some(client)),
+		CompatibilityAction::RejectClient => {
+			return validate_client_protocol(&client).map(|()| Some(client));
+		}
+		CompatibilityAction::RestartDaemon => {}
 	}
 	let _ = client.shutdown();
 	drop(client);
@@ -338,10 +349,32 @@ fn connect_registered_daemon(
 	Ok(None)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompatibilityAction {
+	Reuse,
+	RestartDaemon,
+	RejectClient,
+}
+
+fn compatibility_action(
+	handshake: &HandshakeResponse,
+	client_build: &code_moniker_query::BuildIdentity,
+) -> CompatibilityAction {
+	if handshake.protocol_version < PROTOCOL_VERSION {
+		return CompatibilityAction::RestartDaemon;
+	}
+	if handshake.protocol_version > PROTOCOL_VERSION {
+		return CompatibilityAction::RejectClient;
+	}
+	if &handshake.build != client_build {
+		return CompatibilityAction::RestartDaemon;
+	}
+	CompatibilityAction::Reuse
+}
+
 fn start_compatible_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {
-	let supervisor_guard = Arc::new(start_daemon_process(&config)?);
-	let mut client = wait_for_daemon(config)?;
-	client.endpoint._supervisor_guard = Some(supervisor_guard);
+	start_daemon_process(&config)?;
+	let client = wait_for_daemon(config)?;
 	validate_client_protocol(&client)?;
 	Ok(client)
 }
@@ -425,33 +458,31 @@ fn wait_for_deregistration(config: &DaemonWorkspaceConfig) {
 fn wait_for_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {
 	wait_for_daemon_with_limits(
 		config,
-		DAEMON_READY_ATTEMPTS,
-		DAEMON_READY_CONNECT_ATTEMPTS,
-		DAEMON_READY_POLL,
+		DAEMON_SERVING_ATTEMPTS,
+		DAEMON_SERVING_CONNECT_ATTEMPTS,
+		DAEMON_SERVING_POLL,
 	)
 }
 
 fn wait_for_daemon_with_limits(
 	config: DaemonWorkspaceConfig,
-	ready_attempts: usize,
-	ready_connect_attempts: usize,
+	serving_attempts: usize,
+	serving_connect_attempts: usize,
 	poll: Duration,
 ) -> anyhow::Result<DaemonClient> {
 	let mut last_error = None;
-	let mut ready_connect_failures = 0;
-	for _ in 0..ready_attempts {
-		if let Some(registered) = registry_entry_for(&config)?
-			&& registered.entry.state == DaemonRegistryState::Ready
-		{
+	let mut serving_connect_failures = 0;
+	for _ in 0..serving_attempts {
+		if let Some(registered) = registry_entry_for(&config)? {
 			match connect_entry(config.clone(), registered.entry) {
 				Ok(client) => return Ok(client),
 				Err(error) if error.to_string().contains("daemon workspace mismatch") => {
 					return Err(error);
 				}
 				Err(error) => {
-					ready_connect_failures += 1;
+					serving_connect_failures += 1;
 					last_error = Some(error);
-					if ready_connect_failures >= ready_connect_attempts {
+					if serving_connect_failures >= serving_connect_attempts {
 						break;
 					}
 				}
@@ -460,13 +491,16 @@ fn wait_for_daemon_with_limits(
 		thread::sleep(poll);
 	}
 	let workspace = workspace_label(&config_roots(&config));
+	let diagnostic = daemon_diagnostic_suffix(&config);
 	match last_error {
 		Some(error) => anyhow::bail!(
-			"daemon ready endpoint remained unusable for {workspace} after {ready_connect_failures} connection attempts: {error:#}"
+			"daemon endpoint remained unusable for {workspace} after {serving_connect_failures} connection attempts: {error:#}{diagnostic}"
 		),
 		None => {
-			let timeout_seconds = (ready_attempts as u128 * poll.as_millis()) / 1_000;
-			anyhow::bail!("daemon did not become ready for {workspace} after {timeout_seconds}s")
+			let timeout_seconds = (serving_attempts as u128 * poll.as_millis()) / 1_000;
+			anyhow::bail!(
+				"daemon did not publish a serving endpoint for {workspace} after {timeout_seconds}s{diagnostic}"
+			)
 		}
 	}
 }
@@ -485,31 +519,23 @@ pub fn cleanup_stale_config(config: &DaemonWorkspaceConfig) -> anyhow::Result<()
 	Ok(())
 }
 
-fn start_daemon_process(config: &DaemonWorkspaceConfig) -> anyhow::Result<UnixStream> {
+fn start_daemon_process(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	let exe = std::env::current_exe()?;
-	let (supervisor_guard, child_supervisor) = UnixStream::pair()?;
-	let supervisor_fd = child_supervisor.as_raw_fd();
+	let diagnostic_path = daemon_log_path_for_config(config)?;
+	if let Some(parent) = diagnostic_path.parent() {
+		std::fs::create_dir_all(parent)?;
+	}
+	let diagnostic = std::fs::OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(&diagnostic_path)?;
 	let mut command = ProcessCommand::new(exe);
 	command
 		.arg("daemon")
 		.arg("start")
-		.arg("--supervisor-pid")
-		.arg(std::process::id().to_string())
-		.arg("--supervisor-fd")
-		.arg(supervisor_fd.to_string())
 		.stdin(Stdio::null())
 		.stdout(Stdio::null())
-		.stderr(Stdio::null());
-	// SAFETY: the closure only clears FD_CLOEXEC on the already-open socket.
-	// No allocation or lock-taking operation runs in the forked child.
-	unsafe {
-		command.pre_exec(move || {
-			if libc::fcntl(supervisor_fd, libc::F_SETFD, 0) == -1 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(())
-		});
-	}
+		.stderr(Stdio::from(diagnostic));
 	if let Some(project) = &config.project {
 		command.arg("--project").arg(project);
 	}
@@ -522,12 +548,42 @@ fn start_daemon_process(config: &DaemonWorkspaceConfig) -> anyhow::Result<UnixSt
 	for root in config_roots(config) {
 		command.arg(root);
 	}
-	command.spawn().map(|_| supervisor_guard).map_err(|err| {
+	command.spawn().map(|_| ()).map_err(|err| {
 		anyhow::anyhow!(
 			"cannot start daemon for {}: {err}",
 			workspace_label(&config_roots(config))
 		)
 	})
+}
+
+fn daemon_diagnostic_suffix(config: &DaemonWorkspaceConfig) -> String {
+	const MAX_DIAGNOSTIC_BYTES: u64 = 8 * 1024;
+	let Ok(path) = daemon_log_path_for_config(config) else {
+		return String::new();
+	};
+	let Ok(mut file) = std::fs::File::open(&path) else {
+		return format!("\ndaemon diagnostics: {} (not written)", path.display());
+	};
+	let length = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+	let start = length.saturating_sub(MAX_DIAGNOSTIC_BYTES);
+	if file.seek(SeekFrom::Start(start)).is_err() {
+		return format!("\ndaemon diagnostics: {} (unreadable)", path.display());
+	}
+	let mut bytes = Vec::new();
+	if file.read_to_end(&mut bytes).is_err() {
+		return format!("\ndaemon diagnostics: {} (unreadable)", path.display());
+	}
+	let text = String::from_utf8_lossy(&bytes);
+	let text = if start > 0 {
+		text.split_once('\n').map(|(_, tail)| tail).unwrap_or(&text)
+	} else {
+		&text
+	};
+	format!(
+		"\ndaemon diagnostics ({}):\n{}",
+		path.display(),
+		text.trim()
+	)
 }
 
 fn rpc_client_error(error: ClientError) -> anyhow::Error {
@@ -572,7 +628,6 @@ mod tests {
 			pid: std::process::id(),
 			build: code_moniker_query::BuildIdentity::default(),
 			heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
-			state: DaemonRegistryState::Ready,
 		}
 	}
 
@@ -613,14 +668,26 @@ mod tests {
 	}
 
 	#[test]
-	fn rejects_any_protocol_mismatch_with_reinstall_guidance() {
-		for mismatched in [PROTOCOL_VERSION - 1, PROTOCOL_VERSION + 1] {
-			let error = validate_protocol(&handshake(mismatched)).expect_err("mismatched protocol");
-			let message = error.to_string();
-			assert!(message.contains(&format!("daemon protocol {mismatched}")));
-			assert!(message.contains(&format!("client protocol {PROTOCOL_VERSION}")));
-			assert!(message.contains("reinstall code-moniker"));
-		}
+	fn protocol_direction_controls_recovery() {
+		let client_build = current_build_identity(env!("CARGO_PKG_VERSION")).expect("client build");
+		assert_eq!(
+			compatibility_action(&handshake(PROTOCOL_VERSION - 1), &client_build),
+			CompatibilityAction::RestartDaemon,
+			"an older daemon is recycled once so the current binary rebuilds its index"
+		);
+		assert_eq!(
+			compatibility_action(&handshake(PROTOCOL_VERSION + 1), &client_build),
+			CompatibilityAction::RejectClient,
+			"an older client must not destroy a newer daemon"
+		);
+
+		let newer_error =
+			validate_protocol(&handshake(PROTOCOL_VERSION + 1)).expect_err("newer daemon");
+		assert!(newer_error.to_string().contains("update the client"));
+		assert!(newer_error.to_string().contains("left running"));
+		let older_error =
+			validate_protocol(&handshake(PROTOCOL_VERSION - 1)).expect_err("older daemon");
+		assert!(older_error.to_string().contains("recycle the daemon once"));
 	}
 
 	#[test]
@@ -692,7 +759,6 @@ mod tests {
 			pid: std::process::id(),
 			build: code_moniker_query::BuildIdentity::default(),
 			heartbeat_unix_ms: code_moniker_query::registry_heartbeat_unix_ms(),
-			state: DaemonRegistryState::Ready,
 		};
 		write_registry_entry(&config, &entry).expect("registry fixture");
 
@@ -743,5 +809,28 @@ mod tests {
 				.is_none(),
 			"expired claim must be removed"
 		);
+	}
+
+	#[test]
+	fn startup_timeout_includes_the_captured_daemon_diagnostic() {
+		let workspace = tempfile::tempdir().expect("workspace");
+		let config = config_from_roots([workspace.path()]).expect("config");
+		let path = daemon_log_path_for_config(&config).expect("diagnostic path");
+		std::fs::create_dir_all(path.parent().expect("diagnostic parent"))
+			.expect("diagnostic directory");
+		std::fs::write(&path, "code-moniker daemon: fatal fixture\n").expect("diagnostic fixture");
+
+		let error =
+			match wait_for_daemon_with_limits(config.clone(), 0, 1, Duration::from_millis(0)) {
+				Err(error) => error,
+				Ok(_) => panic!("missing daemon must time out"),
+			};
+		let message = error.to_string();
+		assert!(message.contains("fatal fixture"), "{message}");
+		assert!(message.contains(&path.display().to_string()), "{message}");
+		let missing = no_daemon_registered_error(&config).to_string();
+		assert!(missing.contains("no daemon registered"), "{missing}");
+		assert!(missing.contains("fatal fixture"), "{missing}");
+		let _ = std::fs::remove_file(path);
 	}
 }

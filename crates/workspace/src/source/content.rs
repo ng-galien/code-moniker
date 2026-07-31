@@ -277,7 +277,6 @@ pub struct SourceCatalogMaterial {
 	pub(crate) sources: SourceFileSet,
 	pub(crate) identity: LocalIdentityResolver,
 	pub(crate) memory_sources: BTreeMap<PathBuf, String>,
-	pub(crate) memory_srcsets: BTreeMap<PathBuf, String>,
 	pub(crate) memory_slots: BTreeSet<PathBuf>,
 	pub(crate) memory_revisions: BTreeMap<String, Option<String>>,
 }
@@ -289,28 +288,31 @@ impl SourceCatalogMaterial {
 	}
 
 	pub fn source_uri_for_path(&self, path: &Path) -> Option<String> {
-		let rel_path = self.source_rel_path(path)?;
-		Some(match self.memory_srcset(path) {
-			Some(srcset) => {
-				let moniker = MonikerBuilder::new()
-					.project(b".")
-					.segment(b"srcset", srcset.as_bytes())
-					.segment(b"file", rel_path.display().to_string().as_bytes())
-					.build();
-				self.identity.moniker_uri(&moniker)
-			}
-			None => self.identity.source_uri(rel_path),
-		})
+		let file_idx = self.normalized_file_index(path)?;
+		let file = self.sources.files.get(file_idx)?;
+		let rel_path = file.rel_path.as_path();
+		Some(
+			match self
+				.is_memory_slot(&file.path)
+				.then_some(file.srcset.as_deref())
+				.flatten()
+			{
+				Some(srcset) => {
+					let moniker = MonikerBuilder::new()
+						.project(b".")
+						.segment(b"srcset", srcset.as_bytes())
+						.segment(b"file", rel_path.display().to_string().as_bytes())
+						.build();
+					self.identity.moniker_uri(&moniker)
+				}
+				None => self.identity.source_uri(rel_path),
+			},
+		)
 	}
 
 	#[allow(dead_code)]
 	pub(crate) fn resolve_source(&self, path: &Path) -> Option<ResolvedSourceResource> {
 		SourceResourceLookup::new(self).resolve(path)
-	}
-
-	fn source_rel_path(&self, path: &Path) -> Option<&Path> {
-		self.normalized_file_index(path)
-			.map(|file_idx| self.sources.files[file_idx].rel_path.as_path())
 	}
 
 	pub(crate) fn normalized_file_index(&self, path: &Path) -> Option<usize> {
@@ -324,10 +326,6 @@ impl SourceCatalogMaterial {
 
 	pub(crate) fn memory_source(&self, path: &Path) -> Option<&str> {
 		self.memory_sources.get(path).map(String::as_str)
-	}
-
-	pub(crate) fn memory_srcset(&self, path: &Path) -> Option<&str> {
-		self.memory_srcsets.get(path).map(String::as_str)
 	}
 
 	pub(crate) fn is_memory_slot(&self, path: &Path) -> bool {
@@ -572,7 +570,6 @@ mod tests {
 				},
 				identity: identity.clone(),
 				memory_sources: BTreeMap::new(),
-				memory_srcsets: BTreeMap::new(),
 				memory_slots: BTreeSet::new(),
 				memory_revisions: BTreeMap::new(),
 			},

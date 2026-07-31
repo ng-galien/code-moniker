@@ -1,0 +1,5 @@
+[[workspace.source_group]]
+roots = [
+  { path = "src/java", srcset = "main" },
+  { path = "test", srcset = "test" },
+]

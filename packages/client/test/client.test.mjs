@@ -160,7 +160,18 @@ test("protocol and workspace mismatches fail closed", async () => {
 		(error) =>
 			error instanceof ProtocolMismatchError &&
 			error.expected === PROTOCOL_VERSION &&
-			error.actual === PROTOCOL_VERSION - 1,
+			error.actual === PROTOCOL_VERSION - 1 &&
+			error.direction === "daemon_older",
+	);
+
+	const newer = new FakeDaemon({ protocolVersion: PROTOCOL_VERSION + 1 });
+	await assert.rejects(
+		() => connect(newer),
+		(error) =>
+			error instanceof ProtocolMismatchError &&
+			error.expected === PROTOCOL_VERSION &&
+			error.actual === PROTOCOL_VERSION + 1 &&
+			error.direction === "daemon_newer",
 	);
 
 	const wrongWorkspace = new FakeDaemon({ workspaceRoots: ["/another/project"] });

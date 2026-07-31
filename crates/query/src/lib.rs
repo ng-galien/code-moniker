@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -1186,6 +1186,7 @@ pub struct WorkspaceEventDto {
 pub enum WorkspaceEventKind {
 	Stale,
 	Refreshed,
+	Failed,
 	Notes,
 	GitBase,
 }
@@ -1690,7 +1691,9 @@ pub struct WorkspaceStatus {
 	#[serde(default)]
 	pub producer: BuildIdentity,
 	pub root: String,
-	pub phase: String,
+	pub phase: WorkspacePhase,
+	#[serde(default)]
+	pub failure: Option<WorkspaceFailureDto>,
 	pub roots: Vec<WorkspaceRootStatus>,
 	pub generation: Option<WorkspaceGeneration>,
 	pub files: usize,
@@ -1700,6 +1703,68 @@ pub struct WorkspaceStatus {
 	pub stale_summary: String,
 	#[serde(default)]
 	pub timings: WorkspaceTimingsDto,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct WorkspaceLifecycle {
+	pub phase: WorkspacePhase,
+	#[serde(default)]
+	pub failure: Option<WorkspaceFailureDto>,
+}
+
+impl WorkspaceLifecycle {
+	pub fn loading() -> Self {
+		Self {
+			phase: WorkspacePhase::Loading,
+			failure: None,
+		}
+	}
+
+	pub fn ready() -> Self {
+		Self {
+			phase: WorkspacePhase::Ready,
+			failure: None,
+		}
+	}
+
+	pub fn failed(message: impl Into<String>) -> Self {
+		Self {
+			phase: WorkspacePhase::Failed,
+			failure: Some(WorkspaceFailureDto {
+				resource: None,
+				message: message.into(),
+			}),
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacePhase {
+	Loading,
+	Ready,
+	Refreshing,
+	Failed,
+}
+
+impl std::fmt::Display for WorkspacePhase {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		formatter.write_str(match self {
+			Self::Loading => "loading",
+			Self::Ready => "ready",
+			Self::Refreshing => "refreshing",
+			Self::Failed => "failed",
+		})
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct WorkspaceFailureDto {
+	pub resource: Option<String>,
+	pub message: String,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

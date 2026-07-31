@@ -15,11 +15,7 @@ import {
 	CodeMonikerClient,
 	type ClientConnectOptions,
 } from "./client.js";
-import { DaemonRpcError } from "./errors.js";
-import type {
-	DaemonRegistryEntry,
-	WorkspaceStatus,
-} from "./generated.js";
+import type { DaemonRegistryEntry } from "./generated.js";
 import { DaemonRpc } from "./rpc.js";
 import type { WebSocketFactory, WebSocketLike } from "./transport.js";
 
@@ -53,11 +49,6 @@ export interface StopDaemonOptions {
 	exitTimeoutMs?: number;
 	pollIntervalMs?: number;
 	timeoutMs?: number;
-}
-
-export interface WaitUntilReadyOptions {
-	timeoutMs?: number;
-	pollIntervalMs?: number;
 }
 
 export interface DaemonProcess {
@@ -169,39 +160,6 @@ export class NodeDaemonRuntime {
 			timeoutMs: options.timeoutMs ?? this.timeoutMs,
 		};
 		return CodeMonikerClient.connect(entry.endpoint, connectOptions);
-	}
-
-	async waitUntilReady(
-		client: CodeMonikerClient,
-		options: WaitUntilReadyOptions = {},
-	): Promise<WorkspaceStatus> {
-		const timeoutMs = options.timeoutMs ?? 60_000;
-		const pollIntervalMs =
-			options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-		const deadline = Date.now() + timeoutMs;
-		while (Date.now() <= deadline) {
-			try {
-				const status = await client.workspace.status({
-					consistency: "stale_ok",
-				});
-				if (status.phase === "ready") {
-					return status;
-				}
-			} catch (error) {
-				if (
-					!(
-						error instanceof DaemonRpcError &&
-						error.code === "workspace_loading"
-					)
-				) {
-					throw error;
-				}
-			}
-			await delay(pollIntervalMs);
-		}
-		throw new Error(
-			`daemon workspace did not become ready within ${timeoutMs}ms`,
-		);
 	}
 
 	async launch(options: LaunchDaemonOptions): Promise<OwnedDaemon> {

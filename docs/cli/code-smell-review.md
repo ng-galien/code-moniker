@@ -81,6 +81,15 @@ The following smells need data the local DSL intentionally does not own:
 Use the PostgreSQL `code_graph` layer or a dedicated analyzer for those
 checks.
 
+This limitation does not make duplicate mechanisms optional review work.
+Before judging a patch locally, reviewers must search the full repository for
+the responsibility being added: state machines, timeouts, retries, caches,
+parsers, classifiers, launchers, and policy decisions. The review must name the
+canonical owner and its consumers and report a separate
+`Mechanism reuse / duplication` verdict. Clone detection can find copied text;
+only this architecture pass catches two different implementations of the same
+policy.
+
 ## Review workflow
 
 Validate the project-specific smell rules before a broad run:

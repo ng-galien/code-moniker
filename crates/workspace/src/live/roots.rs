@@ -107,70 +107,93 @@ impl WorkspacePathClassifier {
 
 	fn classify(&self, path: &Path, allow_git_signals: bool) -> PathLiveSignal {
 		let path = normalize_path(path);
-		if allow_git_signals && self.is_git_signal_path(&path) {
-			return PathLiveSignal::GitBaseChanged;
+		if let Some(signal) = self.classify_control_path(&path, allow_git_signals) {
+			return signal;
 		}
-		if ignored_path(&path)
-			|| self.is_ignored_root(&path)
-			|| self.is_ignored_by_gitignore(&path)
-			|| self.is_git_path(&path)
+		classify_workspace_path(&self.roots, &path)
+	}
+
+	fn classify_control_path(
+		&self,
+		path: &Path,
+		allow_git_signals: bool,
+	) -> Option<PathLiveSignal> {
+		if allow_git_signals && is_git_signal_path(&self.roots, path) {
+			return Some(PathLiveSignal::GitBaseChanged);
+		}
+		if is_workspace_config_path(&self.roots, path) {
+			return Some(PathLiveSignal::BuildContext);
+		}
+		if ignored_path(path)
+			|| is_ignored_root(&self.roots, path)
+			|| is_ignored_by_gitignore(&self.roots, path)
+			|| is_git_path(&self.roots, path)
 		{
-			return PathLiveSignal::Ignore;
+			return Some(PathLiveSignal::Ignore);
 		}
-		if is_notes_path(&self.roots, &path) {
-			return PathLiveSignal::Notes;
-		}
-		if self.is_build_context_path(&path) {
-			return PathLiveSignal::BuildContext;
-		}
-		if self.is_manifest_path(&path) {
-			return PathLiveSignal::Manifest;
-		}
-		if is_source_path(&self.roots, &path) {
-			return PathLiveSignal::Source;
-		}
-		PathLiveSignal::Ignore
+		None
 	}
+}
 
-	fn is_manifest_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
+fn classify_workspace_path(roots: &[WatchedPathRoot], path: &Path) -> PathLiveSignal {
+	if is_notes_path(roots, path) {
+		return PathLiveSignal::Notes;
 	}
+	if is_build_context_path(roots, path) {
+		return PathLiveSignal::BuildContext;
+	}
+	if is_manifest_path(roots, path) {
+		return PathLiveSignal::Manifest;
+	}
+	if is_source_path(roots, path) {
+		return PathLiveSignal::Source;
+	}
+	PathLiveSignal::Ignore
+}
 
-	fn is_build_context_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_build_context_file(path)
-	}
+fn is_manifest_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
+}
 
-	fn is_ignored_root(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			root.ignored_paths
-				.iter()
-				.any(|ignored| path.starts_with(ignored))
-		})
-	}
+fn is_build_context_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| path.starts_with(&root.path)) && is_build_context_file(path)
+}
 
-	fn is_ignored_by_gitignore(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| root.matches_gitignore(path))
-	}
+fn is_workspace_config_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| path.starts_with(&root.path))
+		&& path.file_name() == Some(std::ffi::OsStr::new(".code-moniker.toml"))
+}
 
-	fn is_git_signal_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			let Some(git_dir) = &root.git_dir else {
-				return false;
-			};
-			let Ok(rel) = path.strip_prefix(git_dir) else {
-				return false;
-			};
-			rel == Path::new("HEAD") || rel == Path::new("packed-refs") || rel.starts_with("refs")
-		})
-	}
+fn is_ignored_root(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| {
+		root.ignored_paths
+			.iter()
+			.any(|ignored| path.starts_with(ignored))
+	})
+}
 
-	fn is_git_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			root.git_dir
-				.as_ref()
-				.is_some_and(|git_dir| path.starts_with(git_dir))
-		})
-	}
+fn is_ignored_by_gitignore(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| root.matches_gitignore(path))
+}
+
+fn is_git_signal_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| {
+		let Some(git_dir) = &root.git_dir else {
+			return false;
+		};
+		let Ok(rel) = path.strip_prefix(git_dir) else {
+			return false;
+		};
+		rel == Path::new("HEAD") || rel == Path::new("packed-refs") || rel.starts_with("refs")
+	})
+}
+
+fn is_git_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
+	roots.iter().any(|root| {
+		root.git_dir
+			.as_ref()
+			.is_some_and(|git_dir| path.starts_with(git_dir))
+	})
 }
 
 fn is_notes_path(roots: &[WatchedPathRoot], path: &Path) -> bool {

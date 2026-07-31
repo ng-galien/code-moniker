@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use code_moniker_daemon as daemon;
 use code_moniker_daemon_client as daemon_client;
 use code_moniker_query::{
-	DaemonRegistryEntry, DaemonRegistryState, DaemonWorkspaceConfig, PROTOCOL_VERSION, Query,
-	QueryRequest, QueryResult, pid_is_alive, remove_registry_entry_if_own,
+	DaemonRegistryEntry, DaemonWorkspaceConfig, PROTOCOL_VERSION, Query, QueryRequest, QueryResult,
+	pid_is_alive, remove_registry_entry_if_own,
 };
 
 use crate::Exit;
@@ -50,19 +50,6 @@ fn daemon_status<W: Write>(args: &DaemonTargetArgs, stdout: &mut W) -> anyhow::R
 		)?;
 		return Ok(());
 	}
-	if entry.state == DaemonRegistryState::Indexing {
-		writeln!(stdout, "workspace: {}", entry.workspace_root)?;
-		writeln!(stdout, "endpoint: {}", entry.endpoint)?;
-		writeln!(stdout, "pid: {}", entry.pid)?;
-		writeln!(
-			stdout,
-			"build: {} {}",
-			entry.build.version, entry.build.fingerprint
-		)?;
-		writeln!(stdout, "state: indexing")?;
-		write_overlap_warning(stdout, &config, Some(&entry))?;
-		return Ok(());
-	}
 	let client = match connect_daemon_target(args, config.clone()) {
 		Ok(client) => client,
 		Err(error) => {
@@ -91,7 +78,7 @@ fn daemon_status<W: Write>(args: &DaemonTargetArgs, stdout: &mut W) -> anyhow::R
 	if let Some(live_refresh) = &entry.live_refresh {
 		writeln!(stdout, "live_refresh: {live_refresh}")?;
 	}
-	writeln!(stdout, "state: ready")?;
+	writeln!(stdout, "process: serving")?;
 	write_overlap_warning(stdout, client.config(), Some(&entry))?;
 	writeln!(stdout, "protocol: {}", handshake.protocol_version)?;
 	writeln!(stdout, "daemon: {}", handshake.daemon_version)?;
@@ -123,6 +110,10 @@ fn daemon_status<W: Write>(args: &DaemonTargetArgs, stdout: &mut W) -> anyhow::R
 	}
 	let response = client.query(QueryRequest::new(Query::WorkspaceStatus))?;
 	if let QueryResult::WorkspaceStatus(status) = response.result {
+		writeln!(stdout, "state: {}", status.phase)?;
+		if let Some(failure) = status.failure {
+			writeln!(stdout, "failure: {}", failure.message)?;
+		}
 		if let Some(generation) = status.generation {
 			writeln!(stdout, "generation: {}", generation.0)?;
 		}
@@ -164,10 +155,7 @@ fn resolve_daemon_target(
 	let Some(entry) = daemon_client::read_registry_entry(&config)? else {
 		let conflicts = overlapping_daemons(&config, None)?;
 		if conflicts.is_empty() {
-			anyhow::bail!(
-				"no daemon registered for {}",
-				daemon_client::workspace_label(&daemon_client::config_roots(&config))
-			);
+			return Err(daemon_client::no_daemon_registered_error(&config));
 		}
 		anyhow::bail!(
 			"no daemon registered for {}; overlapping daemon roots: {}",
@@ -208,24 +196,14 @@ fn daemon_list<W: Write>(stdout: &mut W) -> anyhow::Result<()> {
 	for entry in entries {
 		writeln!(
 			stdout,
-			"{} pid={} endpoint={} state={}",
-			entry.workspace_root,
-			entry.pid,
-			entry.endpoint,
-			registry_state_label(&entry.state)
+			"{} pid={} endpoint={}",
+			entry.workspace_root, entry.pid, entry.endpoint
 		)?;
 		for root in entry.workspace_roots {
 			writeln!(stdout, "  root: {root}")?;
 		}
 	}
 	Ok(())
-}
-
-fn registry_state_label(state: &DaemonRegistryState) -> &'static str {
-	match state {
-		DaemonRegistryState::Indexing => "indexing",
-		DaemonRegistryState::Ready => "ready",
-	}
 }
 
 fn write_overlap_warning<W: Write>(

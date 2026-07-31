@@ -855,6 +855,9 @@ the same replace-by-name rule. With `--default-rules off`, the user TOML is
 loaded as the complete config. `check --rules-inline <TOML>` accepts the
 same TOML shape as a command-line overlay; inline overlays merge after the
 project file and discovered fragments, in command-line order.
+`workspace.source_group` is structural workspace configuration, not a rule
+overlay: it is accepted only in the canonical root `.code-moniker.toml` and is
+rejected in inline, standalone, and fragment sources.
 
 Fragments use the file name `code-moniker.fragment.toml` below the canonical
 root `.code-moniker.toml` directory. A differently named `--rules` file is

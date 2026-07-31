@@ -18,7 +18,8 @@ export type Command =
       srcset: string;
     };
 export type WorkspaceGeneration = number;
-export type WorkspaceEventKind = "stale" | "refreshed" | "notes" | "git_base";
+export type WorkspacePhase = "loading" | "ready" | "refreshing" | "failed";
+export type WorkspaceEventKind = "stale" | "refreshed" | "failed" | "notes" | "git_base";
 export type Query =
   | {
       op: "query_describe";
@@ -323,7 +324,6 @@ export type NoteResolutionDto =
       status: "orphan";
     };
 export type GraphPathVerdict = "pass" | "fail" | "inconclusive";
-export type DaemonRegistryState = "indexing" | "ready";
 
 /**
  * Umbrella over every root RPC type, used only to emit a single JSON Schema document (`export-schema`) whose definitions cover the whole wire contract.
@@ -360,9 +360,10 @@ export interface CommandResponse {
   status?: WorkspaceStatus | null;
 }
 export interface WorkspaceStatus {
+  failure?: WorkspaceFailureDto | null;
   files: number;
   generation?: WorkspaceGeneration | null;
-  phase: string;
+  phase: WorkspacePhase;
   producer?: BuildIdentity;
   references: number;
   root: string;
@@ -371,6 +372,10 @@ export interface WorkspaceStatus {
   stale_summary: string;
   symbols: number;
   timings?: WorkspaceTimingsDto;
+}
+export interface WorkspaceFailureDto {
+  message: string;
+  resource?: string | null;
 }
 export interface BuildIdentity {
   fingerprint: string;
@@ -1141,7 +1146,6 @@ export interface DaemonRegistryEntry {
   live_refresh?: string | null;
   pid: number;
   project?: string | null;
-  state?: DaemonRegistryState & string;
   token: string;
   workspace_root: string;
   workspace_roots: string[];

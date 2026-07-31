@@ -68,8 +68,6 @@ pub struct DaemonRegistryEntry {
 	pub build: BuildIdentity,
 	#[serde(default)]
 	pub heartbeat_unix_ms: u64,
-	#[serde(default)]
-	pub state: DaemonRegistryState,
 }
 
 pub const DAEMON_REGISTRY_HEARTBEAT_TIMEOUT_MS: u64 = 15_000;
@@ -87,15 +85,6 @@ pub fn daemon_registry_heartbeat_expired(entry: &DaemonRegistryEntry) -> bool {
 	entry.heartbeat_unix_ms == 0
 		|| registry_heartbeat_unix_ms().saturating_sub(entry.heartbeat_unix_ms)
 			> DAEMON_REGISTRY_HEARTBEAT_TIMEOUT_MS
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DaemonRegistryState {
-	Indexing,
-	#[default]
-	Ready,
 }
 
 pub fn registry_dir() -> PathBuf {
@@ -198,14 +187,21 @@ pub fn registry_path_for_config(config: &DaemonWorkspaceConfig) -> anyhow::Resul
 	Ok(registry_dir().join(format!("{}.json", stable_config_hash(&config))))
 }
 
+pub fn daemon_log_path_for_config(config: &DaemonWorkspaceConfig) -> anyhow::Result<PathBuf> {
+	Ok(registry_path_for_config(config)?.with_extension("log"))
+}
+
 pub fn read_registry_entry(
 	config: &DaemonWorkspaceConfig,
 ) -> anyhow::Result<Option<DaemonRegistryEntry>> {
 	let path = registry_path_for_config(config)?;
 	match fs::read_to_string(&path) {
-		Ok(text) => Ok(serde_json::from_str(&text).ok()),
+		Ok(text) => parse_registry_entry(&path, &text).map(Some),
 		Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-		Err(err) => Err(err.into()),
+		Err(err) => Err(anyhow::anyhow!(
+			"cannot read daemon registry entry {}: {err}",
+			path.display()
+		)),
 	}
 }
 
@@ -242,9 +238,16 @@ pub fn update_registry_entry_if_own(
 ) -> anyhow::Result<bool> {
 	let path = registry_path_for_config(config)?;
 	with_registry_lock(&path, || {
-		let current = fs::read_to_string(&path)
-			.ok()
-			.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
+		let current = match fs::read_to_string(&path) {
+			Ok(text) => Some(parse_registry_entry(&path, &text)?),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+			Err(error) => {
+				return Err(anyhow::anyhow!(
+					"cannot read daemon registry entry {}: {error}",
+					path.display()
+				));
+			}
+		};
 		let owned = current
 			.map(|current| current.token == entry.token && current.pid == entry.pid)
 			.unwrap_or(false);
@@ -252,6 +255,15 @@ pub fn update_registry_entry_if_own(
 			atomic_write_registry_entry(&path, entry)?;
 		}
 		Ok(owned)
+	})
+}
+
+fn parse_registry_entry(path: &Path, text: &str) -> anyhow::Result<DaemonRegistryEntry> {
+	serde_json::from_str(text).map_err(|error| {
+		anyhow::anyhow!(
+			"cannot decode daemon registry entry {}: {error}",
+			path.display()
+		)
 	})
 }
 
@@ -450,7 +462,6 @@ mod tests {
 			pid,
 			build: BuildIdentity::default(),
 			heartbeat_unix_ms: registry_heartbeat_unix_ms(),
-			state: DaemonRegistryState::Ready,
 		}
 	}
 
@@ -477,6 +488,37 @@ mod tests {
 			stable_config_hash(&other_project),
 			"what gets indexed still separates registry slots"
 		);
+	}
+
+	#[test]
+	fn malformed_registry_entry_is_not_treated_as_missing_or_unowned() {
+		let workspace = tempfile::tempdir().expect("workspace");
+		let config = config_from_roots([workspace.path()]).expect("workspace config");
+		let path = registry_path_for_config(&config).expect("registry path");
+		fs::create_dir_all(path.parent().expect("registry directory"))
+			.expect("create registry directory");
+		fs::write(&path, "{not-json").expect("write malformed registry entry");
+
+		let read_error = read_registry_entry(&config)
+			.expect_err("malformed registry entry must be a typed read failure");
+		assert!(
+			read_error
+				.to_string()
+				.contains("cannot decode daemon registry entry"),
+			"{read_error:#}"
+		);
+
+		let update_error = update_registry_entry_if_own(&config, &entry("owner", 111))
+			.expect_err("malformed registry entry must not look like an unowned claim");
+		assert!(
+			update_error
+				.to_string()
+				.contains("cannot decode daemon registry entry"),
+			"{update_error:#}"
+		);
+
+		let _ = fs::remove_file(&path);
+		let _ = fs::remove_file(path.with_extension("lock"));
 	}
 
 	#[cfg(unix)]
@@ -510,12 +552,10 @@ mod tests {
 	}
 
 	#[test]
-	fn legacy_registry_entries_default_to_ready() {
+	fn legacy_registry_entries_default_missing_build_identity() {
 		let mut value = serde_json::to_value(entry("legacy", 111)).expect("json");
-		value.as_object_mut().expect("object").remove("state");
 		value.as_object_mut().expect("object").remove("build");
 		let decoded: DaemonRegistryEntry = serde_json::from_value(value).expect("legacy entry");
-		assert_eq!(decoded.state, DaemonRegistryState::Ready);
 		assert_eq!(decoded.build, BuildIdentity::default());
 	}
 
@@ -549,19 +589,16 @@ mod tests {
 	fn atomic_registry_update_replaces_a_complete_entry() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let path = dir.path().join("workspace.json");
-		let indexing = DaemonRegistryEntry {
-			state: DaemonRegistryState::Indexing,
-			..entry("same-daemon", 111)
+		let initial = entry("same-daemon", 111);
+		atomic_write_registry_entry(&path, &initial).expect("write initial entry");
+		let updated = DaemonRegistryEntry {
+			heartbeat_unix_ms: initial.heartbeat_unix_ms + 1,
+			..initial.clone()
 		};
-		atomic_write_registry_entry(&path, &indexing).expect("write indexing entry");
-		let ready = DaemonRegistryEntry {
-			state: DaemonRegistryState::Ready,
-			..indexing.clone()
-		};
-		atomic_write_registry_entry(&path, &ready).expect("write ready entry");
+		atomic_write_registry_entry(&path, &updated).expect("write updated entry");
 		let read: DaemonRegistryEntry =
 			serde_json::from_str(&fs::read_to_string(path).expect("read entry")).expect("json");
-		assert_eq!(read, ready);
+		assert_eq!(read, updated);
 	}
 
 	#[cfg(unix)]

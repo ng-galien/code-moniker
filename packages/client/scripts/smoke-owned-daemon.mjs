@@ -28,7 +28,7 @@ try {
 	client = await runtime.connect(owned.entry, {
 		clientName: "@code-moniker/client-owned-smoke",
 	});
-	await runtime.waitUntilReady(client, { timeoutMs: 60_000 });
+	await waitForSmokeWorkspace(client);
 
 	await client.sources.replace({
 		srcset: "consumer-sql",
@@ -88,4 +88,21 @@ SELECT id FROM owned_client_account;
 		});
 	}
 	rmSync(workspaceRoot, { recursive: true, force: true });
+}
+
+async function waitForSmokeWorkspace(client) {
+	const deadline = Date.now() + 60_000;
+	while (Date.now() <= deadline) {
+		const status = await client.workspace.status();
+		if (status.phase === "ready") {
+			return;
+		}
+		if (status.phase === "failed") {
+			throw new Error(
+				status.failure?.message ?? "owned daemon failed to load its workspace",
+			);
+		}
+		await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+	}
+	throw new Error("owned daemon smoke workspace did not become ready");
 }

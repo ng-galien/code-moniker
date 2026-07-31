@@ -1,5 +1,6 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Source discovery clones paths and labels into durable workspace source records.
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
 use crate::snapshot::WorkspaceCancellation;
+use crate::source_group::DeclaredSourceGroups;
 use crate::tsconfig::{self, TsResolution};
 use crate::walk::{self, WalkedFile};
 
@@ -25,6 +27,7 @@ pub struct SourceRoot {
 	pub path: PathBuf,
 	pub label: String,
 	pub ctx: extract::Context,
+	pub source_groups: DeclaredSourceGroups,
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +38,8 @@ pub struct SourceFile {
 	pub anchor: PathBuf,
 	pub lang: code_moniker_core::lang::Lang,
 	pub root_moniker: Option<code_moniker_core::core::moniker::Moniker>,
+	pub source_group: Option<usize>,
+	pub srcset: Option<String>,
 	pub retired: bool,
 }
 
@@ -60,6 +65,36 @@ impl SourceSet {
 				.map(|source| source.input.display().to_string())
 				.unwrap_or_else(|| "<empty>".to_string())
 		}
+	}
+}
+
+impl SourceFile {
+	pub fn extraction_context<'a>(&self, root: &'a SourceRoot) -> Cow<'a, extract::Context> {
+		extraction_context_with_srcset(&root.ctx, self.srcset.as_deref())
+	}
+}
+
+impl SourceRoot {
+	pub fn extraction_context_for_path(&self, path: &Path) -> Cow<'_, extract::Context> {
+		let srcset = self
+			.source_groups
+			.membership(path)
+			.and_then(|membership| membership.srcset);
+		extraction_context_with_srcset(&self.ctx, srcset)
+	}
+}
+
+pub(crate) fn extraction_context_with_srcset<'a>(
+	base: &'a extract::Context,
+	srcset: Option<&str>,
+) -> Cow<'a, extract::Context> {
+	match srcset {
+		Some(srcset) => {
+			let mut ctx = base.clone();
+			ctx.srcset = Some(srcset.to_string());
+			Cow::Owned(ctx)
+		}
+		None => Cow::Borrowed(base),
 	}
 }
 
@@ -210,6 +245,7 @@ fn discover_scopes(
 		};
 		let label = labels[source_idx].clone();
 		let source_project = project.clone();
+		let source_groups = DeclaredSourceGroups::load(&root)?;
 		let mut ts = tsconfig::load(&root);
 		let c = if load_c_context {
 			CBuildContext::load(&root)
@@ -233,6 +269,7 @@ fn discover_scopes(
 					project: source_project,
 					srcset: None,
 				},
+				source_groups,
 			},
 		});
 	}
@@ -273,7 +310,9 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 	} else {
 		abs.clone()
 	};
-	let root_moniker = extract::source_root(lang, &anchor, &root.ctx);
+	let (source_group, srcset) = configured_source_membership(root, &abs);
+	let ctx = extraction_context_with_srcset(&root.ctx, srcset.as_deref());
+	let root_moniker = extract::source_root(lang, &anchor, &ctx);
 	Some(SourceFile {
 		source,
 		path: abs,
@@ -281,6 +320,8 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		anchor,
 		lang,
 		root_moniker,
+		source_group,
+		srcset,
 		retired: false,
 	})
 }
@@ -323,7 +364,9 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 	} else {
 		walked.path.clone()
 	};
-	let root_moniker = extract::source_root(walked.lang, &anchor, &scope.root.ctx);
+	let (source_group, srcset) = configured_source_membership(&scope.root, &path);
+	let ctx = extraction_context_with_srcset(&scope.root.ctx, srcset.as_deref());
+	let root_moniker = extract::source_root(walked.lang, &anchor, &ctx);
 	SourceFile {
 		source: scope.source,
 		path: walked.path,
@@ -332,7 +375,21 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 		retired: false,
 		lang: walked.lang,
 		root_moniker,
+		source_group,
+		srcset,
 	}
+}
+
+fn configured_source_membership(root: &SourceRoot, path: &Path) -> (Option<usize>, Option<String>) {
+	root.source_groups
+		.membership(path)
+		.map(|membership| {
+			(
+				Some(membership.group),
+				membership.srcset.map(ToOwned::to_owned),
+			)
+		})
+		.unwrap_or_default()
 }
 
 fn normalize_absolute(path: &Path) -> anyhow::Result<PathBuf> {

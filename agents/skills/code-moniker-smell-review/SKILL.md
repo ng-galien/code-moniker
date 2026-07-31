@@ -25,21 +25,29 @@ For code-moniker itself, prefer these repo-local files:
 1. Inspect the target repository's language mix and existing rule overlay:
    `code-moniker rules show . --report` when available, otherwise inspect
    `.code-moniker.toml` and `code-moniker.fragment.toml` files.
-2. Select checks the DSL can execute: direct child defs,
+2. Before reviewing the local delta, inventory every mechanism it introduces
+   or changes: state machine, timeout, retry loop, cache, parser, classifier,
+   launcher, and policy. Use symbolic search/usages across the full repository,
+   name the canonical owner and consumers, and flag a parallel owner even when
+   its implementation is not a textual clone.
+3. Select checks the DSL can execute: direct child defs,
    `out_refs`, `in_refs`, local metrics, collection algebra, entropy,
    mode, percentile, `cv`, and `gini`; or `workspace.group` member-line
    distributions over the current full index.
-3. Keep out-of-scope smells out of the CLI ruleset: change-history smells,
+4. Keep out-of-scope smells out of the CLI ruleset: change-history smells,
    clone detection, transitive message chains, reaching-defs, z-scores,
    and arbitrary corpus projections still belong to later DSL, SQL/PG, or
    extractor work.
-4. Validate rules before running a broad review:
+5. Validate rules before running a broad review:
    `code-moniker rules show . --profile smells`.
-5. Run the review as warnings:
+6. Run the review as warnings:
    `code-moniker check <repo-root> --profile smells --report --max-violations 50`.
-6. Triage output by smell family. Report findings as review candidates with
+7. Triage output by smell family. Report findings as review candidates with
    file/line evidence, not as proof of incorrectness.
-7. For a rule that would be useful but cannot be expressed, create an
+8. Report a separate `Mechanism reuse / duplication` verdict with the
+   repository-wide evidence. A clean DSL result is not evidence that semantic
+   duplication is absent.
+9. For a rule that would be useful but cannot be expressed, create an
    `evolutions/` note instead of forcing an invalid or misleading TOML rule.
 
 ## Rule Guidance

@@ -64,10 +64,11 @@ cancel preload and terminate promptly, including when a source read is blocked.
 Keep the HTTP `cm-mcp` session only for HTTP surface dogfood and explicit
 endpoint probes.
 
-Automatic daemon launchers retain one end of an inherited Unix socket and pass
-the other as the hidden `--supervisor-fd` argument. EOF is the primary crash
-signal; `--supervisor-pid` is only the fallback. Never detach a daemon from both
-mechanisms in an IDE or connect-or-start path.
+Explicitly owned daemon launchers retain one end of an inherited Unix socket
+and pass the other as the hidden `--supervisor-fd` argument. EOF is the primary
+crash signal; `--supervisor-pid` is only the fallback. Never detach an owned IDE
+or Node daemon from both mechanisms. The shared Rust `connect_or_start` path is
+different by contract: it launches a persistent daemon without a supervisor.
 
 ## TUI Verification
 
@@ -118,11 +119,68 @@ tmux capture-pane -t cm-tui-debug -p
 ## Daemon Debugging
 
 - Registry: `$TMPDIR/code-moniker-daemons/*.json` (endpoint, pid, workspace roots).
+- Daemon startup, indexing, preload failure, and registry-claim failure are
+  written to stderr. The detached Rust launcher captures that stream in
+  `$TMPDIR/code-moniker-daemons/<workspace-hash>.log` without inheriting a
+  short-lived client pipe; the owned Node launcher inherits it. Claim loss is
+  an abnormal exit with the read, replacement, or heartbeat cause.
 - Probe over WebSocket JSON-RPC with the extension's exact wire shape — see the daemon-probing recipe in `agents/maps/vscode-extension.md`.
 - Treat handshake signals separately: `protocol_version` guards the wire shape,
   capabilities guard verb availability, and the package version string is only
-  informational. Protocol versions must match exactly: recycle a mismatched
-  daemon once, then report reinstall guidance if the fresh daemon still differs.
-  A long-running daemon can predate a verb while reporting the same package
-  version.
+  informational. Protocol versions must match exactly. Recycle an older daemon
+  once; preserve a newer daemon and require a client update. Report reinstall
+  guidance if a replacement still differs. A long-running daemon can predate a
+  verb while reporting the same package version.
 - Every open project registers its own daemon; a stale one in another workspace reproduces "works here, fails there".
+
+## Daemon lifecycle ownership
+
+The lifecycle has two orthogonal axes. Never encode workspace readiness in the
+process registry or reconstruct either axis in a consumer.
+
+| Axis | Canonical owner | States | Consumers do |
+| --- | --- | --- | --- |
+| Process discovery | `code-moniker-query::DaemonRegistryEntry` + `code-moniker-daemon-client` | absent, starting before registration, serving, stopping | connect when the endpoint and handshake are available |
+| Workspace index | `code-moniker-query::WorkspacePhase` + daemon `workspace.status` | loading, ready, refreshing, failed | render the phase; data calls accept typed `workspace_loading` or `workspace_load_failed` |
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Process registry
+    participant D as Daemon endpoint
+    participant W as Workspace index
+    C->>R: connect-or-start
+    R-->>C: endpoint once serving
+    C->>D: handshake
+    D-->>C: protocol and capabilities
+    par Index continues independently
+        D->>W: build generation N
+    and Client remains responsive
+        C->>D: workspace.status
+        D-->>C: phase loading
+        C->>D: data query
+        D-->>C: workspace_loading (retryable)
+    end
+    W-->>D: generation N ready
+    D-->>C: refreshed event
+    C->>D: data query
+    D-->>C: generation N result
+```
+
+Rules:
+
+- `connect_or_start` waits only for process registration/transport handshake,
+  never for indexing. Its automatically launched shared daemon is persistent;
+  an explicit `--supervisor-pid` or owned runtime is the only lifetime coupling.
+- CLI, MCP, Node, and VS Code do not own readiness polling or index-duration
+  timeouts. A caller may retry after a typed transient response; the daemon
+  continues the same build under the same PID.
+- An initial build failure keeps the endpoint alive with `phase=failed` and a
+  cause. It does not trigger an automatic restart loop.
+- If the registered daemon protocol is older than the current client, recycle
+  it once and rebuild with the current binary. If the daemon protocol is newer,
+  leave it running and require a client update. Never tune timeouts to solve a
+  protocol mismatch.
+- Review every new lifecycle enum, timeout, retry helper, or launch policy
+  against these owners. A second implementation is an architecture defect even
+  when no lines are cloned.

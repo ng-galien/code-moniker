@@ -14,7 +14,7 @@ use rmcp::transport::streamable_http_server::{
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
 use serde_json::Value;
 
-use super::context::{InProcessPreloadParts, McpContext, PreloadStatus};
+use super::context::{InProcessPreloadParts, McpContext};
 use super::tools::{ToolRegistry, ToolResult};
 
 pub(crate) fn router(context: McpContext) -> axum::Router<()> {
@@ -77,17 +77,18 @@ fn run_preload(
 			.lock()
 			.map_err(|_| anyhow::anyhow!("daemon lock poisoned during preload publish"))? = daemon;
 		*parts
-			.preload_status
+			.lifecycle
 			.lock()
-			.map_err(|_| anyhow::anyhow!("preload status lock poisoned"))? = PreloadStatus::Ready;
+			.map_err(|_| anyhow::anyhow!("workspace lifecycle lock poisoned"))? =
+			code_moniker_query::WorkspaceLifecycle::ready();
 		Ok(())
 	})();
 	if let Err(error) = &result {
 		*parts
-			.preload_status
+			.lifecycle
 			.lock()
-			.map_err(|_| anyhow::anyhow!("preload status lock poisoned"))? =
-			PreloadStatus::Failed(format!("{error:#}"));
+			.map_err(|_| anyhow::anyhow!("workspace lifecycle lock poisoned"))? =
+			code_moniker_query::WorkspaceLifecycle::failed(format!("{error:#}"));
 	}
 	result
 }

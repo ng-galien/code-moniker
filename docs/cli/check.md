@@ -392,6 +392,9 @@ root `.code-moniker.toml` stays the global entrypoint; when it exists,
 directory and merges enabled fragments after the root file. A differently
 named file passed with `--rules` is standalone and never turns its parent
 directory into an implicit fragment root.
+Structural `workspace.source_group` declarations are valid only in the root
+`.code-moniker.toml`; fragments, standalone rules, and inline overlays reject
+them because source discovery cannot consume rule-local configuration.
 
 Each fragment must declare a stable id:
 

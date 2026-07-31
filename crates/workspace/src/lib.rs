@@ -16,6 +16,7 @@ mod path_util;
 pub mod registry;
 pub mod snapshot;
 pub mod source;
+pub mod source_group;
 pub mod sources;
 pub mod tsconfig;
 pub mod walk;

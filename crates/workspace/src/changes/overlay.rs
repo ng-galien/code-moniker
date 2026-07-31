@@ -64,6 +64,7 @@ fn change_scan(material: &CodeIndexMaterial) -> ChangeScan<'_> {
 				label: &root.label,
 				path: &root.path,
 				ctx: &root.ctx,
+				source_groups: &root.source_groups,
 			})
 			.collect(),
 		files: material
@@ -77,6 +78,12 @@ fn change_scan(material: &CodeIndexMaterial) -> ChangeScan<'_> {
 				rel_path: &file.rel_path,
 				anchor: &file.anchor,
 				lang: file.lang,
+				srcset: material
+					.source_catalog
+					.sources
+					.files
+					.get(file_idx)
+					.and_then(|source| source.srcset.as_deref()),
 				graph: &file.graph,
 				source: &file.source,
 			})

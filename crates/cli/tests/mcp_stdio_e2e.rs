@@ -69,6 +69,74 @@ fn stdio_handshake_and_eof_do_not_wait_for_a_blocked_preload() {
 }
 
 #[test]
+fn stdio_failed_preload_exposes_one_failure_to_status_and_data_queries() {
+	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::create_dir_all(workspace.path().join("src/generated")).expect("source roots");
+	std::fs::write(
+		workspace.path().join(".code-moniker.toml"),
+		r#"
+[[workspace.source_group]]
+roots = ["src"]
+
+[[workspace.source_group]]
+roots = ["src/generated"]
+"#,
+	)
+	.expect("invalid source-group config");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let mut child = spawn_stdio_read(&root);
+	let stdout = child.stdout.take().expect("child stdout");
+	let (response_tx, response_rx) = std::sync::mpsc::channel();
+	let reader = thread::spawn(move || {
+		for line in BufReader::new(stdout).lines() {
+			if response_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+	receive_response(&response_rx, 1, Duration::from_secs(2)).expect("MCP initialize");
+
+	let deadline = Instant::now() + Duration::from_secs(5);
+	let mut id = 2;
+	let failure_text = loop {
+		request_stdio_workspace_status(&mut child, id);
+		let remaining = deadline
+			.checked_duration_since(Instant::now())
+			.unwrap_or_else(|| panic!("workspace.status did not expose the failed preload"));
+		let response =
+			receive_response(&response_rx, id, remaining).unwrap_or_else(|error| panic!("{error}"));
+		let text = response["result"]["content"][0]["text"]
+			.as_str()
+			.expect("workspace.status text")
+			.to_string();
+		if text.contains("phase: failed") {
+			break text;
+		}
+		assert!(text.contains("phase: loading"), "{text}");
+		thread::sleep(Duration::from_millis(20));
+		id += 1;
+	};
+	assert!(failure_text.contains("overlap"), "{failure_text}");
+
+	id += 1;
+	request_stdio_read(&mut child, &root, id);
+	let response = receive_response(&response_rx, id, Duration::from_secs(2))
+		.expect("failed data query response");
+	let data_error = response["result"]["content"][0]["text"]
+		.as_str()
+		.expect("data error text");
+	assert!(data_error.contains("workspace_load_failed"), "{data_error}");
+	assert!(data_error.contains("overlap"), "{data_error}");
+
+	drop(child.stdin.take());
+	wait_for_exit(&mut child, Duration::from_secs(2));
+	assert!(child.wait().expect("reap MCP").success());
+	reader.join().expect("stdout reader");
+	assert_no_daemon_registry(&root);
+}
+
+#[test]
 fn stdio_transport_serves_the_bound_workspace_without_stdout_noise() {
 	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
 	let workspace = tempfile::tempdir().expect("workspace");
@@ -123,7 +191,6 @@ fn spawn_stdio_read(root: &std::path::Path) -> std::process::Child {
 		.args(["mcp"])
 		.arg(&root)
 		.args(["--transport", "stdio"])
-		.env("CODE_MONIKER_MCP_LOADING_TIMEOUT_MS", "300")
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped())
@@ -169,6 +236,20 @@ fn request_stdio_read(child: &mut std::process::Child, root: &std::path::Path, i
 		}
 	});
 	writeln!(child.stdin.as_mut().expect("child stdin"), "{read}").expect("write MCP read message");
+}
+
+fn request_stdio_workspace_status(child: &mut std::process::Child, id: u64) {
+	let status = serde_json::json!({
+		"jsonrpc": "2.0",
+		"id": id,
+		"method": "tools/call",
+		"params": {
+			"name": "code_moniker_query",
+			"arguments": { "query": "workspace.status" }
+		}
+	});
+	writeln!(child.stdin.as_mut().expect("child stdin"), "{status}")
+		.expect("write MCP workspace.status");
 }
 
 fn collect_stdio_read(mut child: std::process::Child, root: &std::path::Path) -> String {

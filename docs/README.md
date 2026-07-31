@@ -26,6 +26,12 @@ then drop into the reference pages only when you need exact grammar details.
 | ---- | ---- |
 | Understand moniker URI grammar and matching | [Moniker URI](design/moniker-uri.md) |
 
+## Workspace
+
+| Need | Page |
+| ---- | ---- |
+| Map non-standard production and test roots | [Source groups and source sets](source-groups.md) |
+
 ## Project
 
 | Need | Page |

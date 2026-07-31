@@ -531,7 +531,6 @@ dependencies = [
  "anyhow",
  "code-moniker-query",
  "jsonrpsee",
- "libc",
  "serde",
  "serde_json",
  "tempfile",

@@ -465,11 +465,11 @@ fn memory_indexed_files(
 				.files
 				.get(&file.rel_path)
 				.ok_or_else(|| anyhow::anyhow!("cannot read {}: not found", file.path.display()))?;
-			let ctx = source_set
+			let root = source_set
 				.roots
 				.get(file.source)
-				.map(|root| &root.ctx)
 				.ok_or_else(|| anyhow::anyhow!("source root {} is unavailable", file.source))?;
+			let ctx = file.extraction_context(root);
 			Ok(IndexedSourceFile {
 				source_root: file.source,
 				source_id: identity.source_id(file_idx, &file.rel_path),
@@ -479,7 +479,12 @@ fn memory_indexed_files(
 				rel_path: file.rel_path.to_path_buf(),
 				anchor: file.anchor.to_path_buf(),
 				lang: file.lang,
-				graph: environment::extract_source_with(file.lang, &source.body, &file.anchor, ctx),
+				graph: environment::extract_source_with(
+					file.lang,
+					&source.body,
+					&file.anchor,
+					&ctx,
+				),
 				source: source.body.to_owned(),
 			})
 		})
@@ -496,6 +501,7 @@ fn memory_source_root(root: &Path) -> environment::SourceRoot {
 		path: root.to_path_buf(),
 		label: ".".to_string(),
 		ctx: environment::ExtractContext::default(),
+		source_groups: Default::default(),
 	}
 }
 
@@ -518,6 +524,8 @@ fn memory_source_files(
 				rel_path,
 				&environment::ExtractContext::default(),
 			),
+			source_group: None,
+			srcset: None,
 			retired: false,
 		})
 		.collect()
@@ -566,6 +574,7 @@ pub struct RuleSetRequest {
 	pub default_rules: DefaultRulesSelection,
 	pub profile: Option<String>,
 	pub scheme: String,
+	pub project_root: Option<PathBuf>,
 }
 
 impl RuleSetRequest {
@@ -576,6 +585,7 @@ impl RuleSetRequest {
 			default_rules: DefaultRulesSelection::Config,
 			profile: None,
 			scheme: scheme.into(),
+			project_root: None,
 		}
 	}
 
@@ -598,6 +608,11 @@ impl RuleSetRequest {
 		self
 	}
 
+	pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
+		self.project_root = Some(project_root.into());
+		self
+	}
+
 	pub fn rules_path(&self) -> Option<&Path> {
 		self.rules.as_deref()
 	}
@@ -607,11 +622,20 @@ impl RuleSetRequest {
 	}
 
 	pub fn load_config(&self) -> anyhow::Result<check::Config> {
-		let mut cfg = config::load_with_cli_sources(
-			self.rules_path(),
-			&self.inline_rules,
-			self.default_rules.as_override(),
-		)?;
+		let mut cfg = if let Some(project_root) = &self.project_root {
+			config::load_project_with_cli_sources(
+				project_root,
+				self.rules_path(),
+				&self.inline_rules,
+				self.default_rules.as_override(),
+			)?
+		} else {
+			config::load_with_cli_sources(
+				self.rules_path(),
+				&self.inline_rules,
+				self.default_rules.as_override(),
+			)?
+		};
 		if let Some(profile) = &self.profile {
 			cfg.apply_profile(profile)?;
 		}
@@ -650,9 +674,10 @@ pub struct CheckRequest {
 
 impl CheckRequest {
 	pub fn new(path: impl Into<PathBuf>, rules: RuleSetRequest) -> Self {
+		let path = path.into();
 		Self {
-			path: path.into(),
-			rules,
+			rules: rules.with_project_root(path.clone()),
+			path,
 			report: false,
 			files: Vec::new(),
 		}
@@ -1824,6 +1849,37 @@ mod tests {
 		) -> anyhow::Result<Option<Arc<WorkspaceSnapshot>>> {
 			self.inner.linked_snapshot(source_set, scheme)
 		}
+	}
+
+	#[test]
+	fn check_request_rejects_source_groups_from_another_project_rules_file() {
+		let analyzed = tempfile::tempdir().expect("analyzed project");
+		let external = tempfile::tempdir().expect("external rules project");
+		let external_rules = external.path().join(".code-moniker.toml");
+		std::fs::write(
+			&external_rules,
+			r#"
+default_rules = false
+
+[[workspace.source_group]]
+roots = ["src"]
+"#,
+		)
+		.expect("write external project config");
+		let request = CheckRequest::new(
+			analyzed.path(),
+			RuleSetRequest::with_rules(&external_rules, "code+moniker://"),
+		);
+
+		let error = request
+			.run()
+			.expect_err("structural config must belong to the analyzed project");
+		assert!(
+			error
+				.to_string()
+				.contains("may be declared only in the canonical"),
+			"{error:#}"
+		);
 	}
 
 	#[test]

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -60,24 +61,25 @@ fn resolve_target(args: &DiffArgs) -> anyhow::Result<(PathBuf, DiffScope)> {
 
 fn worktree_review(sources: &SourceFileSet, diffs: &ReviewDiffs) -> anyhow::Result<SemanticReview> {
 	let changed: HashSet<PathBuf> = diffs.current_paths().into_iter().collect();
-	let mut extracted: Vec<OwnedFile> = Vec::new();
+	let mut extracted: Vec<OwnedFile<'_>> = Vec::new();
 	for file in &sources.files {
 		if !changed.contains(&canonical(&file.path)) {
 			continue;
 		}
-		let ctx = &sources.roots[file.source].ctx;
+		let ctx = file.extraction_context(&sources.roots[file.source]);
 		let (graph, cached_source) =
-			environment::load_or_extract_source(&file.path, &file.anchor, file.lang, None, ctx)?;
+			environment::load_or_extract_source(&file.path, &file.anchor, file.lang, None, &ctx)?;
 		let source = match cached_source {
 			Some(text) => text,
 			None => std::fs::read_to_string(&file.path)?,
 		};
 		extracted.push(OwnedFile {
-			path: file.path.clone(),
-			rel_path: file.rel_path.clone(),
-			anchor: file.anchor.clone(),
+			path: Cow::Borrowed(file.path.as_path()),
+			rel_path: Cow::Borrowed(file.rel_path.as_path()),
+			anchor: Cow::Borrowed(file.anchor.as_path()),
 			lang: file.lang,
 			source_root: file.source,
+			srcset: file.srcset.as_deref().map(Cow::Borrowed),
 			source,
 			graph,
 		});
@@ -88,12 +90,13 @@ fn worktree_review(sources: &SourceFileSet, diffs: &ReviewDiffs) -> anyhow::Resu
 	))
 }
 
-struct OwnedFile {
-	path: PathBuf,
-	rel_path: PathBuf,
-	anchor: PathBuf,
+struct OwnedFile<'a> {
+	path: Cow<'a, Path>,
+	rel_path: Cow<'a, Path>,
+	anchor: Cow<'a, Path>,
 	lang: Lang,
 	source_root: usize,
+	srcset: Option<Cow<'a, str>>,
 	source: String,
 	graph: CodeGraph,
 }
@@ -103,7 +106,7 @@ fn blob_review(
 	diffs: &ReviewDiffs,
 	head_rev: &str,
 ) -> anyhow::Result<SemanticReview> {
-	let mut extracted: Vec<OwnedFile> = Vec::new();
+	let mut extracted: Vec<OwnedFile<'static>> = Vec::new();
 	for (repo_root, repo_rel) in diffs.current_rows() {
 		let Some(file) = head_file(sources, repo_root, repo_rel, head_rev)? else {
 			continue;
@@ -121,7 +124,7 @@ fn head_file(
 	repo_root: &Path,
 	repo_rel: &Path,
 	head_rev: &str,
-) -> anyhow::Result<Option<OwnedFile>> {
+) -> anyhow::Result<Option<OwnedFile<'static>>> {
 	let abs = repo_root.join(repo_rel);
 	let Ok(lang) = environment::language_for_path(&abs) else {
 		return Ok(None);
@@ -139,13 +142,16 @@ fn head_file(
 	} else {
 		rel_path.clone()
 	};
-	let graph = environment::extract_source_with(lang, &source, &anchor, &root.ctx);
+	let ctx = root.extraction_context_for_path(&abs);
+	let srcset = ctx.srcset.clone();
+	let graph = environment::extract_source_with(lang, &source, &anchor, &ctx);
 	Ok(Some(OwnedFile {
-		path: abs,
-		rel_path: anchor.clone(),
-		anchor,
+		path: Cow::Owned(abs),
+		rel_path: Cow::Owned(anchor.clone()),
+		anchor: Cow::Owned(anchor),
 		lang,
 		source_root,
+		srcset: srcset.map(Cow::Owned),
 		source,
 		graph,
 	}))
@@ -163,7 +169,7 @@ fn owning_root<'s>(
 	})
 }
 
-fn owned_scan<'a>(sources: &'a SourceFileSet, files: &'a [OwnedFile]) -> ChangeScan<'a> {
+fn owned_scan<'a>(sources: &'a SourceFileSet, files: &'a [OwnedFile<'_>]) -> ChangeScan<'a> {
 	ChangeScan {
 		roots: sources
 			.roots
@@ -172,6 +178,7 @@ fn owned_scan<'a>(sources: &'a SourceFileSet, files: &'a [OwnedFile]) -> ChangeS
 				label: &root.label,
 				path: &root.path,
 				ctx: &root.ctx,
+				source_groups: &root.source_groups,
 			})
 			.collect(),
 		files: files
@@ -180,10 +187,11 @@ fn owned_scan<'a>(sources: &'a SourceFileSet, files: &'a [OwnedFile]) -> ChangeS
 			.map(|(file_idx, file)| ChangeFile {
 				file_idx,
 				source_root: file.source_root,
-				path: &file.path,
-				rel_path: &file.rel_path,
-				anchor: &file.anchor,
+				path: file.path.as_ref(),
+				rel_path: file.rel_path.as_ref(),
+				anchor: file.anchor.as_ref(),
 				lang: file.lang,
+				srcset: file.srcset.as_deref(),
 				graph: &file.graph,
 				source: &file.source,
 			})

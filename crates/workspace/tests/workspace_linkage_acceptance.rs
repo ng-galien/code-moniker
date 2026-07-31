@@ -868,6 +868,36 @@ fn java_declared_source_groups_block_cross_group_calls() {
 }
 
 #[test]
+fn java_declared_source_group_maps_non_standard_main_and_test_srcsets() {
+	let snapshot = load_workspace("projects/java/custom-source-group");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"srcset:main/lang:java/package:com/package:acme/package:custom/module:MainCaller/class:MainCaller/method:read(Clock)",
+		"method_call",
+		"now",
+		0,
+		"srcset:main/lang:java/package:com/package:acme/package:custom/module:Clock/class:Clock/method:now()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"srcset:test/lang:java/package:com/package:acme/package:custom/module:TestCaller/class:TestCaller/method:read(Clock)",
+		"method_call",
+		"now",
+		0,
+		"srcset:test/lang:java/package:com/package:acme/package:custom/module:Clock/class:Clock/method:now()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"srcset:test/lang:java/package:com/package:acme/package:custom/module:TestCaller/class:TestCaller/method:readProduction(ProductionOnly)",
+		"method_call",
+		"name",
+		0,
+		"srcset:main/lang:java/package:com/package:acme/package:custom/module:ProductionOnly/class:ProductionOnly/method:name()",
+	);
+}
+
+#[test]
 fn java_same_package_homonyms_prefer_the_source_srcset() {
 	let snapshot = load_workspace("projects/java/no-manifest-declared");
 

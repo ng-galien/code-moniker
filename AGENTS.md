@@ -49,6 +49,12 @@
 
 ## Review Gates
 
+- Architecture-wide review is mandatory before a local-diff verdict:
+  - For every new state machine, timeout, retry loop, cache, parser, classifier, launcher, or policy, search the full repository for the mechanism it represents, not only for duplicated text.
+  - Name the canonical owner and every consumer. A second owner is a design finding even when the code is not textually cloned.
+  - Prefer completing or extending the existing owner over adding a consumer-local mechanism. Any intentional parallel mechanism needs a distinct contract and rationale.
+  - Include a `Mechanism reuse / duplication` section in the review with symbolic-search evidence and the surfaces compared. A local code-quality review without this section is incomplete.
+  - The smell DSL does not perform clone detection or prove semantic uniqueness; a clean smell report never waives this repository-wide check. See `agents/maps/rust-server.md` for daemon lifecycle ownership.
 - Short gate:
   - `rustfmt --edition 2024 --config-path rustfmt.toml --check <touched-rust-files>`
   - focused test group
@@ -93,7 +99,7 @@ tmux capture-pane -t cm-mcp -p
 - Behavior preservation: focused test.
 - Broad check output: always pass `--max-violations <N>`.
 - JSON analysis: redirect to temp file; inspect with `jq`.
-- Pre-commit symbolic review: `code-moniker extract`/`stats`; independent review agent before staging.
+- Pre-commit symbolic review: `code-moniker extract`/`stats`; independent review agent before staging. The review agent must apply the architecture-wide mechanism-reuse gate above, not only inspect touched lines.
 
 ## CI & Release
 

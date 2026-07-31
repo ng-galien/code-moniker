@@ -1081,14 +1081,6 @@
             "null"
           ]
         },
-        "state": {
-          "default": "ready",
-          "allOf": [
-            {
-              "$ref": "#/definitions/DaemonRegistryState"
-            }
-          ]
-        },
         "token": {
           "type": "string"
         },
@@ -1102,13 +1094,6 @@
           }
         }
       }
-    },
-    "DaemonRegistryState": {
-      "type": "string",
-      "enum": [
-        "indexing",
-        "ready"
-      ]
     },
     "DaemonWorkspaceConfig": {
       "type": "object",
@@ -5407,14 +5392,41 @@
       "enum": [
         "stale",
         "refreshed",
+        "failed",
         "notes",
         "git_base"
       ]
+    },
+    "WorkspaceFailureDto": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "resource": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "WorkspaceGeneration": {
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
+    },
+    "WorkspacePhase": {
+      "type": "string",
+      "enum": [
+        "loading",
+        "ready",
+        "refreshing",
+        "failed"
+      ]
     },
     "WorkspaceRootStatus": {
       "type": "object",
@@ -5519,6 +5531,17 @@
         "symbols"
       ],
       "properties": {
+        "failure": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceFailureDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "files": {
           "type": "integer",
           "format": "uint",
@@ -5535,7 +5558,7 @@
           ]
         },
         "phase": {
-          "type": "string"
+          "$ref": "#/definitions/WorkspacePhase"
         },
         "producer": {
           "default": {
@@ -5641,5 +5664,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 11
+  "x-code-moniker-protocol-version": 12
 }

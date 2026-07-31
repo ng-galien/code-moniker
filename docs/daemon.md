@@ -7,8 +7,12 @@ Stdio MCP is deliberately in-process: the invoking client owns its index and
 closing the stdio session cannot leave a detached daemon behind.
 The stdio transport starts before its background preload, so MCP initialize is
 never gated by a full workspace scan. Until the atomically built snapshot is
-ready, data tools return `workspace_loading`; the client can retry without
-restarting the server.
+ready, `workspace.status` returns the typed `loading` phase and data tools
+return `workspace_loading` immediately; the client can retry without restarting
+the server. Initial failure is likewise observable as `failed` with its cause
+while the endpoint stays available.
+Stdio MCP projects that same lifecycle into both `workspace.status` and data
+query errors; it does not maintain a separate preload verdict.
 
 Once a generation has been published, the daemon keeps that immutable snapshot
 separate from the mutable refresh runtime. `stale-ok` reads therefore continue
@@ -43,10 +47,10 @@ code-moniker query [-r root] "<DSL>" [--json]
 code-moniker query --daemon <ENDPOINT> "<DSL>" [--json]
 ```
 
-`daemon start` runs in the foreground and does not report `index ready` until
-the workspace is registered and available for queries. Clients auto-spawn a
-background daemon via `connect_or_start`; concurrent clients share its atomic
-registry claim rather than creating competing processes. `query` field syntax is positional for the URI, e.g.
+`daemon start` runs in the foreground, registers its serving endpoint, then
+continues the initial index in the same process. Clients auto-spawn a background
+daemon via `connect_or_start`; concurrent clients share its atomic registry
+claim rather than creating competing processes. `query` field syntax is positional for the URI, e.g.
 `code-moniker query "view.read workspace/views"`.
 
 The execution source is explicit:
@@ -65,15 +69,23 @@ workspace-identity selection and does not alter an explicit endpoint target.
 The rules TOML is loaded for the current request while the source corpus and
 linkage graph remain pinned to the response `generation`.
 
-`--supervisor-pid` binds the daemon lifetime to another process. Automatic
-launchers also pass a private inherited liveness channel: EOF stops the daemon
-immediately, even if the operating system has already reused the supervisor
-PID. The PID check remains a fallback for manual launchers. Both mechanisms
-work during the initial index and remove the daemon's own registry claim on
-exit. Every `connect_or_start` launch and the VS Code extension use this mode.
-VS Code also requests an explicit shutdown during normal deactivation;
-supervision is the crash-safe fallback. Only an explicit foreground `daemon
-start` without supervision is persistent by design.
+`--supervisor-pid` binds an explicitly owned daemon lifetime to another process.
+An owned launcher may also pass a private inherited liveness channel: EOF stops
+the daemon immediately, even if the operating system has already reused the
+supervisor PID. The PID check remains a fallback for manual launchers. Both
+mechanisms work during the initial index and remove the daemon's own registry
+claim on exit. By contrast, Rust `connect_or_start` launches the shared daemon
+without hidden supervision: the daemon keeps indexing after the initiating CLI
+client exits. VS Code uses the explicit owned-launch contract and requests a
+guarded shutdown during normal deactivation.
+
+Registry claim maintenance distinguishes registry read errors, a missing or
+replaced claim, and heartbeat write or ownership failures. An unexpected claim
+loss exits non-zero with that cause on stderr. Detached Rust and Node launchers
+preserve this existing daemon diagnostic stream: the short-lived Rust launcher
+redirects it to `$TMPDIR/code-moniker-daemons/<workspace-hash>.log` so it does
+not retain the client's output pipe, while the owned Node launcher inherits it.
+No separate logging subsystem is involved in the lifecycle contract.
 
 Initial indexing carries a cooperative cancellation token through source
 walking, parallel extraction and snapshot build phases. Shutdown cancels that
@@ -95,13 +107,15 @@ durations may overlap and therefore need not sum to the total.
   - `command(CommandRequest) -> CommandResponse`
   - `shutdown()`
   - `subscribeEvents` / `events` / `unsubscribeEvents` — subscription stream of
-    `WorkspaceEventDto` (stale / refreshed / notes / git-base).
+    `WorkspaceEventDto` (stale / refreshed / failed / notes / git-base).
 
 `protocol_version` guards the serialized request/response shape. CLI, MCP, TUI,
 and VS Code connect-or-start clients require an exact protocol and
-workspace-root match and recycle a protocol-mismatched registered daemon once.
-If the replacement still reports another protocol,
-the client stops with reinstall guidance instead of entering a restart loop.
+workspace-root match. A daemon with an older protocol is recycled once so the
+current binary rebuilds the index. A daemon with a newer protocol is never
+stopped by the older client; the client reports that it must be updated. If a
+replacement still disagrees, the client stops instead of entering a restart
+loop.
 It never reuses a daemon that merely contains the requested roots as a subset.
 The capability set remains the compatibility signal for individual query
 verbs; the daemon package version string is informational.
@@ -233,16 +247,18 @@ generation-aware paginated row sequence controlled by `limit` and `cursor`.
 
 A registry directory under `$TMPDIR/code-moniker-daemons/` holds one `<hash>.json`
 per workspace identity (roots/project/cache; refresh policy does not create a
-second daemon). Each entry records `endpoint` (`127.0.0.1:port`), `token`, `pid`,
-heartbeat, roots, and a state: `indexing` or `ready`. Entries are written
-atomically; on exit the daemon removes only its own entry.
+second daemon). Each entry records process-discovery data only: `endpoint`
+(`127.0.0.1:port`), `token`, `pid`, heartbeat, and roots. Index lifecycle is
+owned exclusively by `workspace.status`, not duplicated in the registry.
+Entries are written atomically; on exit the daemon removes only its own entry.
 
 Connect-or-start clients purge dead-PID entries, require an exact workspace
-identity, validate the daemon handshake roots, and allow up to 30 seconds for a
-new daemon to finish its initial index before reporting a readiness timeout. A
-ready entry whose endpoint or handshake is unusable is removed with an
-ownership check and replaced once; a failed replacement is reported instead of
-entering a restart loop.
+identity, and validate the daemon handshake roots as soon as the endpoint is
+serving. The bounded startup wait covers process registration and transport
+only; it is independent of index duration. A serving endpoint answers
+`workspace.status` during the initial build. A fresh live claim whose endpoint
+or handshake is unusable is reported instead of being unlinked and replaced by
+a competing process.
 
 A live PID with an unavailable endpoint keeps a fresh registry claim and is
 reported as an error; clients never unlink it and start a competitor. The
@@ -267,10 +283,11 @@ whole machine; pass the canonical absolute project directory instead. Identity
 resolution remains available to `daemon status` and `daemon stop`, so an old
 root daemon can still be diagnosed and removed safely.
 
-`daemon status` distinguishes a daemon that is `indexing`, a `ready` daemon, a
-live PID with an unreachable endpoint (`stale registry`), and a dead PID (whose
-registry entry is removed). `daemon list` also purges dead-PID entries. A status
-for a ready workspace reports its current indexed `generation` and any
+`daemon status` distinguishes process availability from the typed workspace
+phase (`loading`, `ready`, `refreshing`, or `failed`), a live PID with an
+unreachable endpoint (`stale registry`), and a dead PID (whose registry entry is
+removed). `daemon list` reports process-discovery entries and also purges dead
+PIDs. A status for a ready workspace reports its current indexed `generation` and any
 concurrent daemon rooted at an ancestor or child directory, such as `/trust`
 and `/trust/apps/trust`. The endpoint printed by `daemon list` is the canonical
 selector accepted by `query --daemon`.

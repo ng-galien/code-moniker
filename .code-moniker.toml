@@ -84,6 +84,33 @@ parsed_document_contract = "kind = 'struct' AND name = 'ParsedDocument' AND moni
 language_sdk_pipeline_extract = "kind = 'fn' AND name = 'extract' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**/module:sdk_pipeline/**'"
 mcp_read_input_schema = "kind = 'method' AND name =~ ^input_schema AND moniker ~ '**/module:read/**'"
 mcp_read_ast_schema = "kind = 'fn' AND name =~ ^read_input_schema AND moniker ~ '**/module:read/**'"
+daemon_registry_entry_contract = "kind = 'struct' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:discovery/struct:DaemonRegistryEntry'"
+workspace_status_contract = "kind = 'struct' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/struct:WorkspaceStatus'"
+daemon_client_transport_wait = "kind = 'fn' AND name = 'wait_for_daemon_with_limits' AND moniker ~ '**/dir:crates/dir:daemon-client/dir:src/**'"
+daemon_client_process_spawn = "kind = 'fn' AND name = 'start_daemon_process' AND moniker ~ '**/dir:crates/dir:daemon-client/dir:src/**'"
+daemon_client_compatibility_policy = "kind = 'fn' AND name = 'compatibility_action' AND moniker ~ '**/dir:crates/dir:daemon-client/dir:src/**'"
+mcp_preload_gate = "kind = 'fn' AND name = 'ensure_workspace_available' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/**'"
+mcp_lifecycle_projection = "kind = 'fn' AND name = 'project_workspace_lifecycle' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/**'"
+daemon_registry_claim_maintenance = "kind = 'fn' AND name = 'maintain_registry_claim' AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lib/**'"
+daemon_registry_entry_read = "kind = 'fn' AND name = 'read_registry_entry' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:discovery/**'"
+daemon_registry_owned_update = "kind = 'fn' AND name = 'update_registry_entry_if_own' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:discovery/**'"
+source_group_config_scope = "kind = 'fn' AND name = 'ensure_source_groups_owned_by_project_root' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:config/**'"
+source_group_root_identity = "kind = 'fn' AND name = 'is_project_root_config' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:config/**'"
+ruleset_config_loader = "kind = 'method' AND name = 'load_config' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:command/struct:RuleSetRequest/**'"
+check_request_constructor = "kind = 'method' AND name = 'new' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:command/struct:CheckRequest/**'"
+source_group_fragment_parser = "kind = 'fn' AND name = 'parse_fragment' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:config/module:fragments/**'"
+source_group_membership_projection = "kind = 'fn' AND name = 'configured_source_membership' AND moniker ~ '**/dir:crates/dir:workspace/dir:src/module:sources/**'"
+source_file_extraction_context = "kind = 'method' AND name = 'extraction_context' AND moniker ~ '**/dir:crates/dir:workspace/dir:src/module:sources/struct:SourceFile/**'"
+source_group_linkage_lookup = "kind = 'fn' AND name = 'group_of' AND moniker ~ '**/dir:crates/dir:workspace/dir:src/module:linkage/module:source_groups/**'"
+node_daemon_process_spawn = "kind = 'fn' AND name = 'tryLaunchDetached' AND moniker ~ '**/dir:packages/dir:client/dir:src/module:node/**'"
+vscode_daemon_session = "kind = 'class' AND name = 'DaemonSession' AND moniker ~ '**/dir:vscode-extension/dir:src/module:daemon/module:session/**'"
+vscode_daemon_connect_policy = "kind = 'method' AND name = 'doConnect' AND moniker ~ '**/dir:vscode-extension/dir:src/module:daemon/module:session/**'"
+daemon_lifecycle_consumer = """
+  moniker ~ '**/dir:crates/dir:cli/dir:src/module:query/**'
+  OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/**'
+  OR moniker ~ '**/dir:packages/dir:client/dir:src/module:node/**'
+  OR moniker ~ '**/dir:vscode-extension/dir:src/module:daemon/module:session/**'
+"""
 
 [exclude]
 uris = [
@@ -91,7 +118,8 @@ uris = [
   "**/crates/tree-sitter-plpgsql/src/parser.c",
   "**/crates/tree-sitter-plpgsql/src/scanner.c",
   "**/crates/tree-sitter-plpgsql/src/tree_sitter/**",
-  "**/vscode-extension/**",
+  "**/vscode-extension/dist/**",
+  "**/vscode-extension/media/**",
 ]
 
 [profiles.agent]
@@ -298,7 +326,7 @@ rationale = "The MCP in-process runtime uses this protocol property to bypass wo
 [[rust.shape.callable.where]]
 id        = "mcp-runtime-honors-stateless-query-contract"
 severity  = "error"
-expr      = "NOT $mcp_daemon_runtime_query OR text =~ '(?s)requires_workspace_snapshot\\(\\).*ensure_preload_ready'"
+expr      = "NOT $mcp_daemon_runtime_query OR text =~ '(?s)requires_workspace_snapshot\\(\\).*ensure_workspace_available'"
 message   = "The MCP in-process runtime must consult the query snapshot contract before waiting for preload."
 rationale = "Otherwise source-plus-language parsing can block on or fail because of an unrelated workspace index."
 
@@ -436,6 +464,190 @@ severity  = "error"
 expr      = "NOT $mcp_read_ast_schema OR text =~ '(?s)\"source\".*\"language\".*\"ast\".*\"max_depth\".*\"max_nodes\".*\"named_only\".*\"include_text\".*\"max_text_chars\"'"
 message   = "`code_moniker_read` must publish the complete bounded AST request contract."
 rationale = "The agent surface must expose direct source-plus-language parsing and the same bounds enforced by the typed daemon query."
+
+# ─── Daemon lifecycle ownership ─────────────────────────────────────
+
+[[rust.struct.where]]
+id        = "daemon-registry-is-process-discovery-only"
+severity  = "error"
+expr      = "NOT $daemon_registry_entry_contract OR (NOT text =~ '(?m)pub\\s+(state|phase)\\s*:' AND NOT text =~ 'DaemonRegistryState|WorkspacePhase')"
+message   = "`DaemonRegistryEntry` must contain process-discovery data only; workspace lifecycle belongs to `workspace.status`."
+rationale = "Duplicating loading/ready in the registry makes clients gate transport on index duration and recreates startup timeout loops."
+
+[[rust.struct.where]]
+id        = "workspace-status-owns-typed-lifecycle"
+severity  = "error"
+expr      = "NOT $workspace_status_contract OR (text =~ 'phase\\s*:\\s*WorkspacePhase' AND text =~ 'failure\\s*:\\s*Option<WorkspaceFailureDto>')"
+message   = "`WorkspaceStatus` must keep the canonical typed phase and failure cause."
+rationale = "Every transport and UI consumes one protocol lifecycle instead of inventing local string states."
+
+[[rust.fn.where]]
+id        = "daemon-client-waits-for-transport-not-index"
+severity  = "error"
+expr      = "NOT $daemon_client_transport_wait OR (text =~ 'connect_entry' AND NOT text =~ 'DaemonRegistryState|WorkspacePhase|workspace_loading|Indexing|Ready')"
+message   = "The daemon client startup wait may probe registration and handshake only, never workspace readiness."
+rationale = "Index duration is unbounded workspace work; it cannot be a condition for establishing a daemon connection."
+
+[[rust.fn.where]]
+id        = "auto-started-daemon-has-no-hidden-supervisor"
+severity  = "error"
+expr      = "NOT $daemon_client_process_spawn OR NOT text =~ 'supervisor-(pid|fd)'"
+message   = "Rust connect-or-start must launch the shared daemon without hidden client lifetime supervision."
+rationale = "The daemon must keep indexing after the short-lived client that initiated it has returned."
+
+[[rust.fn.where]]
+id        = "protocol-recovery-is-directional"
+severity  = "error"
+expr      = "NOT $daemon_client_compatibility_policy OR text =~ '(?s)protocol_version < PROTOCOL_VERSION.*RestartDaemon.*protocol_version > PROTOCOL_VERSION.*RejectClient'"
+message   = "Protocol recovery must restart an older daemon once and preserve a newer daemon for an older client."
+rationale = "A generic mismatch retry can destroy a valid newer index or enter an unbounded restart loop."
+
+[[rust.fn.where]]
+id        = "mcp-preload-gate-returns-canonical-state-immediately"
+severity  = "error"
+expr      = "NOT $mcp_preload_gate OR (text =~ 'WorkspacePhase::Ready' AND text =~ 'WorkspacePhase::Loading' AND text =~ 'WorkspacePhase::Failed' AND NOT text =~ 'sleep|Instant::now|deadline|wait_for_workspace')"
+message   = "MCP preload handling must project the canonical workspace phase without a private wait loop."
+rationale = "Stdio MCP must answer loading or failed immediately while its background index continues."
+
+[[rust.method.where]]
+id        = "mcp-runtime-projects-one-lifecycle-to-status-and-data"
+severity  = "error"
+expr      = "NOT $mcp_daemon_runtime_query OR text =~ '(?s)current_lifecycle.*ensure_workspace_available.*project_workspace_lifecycle'"
+message   = "The in-process MCP runtime must use one `WorkspaceLifecycle` for snapshot gates and `workspace.status`."
+rationale = "A separate preload gate without status projection lets data queries report failed while workspace.status remains loading."
+
+[[rust.fn.where]]
+id        = "mcp-workspace-status-projects-typed-lifecycle"
+severity  = "error"
+expr      = "NOT $mcp_lifecycle_projection OR (text =~ 'QueryResult::WorkspaceStatus' AND text =~ 'status.phase = lifecycle.phase' AND text =~ 'status.failure = lifecycle.failure')"
+message   = "MCP `workspace.status` must project the same typed phase and failure used by data-query availability checks."
+rationale = "The status query is the public lifecycle read model and cannot bypass a failed initial preload."
+
+[[rust.fn.where]]
+id        = "daemon-registry-claim-loss-is-typed"
+severity  = "error"
+expr      = "NOT $daemon_registry_claim_maintenance OR (text =~ 'RegistryClaimFailure::(Read|Missing|Replaced|HeartbeatWrite|HeartbeatRejected)' AND NOT text =~ '\\.ok\\(\\)|\\.flatten\\(\\)|unwrap_or\\(false\\)')"
+message   = "Registry claim maintenance must return an explicit failure reason instead of collapsing read and heartbeat errors into claim loss."
+rationale = "A daemon exit without the read, replacement, or heartbeat cause leaves clients with only a later no-registration symptom."
+
+[[rust.fn.where]]
+id        = "daemon-registry-read-preserves-decode-failures"
+severity  = "error"
+expr      = "NOT $daemon_registry_entry_read OR (text =~ 'parse_registry_entry' AND NOT text =~ '\\.ok\\(\\)|unwrap_or\\(false\\)')"
+message   = "Registry reads must preserve I/O and JSON decode failures instead of reporting an absent daemon."
+rationale = "The daemon claim lifecycle can be causal only when its registry primitives do not collapse corrupt state into `None`."
+
+[[rust.fn.where]]
+id        = "daemon-registry-heartbeat-preserves-read-failures"
+severity  = "error"
+expr      = "NOT $daemon_registry_owned_update OR (text =~ 'parse_registry_entry' AND text =~ 'ErrorKind::NotFound' AND NOT text =~ '\\.ok\\(\\)|and_then.*\\.ok\\(\\)')"
+message   = "Registry heartbeat ownership checks must distinguish a missing claim from read or decode failures."
+rationale = "Only `NotFound` means no owner; corruption and I/O failures must reach the daemon's typed diagnostic path."
+
+[[rust.fn.where]]
+id        = "rust-daemon-launch-captures-stderr-without-inheriting-client-pipes"
+severity  = "error"
+expr      = "NOT $daemon_client_process_spawn OR (text =~ 'daemon_log_path_for_config' AND text =~ 'stderr\\(Stdio::from\\(diagnostic\\)\\)' AND NOT text =~ 'stderr\\(Stdio::inherit')"
+message   = "The detached Rust launcher must capture daemon stderr without inheriting a short-lived client's output pipe."
+rationale = "The daemon already reports causal diagnostics on stderr. A deterministic file preserves them after detachment while allowing a client that captures its own stderr to receive EOF."
+
+[[ts.function.where]]
+id        = "node-daemon-launch-preserves-stderr-diagnostics"
+severity  = "error"
+expr      = "NOT $node_daemon_process_spawn OR text =~ 'stdio:\\s*\\[\"ignore\",\\s*\"ignore\",\\s*\"inherit\"'"
+message   = "The detached Node launcher must preserve the daemon's stderr diagnostics."
+rationale = "Rust and Node launchers must expose the same existing daemon diagnostic stream."
+
+[[rust.fn.where]]
+id        = "source-groups-are-owned-by-root-workspace-config"
+severity  = "error"
+expr      = "NOT $source_group_config_scope OR (text =~ 'project_root \\|\\| config.workspace.source_groups.is_empty' AND text =~ 'SourceGroupOutsideProjectRoot')"
+message   = "`workspace.source_group` must be accepted only from the canonical project configuration."
+rationale = "Fragments, standalone rules, and inline overlays are rule sources; accepting structural mappings there creates an effective rules config that scanning ignores."
+
+[[rust.fn.where]]
+id        = "source-group-root-owner-is-path-identity"
+severity  = "error"
+expr      = "NOT $source_group_root_identity OR (text =~ 'project_root.join\\(\"\\.code-moniker\\.toml\"\\)' AND text =~ 'path.canonicalize' AND text =~ 'expected.canonicalize' AND NOT text =~ 'file_name')"
+message   = "The source-group owner must be the analyzed root's exact `.code-moniker.toml`, not any file with that basename."
+rationale = "A borrowed `--rules /other/.code-moniker.toml` must not silently contribute structural configuration to another workspace."
+
+[[rust.method.where]]
+id        = "ruleset-config-loads-with-explicit-project-root"
+severity  = "error"
+expr      = "NOT $ruleset_config_loader OR text =~ 'load_project_with_cli_sources'"
+message   = "Ruleset loading must pass its explicit project root to structural config validation."
+rationale = "The rules path alone cannot prove that workspace mappings belong to the workspace being analyzed."
+
+[[rust.method.where]]
+id        = "check-request-binds-rules-to-analyzed-root"
+severity  = "error"
+expr      = "NOT $check_request_constructor OR text =~ 'rules.with_project_root\\(path.clone\\(\\)\\)'"
+message   = "A check request must bind rule loading to the path it analyzes."
+rationale = "This closes the `check TARGET --rules /other/.code-moniker.toml` source-group bypass at the shared engine boundary."
+
+[[rust.fn.where]]
+id        = "source-group-fragments-use-root-owner-policy"
+severity  = "error"
+expr      = "NOT $source_group_fragment_parser OR text =~ 'ensure_source_groups_owned_by_project_root'"
+message   = "Rule fragments must delegate source-group scope validation to the canonical root-owner policy."
+rationale = "A fragment-specific interpretation would recreate a second partial configuration mechanism."
+
+[[refs.where]]
+id        = "source-group-config-has-one-loader"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND kind = 'calls' AND target ~ '**/struct:DeclaredSourceGroups/method:load*') OR source.name = 'discover_scopes'"
+message   = "Only source discovery may load declared source groups from workspace configuration."
+rationale = "Discovery records the classification on each source file; extraction and linkage must consume that record rather than reparsing configuration."
+
+[[rust.fn.where]]
+id        = "source-group-membership-projects-group-and-srcset"
+severity  = "error"
+expr      = "NOT $source_group_membership_projection OR (text =~ 'membership.group' AND text =~ 'membership.srcset')"
+message   = "Source discovery must project both connectivity group and existing srcset identity from one membership lookup."
+rationale = "Production/test identity and linkage connectivity are two outputs of the same declared source-group classification."
+
+[[rust.method.where]]
+id        = "source-file-extraction-consumes-recorded-srcset"
+severity  = "error"
+expr      = "NOT $source_file_extraction_context OR text =~ 'self.srcset.as_deref\\(\\)'"
+message   = "Extraction must consume the srcset recorded on `SourceFile`."
+rationale = "Reclassifying paths during extraction would diverge from discovery and incremental refresh."
+
+[[rust.fn.where]]
+id        = "source-group-linkage-consumes-recorded-membership"
+severity  = "error"
+expr      = "NOT $source_group_linkage_lookup OR text =~ 'source.source_group'"
+message   = "Linkage must consume the source-group membership recorded in the source catalog."
+rationale = "Linkage must not reload or reinterpret workspace configuration after source discovery."
+
+[[shape.callable.where]]
+id        = "daemon-consumers-do-not-own-readiness-waits"
+severity  = "error"
+expr      = "NOT $daemon_lifecycle_consumer OR NOT name =~ '^(waitUntilReady|wait_until_ready|query_waiting_for_load|wait_for_workspace)$'"
+message   = "Daemon consumers must not introduce a workspace-readiness wait helper; consume the typed protocol state."
+rationale = "CLI, MCP and Node are adapters, not owners of index readiness policy."
+
+[[shape.callable.where]]
+id        = "daemon-consumers-do-not-retry-workspace-loading"
+severity  = "error"
+expr      = "NOT $daemon_lifecycle_consumer OR NOT (text =~ 'workspace_loading' AND text =~ 'sleep|delay|setTimeout|Instant::now|deadline')"
+message   = "Daemon consumers must return `workspace_loading` instead of hiding it behind a retry deadline."
+rationale = "Retry timing belongs to the caller UX; embedding it in adapters duplicates lifecycle policy and couples correctness to corpus size."
+
+[[ts.class.where]]
+id        = "vscode-session-separates-process-and-workspace-state"
+severity  = "error"
+expr      = "NOT $vscode_daemon_session OR (text =~ 'connectionStatus\\s*:\\s*DaemonConnectionStatus' AND text =~ 'workspacePhase\\??\\s*:\\s*WorkspacePhase' AND NOT text =~ '(?m)^\\s*status\\s*:\\s*DaemonStatus')"
+message   = "VS Code must store connection status and the canonical workspace phase separately; a combined mutable status recreates the daemon state machine."
+rationale = "The extension may derive a presentation label, but process availability and index readiness have different owners and recovery policies."
+
+[[ts.method.where]]
+id        = "vscode-protocol-recovery-is-directional"
+severity  = "error"
+expr      = "NOT $vscode_daemon_connect_policy OR text =~ '(?s)ProtocolMismatchError.*direction !== \"daemon_older\".*throw error.*relaunchAndReconnect'"
+message   = "VS Code may recycle only an older daemon; a newer daemon must be preserved for its newer clients."
+rationale = "The UI launcher must obey the same directional protocol policy as the Rust connect-or-start owner."
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the
@@ -595,8 +807,8 @@ message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`,
 # don't apply to them.
 [[ts.function.where]]
 id      = "name-camelcase"
-expr    = "$tests OR $camel"
-message = "Function names use camelCase. Rename `{name}`."
+expr    = "$tests OR $camel OR name =~ ^[A-Z][A-Za-z0-9]*$ OR name =~ ^__cb_[0-9_]+$"
+message = "Functions use camelCase; React-style components may use PascalCase. Rename `{name}`."
 
 # ─── Code smell adoption ───────────────────────────────────────────────
 # Smell rules are project-local review signals, not a generic rule pack.
@@ -635,7 +847,7 @@ functions are excluded while this rule is in adoption.
 
 [[rust.shape.callable.where]]
 id        = "smell-caller-concentration"
-severity  = "error"
+severity  = "warn"
 expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR visibility != 'public' OR count(in_refs, NOT $rust_test_caller) < 6 OR entropy(in_refs, source.parent, NOT $rust_test_caller) >= 0.5"
 message   = "Caller concentration candidate: `{name}` is mainly used by one local owner."
 rationale = """

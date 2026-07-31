@@ -1,17 +1,13 @@
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
 use code_moniker_daemon_client as daemon_client;
 use code_moniker_query::{
-	Consistency, QueryRequest, format_query_response_projected, parse_query, query_projection,
+	Consistency, format_query_response_projected, parse_query, query_projection,
 };
 
 use crate::Exit;
 use crate::args::{QueryArgs, QueryConsistency};
-
-const LOADING_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
-const LOADING_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 
 pub(crate) fn run<W1: Write, W2: Write>(
 	args: &QueryArgs,
@@ -30,7 +26,7 @@ pub(crate) fn run<W1: Write, W2: Write>(
 fn run_inner<W1: Write, W2: Write>(
 	args: &QueryArgs,
 	stdout: &mut W1,
-	stderr: &mut W2,
+	_stderr: &mut W2,
 ) -> anyhow::Result<()> {
 	let mut request = parse_query(&args.query)?;
 	if !args.query.contains("consistency") {
@@ -38,7 +34,7 @@ fn run_inner<W1: Write, W2: Write>(
 	}
 	let projection = query_projection(&request.query).to_vec();
 	let client = query_daemon_client(args, request.query.capability())?;
-	let response = query_waiting_for_load(&client, request, stderr)?;
+	let response = client.query(request)?;
 	if args.json {
 		serde_json::to_writer_pretty(&mut *stdout, &response)?;
 		writeln!(stdout)?;
@@ -67,36 +63,6 @@ fn query_daemon_client(
 		return Ok(client);
 	}
 	anyhow::bail!("daemon {endpoint} does not support query capability {capability}")
-}
-
-// A daemon that just started answers `workspace_loading` until its first
-// index lands. Waiting here, bounded, is the difference between an agent's
-// first call succeeding and an agent learning to distrust the tool.
-fn query_waiting_for_load<W: Write>(
-	client: &daemon_client::DaemonClient,
-	request: QueryRequest,
-	stderr: &mut W,
-) -> anyhow::Result<code_moniker_query::QueryResponse> {
-	let deadline = Instant::now() + LOADING_RETRY_TIMEOUT;
-	let mut announced = false;
-	loop {
-		match client.query(request.clone()) {
-			Err(error)
-				if format!("{error:#}").contains("workspace_loading")
-					&& Instant::now() < deadline =>
-			{
-				if !announced {
-					let _ = writeln!(
-						stderr,
-						"code-moniker: waiting for the daemon to finish indexing…"
-					);
-					announced = true;
-				}
-				std::thread::sleep(LOADING_RETRY_INTERVAL);
-			}
-			result => return result,
-		}
-	}
 }
 
 fn flag_consistency(flag: QueryConsistency) -> Consistency {

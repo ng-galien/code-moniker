@@ -8,8 +8,8 @@ use crate::environment;
 
 use super::super::diff::{
 	ChangeFile, ChangeScan, DiffHunk, DiffScope, FileDiff, FileDiffStatus, GitWorktree, HeadSide,
-	anchor_for, collect_changed_files, diff_path, display_rel_path, git_show, normalize_path,
-	resolve_base_rev, source_root_for_path,
+	anchor_for, collect_changed_files, diff_path, display_rel_path, extraction_context_for_file,
+	extraction_context_for_path, git_show, normalize_path, resolve_base_rev, source_root_for_path,
 };
 use super::model::{HunkCoverage, RefChange, SymbolChange};
 use super::pairing::{FilePairing, FileSide, PairInputs, finish_files, pair_file};
@@ -345,8 +345,8 @@ fn renamed_pair<'scan>(
 		git_show(&diff.repo_root, base_rev, &origin.repo_rel)
 			.map_err(|error| format!("{}: cannot read base blob: {error}", old_display.display()))?
 	};
-	let base_graph =
-		environment::extract_source_with(file.lang, &base_source, &old_anchor, root.ctx);
+	let ctx = extraction_context_for_path(root, &old_abs);
+	let base_graph = environment::extract_source_with(file.lang, &base_source, &old_anchor, &ctx);
 	Ok(SidePair {
 		old_rel: old_display,
 		new_rel: file.rel_path.to_path_buf(),
@@ -378,8 +378,9 @@ fn deleted_pair<'scan>(
 	let old_display = display_rel_path(scan, source_root, root, &old_rel);
 	let base_source = git_show(&diff.repo_root, base_rev, &diff.repo_rel)
 		.map_err(|error| format!("{}: cannot read base blob: {error}", old_display.display()))?;
-	let base_graph = environment::extract_source_with(lang, &base_source, &anchor, root.ctx);
-	let empty_graph = environment::extract_source_with(lang, "", &anchor, root.ctx);
+	let ctx = extraction_context_for_path(root, &path);
+	let base_graph = environment::extract_source_with(lang, &base_source, &anchor, &ctx);
+	let empty_graph = environment::extract_source_with(lang, "", &anchor, &ctx);
 	let (old_hunks, new_hunks) = hunk_spans(&diff.hunks);
 	Ok(SidePair {
 		new_rel: old_display.clone(),
@@ -404,8 +405,8 @@ fn extract_at(
 	anchor: &Path,
 	source: &str,
 ) -> CodeGraph {
-	let root = &scan.roots[file.source_root];
-	environment::extract_source_with(file.lang, source, anchor, root.ctx)
+	let ctx = extraction_context_for_file(scan, file);
+	environment::extract_source_with(file.lang, source, anchor, &ctx)
 }
 
 fn hunk_spans(hunks: &[DiffHunk]) -> (LineSpans, LineSpans) {
@@ -576,6 +577,7 @@ mod tests {
 		root: PathBuf,
 		files: Vec<(PathBuf, String, String)>,
 		graphs: Vec<CodeGraph>,
+		source_groups: crate::source_group::DeclaredSourceGroups,
 	}
 
 	impl ScanFixture {
@@ -598,6 +600,7 @@ mod tests {
 				root: root.to_path_buf(),
 				files,
 				graphs,
+				source_groups: Default::default(),
 			}
 		}
 
@@ -607,6 +610,7 @@ mod tests {
 					label: "repo",
 					path: &self.root,
 					ctx,
+					source_groups: &self.source_groups,
 				}],
 				files: self
 					.files
@@ -620,6 +624,7 @@ mod tests {
 						rel_path: Path::new(rel),
 						anchor: Path::new(rel),
 						lang: Lang::Rs,
+						srcset: None,
 						graph,
 						source,
 					})

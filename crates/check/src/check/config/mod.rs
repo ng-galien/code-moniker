@@ -104,7 +104,7 @@ pub struct WorkspaceRules {
 	#[serde(default)]
 	pub path: Vec<WorkspacePathRuleEntry>,
 	#[serde(default, rename = "source_group")]
-	pub source_groups: Vec<toml::Value>,
+	pub source_groups: Vec<code_moniker_workspace::source_group::SourceGroupConfig>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -306,6 +306,10 @@ pub enum ConfigError {
 	)]
 	WorkspaceRequireDocUnsupported,
 	#[error(
+		"`workspace.source_group` in `{path}` is structural workspace configuration and may be declared only in the canonical `.code-moniker.toml` project file"
+	)]
+	SourceGroupOutsideProjectRoot { path: String },
+	#[error(
 		"require_doc_comment = `{value}` under `[{section}.{kind}]` is not a recognised visibility for that language (allowed: {allowed})"
 	)]
 	UnknownDocVisibility {
@@ -415,7 +419,28 @@ pub fn load_with_cli_sources(
 	inline_sources: &[String],
 	default_rules: Option<bool>,
 ) -> Result<Config, ConfigError> {
-	let project = read_project_config(user_path)?;
+	load_with_cli_sources_for_project(None, user_path, inline_sources, default_rules)
+}
+
+/// Load rules for a concrete workspace root. Structural workspace fields are
+/// accepted only when `user_path` is that root's canonical
+/// `.code-moniker.toml`; alternate `--rules` files remain rules-only inputs.
+pub fn load_project_with_cli_sources(
+	project_root: &Path,
+	user_path: Option<&Path>,
+	inline_sources: &[String],
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
+	load_with_cli_sources_for_project(Some(project_root), user_path, inline_sources, default_rules)
+}
+
+fn load_with_cli_sources_for_project(
+	project_root: Option<&Path>,
+	user_path: Option<&Path>,
+	inline_sources: &[String],
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
+	let project = read_project_config(user_path, project_root)?;
 	let inline = parse_inline_configs(inline_sources)?;
 	let include_defaults = default_rules.unwrap_or_else(|| {
 		inline
@@ -442,6 +467,7 @@ fn parse_inline_config(raw: &str, index: usize) -> Result<Config, ConfigError> {
 		path: path.clone(),
 		error,
 	})?;
+	ensure_source_groups_owned_by_project_root(&user, &path, false)?;
 	validate(&user, &path)?;
 	Ok(user)
 }
@@ -468,6 +494,7 @@ pub fn load_from_str(
 		path: path.to_string(),
 		error,
 	})?;
+	ensure_source_groups_owned_by_project_root(&user, path, false)?;
 	validate(&user, path)?;
 	let include_defaults = default_rules.unwrap_or_else(|| user.default_rules.unwrap_or(true));
 	load_with_project(
@@ -487,7 +514,8 @@ pub(crate) fn load_with_options(
 	user_path: Option<&Path>,
 	include_defaults: bool,
 ) -> Result<Config, ConfigError> {
-	let project = read_project_config(user_path)?;
+	let project_root = user_path.map(project_root_from_config_path);
+	let project = read_project_config(user_path, project_root)?;
 	let include_defaults = include_defaults_from_project(&project, include_defaults);
 	load_with_project(project, include_defaults, Vec::new())
 }
@@ -518,8 +546,11 @@ fn load_with_project(
 	Ok(cfg)
 }
 
-fn read_project_config(user_path: Option<&Path>) -> Result<ProjectConfig, ConfigError> {
-	let root = read_user_config(user_path)?;
+fn read_project_config(
+	user_path: Option<&Path>,
+	project_root: Option<&Path>,
+) -> Result<ProjectConfig, ConfigError> {
+	let root = read_user_config(user_path, project_root)?;
 	let fragments = if root.is_some() {
 		fragments::read(user_path)?
 	} else {
@@ -528,7 +559,10 @@ fn read_project_config(user_path: Option<&Path>) -> Result<ProjectConfig, Config
 	Ok(ProjectConfig { root, fragments })
 }
 
-fn read_user_config(user_path: Option<&Path>) -> Result<Option<Config>, ConfigError> {
+fn read_user_config(
+	user_path: Option<&Path>,
+	project_root: Option<&Path>,
+) -> Result<Option<Config>, ConfigError> {
 	let Some(p) = user_path else {
 		return Ok(None);
 	};
@@ -543,8 +577,43 @@ fn read_user_config(user_path: Option<&Path>) -> Result<Option<Config>, ConfigEr
 		path: p.display().to_string(),
 		error,
 	})?;
+	ensure_source_groups_owned_by_project_root(
+		&user,
+		&p.display().to_string(),
+		is_project_root_config(p, project_root),
+	)?;
 	validate(&user, &p.display().to_string())?;
 	Ok(Some(user))
+}
+
+fn project_root_from_config_path(path: &Path) -> &Path {
+	path.parent()
+		.filter(|parent| !parent.as_os_str().is_empty())
+		.unwrap_or_else(|| Path::new("."))
+}
+
+fn is_project_root_config(path: &Path, project_root: Option<&Path>) -> bool {
+	let Some(project_root) = project_root else {
+		return false;
+	};
+	let expected = project_root.join(".code-moniker.toml");
+	match (path.canonicalize(), expected.canonicalize()) {
+		(Ok(actual), Ok(expected)) => actual == expected,
+		_ => false,
+	}
+}
+
+fn ensure_source_groups_owned_by_project_root(
+	config: &Config,
+	path: &str,
+	project_root: bool,
+) -> Result<(), ConfigError> {
+	if project_root || config.workspace.source_groups.is_empty() {
+		return Ok(());
+	}
+	Err(ConfigError::SourceGroupOutsideProjectRoot {
+		path: path.to_string(),
+	})
 }
 
 fn merge_into(base: &mut Config, ov: Config) {
@@ -1333,6 +1402,119 @@ mod tests {
 			cfg.workspace.symbol.rules[0].id.as_deref(),
 			Some("repositories-under-infra")
 		);
+	}
+
+	#[test]
+	fn parses_typed_workspace_source_group_mappings() {
+		let project = tempfile::tempdir().expect("project");
+		let root_config = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root_config,
+			r#"
+			[[workspace.source_group]]
+			roots = [
+			  { path = "src/java", srcset = "main" },
+			  { path = "test", srcset = "test" },
+			]
+			"#,
+		)
+		.expect("write root config");
+		let cfg =
+			load_with_options(Some(&root_config), false).expect("source group mapping parses");
+
+		assert_eq!(cfg.workspace.source_groups.len(), 1);
+		assert_eq!(cfg.workspace.source_groups[0].roots.len(), 2);
+		assert!(matches!(
+			&cfg.workspace.source_groups[0].roots[1],
+			code_moniker_workspace::source_group::SourceGroupRootConfig::Mapped(root)
+				if root.path == "test" && root.srcset == "test"
+		));
+	}
+
+	#[test]
+	fn source_groups_are_rejected_outside_the_canonical_project_file() {
+		let source_group = r#"
+[[workspace.source_group]]
+roots = ["src"]
+"#;
+		let standalone = load_from_str(source_group, "rules.toml", Some(false))
+			.expect_err("standalone rules must not redefine source groups");
+		assert!(matches!(
+			standalone,
+			ConfigError::SourceGroupOutsideProjectRoot { .. }
+		));
+
+		let inline = load_with_cli_sources(None, &[source_group.to_string()], Some(false))
+			.expect_err("inline rules must not redefine source groups");
+		assert!(matches!(
+			inline,
+			ConfigError::SourceGroupOutsideProjectRoot { .. }
+		));
+	}
+
+	#[test]
+	fn source_groups_are_rejected_when_rules_belong_to_another_project() {
+		let analyzed = tempfile::tempdir().expect("analyzed project");
+		let external = tempfile::tempdir().expect("external rules project");
+		let external_config = external.path().join(".code-moniker.toml");
+		std::fs::write(
+			&external_config,
+			r#"
+[[workspace.source_group]]
+roots = ["src"]
+"#,
+		)
+		.expect("write external project config");
+
+		let error = load_project_with_cli_sources(
+			analyzed.path(),
+			Some(&external_config),
+			&[],
+			Some(false),
+		)
+		.expect_err("another project's structural mapping must not act as rules");
+		assert!(matches!(
+			error,
+			ConfigError::SourceGroupOutsideProjectRoot { .. }
+		));
+	}
+
+	#[test]
+	fn source_groups_are_rejected_in_rule_fragments() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let root_config = temp.path().join(".code-moniker.toml");
+		std::fs::write(&root_config, "default_rules = false\n").expect("root config");
+		let fragment_dir = temp.path().join("nested");
+		std::fs::create_dir_all(&fragment_dir).expect("fragment dir");
+		std::fs::write(
+			fragment_dir.join("code-moniker.fragment.toml"),
+			r#"
+fragment = "nested"
+
+[[workspace.source_group]]
+roots = ["src"]
+"#,
+		)
+		.expect("fragment config");
+
+		let error = load_with_overrides(Some(&root_config))
+			.expect_err("fragments must not redefine source groups");
+		assert!(matches!(
+			error,
+			ConfigError::SourceGroupOutsideProjectRoot { .. }
+		));
+	}
+
+	#[test]
+	fn rejects_unknown_workspace_source_group_mapping_fields() {
+		let result = parse(
+			r#"
+			[[workspace.source_group]]
+			roots = [{ path = "test", source_set = "test" }]
+			"#,
+		);
+
+		assert!(matches!(result, Err(ConfigError::UserConfig { .. })));
 	}
 
 	#[test]

@@ -1,5 +1,6 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Diff extraction clones paths and ranges into stable owned change records.
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
 use crate::gitignore::GitignoreStack;
 use crate::snapshot::SymbolLocation;
+use crate::source_group::DeclaredSourceGroups;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChangeStatus {
@@ -70,6 +72,7 @@ pub struct ChangeRoot<'a> {
 	pub label: &'a str,
 	pub path: &'a Path,
 	pub ctx: &'a ExtractContext,
+	pub source_groups: &'a DeclaredSourceGroups,
 }
 
 pub struct ChangeFile<'a> {
@@ -79,6 +82,7 @@ pub struct ChangeFile<'a> {
 	pub rel_path: &'a Path,
 	pub anchor: &'a Path,
 	pub lang: Lang,
+	pub srcset: Option<&'a str>,
 	pub graph: &'a CodeGraph,
 	pub source: &'a str,
 }
@@ -562,8 +566,20 @@ fn base_file(
 ) -> anyhow::Result<BaseFile> {
 	let (blob_rel, anchor) = base_blob_location(scan, file, diff)?;
 	let source = git_show(&diff.repo_root, "HEAD", &blob_rel)?;
-	let root = &scan.roots[file.source_root];
-	let graph = environment::extract_source_with(file.lang, &source, &anchor, root.ctx);
+	let ctx = match &diff.origin {
+		Some(origin) => {
+			let old_path = diff.repo_root.join(&origin.repo_rel);
+			let Some((_, root, _)) = source_root_for_path(scan, &old_path) else {
+				anyhow::bail!(
+					"rename origin {} is outside the scanned source roots",
+					origin.repo_rel.display()
+				);
+			};
+			extraction_context_for_path(root, &old_path)
+		}
+		None => extraction_context_for_file(scan, file),
+	};
+	let graph = environment::extract_source_with(file.lang, &source, &anchor, &ctx);
 	Ok(BaseFile {
 		defs: graph
 			.defs()
@@ -610,7 +626,8 @@ fn removed_entries_for_deleted_file(
 	};
 	let lang = environment::language_for_path(&path)?;
 	let anchor = anchor_for(scan, root, &rel_path);
-	let graph = environment::extract_source_with(lang, &source, &anchor, root.ctx);
+	let ctx = extraction_context_for_path(root, &path);
+	let graph = environment::extract_source_with(lang, &source, &anchor, &ctx);
 	let mut entries = Vec::new();
 	for def in graph.defs().filter(|def| is_navigable_def(lang, def)) {
 		let Some((start, end)) = def.position else {
@@ -630,6 +647,25 @@ fn removed_entries_for_deleted_file(
 		});
 	}
 	Ok(entries)
+}
+
+pub(in crate::changes) fn extraction_context_for_file<'a>(
+	scan: &'a ChangeScan<'a>,
+	file: &'a ChangeFile<'a>,
+) -> Cow<'a, ExtractContext> {
+	let root = &scan.roots[file.source_root];
+	crate::sources::extraction_context_with_srcset(root.ctx, file.srcset)
+}
+
+pub(in crate::changes) fn extraction_context_for_path<'a>(
+	root: &'a ChangeRoot<'a>,
+	path: &Path,
+) -> Cow<'a, ExtractContext> {
+	let srcset = root
+		.source_groups
+		.membership(path)
+		.and_then(|membership| membership.srcset);
+	crate::sources::extraction_context_with_srcset(root.ctx, srcset)
 }
 
 pub(in crate::changes) fn source_root_for_path<'a>(
@@ -923,6 +959,11 @@ fn parse_hunk_side(raw: &str) -> Option<Option<LineSpan>> {
 mod tests {
 	use super::*;
 
+	fn no_source_groups() -> &'static DeclaredSourceGroups {
+		static GROUPS: std::sync::OnceLock<DeclaredSourceGroups> = std::sync::OnceLock::new();
+		GROUPS.get_or_init(DeclaredSourceGroups::default)
+	}
+
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
 		if let Some(parent) = path.parent() {
@@ -976,6 +1017,7 @@ mod tests {
 			rel_path: Path::new(rel),
 			anchor: Path::new(rel),
 			lang: Lang::Rs,
+			srcset: None,
 			graph,
 			source,
 		}
@@ -994,6 +1036,7 @@ mod tests {
 				label: "repo",
 				path: root,
 				ctx,
+				source_groups: no_source_groups(),
 			}],
 			files: vec![rust_file(0, 0, path, rel, source, graph)],
 		}
@@ -1082,6 +1125,7 @@ mod tests {
 				label: "repo",
 				path: tmp.path(),
 				ctx: &ctx,
+				source_groups: no_source_groups(),
 			}],
 			files: Vec::new(),
 		};
@@ -1119,11 +1163,13 @@ mod tests {
 					label: "a",
 					path: &root_a,
 					ctx: &ctx,
+					source_groups: no_source_groups(),
 				},
 				ChangeRoot {
 					label: "b",
 					path: &root_b,
 					ctx: &ctx,
+					source_groups: no_source_groups(),
 				},
 			],
 			files: vec![
@@ -1252,6 +1298,7 @@ mod tests {
 				label: "repo",
 				path: tmp.path(),
 				ctx: &ctx,
+				source_groups: no_source_groups(),
 			}],
 			files: Vec::new(),
 		};
@@ -1279,6 +1326,7 @@ mod tests {
 				label: "repo",
 				path: tmp.path(),
 				ctx: &ctx,
+				source_groups: no_source_groups(),
 			}],
 			files: Vec::new(),
 		};

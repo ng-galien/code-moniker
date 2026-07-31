@@ -115,13 +115,12 @@ fn load_local_catalog(
 			cancellation,
 		)
 	}
-	.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
+	.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, format!("{err:#}")))?;
 	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let mut material = SourceCatalogMaterial {
 		sources,
 		identity: catalog.options.identity.clone(),
 		memory_sources: BTreeMap::new(),
-		memory_srcsets: BTreeMap::new(),
 		memory_slots: BTreeSet::new(),
 		memory_revisions: BTreeMap::new(),
 	};
@@ -181,7 +180,6 @@ fn sync_memory_source_sets(
 	source_sets: &BTreeMap<String, MemorySourceSet>,
 ) -> bool {
 	let previous_sources = std::mem::take(&mut material.memory_sources);
-	material.memory_srcsets.clear();
 	let previous_revisions = std::mem::take(&mut material.memory_revisions);
 	let mut desired = desired_memory_sources(material, source_sets);
 	let mut changed = false;
@@ -196,9 +194,6 @@ fn sync_memory_source_sets(
 				material
 					.memory_sources
 					.insert(file.path.to_path_buf(), content);
-				material
-					.memory_srcsets
-					.insert(file.path.to_path_buf(), srcset_from_memory_path(&file.path));
 			}
 			None => {
 				if !file.retired {
@@ -211,9 +206,6 @@ fn sync_memory_source_sets(
 	}
 	for (path, (file, content)) in desired {
 		material.memory_slots.insert(path.to_path_buf());
-		material
-			.memory_srcsets
-			.insert(path.to_path_buf(), srcset_from_memory_path(&path));
 		material.memory_sources.insert(path, content);
 		material.sources.files.push(file);
 		changed = true;
@@ -250,6 +242,8 @@ fn desired_memory_sources(
 				anchor: uri.to_path_buf(),
 				lang: document.lang,
 				root_moniker: environment::source_root_moniker(document.lang, &uri, &ctx),
+				source_group: None,
+				srcset: Some(srcset.to_string()),
 				retired: false,
 			};
 			desired.insert(path, (file, document.content.to_owned()));
@@ -282,15 +276,9 @@ fn memory_source_root_index(material: &mut SourceCatalogMaterial) -> usize {
 			project,
 			..Default::default()
 		},
+		source_groups: Default::default(),
 	});
 	index
-}
-
-fn srcset_from_memory_path(path: &Path) -> String {
-	path.components()
-		.nth(1)
-		.map(|component| component.as_os_str().to_string_lossy().into_owned())
-		.unwrap_or_default()
 }
 
 fn same_source_file(current: &SourceFile, next: &SourceFile) -> bool {
@@ -300,6 +288,8 @@ fn same_source_file(current: &SourceFile, next: &SourceFile) -> bool {
 		&& current.anchor == next.anchor
 		&& current.lang == next.lang
 		&& current.root_moniker == next.root_moniker
+		&& current.source_group == next.source_group
+		&& current.srcset == next.srcset
 		&& current.retired == next.retired
 }
 
