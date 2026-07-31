@@ -77,6 +77,22 @@ fn daemon_context(paths: Vec<PathBuf>) -> McpContext {
 	context
 }
 
+fn generated_call_string_arg(text: &str, tool: &str, argument: &str) -> Option<String> {
+	let call_prefix = format!("- {tool}");
+	let argument_prefix = format!("{argument}=");
+	text.lines().find_map(|line| {
+		let call = line.trim_start();
+		if !call.starts_with(&call_prefix) {
+			return None;
+		}
+		let (_, value) = call.split_once(&argument_prefix)?;
+		serde_json::Deserializer::from_str(value)
+			.into_iter::<String>()
+			.next()?
+			.ok()
+	})
+}
+
 struct HttpTestServer {
 	addr: SocketAddr,
 	shutdown: CancellationToken,
@@ -1464,6 +1480,38 @@ fn workspace_read_reports_roots_and_rejects_a_mismatched_expectation() {
 		"generated workspace follow-ups must preserve identity: {}",
 		result.text
 	);
+	assert!(
+		result.text.contains("code_moniker_read uri=\"workspace\""),
+		"generated workspace follow-ups must use a navigable compact URI: {}",
+		result.text
+	);
+	assert!(
+		!result
+			.text
+			.contains("code_moniker_read uri=\"code+moniker://workspace\""),
+		"compact follow-ups must not retain the canonical workspace URI: {}",
+		result.text
+	);
+	let generated_uri = generated_call_string_arg(&result.text, "code_moniker_read", "uri")
+		.expect("workspace response must expose a read follow-up URI");
+	assert_eq!(generated_uri, "workspace");
+	let replayed = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": generated_uri,
+				"expected_roots": [workspace_root.display().to_string()],
+				"depth": 3,
+				"limit": 20
+			}),
+		)
+		.expect("generated compact workspace follow-up must be navigable");
+	assert!(
+		replayed.text.contains("workspace:\n  roots:"),
+		"{}",
+		replayed.text
+	);
 
 	let error = registry
 		.call(
@@ -2022,20 +2070,23 @@ fn read_views_lists_and_renders_fragment_view() {
 	assert!(list.text.contains("root-map"));
 	assert!(
 		list.text
-			.contains("code_moniker_read uri=\"code+moniker://workspace/views/java-app\"")
+			.contains("code_moniker_read uri=\"workspace/views/java-app\"")
 	);
+	let generated_uri = generated_call_string_arg(&list.text, "code_moniker_read", "uri")
+		.expect("view list must expose a read follow-up URI");
+	assert_eq!(generated_uri, "workspace/views/java-app");
 
 	let detail = registry
 		.call(
 			&context,
 			"code_moniker_read",
 			&json!({
-				"uri": "workspace/views/java-app",
+				"uri": generated_uri,
 				"context_lines": 0,
 				"moniker_format": "compact"
 			}),
 		)
-		.expect("view detail");
+		.expect("compact view next must be navigable");
 	assert!(!detail.is_error);
 	assert!(detail.text.contains("view: java-app"), "{}", detail.text);
 	assert!(detail.text.contains("rules:"));
@@ -2794,41 +2845,69 @@ fn symbols_insights_summarize_index() {
 fn http_tool_call_reads_workspace_explorer() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
+	std::fs::create_dir_all(temp.path().join("tests")).expect("mkdir tests");
 	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
 		.expect("write fixture");
+	std::fs::write(temp.path().join("tests/AppTest.java"), "class AppTest {}\n")
+		.expect("write test fixture");
 	let opts = SessionOptions {
 		paths: vec![temp.path().to_path_buf()],
 		project: None,
 		cache_dir: None,
 	};
 	let server = start_http_test_server(opts.clone());
-	let body = json!({
-		"jsonrpc": "2.0",
-		"id": 7,
-		"method": "tools/call",
-		"params": {
-			"name": "code_moniker_read",
-			"arguments": {
-				"uri": "workspace",
-				"expected_roots": [temp.path().display().to_string()],
-				"depth": 4
+	let response = post_rpc(
+		server.addr,
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 7,
+			"method": "tools/call",
+			"params": {
+				"name": "code_moniker_read",
+				"arguments": {
+					"uri": "workspace",
+					"expected_roots": [temp.path().display().to_string()],
+					"depth": 4,
+					"limit": 1
+				}
 			}
-		}
-	})
-	.to_string();
-	let mut stream = TcpStream::connect(server.addr).expect("connect");
-	write!(
-		stream,
-		"POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-		body.len(),
-		body
-	)
-	.expect("request");
-	let mut response = String::new();
-	stream.read_to_string(&mut response).expect("response");
+		}),
+	);
 	assert!(response.contains("HTTP/1.1 200 OK"));
 	assert!(response.contains("uri: code+moniker://workspace"));
-	assert!(response.contains("App.java [java]"));
+	assert!(response.contains("next:"), "{response}");
+	assert!(
+		response.contains("code_moniker_read uri=\\\"workspace\\\""),
+		"{response}"
+	);
+	assert!(
+		!response.contains("code_moniker_read uri=\\\"code+moniker://workspace\\\""),
+		"{response}"
+	);
+	let cursor = escaped_call_argument(&response, "cursor").expect("generated next cursor");
+	let next = post_rpc(
+		server.addr,
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 8,
+			"method": "tools/call",
+			"params": {
+				"name": "code_moniker_read",
+				"arguments": {
+					"uri": "workspace",
+					"expected_roots": [temp.path().display().to_string()],
+					"depth": 4,
+					"limit": 1,
+					"cursor": cursor
+				}
+			}
+		}),
+	);
+	assert!(next.contains("HTTP/1.1 200 OK"), "{next}");
+	assert!(
+		next.contains("tests/") || next.contains("AppTest.java"),
+		"{next}"
+	);
 }
 
 #[test]
@@ -2941,4 +3020,10 @@ fn post_rpc(addr: SocketAddr, body: &serde_json::Value) -> String {
 	let mut response = String::new();
 	stream.read_to_string(&mut response).expect("response");
 	response
+}
+
+fn escaped_call_argument(response: &str, name: &str) -> Option<String> {
+	let marker = format!("{name}=\\\"");
+	let value = response.split_once(&marker)?.1;
+	Some(value.split_once("\\\"")?.0.to_string())
 }

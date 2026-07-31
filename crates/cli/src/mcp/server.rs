@@ -131,8 +131,8 @@ impl ServerHandler for CodeMonikerMcp {
 					"are rendered in the existing compact moniker form, for example ",
 					"rs:crates/cli/src/mcp.tools.fn:run(). Compact monikers returned by the ",
 					"server can be passed directly to symbol tools; canonical URIs and symbol ",
-					"ids remain accepted. Generated tool calls keep canonical URIs and can be ",
-					"copied verbatim. Set compact=false for canonical verbose data and ",
+					"ids remain accepted. Generated tool calls use compact monikers by default ",
+					"and remain directly reusable. Set compact=false for canonical verbose data and ",
 					"additional guided follow-up calls. ",
 					"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
 					"compact moniker to code_moniker_usages when needed. ",
@@ -209,6 +209,7 @@ async fn dispatch_tool_call(
 					.finalize_error(
 						&name,
 						&arguments,
+						context.scheme(),
 						problem_lmnav(uri, &name, &error.to_string()),
 					)
 					.map(Ok)
@@ -271,11 +272,21 @@ fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
 		"stop and connect to the project-owned code-moniker MCP server for the expected roots"
 	} else if message.starts_with("workspace_identity_required:") {
 		"retry the workspace read with expected_roots set to the current absolute workspace roots"
+	} else if message.starts_with("symbol_not_found:") {
+		"discover the current moniker with code_moniker_symbols, then retry with that value"
 	} else {
 		"retry with a supported URI and bounded arguments"
 	};
+	let problem = if message
+		.strip_prefix("symbol_not_found: symbol not found:")
+		.is_some_and(|missing| missing.trim() == uri)
+	{
+		"symbol_not_found"
+	} else {
+		message
+	};
 	format!(
-		"uri: {uri}\ncompleteness: partial (error)\n\nproblem: {message}\nwhere: {tool}\nfix_hint: {fix_hint}\n"
+		"uri: {uri}\ncompleteness: partial\n\nproblem: {problem}\nwhere: {tool}\nfix_hint: {fix_hint}\n"
 	)
 }
 
@@ -294,6 +305,7 @@ mod tests {
 			.finalize_error(
 				"code_moniker_read",
 				&arguments,
+				"code+moniker://",
 				problem_lmnav(&uri, "code_moniker_read", "symbol not found"),
 			)
 			.expect("known tool contract");
@@ -304,5 +316,21 @@ mod tests {
 		assert_eq!(response["isError"].as_bool(), Some(true));
 		assert!(text.chars().count() <= 1_000, "{}", text.chars().count());
 		assert!(text.contains("truncated_by: max_chars"), "{text}");
+	}
+
+	#[test]
+	fn missing_symbol_problem_does_not_repeat_the_error_or_uri() {
+		let uri = "rs:crates/workspace/src/registry.build.fn:missing()";
+		let text = problem_lmnav(
+			uri,
+			"code_moniker_read",
+			&format!("symbol_not_found: symbol not found: {uri}"),
+		);
+
+		assert!(text.contains("completeness: partial\n"), "{text}");
+		assert!(!text.contains("partial (error)"), "{text}");
+		assert!(text.contains("\nproblem: symbol_not_found\n"), "{text}");
+		assert_eq!(text.matches(uri).count(), 1, "{text}");
+		assert!(!text.contains("symbol not found:"), "{text}");
 	}
 }

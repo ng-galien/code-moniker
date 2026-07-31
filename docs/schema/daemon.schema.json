@@ -5385,9 +5385,74 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "timings": {
+          "default": {
+            "change_overlay_ms": 0,
+            "code_index_ms": 0,
+            "extract_sources_ms": 0,
+            "linkage_ms": 0,
+            "semantic_index_ms": 0,
+            "source_catalog_ms": 0,
+            "total_ms": 0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/WorkspaceTimingsDto"
+            }
+          ]
+        }
+      }
+    },
+    "WorkspaceTimingsDto": {
+      "type": "object",
+      "required": [
+        "change_overlay_ms",
+        "code_index_ms",
+        "extract_sources_ms",
+        "linkage_ms",
+        "semantic_index_ms",
+        "source_catalog_ms",
+        "total_ms"
+      ],
+      "properties": {
+        "change_overlay_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "code_index_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "extract_sources_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "linkage_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "semantic_index_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "source_catalog_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "total_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       }
     }
   },
-  "x-code-moniker-protocol-version": 9
+  "x-code-moniker-protocol-version": 10
 }

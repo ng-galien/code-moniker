@@ -11,6 +11,24 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Changed
+
+- **Daemon protocol 9 → 10.** `workspace.status` now exposes catalog,
+  extraction, semantic-index, linkage, change-overlay and total build timings.
+  Full builds run linkage and change-overlay construction concurrently.
+
+### Fixed
+
+- **Concurrent daemon reads remain usable during refresh.** Stateless
+  `syntax.parse` bypasses the workspace lock; `stale-ok` queries use the last
+  immutable published snapshot while the next generation builds; exclusive
+  operations queue instead of turning lock contention into a false
+  `workspace_loading` response.
+- **MCP follow-ups stay compact and executable.** With `compact=true`, `next`
+  calls now use reusable compact monikers (including `workspace` and
+  `workspace/views`) and can be replayed directly. Missing-symbol diagnostics
+  no longer repeat the error label and requested URI.
+
 ## [0.6.0] - 2026-07-26
 
 Resolution and agent-contract hardening driven by a full agent

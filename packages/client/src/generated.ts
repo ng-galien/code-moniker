@@ -367,6 +367,7 @@ export interface WorkspaceStatus {
   stale: boolean;
   stale_summary: string;
   symbols: number;
+  timings?: WorkspaceTimingsDto;
 }
 export interface BuildIdentity {
   fingerprint: string;
@@ -380,6 +381,15 @@ export interface WorkspaceRootStatus {
   stale: boolean;
   stale_summary: string;
   symbols: number;
+}
+export interface WorkspaceTimingsDto {
+  change_overlay_ms: number;
+  code_index_ms: number;
+  extract_sources_ms: number;
+  linkage_ms: number;
+  semantic_index_ms: number;
+  source_catalog_ms: number;
+  total_ms: number;
 }
 export interface QueryError {
   code: string;

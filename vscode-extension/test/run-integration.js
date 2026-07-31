@@ -2,7 +2,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const { execFileSync } = require("node:child_process");
-const { runTests } = require("@vscode/test-electron");
+const { downloadAndUnzipVSCode, runTests } = require("@vscode/test-electron");
 
 async function main() {
 	const extensionRoot = path.resolve(__dirname, "..");
@@ -26,9 +26,11 @@ async function main() {
 		}
 	}
 	seedWorkspace(workspaceRoot);
+	const vscodeExecutablePath = await resolveVSCodeExecutablePath();
 
 	try {
 		await runTests({
+			vscodeExecutablePath,
 			extensionDevelopmentPath: extensionRoot,
 			extensionTestsPath: path.join(extensionRoot, "test", "suite", "index.js"),
 			launchArgs: [
@@ -55,6 +57,15 @@ async function main() {
 		}
 		fs.rmSync(workspaceRoot, { recursive: true, force: true });
 	}
+}
+
+async function resolveVSCodeExecutablePath() {
+	const downloadedPath = await downloadAndUnzipVSCode();
+	if (fs.existsSync(downloadedPath) || process.platform !== "darwin") {
+		return downloadedPath;
+	}
+	const codePath = path.join(path.dirname(downloadedPath), "Code");
+	return fs.existsSync(codePath) ? codePath : downloadedPath;
 }
 
 // Seeds the temp workspace with a small Rust file and a rule that fires

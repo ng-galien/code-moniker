@@ -78,9 +78,9 @@ operational exception. Canonical symbol URIs in descriptive data are rendered
 in the existing compact moniker form
 (`rs:crates/cli/src/mcp.tools.fn:run()`, for example). That compact form can be
 passed directly to symbol tools; canonical URIs and symbol ids remain accepted.
-Generated calls retain canonical URIs and can be copied directly. Pass
-`compact = false` for the verbose rendering with canonical URIs at every
-occurrence and additional guided follow-up calls. A `next` section is emitted
+Generated calls use reusable compact monikers by default and can be copied
+directly. Pass `compact = false` for the verbose rendering with canonical URIs
+at every occurrence, including generated calls. A `next` section is emitted
 only when useful. Compact symbol rows omit duplicated per-row usages calls;
 invoke `code_moniker_usages` with the row moniker when needed.
 

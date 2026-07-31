@@ -120,23 +120,32 @@ The tables above are the parser/extractor path (`stats`/`check`, no daemon).
 This section measures the daemon lifecycle an agent actually depends on:
 cold start, incremental refresh, and query latency, on a real multi-module
 Maven monorepo — local fork of Apache Pulsar (`~/dev/projects/fork/pulsar`).
-Same machine as above, release binary (`cargo install`), warm OS cache.
-4193 recognised files (mostly Java, some Go/Python/TS), 215 343 symbols,
-1 066 335 references.
+Same machine as above, release binary, warm OS cache. Measurements refreshed
+on 2026-07-31 against 4193 recognised files (mostly Java, some Go/Python/TS),
+215 762 symbols and 1 114 031 references.
 
 | Measurement | Value |
 |---|---|
-| Full census, no daemon (`code-moniker stats .`) | 3.64 s |
-| Daemon cold start → initial index ready | ~13-14 s |
+| Daemon cold start before concurrent phase build | 15.13 s |
+| Daemon cold start after linkage/change-overlay parallelism | 14.51-14.58 s |
+| Cold phase split after the change | catalog 0.67-0.70 s; extract 4.42-4.60 s; semantic 0.56-0.57 s; linkage 7.44-7.69 s |
 | Daemon RSS after initial index | ~208 MB |
 | `identity.graph` on the largest scope (43 386-def `srcset:main/lang:java`) | 0.36 s |
-| `workspace.status` round-trip (warm) | ~0.1 s |
+| `workspace.status` CLI wall time (warm) | 0.21-0.30 s |
+| Five concurrent full `resolution.audit` reads | 0.69-1.01 s each, no `workspace_loading` |
 | Incremental refresh after touching 1 file (`--live-refresh auto`) | ~0.5-0.8 s |
 
-No wall is visible at this scale: query and incremental-refresh latency stay
-sub-second at roughly 5x the reference/symbol count of the other corpora in
-this document. Cold start is the only cost that scales with workspace size —
-still under 15 s for a 1M-reference monorepo.
+The resident query path remains interactive at this scale, but cold start is a
+real product constraint rather than a negligible one. `workspace.status`
+publishes the phase timings above so CLI, MCP and IDE diagnostics can identify
+which build moved. Linkage remains the dominant cold phase.
+
+RPC contention is handled separately from initial loading. Stateless
+`syntax.parse` bypasses the workspace lock. Once generation 1 exists,
+`stale-ok` reads use its immutable publication concurrently while a refresh
+builds the next generation; exclusive operations queue. A lock held by another
+request therefore no longer produces a false `workspace_loading` response or a
+client-side indexing retry loop.
 
 Resolution coverage is scope-dependent, not a flat number. On
 `srcset:main/lang:java`, unlinked decomposition shows ~93 951 unresolved
@@ -169,6 +178,13 @@ The win is concentrated in the agent-edit cycle: the hook fires after
 each file edit, the toolchain re-scans, and only one file misses while
 the rest are hits served from the OS page cache (warm). For ad-hoc
 single-run scans, the cache hurts more than it helps — leave it off.
+
+That warning matters for daemon startup too. On the Pulsar corpus above, a
+first cache population took 23.03 s and the next cached daemon start took
+17.13 s, both slower than the 15.13 s uncached baseline. The cache avoids
+re-parsing but the workspace still materializes source and linkage, while
+thousands of cache entries add I/O. It remains opt-in; do not enable it by
+default for large daemon workspaces without measuring the target corpus.
 
 ## Workspace memory
 

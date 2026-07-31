@@ -27,7 +27,8 @@ shape, but they never perform URI compaction or output truncation themselves.
 1. Compact output is opt-out, never opt-in, for every agent-facing MCP tool.
 2. Canonical monikers remain accepted as input and available with
    `compact=false`.
-3. Generated follow-up calls keep canonical arguments so they remain
+3. Generated follow-up calls preserve the requested rendering mode: compact
+   monikers by default, canonical arguments with `compact=false`. Both remain
    unambiguous and executable.
 4. Moniker compaction runs before the hard character budget.
 5. Schema publication, argument validation, compaction, and budgeting have one

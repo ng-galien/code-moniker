@@ -154,7 +154,8 @@ Then go by need:
   `symbol_not_found` / `focus_not_found`.
 - **Compact monikers are reusable.** The default `rs:...`, `java:...`, etc.
   form can be passed directly to symbol tools. Canonical URIs and symbol ids
-  remain accepted; generated calls preserve canonical values.
+  remain accepted; generated calls preserve the active compact or canonical
+  mode.
 - **Keep the default small budget.** Set a narrow `limit`/`max_items`; request
   `medium` or `full`, code, wider scope or the next page only when the current
   question requires it. Stop once the evidence is sufficient.

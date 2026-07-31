@@ -68,6 +68,7 @@ mcp_tool_input_schema = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/mod
 mcp_registry_output = "kind = 'method' AND name =~ ^(call|finalize_error) AND uri ~ '**/module:mcp/module:tools/struct:ToolRegistry/**'"
 mcp_output_finalize = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
 mcp_compact_renderer = "kind = 'fn' AND name =~ ^compact_response_monikers AND uri ~ '**/module:mcp/module:tools/module:common/**'"
+mcp_shared_compact_identity = "kind = 'fn' AND name =~ ^compact_identity AND uri ~ '**/dir:crates/dir:workspace/dir:src/module:code/module:symbols/**'"
 mcp_budget_renderer = "kind = 'fn' AND name =~ ^apply_output_budget AND uri ~ '**/module:mcp/module:tools/module:common/**'"
 syntax_tree_query = "kind = 'struct' AND name = 'SyntaxTreeQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
 syntax_tree_response = "kind = 'fn' AND name =~ ^syntax_tree_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
@@ -119,7 +120,28 @@ message   = "MCP compaction bypasses `OutputContract::finalize`: {path}"
 rationale = """
 Agent-facing responses are compact by default. Every registry path to the moniker
 compactor must cross the single output boundary so individual MCP tools cannot drift
-into mixed URI formats or apply transformations in a different order.
+into mixed URI formats or apply transformations in a different order. Body monikers
+and generated follow-up calls intentionally share this same transformation.
+"""
+
+[[workspace.path]]
+id        = "mcp-compaction-reuses-shared-identity-renderer"
+severity  = "error"
+from      = "$mcp_compact_renderer"
+to        = "$mcp_shared_compact_identity"
+expect    = "reachable"
+require_non_empty = true
+relation  = ["calls", "method_call"]
+max_depth = 4
+max_symbols = 50
+max_edges = 100
+max_pairs = 4
+min_coverage = 100
+message   = "MCP compaction no longer reuses the workspace compact identity renderer: {path}"
+rationale = """
+The MCP output boundary may add presentation aliases such as `workspace`, but symbol
+monikers must keep using the one workspace-owned compact representation. This prevents
+follow-ups and response bodies from inventing a transport-specific URI dialect.
 """
 
 [[workspace.path]]

@@ -13,14 +13,14 @@ follow-up; its generated calls are ready to execute.
 `compact` defaults to `true` on agent-facing read tools. `budget:"small"`
 also defaults to a deterministic 8,000-character ceiling; `medium` is 20,000
 and `full` is 64,000. `max_chars` can override the level. A budget truncation
-is explicit and preserves a small canonical `next` block when possible.
+is explicit and preserves a small executable `next` block when possible.
 
 With `compact:true`, every canonical symbol URI in descriptive data is rendered
 in the existing compact moniker form, for example
 `rs:crates/cli/src/mcp.tools.fn:run()`. Unlike the former response-local
 aliases, this compact form can be passed directly to symbol tools. Canonical
-URIs and `symbol:<file>:<def>` ids remain accepted. Generated calls keep
-canonical URIs and can be copied verbatim.
+URIs and `symbol:<file>:<def>` ids remain accepted. Generated calls use
+reusable compact monikers in compact mode and can be copied verbatim.
 
 Use `compact:false` when canonical URIs on every data occurrence and the fuller
 set of guided follow-ups are worth the extra tokens. Generated pagination calls
@@ -57,9 +57,9 @@ needed.
    asking for everything.
 2. **Monikers only from tool output.** `code_moniker_symbols` result rows
    include reusable compact monikers. Copy generated calls as-is: they
-   deliberately retain canonical URIs. Compact symbol rows may have no
-   pre-built usages call, so pass their moniker to `code_moniker_usages`. A
-   hand-built moniker fails with `symbol_not_found` on the first signature
+   preserve the active compact or canonical mode. Compact symbol rows may have
+   no pre-built usages call, so pass their moniker to `code_moniker_usages`.
+   A hand-built moniker fails with `symbol_not_found` on the first signature
    nuance.
 3. **Respect paging**: `completeness: partial (usages 0-5 of 14, next cursor
    5)` tells you exactly what you have; when more rows exist, the optional

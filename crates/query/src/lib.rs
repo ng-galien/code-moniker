@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -1519,7 +1519,7 @@ pub struct ChangeReviewRef {
 pub struct CommandResponse {
 	pub generation: Option<WorkspaceGeneration>,
 	pub message: String,
-	pub status: Option<WorkspaceStatus>,
+	pub status: Option<Box<WorkspaceStatus>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1627,6 +1627,20 @@ pub struct WorkspaceStatus {
 	pub references: usize,
 	pub stale: bool,
 	pub stale_summary: String,
+	#[serde(default)]
+	pub timings: WorkspaceTimingsDto,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct WorkspaceTimingsDto {
+	pub source_catalog_ms: u64,
+	pub extract_sources_ms: u64,
+	pub semantic_index_ms: u64,
+	pub code_index_ms: u64,
+	pub linkage_ms: u64,
+	pub change_overlay_ms: u64,
+	pub total_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2736,6 +2750,17 @@ fn format_workspace_status(out: &mut String, status: &WorkspaceStatus) {
 		status.files, status.symbols, status.references
 	);
 	let _ = writeln!(out, "stale: {} ({})", status.stale, status.stale_summary);
+	let timings = &status.timings;
+	let _ = writeln!(
+		out,
+		"timings_ms: total={} catalog={} extract={} semantic={} linkage={} changes={}",
+		timings.total_ms,
+		timings.source_catalog_ms,
+		timings.extract_sources_ms,
+		timings.semantic_index_ms,
+		timings.linkage_ms,
+		timings.change_overlay_ms,
+	);
 	if status.roots.len() > 1 {
 		let _ = writeln!(out, "roots:");
 		for root in &status.roots {

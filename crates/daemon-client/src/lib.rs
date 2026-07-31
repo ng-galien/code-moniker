@@ -13,8 +13,10 @@ use std::time::Duration;
 
 use code_moniker_query::{
 	Command, CommandRequest, CommandResponse, DaemonRpcClient, DaemonWorkspaceConfig,
-	HandshakeResponse, PROTOCOL_VERSION, QueryRequest, QueryResponse, current_build_identity,
+	HandshakeResponse, PROTOCOL_VERSION, QueryError, QueryRequest, QueryResponse,
+	current_build_identity,
 };
+use jsonrpsee::core::ClientError;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
 
@@ -163,8 +165,7 @@ impl DaemonConnection {
 
 	pub fn query(&self, request: QueryRequest) -> anyhow::Result<QueryResponse> {
 		validate_compatibility(&self.handshake)?;
-		self.block(self.ws.query(request))
-			.map_err(|err| anyhow::anyhow!("{err}"))
+		self.block(self.ws.query(request)).map_err(rpc_client_error)
 	}
 
 	pub fn command(&self, request: CommandRequest) -> anyhow::Result<String> {
@@ -174,7 +175,7 @@ impl DaemonConnection {
 	pub fn command_response(&self, request: CommandRequest) -> anyhow::Result<CommandResponse> {
 		validate_compatibility(&self.handshake)?;
 		self.block(self.ws.command(request))
-			.map_err(|err| anyhow::anyhow!("{err}"))
+			.map_err(rpc_client_error)
 	}
 
 	pub fn replace_source_set(
@@ -529,6 +530,16 @@ fn start_daemon_process(config: &DaemonWorkspaceConfig) -> anyhow::Result<UnixSt
 	})
 }
 
+fn rpc_client_error(error: ClientError) -> anyhow::Error {
+	if let ClientError::Call(error) = &error
+		&& let Some(data) = error.data()
+		&& let Ok(query_error) = serde_json::from_str::<QueryError>(data.get())
+	{
+		return anyhow::anyhow!("{query_error}");
+	}
+	anyhow::anyhow!("{error}")
+}
+
 #[cfg(test)]
 mod tests {
 	use std::net::TcpListener;
@@ -568,6 +579,26 @@ mod tests {
 	#[test]
 	fn accepts_current_protocol() {
 		validate_compatibility(&handshake(PROTOCOL_VERSION)).expect("current compatibility");
+	}
+
+	#[test]
+	fn preserves_structured_query_errors_without_json_rpc_debug_noise() {
+		let uri = "rs:workspace.fn:missing()";
+		let query_error = QueryError::new("symbol_not_found", format!("symbol not found: {uri}"));
+		let rpc_error = jsonrpsee::types::ErrorObjectOwned::owned(
+			jsonrpsee::types::error::INTERNAL_ERROR_CODE,
+			query_error.message.clone(),
+			Some(query_error),
+		);
+
+		let error = rpc_client_error(ClientError::Call(rpc_error));
+
+		assert_eq!(
+			error.to_string(),
+			format!("symbol_not_found: symbol not found: {uri}")
+		);
+		assert!(!error.to_string().contains("ErrorObject"), "{error}");
+		assert!(!error.to_string().contains("RawValue"), "{error}");
 	}
 
 	#[test]

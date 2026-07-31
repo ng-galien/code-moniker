@@ -56,7 +56,12 @@ impl OutputContract {
 		Ok(())
 	}
 
-	fn finalize(self, mut result: ToolResult, arguments: &Value) -> Result<ToolResult, ToolError> {
+	fn finalize(
+		self,
+		mut result: ToolResult,
+		arguments: &Value,
+		scheme: &str,
+	) -> Result<ToolResult, ToolError> {
 		if self == Self::Plain {
 			return Ok(result);
 		}
@@ -68,6 +73,7 @@ impl OutputContract {
 		result.text = common::compact_response_monikers(
 			result.text,
 			compact,
+			scheme,
 			result.monikers.iter().map(String::as_str),
 		);
 		result.text = match common::apply_output_budget(result.text.clone(), arguments) {
@@ -243,6 +249,7 @@ impl ToolRegistry {
 		&self,
 		name: &str,
 		arguments: &Value,
+		scheme: &str,
 		text: String,
 	) -> Option<ToolResult> {
 		let contract = self.contract_for_tool(name)?;
@@ -252,7 +259,7 @@ impl ToolRegistry {
 		{
 			result = result.with_monikers([uri]);
 		}
-		OutputContract::finalize(contract, result, arguments).ok()
+		OutputContract::finalize(contract, result, arguments, scheme).ok()
 	}
 
 	fn contract_for_tool(&self, name: &str) -> Option<OutputContract> {
@@ -277,7 +284,12 @@ impl ToolRegistry {
 		};
 		let contract = tool.output_contract();
 		contract.validate_arguments(arguments)?;
-		OutputContract::finalize(contract, tool.call(context, arguments)?, arguments)
+		OutputContract::finalize(
+			contract,
+			tool.call(context, arguments)?,
+			arguments,
+			context.scheme(),
+		)
 	}
 }
 
@@ -318,6 +330,7 @@ mod tests {
 			OutputContract::Agent,
 			ToolResult::success(text).with_monikers([canonical]),
 			&serde_json::json!({"max_chars": 1000}),
+			"code+moniker://",
 		)
 		.expect("agent output contract");
 
@@ -337,6 +350,7 @@ mod tests {
 			OutputContract::Agent,
 			ToolResult::error(text).with_monikers([canonical]),
 			&serde_json::json!({"max_chars": 1000}),
+			"code+moniker://",
 		)
 		.expect("agent error output contract");
 

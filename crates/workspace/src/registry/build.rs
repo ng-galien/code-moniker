@@ -17,8 +17,8 @@ use crate::source::SourceCatalogPort;
 pub(crate) fn build_complete_snapshot(
 	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
 	code_index: &mut (impl CodeIndexPort + ?Sized),
-	linkage: &mut (impl LinkagePort + ?Sized),
-	change_overlay: &mut (impl ChangeOverlayPort + ?Sized),
+	linkage: &mut (impl LinkagePort + Send + ?Sized),
+	change_overlay: &mut (impl ChangeOverlayPort + Send + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -32,16 +32,24 @@ pub(crate) fn build_complete_snapshot(
 	let index_timer = Instant::now();
 	let index = code_index.build_index_cancellable(&catalog, &cancellation)?;
 	let index_elapsed = index_timer.elapsed();
-	let linkage_timer = Instant::now();
-	cancellation.check(WorkspaceResource::LinkageSnapshot)?;
-	let linkage = linkage.resolve_linkage(&index)?;
-	cancellation.check(WorkspaceResource::LinkageSnapshot)?;
-	let linkage_elapsed = linkage_timer.elapsed();
-	let changes_timer = Instant::now();
-	cancellation.check(WorkspaceResource::ChangeOverlay)?;
-	let changes = change_overlay.build_change_overlay(&catalog, &index)?;
-	cancellation.check(WorkspaceResource::ChangeOverlay)?;
-	let changes_elapsed = changes_timer.elapsed();
+	let (linkage, changes) = rayon::join(
+		|| {
+			let timer = Instant::now();
+			cancellation.check(WorkspaceResource::LinkageSnapshot)?;
+			let snapshot = linkage.resolve_linkage(&index)?;
+			cancellation.check(WorkspaceResource::LinkageSnapshot)?;
+			Ok::<_, WorkspaceFailure>((snapshot, timer.elapsed()))
+		},
+		|| {
+			let timer = Instant::now();
+			cancellation.check(WorkspaceResource::ChangeOverlay)?;
+			let overlay = change_overlay.build_change_overlay(&catalog, &index)?;
+			cancellation.check(WorkspaceResource::ChangeOverlay)?;
+			Ok::<_, WorkspaceFailure>((overlay, timer.elapsed()))
+		},
+	);
+	let (linkage, linkage_elapsed) = linkage?;
+	let (changes, changes_elapsed) = changes?;
 	let timings = timings(
 		catalog_elapsed,
 		&index,

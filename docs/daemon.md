@@ -10,6 +10,14 @@ never gated by a full workspace scan. Until the atomically built snapshot is
 ready, data tools return `workspace_loading`; the client can retry without
 restarting the server.
 
+Once a generation has been published, the daemon keeps that immutable snapshot
+separate from the mutable refresh runtime. `stale-ok` reads therefore continue
+concurrently on the published generation while a refresh builds the next one.
+Exclusive commands and freshness-enforcing reads queue behind the mutation;
+ordinary lock contention is never reported as `workspace_loading`.
+`workspace.status` reports the served generation as stale with
+`workspace refresh in progress` during that window.
+
 ## Crate layout
 
 | crate | role |
@@ -72,6 +80,10 @@ walking, parallel extraction and snapshot build phases. Shutdown cancels that
 token before stopping the runtime and never starts a live watcher after
 cancellation. Process shutdown is also bounded, so even a source read blocked
 inside the operating system cannot keep a supervised daemon or stdio MCP alive.
+Linkage and Git change-overlay construction run concurrently after the shared
+code index is ready. `workspace.status` exposes their elapsed milliseconds,
+along with catalog, extraction, semantic-index and total build timings; phase
+durations may overlap and therefore need not sum to the total.
 
 ## Transport: JSON-RPC over loopback WebSocket
 
@@ -161,10 +173,12 @@ SDK, currently PostgreSQL `LANGUAGE plpgsql` and `LANGUAGE sql` bodies, are
 returned as language-marked child trees with source-file-relative positions.
 
 `syntax.parse language:"<tag>" source:"<text>"` is the stateless counterpart.
-It is dispatched before snapshot loading, does not read or mutate the index,
-and returns the same bounded `SyntaxTreeResult`. `uri:` is an optional parser
-filename hint. In addition to registered language tags, it accepts standalone
-`plpgsql`; direct source is limited to 1 MiB.
+It is dispatched before taking the workspace mutation lock or loading a
+snapshot, does not read or mutate the index, and returns the same bounded
+`SyntaxTreeResult`. It therefore remains available while an index or refresh
+is running. `uri:` is an optional parser filename hint. In addition to
+registered language tags, it accepts standalone `plpgsql`; direct source is
+limited to 1 MiB.
 
 `change.context focus:"<symbol URI or rel path>" max_items:20` returns a
 bounded pre-change view: graph neighborhood and resolution coverage, active

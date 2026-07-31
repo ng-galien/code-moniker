@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, TryLockError, mpsc};
+use std::sync::{Arc, Mutex, RwLock, TryLockError, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use code_moniker_check::{
@@ -28,8 +28,8 @@ use code_moniker_query::{
 	SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
 	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
 	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
-	WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus, current_build_identity,
-	describe_query_capabilities, symbol_is_test_artifact,
+	WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto,
+	current_build_identity, describe_query_capabilities, symbol_is_test_artifact,
 };
 use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::glob::FilePathFilter;
@@ -148,8 +148,10 @@ async fn serve_async(
 	let build = current_build_identity(env!("CARGO_PKG_VERSION"))?;
 	let shutdown = Arc::new(tokio::sync::Notify::new());
 	let daemon = Arc::new(Mutex::new(daemon));
+	let published = Arc::new(RwLock::new(None));
 	let service = DaemonRpcService {
 		daemon: daemon.clone(),
+		published: published.clone(),
 		roots: Arc::from(config_roots(&config)),
 		events,
 		shutdown: shutdown.clone(),
@@ -200,7 +202,7 @@ async fn serve_async(
 		entry.live_refresh.as_deref().unwrap_or("on-demand")
 	);
 
-	let (preload_cancellation, mut preload) = spawn_initial_preload(daemon.clone());
+	let (preload_cancellation, mut preload) = spawn_initial_preload(daemon.clone(), published);
 	let status = tokio::select! {
 		result = &mut preload => result??,
 		_ = shutdown.notified() => {
@@ -248,6 +250,7 @@ async fn serve_async(
 
 fn spawn_initial_preload(
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
 ) -> (
 	WorkspaceCancellation,
 	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
@@ -266,6 +269,7 @@ fn spawn_initial_preload(
 			restart_live_watcher(&mut daemon)
 				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
 		}
+		publish_current_snapshot(&daemon, &published);
 		Ok(workspace_status_result(&daemon.roots, &daemon.registry))
 	});
 	(cancellation, worker)
@@ -381,12 +385,46 @@ async fn maintain_registry_claim(config: &DaemonWorkspaceConfig, entry: &DaemonR
 
 const EVENT_BUFFER: usize = 256;
 
+#[derive(Clone)]
+struct SnapshotQueryContext {
+	roots: Arc<[PathBuf]>,
+	config_root: Arc<PathBuf>,
+	cache: LocalResourceCache,
+}
+
+#[derive(Clone)]
+struct PublishedSnapshot {
+	snapshot: Arc<WorkspaceSnapshot>,
+	context: SnapshotQueryContext,
+	status: WorkspaceStatus,
+}
+
 struct DaemonRpcService {
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
 	roots: Arc<[PathBuf]>,
 	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
 	shutdown: Arc<tokio::sync::Notify>,
 	handshake: HandshakeResponse,
+}
+
+fn publish_current_snapshot(
+	daemon: &WorkspaceDaemon,
+	published: &RwLock<Option<PublishedSnapshot>>,
+) {
+	let Some(snapshot) = daemon.registry.queries().snapshot_arc() else {
+		return;
+	};
+	let publication = PublishedSnapshot {
+		snapshot,
+		context: SnapshotQueryContext {
+			roots: Arc::from(daemon.roots.clone()),
+			config_root: Arc::new(daemon.config_root.clone()),
+			cache: daemon.cache.clone(),
+		},
+		status: workspace_status_result(&daemon.roots, &daemon.registry),
+	};
+	*published.write().unwrap_or_else(|err| err.into_inner()) = Some(publication);
 }
 
 impl DaemonRpcService {
@@ -394,19 +432,108 @@ impl DaemonRpcService {
 		&self,
 		request: ProtocolRequest,
 	) -> Result<ProtocolResponse, ErrorObjectOwned> {
-		let daemon = self.daemon.clone();
-		let roots = self.roots.clone();
-		tokio::task::spawn_blocking(move || match daemon.try_lock() {
-			Ok(mut guard) => guard.handle_protocol(request),
-			Err(TryLockError::WouldBlock) => workspace_loading_response(request, &roots),
-			Err(TryLockError::Poisoned(err)) => {
-				let mut guard = err.into_inner();
-				guard.handle_protocol(request)
-			}
-		})
+		if let Some(response) = stateless_protocol_response(&request) {
+			return Ok(response);
+		}
+		if request_needs_initial_snapshot(&request, &self.published) {
+			return Ok(workspace_loading_response(request));
+		}
+		if concurrent_snapshot_request(&request) {
+			return dispatch_published_snapshot(self.published.clone(), request).await;
+		}
+		dispatch_workspace_request(
+			self.daemon.clone(),
+			self.published.clone(),
+			self.roots.clone(),
+			request,
+		)
 		.await
-		.map_err(|err| internal_error(err.to_string()))
 	}
+}
+
+fn request_needs_initial_snapshot(
+	request: &ProtocolRequest,
+	published: &RwLock<Option<PublishedSnapshot>>,
+) -> bool {
+	matches!(
+		request,
+		ProtocolRequest::Query(request) if request.query.requires_workspace_snapshot()
+	) && published
+		.read()
+		.unwrap_or_else(|err| err.into_inner())
+		.is_none()
+}
+
+fn concurrent_snapshot_request(request: &ProtocolRequest) -> bool {
+	matches!(
+		request,
+		ProtocolRequest::Query(request)
+			if request.consistency == Consistency::StaleOk
+				&& concurrent_snapshot_query(&request.query)
+	)
+}
+
+async fn dispatch_published_snapshot(
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	request: ProtocolRequest,
+) -> Result<ProtocolResponse, ErrorObjectOwned> {
+	let published = published
+		.read()
+		.unwrap_or_else(|err| err.into_inner())
+		.clone();
+	tokio::task::spawn_blocking(move || {
+		let ProtocolRequest::Query(request) = request else {
+			unreachable!("concurrent query routing checked the request variant")
+		};
+		handle_stale_snapshot_query(published, *request)
+	})
+	.await
+	.map_err(|err| internal_error(err.to_string()))
+}
+
+async fn dispatch_workspace_request(
+	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	roots: Arc<[PathBuf]>,
+	request: ProtocolRequest,
+) -> Result<ProtocolResponse, ErrorObjectOwned> {
+	tokio::task::spawn_blocking(move || {
+		handle_workspace_request(&daemon, &published, &roots, request)
+	})
+	.await
+	.map_err(|err| internal_error(err.to_string()))
+}
+
+fn handle_workspace_request(
+	daemon: &Mutex<WorkspaceDaemon>,
+	published: &RwLock<Option<PublishedSnapshot>>,
+	roots: &[PathBuf],
+	request: ProtocolRequest,
+) -> ProtocolResponse {
+	if matches!(
+		&request,
+		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus)
+	) {
+		return match daemon.try_lock() {
+			Ok(mut guard) => handle_and_publish(&mut guard, published, request),
+			Err(TryLockError::WouldBlock) => workspace_busy_response(request, roots, published),
+			Err(TryLockError::Poisoned(err)) => {
+				handle_and_publish(&mut err.into_inner(), published, request)
+			}
+		};
+	}
+	let mut guard = daemon.lock().unwrap_or_else(|err| err.into_inner());
+	handle_and_publish(&mut guard, published, request)
+}
+
+fn handle_and_publish(
+	daemon: &mut WorkspaceDaemon,
+	published: &RwLock<Option<PublishedSnapshot>>,
+	request: ProtocolRequest,
+) -> ProtocolResponse {
+	let response = daemon.handle_protocol(request);
+	publish_current_snapshot(daemon, published);
+	response
 }
 
 #[async_trait]
@@ -640,7 +767,7 @@ impl WorkspaceDaemon {
 		Ok(CommandResponse {
 			generation: generation(&self.registry),
 			message: "workspace refreshed".to_string(),
-			status: Some(status),
+			status: Some(Box::new(status)),
 		})
 	}
 
@@ -897,7 +1024,10 @@ fn refresh_memory_source_set(
 		return Ok(CommandResponse {
 			generation: generation(&daemon.registry),
 			message: format!("{message}: unchanged"),
-			status: Some(workspace_status_result(&daemon.roots, &daemon.registry)),
+			status: Some(Box::new(workspace_status_result(
+				&daemon.roots,
+				&daemon.registry,
+			))),
 		});
 	}
 	let MemorySourceSetUpdate {
@@ -932,7 +1062,10 @@ fn refresh_memory_source_set(
 	Ok(CommandResponse {
 		generation,
 		message,
-		status: Some(workspace_status_result(&daemon.roots, &daemon.registry)),
+		status: Some(Box::new(workspace_status_result(
+			&daemon.roots,
+			&daemon.registry,
+		))),
 	})
 }
 
@@ -984,56 +1117,103 @@ fn handle_query(
 	dispatch_loaded_query(daemon, snapshot, response, request)
 }
 
+fn concurrent_snapshot_query(query: &Query) -> bool {
+	query.requires_workspace_snapshot()
+		&& !matches!(query, Query::ChangeContext(_) | Query::Notes(_))
+}
+
+fn handle_stale_snapshot_query(
+	published: Option<PublishedSnapshot>,
+	request: QueryRequest,
+) -> ProtocolResponse {
+	let published = match published {
+		Some(published) => published,
+		None => {
+			return ProtocolResponse::Error(QueryError::new(
+				"workspace_loading",
+				"workspace snapshot is still loading; retry after workspace.status reports phase ready",
+			));
+		}
+	};
+	let generation = Some(WorkspaceGeneration(published.snapshot.generation.value()));
+	let response = ResponseContext {
+		roots: &published.context.roots,
+		config_root: &published.context.config_root,
+		generation,
+	};
+	let QueryRequest { query, page, .. } = request;
+	dispatch_snapshot_query(
+		&published.context,
+		published.snapshot,
+		response,
+		query,
+		page,
+	)
+	.map_or_else(ProtocolResponse::Error, |response| {
+		ProtocolResponse::Query(Box::new(response))
+	})
+}
+
 fn dispatch_loaded_query(
 	daemon: &mut WorkspaceDaemon,
 	snapshot: Arc<WorkspaceSnapshot>,
 	response: ResponseContext<'_>,
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
+	let QueryRequest { query, page, .. } = request;
+	match query {
+		Query::ChangeContext(query) => change_context_response(daemon, &snapshot, response, query),
+		Query::Notes(query) => notes_response(daemon, &snapshot, query, page, response.generation),
+		query => {
+			let context = SnapshotQueryContext {
+				roots: Arc::from(daemon.roots.clone()),
+				config_root: Arc::new(daemon.config_root.clone()),
+				cache: daemon.cache.clone(),
+			};
+			dispatch_snapshot_query(&context, snapshot, response, query, page)
+		}
+	}
+}
+
+fn dispatch_snapshot_query(
+	context: &SnapshotQueryContext,
+	snapshot: Arc<WorkspaceSnapshot>,
+	response: ResponseContext<'_>,
+	query: Query,
+	page: Page,
+) -> Result<QueryResponse, QueryError> {
 	let current_generation = response.generation;
-	match request.query {
+	match query {
 		Query::QueryDescribe(_) => unreachable!("query describe handled before snapshot load"),
 		Query::WorkspaceStatus => unreachable!("workspace status handled before snapshot load"),
 		Query::SyntaxParse(_) => {
 			unreachable!("stateless syntax parse handled before snapshot load")
 		}
-		Query::TreeChildren(query) => tree_children_response(
-			&snapshot,
-			&daemon.roots,
-			query,
-			request.page,
-			current_generation,
-		),
-		Query::SymbolSearch(query) => symbol_search_response(
-			&snapshot,
-			&daemon.roots,
-			query,
-			request.page,
-			current_generation,
-		),
+		Query::TreeChildren(query) => {
+			tree_children_response(&snapshot, &context.roots, query, page, current_generation)
+		}
+		Query::SymbolSearch(query) => {
+			symbol_search_response(&snapshot, &context.roots, query, page, current_generation)
+		}
 		Query::SymbolInsights(query) => {
-			symbol_insights_response(&snapshot, &daemon.roots, query, current_generation)
+			symbol_insights_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::SymbolDetail(query) => symbol_detail_response(
 			&snapshot,
-			&daemon.roots,
+			&context.roots,
 			query.workspace.as_deref(),
 			&query.uri,
 			query.context_lines,
 			current_generation,
 		),
 		Query::SyntaxTree(query) => {
-			syntax::syntax_tree_response(&snapshot, &daemon.roots, query, current_generation)
+			syntax::syntax_tree_response(&snapshot, &context.roots, query, current_generation)
 		}
-		Query::SymbolUsages(query) => symbol_usages_response(
-			&snapshot,
-			&daemon.roots,
-			query,
-			request.page,
-			current_generation,
-		),
+		Query::SymbolUsages(query) => {
+			symbol_usages_response(&snapshot, &context.roots, query, page, current_generation)
+		}
 		Query::ViewRead(query) => {
-			view_read_response(&snapshot, &daemon.roots, query, current_generation)
+			view_read_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::RulesList(query) => rules_list_response(
 			&snapshot,
@@ -1046,11 +1226,11 @@ fn dispatch_loaded_query(
 					langs: query.lang,
 					severities: query.severity,
 				},
-				page: request.page,
+				page,
 			},
 		),
 		Query::RulesCheck(query) => rules_check_response(
-			&daemon.cache,
+			&context.cache,
 			Arc::clone(&snapshot),
 			response,
 			RulesCheckEval {
@@ -1059,37 +1239,35 @@ fn dispatch_loaded_query(
 				rules: query.rules,
 				files: query.file,
 				report: query.report,
-				page: request.page,
+				page,
 			},
 		),
 		Query::RulesApplicable(query) => {
-			rules_applicable_response(&snapshot, response, query, request.page)
+			rules_applicable_response(&snapshot, response, query, page)
 		}
 		Query::ChangeReview(query) => {
-			change_review_response(&snapshot, &daemon.roots, query, current_generation)
+			change_review_response(&snapshot, &context.roots, query, current_generation)
 		}
-		Query::ChangeContext(query) => change_context_response(daemon, &snapshot, response, query),
+		Query::ChangeContext(_) => {
+			unreachable!("change context is dispatched with exclusive workspace access")
+		}
 		Query::SymbolGraph(query) => {
-			symbol_graph_response(&snapshot, &daemon.roots, query, current_generation)
+			symbol_graph_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::GraphPath(query) => {
-			graph_path_response(&snapshot, &daemon.roots, query, current_generation)
+			graph_path_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::IdentityChildren(query) => {
-			identity_children_response(&snapshot, &daemon.roots, query, current_generation)
+			identity_children_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::IdentityGraph(query) => {
-			identity_graph_response(&snapshot, &daemon.roots, query, current_generation)
+			identity_graph_response(&snapshot, &context.roots, query, current_generation)
 		}
-		Query::ResolutionAudit(query) => resolution_audit_response(
-			&snapshot,
-			&daemon.roots,
-			query,
-			request.page,
-			current_generation,
-		),
-		Query::Notes(query) => {
-			notes_response(daemon, &snapshot, query, request.page, current_generation)
+		Query::ResolutionAudit(query) => {
+			resolution_audit_response(&snapshot, &context.roots, query, page, current_generation)
+		}
+		Query::Notes(_) => {
+			unreachable!("notes are dispatched with exclusive workspace access")
 		}
 	}
 }
@@ -2221,23 +2399,66 @@ fn change_review_ref(
 	}
 }
 
-fn workspace_loading_response(request: ProtocolRequest, roots: &[PathBuf]) -> ProtocolResponse {
+fn stateless_protocol_response(request: &ProtocolRequest) -> Option<ProtocolResponse> {
+	let ProtocolRequest::Query(request) = request else {
+		return None;
+	};
+	let response = match &request.query {
+		Query::QueryDescribe(query) => query_describe_response(query.verb.as_deref()),
+		Query::SyntaxParse(query) => syntax::syntax_parse_response(query.clone()),
+		_ => return None,
+	};
+	Some(response.map_or_else(ProtocolResponse::Error, |response| {
+		ProtocolResponse::Query(Box::new(response))
+	}))
+}
+
+fn workspace_busy_response(
+	request: ProtocolRequest,
+	roots: &[PathBuf],
+	published: &RwLock<Option<PublishedSnapshot>>,
+) -> ProtocolResponse {
 	match request {
-		ProtocolRequest::Query(request) if matches!(&request.query, Query::QueryDescribe(_)) => {
-			match &request.query {
-				Query::QueryDescribe(query) => query_describe_response(query.verb.as_deref())
-					.map_or_else(ProtocolResponse::Error, |response| {
-						ProtocolResponse::Query(Box::new(response))
-					}),
-				_ => unreachable!(),
-			}
-		}
 		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus) => {
-			ProtocolResponse::Query(Box::new(workspace_status_loading(roots)))
+			let published = published
+				.read()
+				.unwrap_or_else(|err| err.into_inner())
+				.clone();
+			let Some(mut published) = published else {
+				return ProtocolResponse::Query(Box::new(workspace_status_loading(roots)));
+			};
+			let summary = format!(
+				"workspace refresh in progress; stale-ok reads continue on generation {}",
+				published.snapshot.generation.value()
+			);
+			published.status.stale = true;
+			published.status.stale_summary = summary.clone();
+			for root in &mut published.status.roots {
+				root.stale = true;
+				root.stale_summary = summary.clone();
+			}
+			ProtocolResponse::Query(Box::new(QueryResponse {
+				generation: published.status.generation,
+				result: QueryResult::WorkspaceStatus(published.status),
+				next_cursor: None,
+			}))
 		}
 		_ => ProtocolResponse::Error(QueryError::new(
+			"workspace_busy",
+			"workspace daemon is applying an exclusive mutation; retry the request",
+		)),
+	}
+}
+
+fn workspace_loading_response(request: ProtocolRequest) -> ProtocolResponse {
+	match request {
+		ProtocolRequest::Query(_) => ProtocolResponse::Error(QueryError::new(
 			"workspace_loading",
-			"workspace daemon is busy loading; retry after workspace.status reports phase ready",
+			"workspace snapshot is still indexing; retry after workspace.status reports phase ready",
+		)),
+		ProtocolRequest::Command(_) => ProtocolResponse::Error(QueryError::new(
+			"workspace_loading",
+			"workspace snapshot is still indexing; commands are available after workspace.status reports phase ready",
 		)),
 	}
 }
@@ -2396,6 +2617,7 @@ fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
 		references: 0,
 		stale: false,
 		stale_summary: "loading".to_string(),
+		timings: WorkspaceTimingsDto::default(),
 	};
 	QueryResponse {
 		generation: None,
@@ -2462,6 +2684,25 @@ fn workspace_status_result(
 		references,
 		stale: staleness.is_stale(),
 		stale_summary: staleness.summary(),
+		timings: registry
+			.queries()
+			.snapshot()
+			.map(workspace_timings_dto)
+			.unwrap_or_default(),
+	}
+}
+
+fn workspace_timings_dto(snapshot: &WorkspaceSnapshot) -> WorkspaceTimingsDto {
+	let milliseconds =
+		|duration: std::time::Duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+	WorkspaceTimingsDto {
+		source_catalog_ms: milliseconds(snapshot.timings.source_catalog),
+		extract_sources_ms: milliseconds(snapshot.timings.extract_sources),
+		semantic_index_ms: milliseconds(snapshot.timings.semantic_index),
+		code_index_ms: milliseconds(snapshot.timings.code_index),
+		linkage_ms: milliseconds(snapshot.timings.linkage),
+		change_overlay_ms: milliseconds(snapshot.timings.change_overlay),
+		total_ms: milliseconds(snapshot.timings.total),
 	}
 }
 
@@ -4862,6 +5103,42 @@ mod tests {
 
 	use super::*;
 
+	fn test_rpc_service(
+		daemon: WorkspaceDaemon,
+		roots: Vec<PathBuf>,
+		events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	) -> DaemonRpcService {
+		DaemonRpcService {
+			daemon: Arc::new(Mutex::new(daemon)),
+			published: Arc::new(RwLock::new(None)),
+			roots: Arc::from(roots),
+			events,
+			shutdown: Arc::new(tokio::sync::Notify::new()),
+			handshake: HandshakeResponse {
+				protocol_version: code_moniker_query::PROTOCOL_VERSION,
+				daemon_version: "test".to_string(),
+				build: producer_identity(),
+				workspace_root: "test".to_string(),
+				workspace_roots: Vec::new(),
+				capabilities: CapabilitySet::default(),
+			},
+		}
+	}
+
+	fn hold_workspace_lock(
+		daemon: Arc<Mutex<WorkspaceDaemon>>,
+	) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+		let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+		let (release_tx, release_rx) = std::sync::mpsc::channel();
+		let holder = std::thread::spawn(move || {
+			let _workspace_lock = daemon.lock().expect("workspace lock");
+			locked_tx.send(()).expect("announce workspace lock");
+			let _ = release_rx.recv();
+		});
+		locked_rx.recv().expect("wait for workspace lock");
+		(release_tx, holder)
+	}
+
 	fn search_symbols(daemon: &mut WorkspaceDaemon, text: &str) -> QueryResult {
 		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
 			query: Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
@@ -5380,6 +5657,133 @@ message = "every selected function is observable"
 		assert!(syntax_node_contains(&tree.root, "decl_statement", None));
 		assert!(syntax_node_contains(&tree.root, "stmt_assign", None));
 		assert!(syntax_node_contains(&tree.root, "stmt_return", None));
+	}
+
+	#[tokio::test]
+	async fn rpc_syntax_parse_does_not_wait_for_the_workspace_lock() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let (events, _) = tokio::sync::broadcast::channel(16);
+		let service = test_rpc_service(
+			WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon"),
+			vec![temp.path().to_path_buf()],
+			events,
+		);
+		let (release_lock, lock_holder) = hold_workspace_lock(Arc::clone(&service.daemon));
+
+		let response = service
+			.dispatch(ProtocolRequest::Query(Box::new(QueryRequest::new(
+				Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+					language: "rs".to_string(),
+					source: "fn answer() -> u32 { 42 }".to_string(),
+					uri: None,
+					max_depth: 6,
+					max_nodes: 100,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 80,
+				}),
+			))))
+			.await
+			.expect("RPC dispatch");
+		release_lock.send(()).expect("release workspace lock");
+		lock_holder.join().expect("workspace lock holder");
+
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected stateless syntax response, got {response:?}");
+		};
+		assert!(matches!(response.result, QueryResult::SyntaxTree(_)));
+	}
+
+	#[tokio::test]
+	async fn rpc_exclusive_requests_queue_instead_of_reporting_workspace_loading() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let (events, _) = tokio::sync::broadcast::channel(16);
+		let service = Arc::new(test_rpc_service(
+			WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon"),
+			vec![temp.path().to_path_buf()],
+			events,
+		));
+		let (release_lock, lock_holder) = hold_workspace_lock(Arc::clone(&service.daemon));
+		let mut pending = tokio::spawn({
+			let service = Arc::clone(&service);
+			async move {
+				service
+					.dispatch(ProtocolRequest::Command(CommandRequest {
+						command: Command::WorkspaceRefresh,
+					}))
+					.await
+			}
+		});
+
+		assert!(
+			tokio::time::timeout(std::time::Duration::from_millis(50), &mut pending)
+				.await
+				.is_err(),
+			"the request should wait for the active workspace mutation"
+		);
+		release_lock.send(()).expect("release workspace lock");
+		lock_holder.join().expect("workspace lock holder");
+
+		let response = pending.await.expect("dispatch task").expect("RPC dispatch");
+		assert!(matches!(response, ProtocolResponse::Command(_)));
+	}
+
+	#[tokio::test]
+	async fn rpc_stale_reads_use_the_published_snapshot_during_workspace_mutation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(temp.path().join("lib.rs"), "pub struct Customer;\n").expect("seed fixture");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let (events, _) = tokio::sync::broadcast::channel(16);
+		let service = test_rpc_service(daemon, vec![temp.path().to_path_buf()], events);
+		{
+			let daemon = service.daemon.lock().expect("workspace lock");
+			publish_current_snapshot(&daemon, &service.published);
+		}
+		let (release_lock, lock_holder) = hold_workspace_lock(Arc::clone(&service.daemon));
+
+		let response = tokio::time::timeout(
+			std::time::Duration::from_millis(100),
+			service.dispatch(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
+					name: Some("Customer".to_string()),
+					..Default::default()
+				}),
+				consistency: Consistency::StaleOk,
+				page: Page::default(),
+			}))),
+		)
+		.await
+		.expect("stale read must not wait for the workspace mutation")
+		.expect("RPC dispatch");
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected symbol response, got {response:?}");
+		};
+		let QueryResult::SymbolList(symbols) = response.result else {
+			panic!("expected symbol list, got {:?}", response.result);
+		};
+		assert_eq!(symbols.total, 1);
+
+		let response = service
+			.dispatch(ProtocolRequest::Query(Box::new(QueryRequest::new(
+				Query::WorkspaceStatus,
+			))))
+			.await
+			.expect("workspace status");
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected workspace status, got {response:?}");
+		};
+		let QueryResult::WorkspaceStatus(status) = response.result else {
+			panic!("expected workspace status, got {:?}", response.result);
+		};
+		assert_eq!(status.phase, "ready");
+		assert!(status.stale);
+		assert!(status.stale_summary.contains("refresh in progress"));
+		release_lock.send(()).expect("release workspace lock");
+		lock_holder.join().expect("workspace lock holder");
 	}
 
 	#[test]
@@ -7305,20 +7709,9 @@ message = "the indexed rule must observe the memory source"
 		)
 		.expect("daemon");
 		let build = producer_identity();
-		let service = DaemonRpcService {
-			daemon: Arc::new(Mutex::new(daemon)),
-			roots: Arc::from(vec![temp.path().to_path_buf()]),
-			events: events.clone(),
-			shutdown: Arc::new(tokio::sync::Notify::new()),
-			handshake: HandshakeResponse {
-				protocol_version: code_moniker_query::PROTOCOL_VERSION,
-				daemon_version: "test".to_string(),
-				build: build.clone(),
-				workspace_root: "test".to_string(),
-				workspace_roots: Vec::new(),
-				capabilities: CapabilitySet::default(),
-			},
-		};
+		let mut service = test_rpc_service(daemon, vec![temp.path().to_path_buf()], events.clone());
+		service.handshake.build = build.clone();
+		let daemon_handle = Arc::clone(&service.daemon);
 		let server = Server::builder()
 			.build("127.0.0.1:0")
 			.await
@@ -7330,6 +7723,29 @@ message = "the indexed rule must observe the memory source"
 			.build(format!("ws://{addr}"))
 			.await
 			.expect("client connects");
+
+		let (release_lock, lock_holder) = hold_workspace_lock(daemon_handle);
+		let response = tokio::time::timeout(
+			std::time::Duration::from_secs(1),
+			client.query(QueryRequest::new(Query::SyntaxParse(
+				code_moniker_query::SyntaxParseQuery {
+					language: "rs".to_string(),
+					source: "fn rpc_answer() -> u32 { 42 }".to_string(),
+					uri: None,
+					max_depth: 6,
+					max_nodes: 100,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 80,
+				},
+			))),
+		)
+		.await
+		.expect("syntax.parse must bypass the held workspace lock")
+		.expect("syntax.parse RPC");
+		release_lock.send(()).expect("release workspace lock");
+		lock_holder.join().expect("workspace lock holder");
+		assert!(matches!(response.result, QueryResult::SyntaxTree(_)));
 
 		let response = client
 			.query(QueryRequest::new(Query::WorkspaceStatus))

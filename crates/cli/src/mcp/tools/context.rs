@@ -18,7 +18,7 @@ impl ContextTool {
 		"This combines its graph neighborhood, active notes, applicable rules, worktree changes, ",
 		"coverage counts, and canonical suggested checks in one snapshot-consistent response.\n\n",
 		"Output is compact and hard-budgeted by default. Body monikers use the compact form; ",
-		"generated follow-up calls keep canonical values."
+		"generated follow-up calls preserve the active compact or canonical mode."
 	);
 
 	const DEFAULT_MAX_ITEMS: usize = 20;
