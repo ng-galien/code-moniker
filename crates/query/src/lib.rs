@@ -7,6 +7,8 @@ use serde_json::Value;
 
 mod discovery;
 pub use discovery::*;
+mod bounded;
+pub use bounded::*;
 
 #[cfg(feature = "rpc")]
 pub mod rpc {

@@ -4,6 +4,9 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use code_moniker_cli::{Cli, Command};
+use code_moniker_query::bounded_debug;
+
 #[cfg(feature = "telemetry")]
 use std::time::Duration;
 #[cfg(feature = "telemetry")]
@@ -32,6 +35,7 @@ const EXPORT_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_QUEUE_SIZE: usize = 1024;
 #[cfg(feature = "telemetry")]
 const MAX_EXPORT_BATCH_SIZE: usize = 256;
+const COMMAND_PAYLOAD_LIMIT: usize = 4_096;
 
 #[cfg(feature = "telemetry")]
 #[derive(Debug)]
@@ -113,6 +117,35 @@ pub(super) fn init() -> TelemetryGuard {
 
 	init_local_logging();
 	TelemetryGuard::default()
+}
+
+pub(super) fn command_span(cli: &Cli) -> tracing::Span {
+	tracing::info_span!(
+		"cli.command",
+		command.name = command_name(&cli.command),
+		command.request = %bounded_debug(&cli.command, COMMAND_PAYLOAD_LIMIT),
+		command.status = tracing::field::Empty,
+	)
+}
+
+fn command_name(command: &Command) -> &'static str {
+	match command {
+		Command::Extract(_) => "extract",
+		Command::Stats(_) => "stats",
+		Command::Check(_) => "check",
+		Command::Diff(_) => "diff",
+		Command::Rules(_) => "rules",
+		#[cfg(feature = "tui")]
+		Command::Ui(_) => "ui",
+		#[cfg(feature = "mcp")]
+		Command::Mcp(_) => "mcp",
+		Command::Daemon(_) => "daemon",
+		Command::Query(_) => "query",
+		Command::Agent(_) => "agent",
+		Command::Langs(_) => "langs",
+		Command::Shapes(_) => "shapes",
+		Command::Manifest(_) => "manifest",
+	}
 }
 
 fn init_local_logging() {

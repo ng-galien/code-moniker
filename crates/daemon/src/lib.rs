@@ -29,8 +29,8 @@ use code_moniker_query::{
 	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
 	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceFailureDto,
 	WorkspaceGeneration, WorkspaceLifecycle, WorkspacePhase, WorkspaceRootStatus,
-	WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto, current_build_identity,
-	describe_query_capabilities, symbol_is_test_artifact,
+	WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto, bounded_debug,
+	current_build_identity, describe_query_capabilities, symbol_is_test_artifact,
 };
 use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::glob::FilePathFilter;
@@ -54,8 +54,8 @@ use code_moniker_workspace::source::{
 use jsonrpsee::core::{SubscriptionResult, async_trait};
 use jsonrpsee::server::{PendingSubscriptionSink, Server};
 use jsonrpsee::types::ErrorObjectOwned;
-
 const DEFAULT_SCHEME: &str = "code+moniker://";
+const TELEMETRY_REQUEST_PAYLOAD_LIMIT: usize = 4_096;
 const MEMORY_SOURCE_LIMITS: MemorySourceLimits = MemorySourceLimits {
 	max_source_sets: 128,
 	max_documents_per_set: 10_000,
@@ -511,27 +511,99 @@ fn publish_current_snapshot(
 }
 
 impl DaemonRpcService {
+	#[tracing::instrument(
+		name = "daemon.request",
+		skip_all,
+		fields(
+			request.kind = protocol_request_kind(&request),
+			request.operation = protocol_request_operation(&request),
+			request.consistency = protocol_request_consistency(&request),
+			request.payload = %bounded_debug(&request, TELEMETRY_REQUEST_PAYLOAD_LIMIT),
+			response.status = tracing::field::Empty,
+			response.generation = tracing::field::Empty,
+			error.message = tracing::field::Empty,
+		)
+	)]
 	async fn dispatch(
 		&self,
 		request: ProtocolRequest,
 	) -> Result<ProtocolResponse, ErrorObjectOwned> {
-		if let Some(response) = stateless_protocol_response(&request) {
-			return Ok(response);
+		let result = if let Some(response) = stateless_protocol_response(&request) {
+			Ok(response)
+		} else if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
+			Ok(workspace_unavailable_response(request, &self.lifecycle))
+		} else if concurrent_snapshot_request(&request) {
+			dispatch_published_snapshot(self.published.clone(), request).await
+		} else {
+			dispatch_workspace_request(
+				self.daemon.clone(),
+				self.published.clone(),
+				self.lifecycle.clone(),
+				self.roots.clone(),
+				request,
+			)
+			.await
+		};
+		let span = tracing::Span::current();
+		record_protocol_response(&span, &result);
+		result
+	}
+}
+
+fn protocol_request_kind(request: &ProtocolRequest) -> &'static str {
+	match request {
+		ProtocolRequest::Query(_) => "query",
+		ProtocolRequest::Command(_) => "command",
+	}
+}
+
+fn protocol_request_operation(request: &ProtocolRequest) -> &'static str {
+	match request {
+		ProtocolRequest::Query(request) => request.query.capability(),
+		ProtocolRequest::Command(request) => match &request.command {
+			Command::WorkspaceRefresh => "workspace.refresh",
+			Command::WorkspaceSourceSetReplace { .. } => "workspace.source-set.replace",
+			Command::WorkspaceSourceSetRemove { .. } => "workspace.source-set.remove",
+		},
+	}
+}
+
+fn protocol_request_consistency(request: &ProtocolRequest) -> &'static str {
+	match request {
+		ProtocolRequest::Query(request) => match request.consistency {
+			Consistency::Current => "current",
+			Consistency::RefreshIfStale => "refresh_if_stale",
+			Consistency::StaleOk => "stale_ok",
+		},
+		ProtocolRequest::Command(_) => "not_applicable",
+	}
+}
+
+fn record_protocol_response(
+	span: &tracing::Span,
+	result: &Result<ProtocolResponse, ErrorObjectOwned>,
+) {
+	match result {
+		Ok(ProtocolResponse::Query(response)) => {
+			span.record("response.status", "ok");
+			if let Some(generation) = response.generation {
+				span.record("response.generation", generation.0);
+			}
 		}
-		if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
-			return Ok(workspace_unavailable_response(request, &self.lifecycle));
+		Ok(ProtocolResponse::Command(response)) => {
+			span.record("response.status", "ok");
+			if let Some(generation) = response.generation {
+				span.record("response.generation", generation.0);
+			}
 		}
-		if concurrent_snapshot_request(&request) {
-			return dispatch_published_snapshot(self.published.clone(), request).await;
+		Ok(ProtocolResponse::Error(error)) => {
+			span.record("response.status", "error");
+			span.record("error.message", tracing::field::debug(error));
 		}
-		dispatch_workspace_request(
-			self.daemon.clone(),
-			self.published.clone(),
-			self.lifecycle.clone(),
-			self.roots.clone(),
-			request,
-		)
-		.await
+		Err(error) => {
+			span.record("response.status", "rpc_error");
+			span.record("error.message", tracing::field::display(error));
+		}
 	}
 }
 
@@ -573,7 +645,9 @@ async fn dispatch_published_snapshot(
 		.read()
 		.unwrap_or_else(|err| err.into_inner())
 		.clone();
+	let blocking_span = tracing::Span::current();
 	tokio::task::spawn_blocking(move || {
+		let _entered = blocking_span.enter();
 		let ProtocolRequest::Query(request) = request else {
 			unreachable!("concurrent query routing checked the request variant")
 		};
@@ -590,7 +664,9 @@ async fn dispatch_workspace_request(
 	roots: Arc<[PathBuf]>,
 	request: ProtocolRequest,
 ) -> Result<ProtocolResponse, ErrorObjectOwned> {
+	let blocking_span = tracing::Span::current();
 	tokio::task::spawn_blocking(move || {
+		let _entered = blocking_span.enter();
 		handle_workspace_request(&daemon, &published, &lifecycle, &roots, request)
 	})
 	.await

@@ -13,6 +13,9 @@ use rmcp::transport::streamable_http_server::{
 };
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
 use serde_json::Value;
+use tracing::Instrument as _;
+
+use code_moniker_query::bounded_debug;
 
 use super::context::{InProcessPreloadParts, McpContext};
 use super::tools::{ToolRegistry, ToolResult};
@@ -197,41 +200,65 @@ async fn dispatch_tool_call(
 	let started = Instant::now();
 	let name = request.name.to_string();
 	let arguments = Value::Object(request.arguments.unwrap_or_default());
-	tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
-	let (name, arguments, result) = tokio::task::spawn_blocking(move || {
-		let result = registry.call(&context, &name, &arguments);
-		let result = match result {
-			Err(error) if !error.is_unknown_tool() => {
-				let uri = arguments
-					.get("uri")
-					.and_then(Value::as_str)
-					.unwrap_or("workspace");
-				registry
-					.finalize_error(
-						&name,
-						&arguments,
-						context.scheme(),
-						problem_lmnav(uri, &name, &error.to_string()),
-					)
-					.map(Ok)
-					.unwrap_or(Err(error))
-			}
-			result => result,
-		};
-		(name, arguments, result)
-	})
-	.await
-	.map_err(|join_error| McpError::internal_error(join_error.to_string(), None))?;
-	let status = tool_result_status(&result);
-	let response = call_result(&name, &arguments, result);
-	tracing::info!(
-		event = "tool_call_finished",
-		tool = %name,
-		status,
-		elapsed_ms = started.elapsed().as_millis(),
-		"mcp tool call finished"
+	let span = tracing::info_span!(
+		"mcp.tool.call",
+		mcp.tool.name = %name,
+		mcp.tool.arguments = %bounded_debug(&arguments, 4_096),
+		mcp.tool.status = tracing::field::Empty,
+		mcp.response.content_count = tracing::field::Empty,
+		mcp.response.is_error = tracing::field::Empty,
 	);
-	Ok(response)
+	let result_span = span.clone();
+	async move {
+		tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
+		let blocking_span = tracing::Span::current();
+		let joined = tokio::task::spawn_blocking(move || {
+			let _entered = blocking_span.enter();
+			let result = registry.call(&context, &name, &arguments);
+			let result = match result {
+				Err(error) if !error.is_unknown_tool() => {
+					let uri = arguments
+						.get("uri")
+						.and_then(Value::as_str)
+						.unwrap_or("workspace");
+					registry
+						.finalize_error(
+							&name,
+							&arguments,
+							context.scheme(),
+							problem_lmnav(uri, &name, &error.to_string()),
+						)
+						.map(Ok)
+						.unwrap_or(Err(error))
+				}
+				result => result,
+			};
+			(name, arguments, result)
+		})
+		.await;
+		let (name, arguments, result) = match joined {
+			Ok(result) => result,
+			Err(join_error) => {
+				result_span.record("mcp.tool.status", "join_error");
+				return Err(McpError::internal_error(join_error.to_string(), None));
+			}
+		};
+		let status = tool_result_status(&result);
+		result_span.record("mcp.tool.status", status);
+		let response = call_result(&name, &arguments, result);
+		result_span.record("mcp.response.content_count", response.content.len());
+		result_span.record("mcp.response.is_error", response.is_error.unwrap_or(false));
+		tracing::info!(
+			event = "tool_call_finished",
+			tool = %name,
+			status,
+			elapsed_ms = started.elapsed().as_millis(),
+			"mcp tool call finished"
+		);
+		Ok(response)
+	}
+	.instrument(span)
+	.await
 }
 
 fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &'static str {
