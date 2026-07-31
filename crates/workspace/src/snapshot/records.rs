@@ -53,6 +53,12 @@ impl<T> RecordTable<T> {
 		self.shards.get(slot).map(Arc::as_ref).unwrap_or(&[])
 	}
 
+	pub(crate) fn estimated_heap_bytes(&self) -> usize {
+		self.shards.capacity() * std::mem::size_of::<Arc<[T]>>()
+			+ self.offsets.capacity() * std::mem::size_of::<usize>()
+			+ self.len() * std::mem::size_of::<T>()
+	}
+
 	pub(crate) fn replace(&mut self, slot: usize, records: Arc<[T]>) {
 		if let Some(shard) = self.shards.get_mut(slot) {
 			*shard = records;

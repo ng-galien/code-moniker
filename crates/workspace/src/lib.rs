@@ -11,6 +11,7 @@ pub mod lang;
 pub mod lines;
 pub mod linkage;
 pub mod live;
+pub mod memory;
 pub mod notes;
 mod path_util;
 pub mod registry;

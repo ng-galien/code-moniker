@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -716,6 +717,43 @@ type OutgoingPathIndex =
 	rustc_hash::FxHashMap<u32, rustc_hash::FxHashMap<Arc<str>, Vec<ReferenceId>>>;
 
 impl LinkageReadIndex {
+	pub(crate) fn estimated_heap_bytes(&self) -> usize {
+		let incoming = self.incoming.capacity()
+			* (size_of::<SymbolId>() + size_of::<Vec<ReferenceId>>())
+			+ self
+				.incoming
+				.values()
+				.map(|references| references.capacity() * size_of::<ReferenceId>())
+				.sum::<usize>();
+		let targets = self.targets.capacity() * (size_of::<ReferenceId>() + size_of::<SymbolId>());
+		let ordinals = self.ordinals.capacity() * (size_of::<SymbolId>() + size_of::<u32>());
+		let symbols = self.symbols.capacity() * (size_of::<u32>() + size_of::<SymbolId>());
+		let mut relation_strings = std::collections::HashSet::<(usize, usize)>::new();
+		let outgoing = self.outgoing.capacity()
+			* (size_of::<u32>() + size_of::<rustc_hash::FxHashMap<Arc<str>, Vec<ReferenceId>>>())
+			+ self
+				.outgoing
+				.values()
+				.map(|relations| {
+					relations.capacity() * (size_of::<Arc<str>>() + size_of::<Vec<ReferenceId>>())
+						+ relations
+							.iter()
+							.map(|(relation, references)| {
+								let string_bytes = if relation_strings
+									.insert((relation.as_ptr() as usize, relation.len()))
+								{
+									relation.len()
+								} else {
+									0
+								};
+								string_bytes + references.capacity() * size_of::<ReferenceId>()
+							})
+							.sum::<usize>()
+				})
+				.sum::<usize>();
+		incoming + targets + ordinals + symbols + outgoing
+	}
+
 	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
 		let mut incoming = rustc_hash::FxHashMap::<SymbolId, Vec<ReferenceId>>::default();
 		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
@@ -809,6 +847,12 @@ fn outgoing_path_index(
 pub struct LinkageReadIndexHandle(Option<Arc<LinkageReadIndex>>);
 
 impl LinkageReadIndexHandle {
+	pub(crate) fn estimated_heap_bytes(&self) -> usize {
+		self.0.as_deref().map_or(0, |index| {
+			size_of::<LinkageReadIndex>() + index.estimated_heap_bytes()
+		})
+	}
+
 	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
 		Self(Some(Arc::new(LinkageReadIndex::from_edges(edges))))
 	}

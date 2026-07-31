@@ -74,6 +74,10 @@ impl SymbolSet {
 		self.bitmap.serialized_size()
 	}
 
+	pub(super) fn estimated_heap_bytes(&self) -> usize {
+		self.bitmap.serialized_size()
+	}
+
 	pub fn single(&self) -> Option<SymbolOrdinal> {
 		(self.len() == 1).then(|| self.iter().next()).flatten()
 	}

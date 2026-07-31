@@ -1,9 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::mem;
 #[cfg(target_os = "macos")]
 use std::os::raw::{c_int, c_void};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
@@ -11,10 +10,10 @@ use code_moniker_core::lang::Lang;
 use code_moniker_workspace::changes::{ChangeOverlayPort, LocalChangeOverlay};
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::linkage::{LinkagePort, LocalLinkage};
+use code_moniker_workspace::memory::SnapshotMemoryEstimate;
 use code_moniker_workspace::snapshot::{
-	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageEdge, LinkageSnapshot,
-	ReferenceRecord, SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord,
-	UnresolvedReference, WorkspaceRequest,
+	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageSnapshot, SourceCatalog,
+	SourceUnit, WorkspaceRequest,
 };
 use code_moniker_workspace::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, LocalSourceCatalog,
@@ -376,85 +375,31 @@ fn estimate_catalog(catalog: &SourceCatalog, estimate: &mut MemoryEstimate) {
 }
 
 fn estimate_index(index: &CodeIndex, estimate: &mut MemoryEstimate) {
-	estimate.add_inline::<SourceFileRecord>(
-		"snapshot.index.source_records",
-		index.sources.len(),
-		index.sources.capacity(),
-	);
-	estimate.add_inline::<SymbolRecord>(
-		"snapshot.index.symbol_records",
-		index.symbols.len(),
-		index.symbols.len(),
-	);
-	estimate.add_inline::<ReferenceRecord>(
-		"snapshot.index.reference_records",
-		index.references.len(),
-		index.references.len(),
-	);
 	estimate.add(
-		"snapshot.index.source_strings",
-		index
-			.sources
-			.iter()
-			.map(source_record_payload)
-			.sum::<usize>(),
-		format!("{} source records", index.sources.len()),
-	);
-	estimate.add(
-		"snapshot.index.symbol_strings",
-		index.symbols.iter().map(symbol_payload).sum::<usize>(),
-		format!("{} symbols", index.symbols.len()),
-	);
-	estimate.add(
-		"snapshot.index.reference_strings",
-		index
-			.references
-			.iter()
-			.map(reference_owned_payload)
-			.sum::<usize>(),
-		format!("{} references", index.references.len()),
-	);
-	let target_pool = unique_arc_str_payload(index.references.iter().map(|r| &r.target_identity));
-	estimate.add(
-		"snapshot.index.reference_target_pool",
-		target_pool,
-		"unique Arc<str> reference targets",
+		"snapshot.index.total",
+		SnapshotMemoryEstimate::from_index(index),
+		format!(
+			"{} sources, {} symbols, {} references; canonical runtime estimate",
+			index.sources.len(),
+			index.symbols.len(),
+			index.references.len()
+		),
 	);
 }
 
 fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
-	estimate.add_inline::<LinkageEdge>(
-		"snapshot.linkage.resolved_edges",
-		linkage.resolved.len(),
-		linkage.resolved.capacity(),
-	);
-	estimate.add_inline::<UnresolvedReference>(
-		"snapshot.linkage.unresolved_records",
-		linkage.unresolved.len(),
-		linkage.unresolved.capacity(),
-	);
 	estimate.add(
-		"snapshot.linkage.resolved_strings",
-		linkage
-			.resolved
-			.iter()
-			.map(|edge| std::mem::size_of_val(edge))
-			.sum(),
-		format!("{} resolved edges", linkage.resolved.len()),
-	);
-	estimate.add(
-		"snapshot.linkage.unresolved_strings",
-		linkage
-			.unresolved
-			.iter()
-			.map(|reference| std::mem::size_of_val(&reference.reference))
-			.sum(),
-		format!("{} unresolved refs", linkage.unresolved.len()),
-	);
-	estimate.add(
-		"snapshot.linkage.unresolved_target_pool",
-		unique_arc_str_payload(linkage.unresolved.iter().map(|r| &r.target_identity)),
-		"unique Arc<str> unresolved targets",
+		"snapshot.linkage.total",
+		SnapshotMemoryEstimate::from_linkage(linkage),
+		format!(
+			"{} resolved, {} candidate, {} external, {} dynamic, {} blocked, {} unresolved; canonical runtime estimate",
+			linkage.resolved_refs,
+			linkage.candidate_refs,
+			linkage.external_refs,
+			linkage.dynamic_refs,
+			linkage.blocked_refs,
+			linkage.unresolved_refs
+		),
 	);
 }
 
@@ -591,37 +536,6 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 	);
 }
 
-fn source_record_payload(source: &SourceFileRecord) -> usize {
-	std::mem::size_of_val(&source.id)
-		+ source.uri.capacity()
-		+ source.path.capacity()
-		+ source.rel_path.capacity()
-		+ source.anchor.capacity()
-		+ source.language.capacity()
-		+ source.text.capacity()
-}
-
-fn symbol_payload(symbol: &SymbolRecord) -> usize {
-	std::mem::size_of_val(&symbol.id)
-		+ std::mem::size_of_val(&symbol.source)
-		+ symbol.identity.len()
-		+ symbol.name.capacity()
-		+ symbol.kind.capacity()
-		+ symbol.signature.capacity()
-		+ symbol.parent.as_ref().map_or(0, std::mem::size_of_val)
-}
-
-fn reference_owned_payload(reference: &ReferenceRecord) -> usize {
-	std::mem::size_of_val(&reference.id)
-		+ std::mem::size_of_val(&reference.source)
-		+ std::mem::size_of_val(&reference.source_symbol)
-		+ reference.kind.capacity()
-		+ reference.call_name.as_ref().map_or(0, String::capacity)
-		+ reference.confidence.as_ref().map_or(0, String::capacity)
-		+ reference.receiver.as_ref().map_or(0, String::capacity)
-		+ reference.alias.as_ref().map_or(0, String::capacity)
-}
-
 fn change_resource_payload(resource: &ChangeResource) -> usize {
 	resource.label.capacity() + resource.message.capacity()
 }
@@ -667,18 +581,6 @@ fn ref_payload_bytes(reference: &RefRecord) -> usize {
 		+ reference.confidence.len()
 		+ reference.call_name.len()
 		+ reference.binding.len()
-}
-
-fn unique_arc_str_payload<'a>(values: impl Iterator<Item = &'a Arc<str>>) -> usize {
-	let mut seen = HashSet::<(usize, usize)>::new();
-	let mut bytes = 0usize;
-	for value in values {
-		let key = (value.as_ptr() as usize, value.len());
-		if seen.insert(key) {
-			bytes += value.len();
-		}
-	}
-	bytes
 }
 
 #[cfg(target_os = "macos")]

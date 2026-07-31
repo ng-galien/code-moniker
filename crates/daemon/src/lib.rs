@@ -2,12 +2,14 @@
 // Daemon bootstrap clones config and handles into independently owned runtime services.
 #![cfg(unix)]
 
+mod telemetry;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, TryLockError, mpsc};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use code_moniker_check::{
 	CheckRequest, CheckSkipReason, CheckSummary, CompiledRuleSpec, DefaultRulesSelection,
@@ -281,54 +283,57 @@ fn spawn_initial_preload(
 ) {
 	let cancellation = WorkspaceCancellation::default();
 	let worker_cancellation = cancellation.clone();
+	let preload_span = telemetry::detached_operation_span("daemon.initial_preload");
 	let worker = tokio::task::spawn_blocking(move || {
-		let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
-		let result = (|| {
-			if daemon.registry.queries().snapshot().is_none() {
-				refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
-					.map_err(|error| anyhow::anyhow!(error.to_string()))?;
-				anyhow::ensure!(
-					!worker_cancellation.is_cancelled(),
-					"workspace preload cancelled"
-				);
-				restart_live_watcher(&mut daemon)
-					.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+		preload_span.in_scope(|| {
+			let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
+			let result = (|| {
+				if daemon.registry.queries().snapshot().is_none() {
+					refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
+						.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+					anyhow::ensure!(
+						!worker_cancellation.is_cancelled(),
+						"workspace preload cancelled"
+					);
+					restart_live_watcher(&mut daemon)
+						.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+				}
+				Ok(())
+			})();
+			if let Err(error) = result {
+				let failure = daemon
+					.registry
+					.queries()
+					.last_failure()
+					.map(workspace_failure_dto);
+				let failure = failure.unwrap_or_else(|| WorkspaceFailureDto {
+					resource: None,
+					message: format!("{error:#}"),
+				});
+				*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
+					phase: WorkspacePhase::Failed,
+					failure: Some(failure.clone()),
+				};
+				let _ = events.send(WorkspaceEventDto {
+					kind: WorkspaceEventKind::Failed,
+					generation: None,
+					stale_summary: Some(failure.message),
+				});
+				return Err(error);
 			}
-			Ok(())
-		})();
-		if let Err(error) = result {
-			let failure = daemon
-				.registry
-				.queries()
-				.last_failure()
-				.map(workspace_failure_dto);
-			let failure = failure.unwrap_or_else(|| WorkspaceFailureDto {
-				resource: None,
-				message: format!("{error:#}"),
-			});
+			publish_current_snapshot(&daemon, &published);
+			let status = workspace_status_result(&daemon.roots, &daemon.registry);
 			*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
-				phase: WorkspacePhase::Failed,
-				failure: Some(failure.clone()),
+				phase: status.phase,
+				failure: status.failure.clone(),
 			};
 			let _ = events.send(WorkspaceEventDto {
-				kind: WorkspaceEventKind::Failed,
-				generation: None,
-				stale_summary: Some(failure.message),
+				kind: WorkspaceEventKind::Refreshed,
+				generation: status.generation,
+				stale_summary: None,
 			});
-			return Err(error);
-		}
-		publish_current_snapshot(&daemon, &published);
-		let status = workspace_status_result(&daemon.roots, &daemon.registry);
-		*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
-			phase: status.phase,
-			failure: status.failure.clone(),
-		};
-		let _ = events.send(WorkspaceEventDto {
-			kind: WorkspaceEventKind::Refreshed,
-			generation: status.generation,
-			stale_summary: None,
-		});
-		Ok(status)
+			Ok(status)
+		})
 	});
 	(cancellation, worker)
 }
@@ -528,6 +533,9 @@ impl DaemonRpcService {
 		&self,
 		request: ProtocolRequest,
 	) -> Result<ProtocolResponse, ErrorObjectOwned> {
+		let request_kind = protocol_request_kind(&request);
+		let request_operation = protocol_request_operation(&request);
+		let started = Instant::now();
 		let result = if let Some(response) = stateless_protocol_response(&request) {
 			Ok(response)
 		} else if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
@@ -545,7 +553,13 @@ impl DaemonRpcService {
 			.await
 		};
 		let span = tracing::Span::current();
-		record_protocol_response(&span, &result);
+		let response_status = record_protocol_response(&span, &result);
+		telemetry::record_daemon_request(
+			request_kind,
+			request_operation,
+			response_status,
+			started.elapsed(),
+		);
 		result
 	}
 }
@@ -582,27 +596,31 @@ fn protocol_request_consistency(request: &ProtocolRequest) -> &'static str {
 fn record_protocol_response(
 	span: &tracing::Span,
 	result: &Result<ProtocolResponse, ErrorObjectOwned>,
-) {
+) -> &'static str {
 	match result {
 		Ok(ProtocolResponse::Query(response)) => {
 			span.record("response.status", "ok");
 			if let Some(generation) = response.generation {
 				span.record("response.generation", generation.0);
 			}
+			"ok"
 		}
 		Ok(ProtocolResponse::Command(response)) => {
 			span.record("response.status", "ok");
 			if let Some(generation) = response.generation {
 				span.record("response.generation", generation.0);
 			}
+			"ok"
 		}
 		Ok(ProtocolResponse::Error(error)) => {
 			span.record("response.status", "error");
 			span.record("error.message", tracing::field::debug(error));
+			"error"
 		}
 		Err(error) => {
 			span.record("response.status", "rpc_error");
 			span.record("error.message", tracing::field::display(error));
+			"rpc_error"
 		}
 	}
 }
@@ -2936,41 +2954,76 @@ fn apply_live_plan(
 	daemon: &mut WorkspaceDaemon,
 	plan: WorkspaceLiveRefreshPlan,
 ) -> Result<(), QueryError> {
-	let live = daemon
-		.registry
-		.live_commands()
-		.apply_plan(WorkspaceRequest::new("daemon-live-refresh"), plan);
-	let replace_watcher = live.replace_watcher();
-	workspace_transition_result(live.transition())?;
-	if replace_watcher {
-		restart_live_watcher(daemon)?;
-	}
-	Ok(())
+	observe_index_operation(daemon, "live", move |daemon| {
+		let live = daemon
+			.registry
+			.live_commands()
+			.apply_plan(WorkspaceRequest::new("daemon-live-refresh"), plan);
+		let replace_watcher = live.replace_watcher();
+		workspace_transition_result(live.transition())?;
+		if replace_watcher {
+			restart_live_watcher(daemon)?;
+		}
+		Ok(())
+	})
 }
 
 fn refresh_full_cancellable(
 	daemon: &mut WorkspaceDaemon,
 	cancellation: WorkspaceCancellation,
 ) -> Result<(), QueryError> {
-	workspace_transition_result(
-		daemon
-			.registry
-			.commands()
-			.refresh(WorkspaceRequest::new("daemon-refresh").with_cancellation(cancellation)),
-	)
+	observe_index_operation(daemon, "full", move |daemon| {
+		workspace_transition_result(
+			daemon
+				.registry
+				.commands()
+				.refresh(WorkspaceRequest::new("daemon-refresh").with_cancellation(cancellation)),
+		)
+	})
 }
 
 fn refresh_stale(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
-	let live = daemon
+	observe_index_operation(daemon, "stale", |daemon| {
+		let live = daemon
+			.registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("daemon-refresh-stale"));
+		let replace_watcher = live.replace_watcher();
+		workspace_transition_result(live.transition())?;
+		if replace_watcher {
+			restart_live_watcher(daemon)?;
+		}
+		Ok(())
+	})
+}
+
+fn observe_index_operation<T>(
+	daemon: &mut WorkspaceDaemon,
+	mode: &'static str,
+	operation: impl FnOnce(&mut WorkspaceDaemon) -> Result<T, QueryError>,
+) -> Result<T, QueryError> {
+	let previous_generation = daemon
 		.registry
-		.live_commands()
-		.refresh_stale(WorkspaceRequest::new("daemon-refresh-stale"));
-	let replace_watcher = live.replace_watcher();
-	workspace_transition_result(live.transition())?;
-	if replace_watcher {
-		restart_live_watcher(daemon)?;
-	}
-	Ok(())
+		.queries()
+		.snapshot()
+		.map_or(0, |snapshot| snapshot.generation.value());
+	let span = telemetry::index_operation_span(mode, previous_generation);
+	let started = Instant::now();
+	let result = span.in_scope(|| operation(daemon));
+	span.in_scope(|| {
+		telemetry::finish_index_operation(
+			&span,
+			mode,
+			previous_generation,
+			started.elapsed(),
+			result.is_ok(),
+			result
+				.as_ref()
+				.ok()
+				.and_then(|_| daemon.registry.queries().snapshot()),
+		);
+	});
+	result
 }
 
 fn workspace_transition_result(transition: WorkspaceTransition) -> Result<(), QueryError> {

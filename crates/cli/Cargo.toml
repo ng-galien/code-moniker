@@ -31,7 +31,7 @@ default = ["pretty", "telemetry"]
 pretty  = ["dep:anstyle"]
 tui     = ["pretty", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
-telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing", "dep:tracing-opentelemetry", "dep:tracing-subscriber"]
+telemetry = ["code-moniker-daemon/telemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-appender-tracing", "dep:tracing", "dep:tracing-opentelemetry", "dep:tracing-subscriber"]
 
 [dependencies]
 code-moniker-core = { workspace = true, features = ["serde"] }
@@ -61,6 +61,7 @@ tracing-subscriber = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-appender-tracing = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 
 anstyle       = { workspace = true, optional = true }

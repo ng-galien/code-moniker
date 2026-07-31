@@ -1,5 +1,7 @@
 //! Process-wide tracing and optional OpenTelemetry bootstrap.
 
+#[cfg(feature = "telemetry")]
+use tracing_subscriber::Layer as _;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -16,9 +18,9 @@ use std::{
 };
 
 #[cfg(feature = "telemetry")]
-use opentelemetry::KeyValue;
-#[cfg(feature = "telemetry")]
 use opentelemetry::trace::TracerProvider as _;
+#[cfg(feature = "telemetry")]
+use opentelemetry::{KeyValue, global};
 #[cfg(feature = "telemetry")]
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 #[cfg(feature = "telemetry")]
@@ -26,6 +28,11 @@ use opentelemetry_sdk::Resource;
 #[cfg(feature = "telemetry")]
 use opentelemetry_sdk::{
 	error::OTelSdkResult,
+	logs::{LogBatch, LogExporter, SdkLoggerProvider},
+	metrics::{
+		PeriodicReader, SdkMeterProvider, Temporality, data::ResourceMetrics,
+		exporter::PushMetricExporter,
+	},
 	trace::{BatchConfigBuilder, BatchSpanProcessor, SdkTracerProvider, SpanData, SpanExporter},
 };
 
@@ -41,15 +48,28 @@ const COMMAND_PAYLOAD_LIMIT: usize = 4_096;
 #[derive(Debug)]
 struct DiagnosingExporter<E> {
 	inner: E,
+	signal: &'static str,
 	failure_reported: AtomicBool,
 }
 
 #[cfg(feature = "telemetry")]
 impl<E> DiagnosingExporter<E> {
-	fn new(inner: E) -> Self {
+	fn new(inner: E, signal: &'static str) -> Self {
 		Self {
 			inner,
+			signal,
 			failure_reported: AtomicBool::new(false),
+		}
+	}
+
+	fn diagnose(&self, result: &OTelSdkResult) {
+		if let Err(error) = result
+			&& !self.failure_reported.swap(true, Ordering::Relaxed)
+		{
+			eprintln!(
+				"code-moniker: OpenTelemetry {} export failed (further failures suppressed): {error}",
+				self.signal
+			);
 		}
 	}
 }
@@ -58,13 +78,7 @@ impl<E> DiagnosingExporter<E> {
 impl<E: SpanExporter> SpanExporter for DiagnosingExporter<E> {
 	async fn export(&self, batch: Vec<SpanData>) -> OTelSdkResult {
 		let result = self.inner.export(batch).await;
-		if let Err(error) = &result
-			&& !self.failure_reported.swap(true, Ordering::Relaxed)
-		{
-			eprintln!(
-				"code-moniker: OpenTelemetry export failed (further failures suppressed): {error}"
-			);
-		}
+		self.diagnose(&result);
 		result
 	}
 
@@ -81,17 +95,76 @@ impl<E: SpanExporter> SpanExporter for DiagnosingExporter<E> {
 	}
 }
 
+#[cfg(feature = "telemetry")]
+impl<E: LogExporter> LogExporter for DiagnosingExporter<E> {
+	async fn export(&self, batch: LogBatch<'_>) -> OTelSdkResult {
+		let result = self.inner.export(batch).await;
+		self.diagnose(&result);
+		result
+	}
+
+	fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+		self.inner.shutdown_with_timeout(timeout)
+	}
+
+	fn event_enabled(
+		&self,
+		level: opentelemetry::logs::Severity,
+		target: &str,
+		name: Option<&str>,
+	) -> bool {
+		self.inner.event_enabled(level, target, name)
+	}
+
+	fn set_resource(&mut self, resource: &Resource) {
+		self.inner.set_resource(resource);
+	}
+}
+
+#[cfg(feature = "telemetry")]
+impl<E: PushMetricExporter> PushMetricExporter for DiagnosingExporter<E> {
+	async fn export(&self, metrics: &ResourceMetrics) -> OTelSdkResult {
+		let result = self.inner.export(metrics).await;
+		self.diagnose(&result);
+		result
+	}
+
+	fn force_flush(&self) -> OTelSdkResult {
+		self.inner.force_flush()
+	}
+
+	fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+		self.inner.shutdown_with_timeout(timeout)
+	}
+
+	fn temporality(&self) -> Temporality {
+		self.inner.temporality()
+	}
+}
+
 /// Keeps the OpenTelemetry provider alive until the process command completes.
 #[derive(Debug, Default)]
 pub(super) struct TelemetryGuard {
 	#[cfg(feature = "telemetry")]
-	provider: Option<SdkTracerProvider>,
+	tracer_provider: Option<SdkTracerProvider>,
+	#[cfg(feature = "telemetry")]
+	meter_provider: Option<SdkMeterProvider>,
+	#[cfg(feature = "telemetry")]
+	logger_provider: Option<SdkLoggerProvider>,
 }
 
 impl Drop for TelemetryGuard {
 	fn drop(&mut self) {
 		#[cfg(feature = "telemetry")]
-		if let Some(provider) = self.provider.take() {
+		if let Some(provider) = self.logger_provider.take() {
+			let _ = provider.shutdown_with_timeout(EXPORT_TIMEOUT);
+		}
+		#[cfg(feature = "telemetry")]
+		if let Some(provider) = self.meter_provider.take() {
+			let _ = provider.shutdown_with_timeout(EXPORT_TIMEOUT);
+		}
+		#[cfg(feature = "telemetry")]
+		if let Some(provider) = self.tracer_provider.take() {
 			let _ = provider.shutdown_with_timeout(EXPORT_TIMEOUT);
 		}
 	}
@@ -163,12 +236,22 @@ fn init_local_logging() {
 
 #[cfg(feature = "telemetry")]
 fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync>> {
-	let exporter = opentelemetry_otlp::SpanExporter::builder()
+	let span_exporter = opentelemetry_otlp::SpanExporter::builder()
 		.with_http()
 		.with_protocol(Protocol::HttpBinary)
 		.with_timeout(EXPORT_TIMEOUT)
 		.build()?;
-	let processor = BatchSpanProcessor::builder(DiagnosingExporter::new(exporter))
+	let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+		.with_http()
+		.with_protocol(Protocol::HttpBinary)
+		.with_timeout(EXPORT_TIMEOUT)
+		.build()?;
+	let log_exporter = opentelemetry_otlp::LogExporter::builder()
+		.with_http()
+		.with_protocol(Protocol::HttpBinary)
+		.with_timeout(EXPORT_TIMEOUT)
+		.build()?;
+	let processor = BatchSpanProcessor::builder(DiagnosingExporter::new(span_exporter, "trace"))
 		.with_batch_config(
 			BatchConfigBuilder::default()
 				.with_max_queue_size(MAX_QUEUE_SIZE)
@@ -184,11 +267,30 @@ fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync
 	} else {
 		resource_builder.with_service_name("code-moniker").build()
 	};
-	let provider = SdkTracerProvider::builder()
-		.with_resource(resource)
+	let tracer_provider = SdkTracerProvider::builder()
+		.with_resource(resource.clone())
 		.with_span_processor(processor)
 		.build();
-	let tracer = provider.tracer("code-moniker");
+	let metric_reader =
+		PeriodicReader::builder(DiagnosingExporter::new(metric_exporter, "metric")).build();
+	let meter_provider = SdkMeterProvider::builder()
+		.with_resource(resource.clone())
+		.with_reader(metric_reader)
+		.build();
+	global::set_meter_provider(meter_provider.clone());
+	let logger_provider = SdkLoggerProvider::builder()
+		.with_resource(resource)
+		.with_batch_exporter(DiagnosingExporter::new(log_exporter, "log"))
+		.build();
+	let tracer = tracer_provider.tracer("code-moniker");
+	let otel_log_layer =
+		opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&logger_provider)
+			.with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+				let target = metadata.target();
+				!target.starts_with("opentelemetry")
+					&& !target.starts_with("hyper")
+					&& !target.starts_with("reqwest")
+			}));
 	let subscriber = tracing_subscriber::registry()
 		.with(LevelFilter::INFO)
 		.with(
@@ -198,9 +300,12 @@ fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync
 				.with_level(true)
 				.compact(),
 		)
-		.with(tracing_opentelemetry::layer().with_tracer(tracer));
+		.with(tracing_opentelemetry::layer().with_tracer(tracer))
+		.with(otel_log_layer);
 	if let Err(error) = subscriber.try_init() {
-		let _ = provider.shutdown_with_timeout(EXPORT_TIMEOUT);
+		let _ = logger_provider.shutdown_with_timeout(EXPORT_TIMEOUT);
+		let _ = meter_provider.shutdown_with_timeout(EXPORT_TIMEOUT);
+		let _ = tracer_provider.shutdown_with_timeout(EXPORT_TIMEOUT);
 		return Err(Box::new(error));
 	}
 
@@ -211,7 +316,9 @@ fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync
 	)
 	.in_scope(|| tracing::info!("OpenTelemetry export enabled"));
 	Ok(TelemetryGuard {
-		provider: Some(provider),
+		tracer_provider: Some(tracer_provider),
+		meter_provider: Some(meter_provider),
+		logger_provider: Some(logger_provider),
 	})
 }
 

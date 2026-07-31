@@ -76,6 +76,43 @@ impl Default for SymbolInventoryIndex {
 }
 
 impl SymbolInventoryIndex {
+	pub(crate) fn estimated_heap_bytes(&self) -> usize {
+		let mut strings = std::collections::HashSet::<(usize, usize)>::new();
+		let mut string_bytes = 0usize;
+		let mut segment_bytes = 0usize;
+		for record in self.records.values() {
+			for value in [
+				&record.identity,
+				&record.name,
+				&record.kind,
+				&record.shape,
+				&record.visibility,
+				&record.language,
+				&record.source_path,
+				&record.srcset,
+			] {
+				if strings.insert((value.as_ptr() as usize, value.len())) {
+					string_bytes += value.len();
+				}
+			}
+			segment_bytes += record.segments.len() * std::mem::size_of::<InventorySegment>();
+			for segment in record.segments.iter() {
+				for value in [&segment.kind, &segment.name] {
+					if strings.insert((value.as_ptr() as usize, value.len())) {
+						string_bytes += value.len();
+					}
+				}
+			}
+		}
+		self.records.capacity()
+			* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<InventorySymbol>())
+			+ self.catalog.estimated_heap_bytes()
+			+ self.all_symbols.estimated_heap_bytes()
+			+ self.facets.estimated_heap_bytes()
+			+ segment_bytes
+			+ string_bytes
+	}
+
 	pub fn empty(generation: ResourceGeneration) -> Self {
 		Self {
 			generation,

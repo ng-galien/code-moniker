@@ -22,6 +22,19 @@ pub struct SymbolInventoryFacets {
 }
 
 impl SymbolInventoryFacets {
+	pub(super) fn estimated_heap_bytes(&self) -> usize {
+		string_postings_bytes(&self.by_name)
+			+ string_postings_bytes(&self.by_kind)
+			+ string_postings_bytes(&self.by_shape)
+			+ string_postings_bytes(&self.by_visibility)
+			+ string_postings_bytes(&self.by_language)
+			+ postings_bytes(&self.by_source)
+			+ string_postings_bytes(&self.by_source_path)
+			+ postings_bytes(&self.by_source_root)
+			+ string_postings_bytes(&self.by_srcset)
+			+ postings_bytes(&self.by_segment)
+	}
+
 	pub fn symbols_by_name(&self, name: &str) -> Option<&SymbolSet> {
 		self.by_name.get(name)
 	}
@@ -96,6 +109,18 @@ impl SymbolInventoryFacets {
 	pub fn segment_postings(&self) -> impl Iterator<Item = (&InventorySegment, &SymbolSet)> {
 		self.by_segment.iter()
 	}
+}
+
+fn postings_bytes<K>(postings: &FxHashMap<K, SymbolSet>) -> usize {
+	postings.capacity() * (std::mem::size_of::<K>() + std::mem::size_of::<SymbolSet>())
+		+ postings
+			.values()
+			.map(SymbolSet::estimated_heap_bytes)
+			.sum::<usize>()
+}
+
+fn string_postings_bytes(postings: &FxHashMap<Arc<str>, SymbolSet>) -> usize {
+	postings_bytes(postings)
 }
 
 pub(super) fn insert_facets(

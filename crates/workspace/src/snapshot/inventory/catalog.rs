@@ -17,6 +17,17 @@ pub struct SymbolOrdinalCatalog {
 }
 
 impl SymbolOrdinalCatalog {
+	pub(super) fn estimated_heap_bytes(&self) -> usize {
+		self.ids.capacity()
+			* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<SymbolId>())
+			+ self.identities.capacity()
+				* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<Arc<str>>())
+			+ self.ordinals_by_id.capacity()
+				* (std::mem::size_of::<SymbolId>() + std::mem::size_of::<SymbolOrdinal>())
+			+ self.ordinals_by_identity.capacity()
+				* (std::mem::size_of::<Arc<str>>() + std::mem::size_of::<SymbolOrdinal>())
+	}
+
 	pub fn push(&mut self, id: SymbolId, identity: Arc<str>) -> SymbolOrdinal {
 		if let Some(ordinal) = self.ordinals_by_identity.get(&identity).copied() {
 			self.rebind_id(ordinal, id);

@@ -58,11 +58,37 @@ impl Drop for InProcessPreload {
 fn start_preload(parts: InProcessPreloadParts) -> InProcessPreload {
 	let cancellation = WorkspaceCancellation::default();
 	let worker_cancellation = cancellation.clone();
-	let worker = tokio::task::spawn_blocking(move || run_preload(parts, worker_cancellation));
+	let preload_span = detached_preload_span();
+	let worker = tokio::task::spawn_blocking(move || {
+		preload_span.in_scope(|| run_preload(parts, worker_cancellation))
+	});
 	InProcessPreload {
 		cancellation,
 		worker,
 	}
+}
+
+fn detached_preload_span() -> tracing::Span {
+	let span = tracing::info_span!(
+		parent: None,
+		"workspace.background_operation",
+		operation.name = "mcp.initial_preload",
+		operation.async = true,
+	);
+	#[cfg(feature = "telemetry")]
+	{
+		use opentelemetry::KeyValue;
+		use opentelemetry::trace::TraceContextExt as _;
+		use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+		let context = tracing::Span::current().context();
+		let span_context = context.span().span_context().clone();
+		span.add_link_with_attributes(
+			span_context,
+			vec![KeyValue::new("operation.name", "mcp.initial_preload")],
+		);
+	}
+	span
 }
 
 fn run_preload(
