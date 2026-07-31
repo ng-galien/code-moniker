@@ -5,6 +5,9 @@ use clap::Parser;
 
 use code_moniker_cli::Cli;
 
+#[cfg(any(feature = "mcp", feature = "telemetry"))]
+mod observability;
+
 fn main() -> ExitCode {
 	let cli = match Cli::try_parse() {
 		Ok(c) => c,
@@ -18,9 +21,13 @@ fn main() -> ExitCode {
 			};
 		}
 	};
+	#[cfg(any(feature = "mcp", feature = "telemetry"))]
+	let telemetry = observability::init();
 	let mut stdout = io::stdout();
 	let mut stderr = io::stderr();
 	let exit = code_moniker_cli::run(&cli, &mut stdout, &mut stderr);
+	#[cfg(any(feature = "mcp", feature = "telemetry"))]
+	drop(telemetry);
 	let _ = stdout.flush();
 	let _ = stderr.flush();
 	exit.into()

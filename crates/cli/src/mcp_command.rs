@@ -23,7 +23,6 @@ fn run_inner<W1: Write, W2: Write>(
 	_stdout: &mut W1,
 	_stderr: &mut W2,
 ) -> anyhow::Result<()> {
-	init_logging();
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let daemon_config = daemon_workspace_config(
 		&args.paths,
@@ -108,15 +107,6 @@ async fn run_http_server(context: McpContext, port: u16, paths_label: &str) -> a
 	);
 	axum::serve(listener, router).await?;
 	Ok(())
-}
-
-fn init_logging() {
-	let _ = tracing_subscriber::fmt()
-		.with_writer(std::io::stderr)
-		.with_target(false)
-		.with_level(true)
-		.compact()
-		.try_init();
 }
 
 fn path_list(opts: &SessionOptions) -> String {

@@ -140,6 +140,77 @@ fn query_targets_the_exact_registered_daemon_endpoint() {
 	supervisor.wait().expect("reap supervisor");
 }
 
+#[cfg(feature = "telemetry")]
+#[test]
+fn unavailable_telemetry_collector_does_not_stop_the_daemon() {
+	let _lifecycle = lifecycle_test_lock();
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let config = config_from_roots([root.clone()]).expect("daemon config");
+	let mut supervisor = spawn_supervisor();
+	let supervisor_pid = supervisor.child_mut().id();
+	let mut daemon = ChildGuard(Some(
+		Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.args(["daemon", "start"])
+			.arg(&root)
+			.args(["--supervisor-pid", &supervisor_pid.to_string()])
+			.env("CODE_MONIKER_TELEMETRY", "true")
+			.env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:9")
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::piped())
+			.spawn()
+			.expect("spawn daemon with unavailable OTLP collector"),
+	));
+
+	wait_for_registry_entry(&config, daemon.child_mut().id(), Duration::from_secs(15));
+	thread::sleep(Duration::from_millis(1_500));
+	assert!(
+		daemon
+			.child_mut()
+			.try_wait()
+			.expect("poll instrumented daemon")
+			.is_none(),
+		"daemon exited because its telemetry collector was unavailable"
+	);
+	let endpoint = read_registry_entry(&config)
+		.expect("registry read")
+		.expect("registered daemon")
+		.endpoint;
+	let status = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["daemon", "status", "--daemon", &endpoint])
+		.output()
+		.expect("probe instrumented daemon");
+	assert!(
+		status.status.success(),
+		"daemon status failed after telemetry export error:\n{}",
+		String::from_utf8_lossy(&status.stderr)
+	);
+	stop_daemon_endpoint(workspace.path(), &endpoint);
+	wait_for_exit(daemon.child_mut(), Duration::from_secs(15));
+	let mut telemetry_diagnostics = String::new();
+	daemon
+		.child_mut()
+		.stderr
+		.take()
+		.expect("piped telemetry diagnostics")
+		.read_to_string(&mut telemetry_diagnostics)
+		.expect("read telemetry diagnostics");
+	assert!(daemon.wait().expect("reap daemon").success());
+	assert!(
+		telemetry_diagnostics.contains("OpenTelemetry export enabled"),
+		"telemetry path was not initialized:\n{telemetry_diagnostics}"
+	);
+	assert!(
+		telemetry_diagnostics.contains("OpenTelemetry export failed"),
+		"unavailable collector was not diagnosed:\n{telemetry_diagnostics}"
+	);
+	wait_for_registry_removal(&config, Duration::from_secs(2));
+	supervisor.child_mut().kill().expect("terminate supervisor");
+	supervisor.wait().expect("reap supervisor");
+}
+
 #[test]
 fn daemon_identity_control_uses_the_ambient_cache_directory() {
 	let _lifecycle = lifecycle_test_lock();

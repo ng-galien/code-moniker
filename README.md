@@ -404,6 +404,7 @@ Start with the page that matches the task:
 | Use the VS Code workbench extension | [VS Code extension](docs/vscode-extension.md) |
 | Wire checks into agent hooks or CI | [Agent integration and hooks](docs/cli/agent.md) |
 | Run or query resident workspaces | [Daemon](docs/daemon.md) |
+| Export daemon traces through OpenTelemetry | [Observability](docs/observability.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
 | Build or contribute | [Contributing](CONTRIBUTING.md) |
 
