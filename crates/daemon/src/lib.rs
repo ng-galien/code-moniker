@@ -34,7 +34,6 @@ use code_moniker_query::{
 	WorkspaceSourceSetDto, WorkspaceStatus, WorkspaceTimingsDto, bounded_debug,
 	current_build_identity, describe_query_capabilities, symbol_is_test_artifact,
 };
-use code_moniker_workspace::code::compact_identity;
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
 	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
@@ -66,6 +65,10 @@ const MEMORY_SOURCE_LIMITS: MemorySourceLimits = MemorySourceLimits {
 	max_source_set_bytes: 64 * 1024 * 1024,
 	max_total_bytes: 256 * 1024 * 1024,
 };
+
+pub fn set_telemetry_export_enabled(enabled: bool) {
+	telemetry::set_export_enabled(enabled);
+}
 
 #[derive(Clone, Copy)]
 struct MemorySourceLimits {
@@ -1044,7 +1047,8 @@ fn daemon_registry(
 	let cache = LocalResourceCache::default();
 	let registry = LocalWorkspaceRegistry::local_with_cache(
 		LocalWorkspaceOptions::new(roots.to_vec(), config.project.clone())
-			.with_cache_dir(config.cache_dir.as_ref().map(PathBuf::from)),
+			.with_cache_dir(config.cache_dir.as_ref().map(PathBuf::from))
+			.with_detailed_telemetry(telemetry::export_enabled()),
 		cache.clone(),
 	);
 	(registry, cache)
@@ -3011,16 +3015,20 @@ fn observe_index_operation<T>(
 	let started = Instant::now();
 	let result = span.in_scope(|| operation(daemon));
 	span.in_scope(|| {
+		let snapshot = result
+			.as_ref()
+			.ok()
+			.and_then(|_| daemon.registry.queries().snapshot());
+		let material =
+			snapshot.and_then(|snapshot| daemon.cache.index_material(snapshot.index.generation));
 		telemetry::finish_index_operation(
 			&span,
 			mode,
 			previous_generation,
 			started.elapsed(),
 			result.is_ok(),
-			result
-				.as_ref()
-				.ok()
-				.and_then(|_| daemon.registry.queries().snapshot()),
+			snapshot,
+			material.as_deref(),
 		);
 	});
 	result
@@ -3493,86 +3501,106 @@ fn symbol_insights_response(
 		.map(|pattern| regex::Regex::new(pattern))
 		.transpose()
 		.map_err(|err| QueryError::new("invalid_name_filter", err.to_string()))?;
-	let sources = WorkspaceView::new(snapshot).sources();
-	let scoped_sources = snapshot
-		.index
-		.sources
-		.iter()
-		.filter(|source| source_root(roots, &selected_roots, source).is_some())
-		.filter(|source| path_filter.matches(&source.rel_path))
-		.filter(|source| {
-			query.lang.is_empty() || query.lang.iter().any(|lang| lang == &source.language)
-		})
-		.collect::<Vec<_>>();
-	let scoped_source_ids = scoped_sources
-		.iter()
-		.map(|source| source.id)
-		.collect::<BTreeSet<_>>();
-	let scoped_symbols = snapshot
-		.index
-		.symbols
-		.iter()
-		.filter(|symbol| scoped_source_ids.contains(&symbol.source))
-		.filter(|symbol| query.include_non_navigable || symbol.navigable)
-		.filter(|symbol| {
-			query.kind.is_empty() || query.kind.iter().any(|kind| kind == &symbol.kind)
-		})
-		.filter(|symbol| {
-			query.shape.is_empty()
-				|| query
-					.shape
-					.iter()
-					.any(|shape| Shape::for_kind(symbol.kind.as_bytes()).as_str() == shape)
-		})
-		.filter(|symbol| {
-			name_filter
-				.as_ref()
-				.is_none_or(|regex| regex.is_match(&symbol.name))
-		})
-		.collect::<Vec<_>>();
-	let scoped_refs = snapshot
-		.index
-		.references
-		.iter()
-		.filter(|reference| scoped_source_ids.contains(&reference.source))
-		.collect::<Vec<_>>();
-	let mut symbol_counts = BTreeMap::<String, usize>::new();
-	let mut ref_counts = BTreeMap::<String, usize>::new();
-	for symbol in &scoped_symbols {
-		if let Some(source) = sources.record(&symbol.source) {
-			*symbol_counts.entry(source.rel_path.to_owned()).or_default() += 1;
+	let mut selected_sources = vec![false; snapshot.index.sources.len()];
+	let mut files = 0usize;
+	let mut languages = BTreeMap::<&str, usize>::new();
+	for source in &snapshot.index.sources {
+		let selected = source_root(roots, &selected_roots, source).is_some()
+			&& path_filter.matches(&source.rel_path)
+			&& (query.lang.is_empty() || query.lang.iter().any(|lang| lang == &source.language));
+		if selected {
+			if let Some(slot) = selected_sources.get_mut(source.id.file()) {
+				*slot = true;
+			}
+			files += 1;
+			*languages.entry(source.language.as_str()).or_default() += 1;
 		}
 	}
-	for reference in &scoped_refs {
-		if let Some(source) = sources.record(&reference.source) {
-			*ref_counts.entry(source.rel_path.to_owned()).or_default() += 1;
+	let mut symbols = 0usize;
+	let mut navigable_symbols = 0usize;
+	let mut non_navigable_symbols = 0usize;
+	let mut kinds = BTreeMap::<&str, usize>::new();
+	let mut shapes = BTreeMap::<&str, usize>::new();
+	let mut symbol_counts = vec![0usize; selected_sources.len()];
+	for symbol in snapshot.index.symbols.iter() {
+		if !selected_sources
+			.get(symbol.source.file())
+			.copied()
+			.unwrap_or(false)
+			|| (!query.include_non_navigable && !symbol.navigable)
+			|| (!query.kind.is_empty() && !query.kind.iter().any(|kind| kind == &symbol.kind))
+			|| (!query.shape.is_empty()
+				&& !query
+					.shape
+					.iter()
+					.any(|shape| Shape::for_kind(symbol.kind.as_bytes()).as_str() == shape))
+			|| name_filter
+				.as_ref()
+				.is_some_and(|regex| !regex.is_match(&symbol.name))
+		{
+			continue;
+		}
+		symbols += 1;
+		if symbol.navigable {
+			navigable_symbols += 1;
+		} else {
+			non_navigable_symbols += 1;
+		}
+		*kinds.entry(symbol.kind.as_str()).or_default() += 1;
+		*shapes
+			.entry(Shape::for_kind(symbol.kind.as_bytes()).as_str())
+			.or_default() += 1;
+		if let Some(count) = symbol_counts.get_mut(symbol.source.file()) {
+			*count += 1;
+		}
+	}
+	let mut references = 0usize;
+	let mut ref_counts = vec![0usize; selected_sources.len()];
+	for reference in snapshot.index.references.iter() {
+		if selected_sources
+			.get(reference.source.file())
+			.copied()
+			.unwrap_or(false)
+		{
+			references += 1;
+			if let Some(count) = ref_counts.get_mut(reference.source.file()) {
+				*count += 1;
+			}
+		}
+	}
+	let mut symbol_counts_by_path = BTreeMap::<&str, usize>::new();
+	let mut ref_counts_by_path = BTreeMap::<&str, usize>::new();
+	for source in &snapshot.index.sources {
+		if let Some(count) = symbol_counts
+			.get(source.id.file())
+			.copied()
+			.filter(|count| *count > 0)
+		{
+			*symbol_counts_by_path
+				.entry(source.rel_path.as_str())
+				.or_default() += count;
+		}
+		if let Some(count) = ref_counts
+			.get(source.id.file())
+			.copied()
+			.filter(|count| *count > 0)
+		{
+			*ref_counts_by_path
+				.entry(source.rel_path.as_str())
+				.or_default() += count;
 		}
 	}
 	let result = SymbolInsightsResult {
-		files: scoped_sources.len(),
-		symbols: scoped_symbols.len(),
-		references: scoped_refs.len(),
-		navigable_symbols: scoped_symbols
-			.iter()
-			.filter(|symbol| symbol.navigable)
-			.count(),
-		non_navigable_symbols: scoped_symbols
-			.iter()
-			.filter(|symbol| !symbol.navigable)
-			.count(),
-		languages: sorted_counts(
-			scoped_sources
-				.iter()
-				.map(|source| source.language.to_owned()),
-		),
-		kinds: sorted_counts(scoped_symbols.iter().map(|symbol| symbol.kind.to_owned())),
-		shapes: sorted_counts(
-			scoped_symbols
-				.iter()
-				.map(|symbol| Shape::for_kind(symbol.kind.as_bytes()).as_str().to_string()),
-		),
-		top_files_by_symbols: count_rows(symbol_counts),
-		top_files_by_refs: count_rows(ref_counts),
+		files,
+		symbols,
+		references,
+		navigable_symbols,
+		non_navigable_symbols,
+		languages: count_rows_borrowed(&languages),
+		kinds: count_rows_borrowed(&kinds),
+		shapes: count_rows_borrowed(&shapes),
+		top_files_by_symbols: count_rows_borrowed(&symbol_counts_by_path),
+		top_files_by_refs: count_rows_borrowed(&ref_counts_by_path),
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
@@ -4951,18 +4979,16 @@ mod helpers {
 		snapshot: &'a WorkspaceSnapshot,
 		uri: &str,
 	) -> Result<&'a SymbolRecord, QueryError> {
-		if let Some(symbol) = snapshot
-			.index
-			.symbols
-			.iter()
-			.find(|symbol| symbol.identity.as_ref() == uri || symbol.id.to_string() == uri)
-		{
-			return Ok(symbol);
+		let inventory = &snapshot.index.inventory;
+		if let Some(id) = SymbolId::parse(uri).or_else(|| inventory.symbol_id_by_identity(uri)) {
+			return symbol_record_by_id(snapshot, id).ok_or_else(|| {
+				QueryError::new("symbol_not_found", format!("symbol not found: {uri}"))
+			});
 		}
-		let mut matches = snapshot.index.symbols.iter().filter(|symbol| {
-			compact_identity(symbol.identity.as_ref(), &snapshot.index.identity_scheme).as_deref()
-				== Some(uri)
-		});
+		let mut matches = inventory
+			.symbol_ids_by_compact_identity(uri)
+			.into_iter()
+			.filter_map(|id| symbol_record_by_id(snapshot, id));
 		let Some(symbol) = matches.next() else {
 			return Err(QueryError::new(
 				"symbol_not_found",
@@ -4976,6 +5002,10 @@ mod helpers {
 			));
 		}
 		Ok(symbol)
+	}
+
+	fn symbol_record_by_id(snapshot: &WorkspaceSnapshot, id: SymbolId) -> Option<&SymbolRecord> {
+		snapshot.index.symbols.file_records(id.file()).get(id.def())
 	}
 
 	pub(super) fn symbol_dto(

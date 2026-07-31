@@ -8,13 +8,81 @@ use std::collections::HashSet;
 use std::mem::{size_of, size_of_val};
 use std::sync::Arc;
 
+use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
+
 use crate::snapshot::{CodeIndex, LinkageSnapshot, WorkspaceSnapshot};
+use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SnapshotMemoryEstimate {
 	pub source_bytes: usize,
 	pub index_bytes: usize,
 	pub graph_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RetainedMaterialMemoryEstimate {
+	pub source_bytes: usize,
+	pub graph_bytes: usize,
+	pub lookup_bytes: usize,
+	pub metadata_bytes: usize,
+	pub total_bytes: usize,
+}
+
+impl RetainedMaterialMemoryEstimate {
+	pub fn from_material(material: &CodeIndexMaterial) -> Self {
+		let source_bytes = material
+			.files
+			.iter()
+			.map(|file| file.source.capacity())
+			.sum();
+		let metadata_bytes = material.files.capacity() * size_of::<Arc<IndexedSourceFile>>()
+			+ material
+				.files
+				.iter()
+				.map(|file| {
+					size_of::<IndexedSourceFile>()
+						+ file.source_uri.capacity()
+						+ file.path.as_os_str().len()
+						+ file.rel_path.as_os_str().len()
+						+ file.anchor.as_os_str().len()
+				})
+				.sum::<usize>();
+		let graph_bytes =
+			material
+				.files
+				.iter()
+				.map(|file| {
+					file.graph.def_count() * size_of::<DefRecord>()
+						+ file.graph.ref_count() * size_of::<RefRecord>()
+						+ file
+							.graph
+							.defs()
+							.map(definition_payload_bytes)
+							.sum::<usize>() + file
+						.graph
+						.refs()
+						.map(reference_payload_bytes)
+						.sum::<usize>() + file
+						.graph
+						.defs()
+						.map(|definition| definition.moniker.as_encoded().len())
+						.sum::<usize>()
+				})
+				.sum();
+		let lookup_bytes = material
+			.symbols_by_moniker
+			.iter()
+			.map(|(moniker, symbol)| moniker.as_encoded().len() + size_of_val(symbol))
+			.sum();
+		Self {
+			source_bytes,
+			graph_bytes,
+			lookup_bytes,
+			metadata_bytes,
+			total_bytes: source_bytes + graph_bytes + lookup_bytes + metadata_bytes,
+		}
+	}
 }
 
 impl SnapshotMemoryEstimate {
@@ -145,6 +213,26 @@ fn unique_arc_str_payload<'a>(values: impl Iterator<Item = &'a Arc<str>>) -> usi
 		.filter(|value| seen.insert((value.as_ptr() as usize, value.len())))
 		.map(|value| value.len())
 		.sum()
+}
+
+fn definition_payload_bytes(definition: &DefRecord) -> usize {
+	definition.moniker.as_encoded().len()
+		+ definition.kind.len()
+		+ definition.visibility.len()
+		+ definition.signature.len()
+		+ definition.call_name.len()
+		+ definition.binding.len()
+		+ definition.origin.len()
+}
+
+fn reference_payload_bytes(reference: &RefRecord) -> usize {
+	reference.target.as_encoded().len()
+		+ reference.kind.len()
+		+ reference.receiver_hint.len()
+		+ reference.alias.len()
+		+ reference.confidence.len()
+		+ reference.call_name.len()
+		+ reference.binding.len()
 }
 
 #[cfg(test)]

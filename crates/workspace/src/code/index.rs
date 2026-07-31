@@ -13,9 +13,9 @@ use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::environment::SourceFileSet;
 use crate::lines::LineIndex;
 use crate::snapshot::{
-	CodeIndex, CodeIndexTimings, RecordTable, ReferenceId, ReferenceRecord, SourceCatalog,
-	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolInventoryIndex, SymbolRecord,
-	WorkspaceCancellation, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	CodeIndex, CodeIndexTimings, ExtractionMeasurement, RecordTable, ReferenceId, ReferenceRecord,
+	SourceCatalog, SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolInventoryIndex,
+	SymbolRecord, WorkspaceCancellation, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -103,11 +103,20 @@ impl CodeIndexGraphDiff {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LocalCodeIndexOptions {
 	pub cache_dir: Option<PathBuf>,
+	pub detailed_telemetry: bool,
 }
 
 impl LocalCodeIndexOptions {
 	pub fn new(cache_dir: Option<PathBuf>) -> Self {
-		Self { cache_dir }
+		Self {
+			cache_dir,
+			detailed_telemetry: false,
+		}
+	}
+
+	pub fn with_detailed_telemetry(mut self, enabled: bool) -> Self {
+		self.detailed_telemetry = enabled;
+		self
 	}
 }
 
@@ -178,8 +187,17 @@ fn build_local_code_index(
 	let source_material = source_material(cache, catalog)?;
 	let generation = cache.next_generation();
 	let extract_timer = Instant::now();
-	let files = extract_source_files(&source_material, options.cache_dir.as_deref(), cancellation)?;
+	let files = extract_source_files(
+		&source_material,
+		options.cache_dir.as_deref(),
+		cancellation,
+		options.detailed_telemetry,
+	)?;
 	let extract_sources = extract_timer.elapsed();
+	let extraction = options
+		.detailed_telemetry
+		.then(|| extraction_measurements(&files, None))
+		.unwrap_or_default();
 	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let semantic_timer = Instant::now();
 	let (symbols, references, material) =
@@ -202,6 +220,7 @@ fn build_local_code_index(
 			extract_sources,
 			semantic_index,
 			total: total_timer.elapsed(),
+			extraction,
 		},
 	})
 }
@@ -233,6 +252,7 @@ fn build_code_index_from_extracted(
 			extract_sources: Duration::ZERO,
 			semantic_index: Duration::ZERO,
 			total: Duration::ZERO,
+			extraction: Vec::new(),
 		},
 	})
 }
@@ -339,6 +359,10 @@ fn refresh_local_code_index(
 	let mut changed_sources = Vec::new();
 	let mut changed_file_indexes = BTreeSet::new();
 	let extract_timer = Instant::now();
+	let extraction_parent = options
+		.detailed_telemetry
+		.then(tracing::Span::current)
+		.unwrap_or_else(tracing::Span::none);
 	refresh_retired_slots(RetiredSlotRefresh {
 		previous_catalog: &current_material.source_catalog,
 		source_catalog: &source_catalog,
@@ -346,6 +370,8 @@ fn refresh_local_code_index(
 		files: &mut files,
 		changed_sources: &mut changed_sources,
 		changed_file_indexes: &mut changed_file_indexes,
+		extraction_parent: &extraction_parent,
+		detailed_telemetry: options.detailed_telemetry,
 	})?;
 	for file_idx in files.len()..source_catalog.sources.files.len() {
 		let file = &source_catalog.sources.files[file_idx];
@@ -354,6 +380,8 @@ fn refresh_local_code_index(
 			file_idx,
 			&file.path.clone(),
 			options.cache_dir.as_deref(),
+			&extraction_parent,
+			options.detailed_telemetry,
 		)?;
 		push_unique_source(&mut changed_sources, indexed.source_id);
 		changed_file_indexes.insert(file_idx);
@@ -374,6 +402,8 @@ fn refresh_local_code_index(
 			file_idx,
 			&source.path,
 			options.cache_dir.as_deref(),
+			&extraction_parent,
+			options.detailed_telemetry,
 		)?;
 		if let Some(slot) = files.get_mut(file_idx) {
 			push_unique_source(&mut changed_sources, indexed.source_id);
@@ -390,6 +420,10 @@ fn refresh_local_code_index(
 		});
 	}
 	let semantic_timer = Instant::now();
+	let extraction = options
+		.detailed_telemetry
+		.then(|| extraction_measurements(&files, Some(&changed_file_indexes)))
+		.unwrap_or_default();
 	let material = material_from_files(source_catalog, files, &WorkspaceCancellation::default())?;
 	let sources = source_records(&material);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
@@ -426,6 +460,7 @@ fn refresh_local_code_index(
 				extract_sources,
 				semantic_index,
 				total: total_timer.elapsed(),
+				extraction,
 			},
 		},
 		changed_sources,
@@ -451,6 +486,8 @@ struct RetiredSlotRefresh<'a> {
 	files: &'a mut Vec<Arc<IndexedSourceFile>>,
 	changed_sources: &'a mut Vec<SourceId>,
 	changed_file_indexes: &'a mut BTreeSet<usize>,
+	extraction_parent: &'a tracing::Span,
+	detailed_telemetry: bool,
 }
 
 fn refresh_retired_slots(refresh: RetiredSlotRefresh<'_>) -> WorkspaceResult<()> {
@@ -472,6 +509,8 @@ fn refresh_retired_slots(refresh: RetiredSlotRefresh<'_>) -> WorkspaceResult<()>
 				file_idx,
 				&refresh.source_catalog.sources.files[file_idx].path.clone(),
 				refresh.cache_dir,
+				refresh.extraction_parent,
+				refresh.detailed_telemetry,
 			)?
 		};
 		push_unique_source(refresh.changed_sources, indexed.source_id);
@@ -493,6 +532,8 @@ fn tombstone_file(previous: &IndexedSourceFile) -> IndexedSourceFile {
 		lang: previous.lang,
 		graph: code_moniker_core::core::code_graph::CodeGraph::from_records(Vec::new(), Vec::new()),
 		source: String::new(),
+		extraction_cache: "retired",
+		extraction_duration: Duration::ZERO,
 	}
 }
 
@@ -512,7 +553,11 @@ fn extract_source_files(
 	source_material: &SourceCatalogMaterial,
 	cache_dir: Option<&std::path::Path>,
 	cancellation: &WorkspaceCancellation,
+	detailed_telemetry: bool,
 ) -> WorkspaceResult<Vec<Arc<IndexedSourceFile>>> {
+	let parent = detailed_telemetry
+		.then(tracing::Span::current)
+		.unwrap_or_else(tracing::Span::none);
 	source_material
 		.sources
 		.files
@@ -520,7 +565,15 @@ fn extract_source_files(
 		.enumerate()
 		.map(|(file_idx, file)| {
 			cancellation.check(WorkspaceResource::CodeIndex)?;
-			extract_source_file(source_material, file_idx, &file.path, cache_dir).map(Arc::new)
+			extract_source_file(
+				source_material,
+				file_idx,
+				&file.path,
+				cache_dir,
+				&parent,
+				detailed_telemetry,
+			)
+			.map(Arc::new)
 		})
 		.collect()
 }
@@ -530,6 +583,8 @@ fn extract_source_file(
 	file_idx: usize,
 	path: &Path,
 	cache_dir: Option<&Path>,
+	parent: &tracing::Span,
+	detailed_telemetry: bool,
 ) -> WorkspaceResult<IndexedSourceFile> {
 	let file = source_material.sources.files.get(file_idx).ok_or_else(|| {
 		WorkspaceFailure::new(
@@ -548,25 +603,43 @@ fn extract_source_file(
 			)
 		})?;
 	let ctx = file.extraction_context(root);
-	let (graph, source) = match source_material.memory_source(path) {
+	let started = detailed_telemetry.then(Instant::now);
+	let span = if detailed_telemetry {
+		tracing::info_span!(
+			parent: parent,
+			"workspace.extract_file",
+			file.path = %file.rel_path.display(),
+			file.language = file.lang.tag(),
+			file.source_bytes = tracing::field::Empty,
+			cache.result = tracing::field::Empty,
+			graph.definitions = tracing::field::Empty,
+			graph.references = tracing::field::Empty,
+		)
+	} else {
+		tracing::Span::none()
+	};
+	let _entered = span.enter();
+	let (graph, source, cache_status) = match source_material.memory_source(path) {
 		Some(source) => (
 			crate::environment::extract_source_with(file.lang, source, &file.anchor, &ctx),
 			source.to_owned(),
+			"memory",
 		),
 		None => {
-			let (graph, extracted_source) = crate::cache::load_or_extract_workspace_result(
-				path,
-				&file.anchor,
-				file.lang,
-				cache_dir,
-				&ctx,
-			)
-			.map_err(|err| {
-				WorkspaceFailure::new(
-					WorkspaceResource::CodeIndex,
-					format!("cannot extract {}: {err}", path.display()),
+			let (graph, extracted_source, cache_outcome) =
+				crate::cache::load_or_extract_workspace_result(
+					path,
+					&file.anchor,
+					file.lang,
+					cache_dir,
+					&ctx,
 				)
-			})?;
+				.map_err(|err| {
+					WorkspaceFailure::new(
+						WorkspaceResource::CodeIndex,
+						format!("cannot extract {}: {err}", path.display()),
+					)
+				})?;
 			let source = match extracted_source {
 				Some(source) => source,
 				None => crate::cache::read_source_lossy(path).map_err(|err| {
@@ -576,9 +649,16 @@ fn extract_source_file(
 					)
 				})?,
 			};
-			(graph, source)
+			(graph, source, cache_outcome.as_str())
 		}
 	};
+	let elapsed = started.map_or(Duration::ZERO, |started| started.elapsed());
+	if detailed_telemetry {
+		span.record("file.source_bytes", source.len());
+		span.record("cache.result", cache_status);
+		span.record("graph.definitions", graph.def_count());
+		span.record("graph.references", graph.ref_count());
+	}
 	Ok(IndexedSourceFile {
 		source_root: file.source,
 		source_id: source_material
@@ -604,7 +684,34 @@ fn extract_source_file(
 		lang: file.lang,
 		graph,
 		source,
+		extraction_cache: cache_status,
+		extraction_duration: elapsed,
 	})
+}
+
+fn extraction_measurements(
+	files: &[Arc<IndexedSourceFile>],
+	selected: Option<&BTreeSet<usize>>,
+) -> Vec<ExtractionMeasurement> {
+	let mut groups = BTreeMap::<(&'static str, &'static str), ExtractionMeasurement>::new();
+	for (file_idx, file) in files.iter().enumerate() {
+		if selected.is_some_and(|selected| !selected.contains(&file_idx)) {
+			continue;
+		}
+		let language = file.lang.tag();
+		let cache = file.extraction_cache;
+		let entry = groups
+			.entry((language, cache))
+			.or_insert_with(|| ExtractionMeasurement {
+				language,
+				cache,
+				..ExtractionMeasurement::default()
+			});
+		entry.files += 1;
+		entry.source_bytes += file.source.len();
+		entry.duration += file.extraction_duration;
+	}
+	groups.into_values().collect()
 }
 
 fn build_semantic_index(

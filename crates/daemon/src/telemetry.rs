@@ -1,11 +1,21 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use code_moniker_workspace::memory::SnapshotMemoryEstimate;
+use code_moniker_workspace::memory::{RetainedMaterialMemoryEstimate, SnapshotMemoryEstimate};
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
+use code_moniker_workspace::source::CodeIndexMaterial;
 use tracing::Span;
 
 static INDEX_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static EXPORT_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_export_enabled(enabled: bool) {
+	EXPORT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub(crate) fn export_enabled() -> bool {
+	EXPORT_ENABLED.load(Ordering::Relaxed)
+}
 
 pub(crate) fn detached_operation_span(operation: &'static str) -> Span {
 	let span = tracing::info_span!(
@@ -34,7 +44,10 @@ pub(crate) fn index_operation_span(mode: &'static str, previous_generation: u64)
 		index.source_bytes = tracing::field::Empty,
 		index.estimated_bytes = tracing::field::Empty,
 		graph.estimated_bytes = tracing::field::Empty,
+		material.estimated_bytes = tracing::field::Empty,
+		workspace.estimated_bytes = tracing::field::Empty,
 		process.rss_bytes = tracing::field::Empty,
+		process.peak_rss_bytes = tracing::field::Empty,
 	)
 }
 
@@ -45,11 +58,30 @@ pub(crate) fn finish_index_operation(
 	elapsed: Duration,
 	succeeded: bool,
 	snapshot: Option<&WorkspaceSnapshot>,
+	material: Option<&CodeIndexMaterial>,
 ) {
 	let outcome = if succeeded { "ok" } else { "error" };
 	span.record("index.result", outcome);
 	if let Some(snapshot) = snapshot {
-		let measurements = WorkspaceMeasurements::from_snapshot(snapshot);
+		if !export_enabled() {
+			let generation = snapshot.generation.value();
+			span.record("index.generation", generation);
+			span.record(
+				"index.generation_delta",
+				generation.saturating_sub(previous_generation),
+			);
+			tracing::info!(
+				index.mode = mode,
+				index.result = outcome,
+				index.generation = generation,
+				index.files = snapshot.index.sources.len(),
+				index.symbols = snapshot.index.symbols.len(),
+				index.references = snapshot.index.references.len(),
+				"workspace index operation completed"
+			);
+			return;
+		}
+		let measurements = WorkspaceMeasurements::from_snapshot(snapshot, material);
 		let generation = snapshot.generation.value();
 		let generation_changed = generation > previous_generation;
 		span.record("index.generation", generation);
@@ -63,8 +95,13 @@ pub(crate) fn finish_index_operation(
 		span.record("index.source_bytes", measurements.source_bytes);
 		span.record("index.estimated_bytes", measurements.index_bytes);
 		span.record("graph.estimated_bytes", measurements.graph_bytes);
+		span.record("material.estimated_bytes", measurements.material_bytes);
+		span.record("workspace.estimated_bytes", measurements.total_bytes);
 		if let Some(rss_bytes) = measurements.rss_bytes {
 			span.record("process.rss_bytes", rss_bytes);
+		}
+		if let Some(peak_rss_bytes) = measurements.peak_rss_bytes {
+			span.record("process.peak_rss_bytes", peak_rss_bytes);
 		}
 		record_metrics(
 			mode,
@@ -87,7 +124,10 @@ pub(crate) fn finish_index_operation(
 			index.source_bytes = measurements.source_bytes,
 			index.estimated_bytes = measurements.index_bytes,
 			graph.estimated_bytes = measurements.graph_bytes,
+			material.estimated_bytes = measurements.material_bytes,
+			workspace.estimated_bytes = measurements.total_bytes,
 			process.rss_bytes = measurements.rss_bytes,
+			process.peak_rss_bytes = measurements.peak_rss_bytes,
 			"workspace index operation completed"
 		);
 	} else {
@@ -126,6 +166,9 @@ pub(crate) fn record_daemon_request(
 ) {
 	#[cfg(feature = "telemetry")]
 	{
+		if !export_enabled() {
+			return;
+		}
 		use opentelemetry::KeyValue;
 
 		let attributes = [
@@ -154,12 +197,19 @@ struct WorkspaceMeasurements {
 	source_bytes: u64,
 	index_bytes: u64,
 	graph_bytes: u64,
+	material_bytes: u64,
+	total_bytes: u64,
 	rss_bytes: Option<u64>,
+	peak_rss_bytes: Option<u64>,
 }
 
 impl WorkspaceMeasurements {
-	fn from_snapshot(snapshot: &WorkspaceSnapshot) -> Self {
+	fn from_snapshot(snapshot: &WorkspaceSnapshot, material: Option<&CodeIndexMaterial>) -> Self {
 		let estimate = SnapshotMemoryEstimate::from_snapshot(snapshot);
+		let material_bytes = material
+			.map(RetainedMaterialMemoryEstimate::from_material)
+			.map_or(0, |estimate| estimate.total_bytes);
+		let total_bytes = estimate.index_bytes + estimate.graph_bytes + material_bytes;
 		Self {
 			files: to_u64(snapshot.index.sources.len()),
 			symbols: to_u64(snapshot.index.symbols.len()),
@@ -167,7 +217,10 @@ impl WorkspaceMeasurements {
 			source_bytes: to_u64(estimate.source_bytes),
 			index_bytes: to_u64(estimate.index_bytes),
 			graph_bytes: to_u64(estimate.graph_bytes),
+			material_bytes: to_u64(material_bytes),
+			total_bytes: to_u64(total_bytes),
 			rss_bytes: process_rss_bytes(),
+			peak_rss_bytes: process_peak_rss_bytes(),
 		}
 	}
 }
@@ -211,8 +264,32 @@ fn record_metrics(
 	metrics.source_bytes.record(measurements.source_bytes, &[]);
 	metrics.index_bytes.record(measurements.index_bytes, &[]);
 	metrics.graph_bytes.record(measurements.graph_bytes, &[]);
+	metrics
+		.material_bytes
+		.record(measurements.material_bytes, &[]);
+	metrics
+		.total_estimated_bytes
+		.record(measurements.total_bytes, &[]);
 	if let Some(rss_bytes) = measurements.rss_bytes {
 		metrics.process_rss_bytes.record(rss_bytes, &[]);
+	}
+	if let Some(peak_rss_bytes) = measurements.peak_rss_bytes {
+		metrics.process_peak_rss_bytes.record(peak_rss_bytes, &[]);
+	}
+	for extraction in &snapshot.index.timings.extraction {
+		let attributes = [
+			KeyValue::new("file.language", extraction.language),
+			KeyValue::new("cache.result", extraction.cache),
+		];
+		metrics
+			.extraction_files
+			.record(to_u64(extraction.files), &attributes);
+		metrics
+			.extraction_source_bytes
+			.record(to_u64(extraction.source_bytes), &attributes);
+		metrics
+			.extraction_duration
+			.record(extraction.duration.as_secs_f64() * 1_000.0, &attributes);
 	}
 	for (kind, count) in [
 		("file", measurements.files),
@@ -268,6 +345,9 @@ fn record_metrics(
 
 #[cfg(feature = "telemetry")]
 fn record_operation_metric(mode: &'static str, outcome: &'static str, elapsed: Duration) {
+	if !export_enabled() {
+		return;
+	}
 	use opentelemetry::KeyValue;
 
 	let metrics = metrics();
@@ -293,7 +373,13 @@ struct WorkspaceMetrics {
 	index_bytes: opentelemetry::metrics::Gauge<u64>,
 	graph_references: opentelemetry::metrics::Gauge<u64>,
 	graph_bytes: opentelemetry::metrics::Gauge<u64>,
+	material_bytes: opentelemetry::metrics::Gauge<u64>,
+	total_estimated_bytes: opentelemetry::metrics::Gauge<u64>,
 	process_rss_bytes: opentelemetry::metrics::Gauge<u64>,
+	process_peak_rss_bytes: opentelemetry::metrics::Gauge<u64>,
+	extraction_files: opentelemetry::metrics::Gauge<u64>,
+	extraction_source_bytes: opentelemetry::metrics::Gauge<u64>,
+	extraction_duration: opentelemetry::metrics::Histogram<f64>,
 	index_operations: opentelemetry::metrics::Counter<u64>,
 	index_operation_duration: opentelemetry::metrics::Histogram<f64>,
 	index_phase_duration: opentelemetry::metrics::Histogram<f64>,
@@ -331,9 +417,32 @@ fn metrics() -> &'static WorkspaceMetrics {
 				.u64_gauge("code_moniker.workspace.graph.estimated_bytes")
 				.with_unit("By")
 				.build(),
+			material_bytes: meter
+				.u64_gauge("code_moniker.workspace.material.estimated_bytes")
+				.with_unit("By")
+				.build(),
+			total_estimated_bytes: meter
+				.u64_gauge("code_moniker.workspace.memory.estimated_bytes")
+				.with_unit("By")
+				.build(),
 			process_rss_bytes: meter
 				.u64_gauge("process.memory.rss")
 				.with_unit("By")
+				.build(),
+			process_peak_rss_bytes: meter
+				.u64_gauge("process.memory.peak_rss")
+				.with_unit("By")
+				.build(),
+			extraction_files: meter
+				.u64_gauge("code_moniker.workspace.extraction.files")
+				.build(),
+			extraction_source_bytes: meter
+				.u64_gauge("code_moniker.workspace.extraction.source.bytes")
+				.with_unit("By")
+				.build(),
+			extraction_duration: meter
+				.f64_histogram("code_moniker.workspace.extraction.duration")
+				.with_unit("ms")
 				.build(),
 			index_operations: meter
 				.u64_counter("code_moniker.workspace.index.operations")
@@ -391,5 +500,30 @@ fn process_rss_bytes() -> Option<u64> {
 	)
 ))]
 fn process_rss_bytes() -> Option<u64> {
+	None
+}
+
+#[cfg(all(feature = "telemetry", any(target_os = "macos", target_os = "linux")))]
+fn process_peak_rss_bytes() -> Option<u64> {
+	let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+	let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+	if result != 0 {
+		return None;
+	}
+	let peak = u64::try_from(unsafe { usage.assume_init() }.ru_maxrss).ok()?;
+	#[cfg(target_os = "linux")]
+	return peak.checked_mul(1024);
+	#[cfg(target_os = "macos")]
+	return Some(peak);
+}
+
+#[cfg(any(
+	not(feature = "telemetry"),
+	all(
+		feature = "telemetry",
+		not(any(target_os = "macos", target_os = "linux"))
+	)
+))]
+fn process_peak_rss_bytes() -> Option<u64> {
 	None
 }

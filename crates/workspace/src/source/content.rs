@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
@@ -490,6 +491,8 @@ pub struct IndexedSourceFile {
 	pub lang: Lang,
 	pub graph: CodeGraph,
 	pub source: String,
+	pub extraction_cache: &'static str,
+	pub extraction_duration: Duration,
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -560,6 +563,8 @@ mod tests {
 			lang: Lang::Rs,
 			graph,
 			source: String::new(),
+			extraction_cache: "provided",
+			extraction_duration: Duration::ZERO,
 		};
 		let material = CodeIndexMaterial {
 			source_catalog: SourceCatalogMaterial {

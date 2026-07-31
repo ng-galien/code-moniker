@@ -5,19 +5,18 @@ use std::os::raw::{c_int, c_void};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::changes::{ChangeOverlayPort, LocalChangeOverlay};
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::linkage::{LinkagePort, LocalLinkage};
-use code_moniker_workspace::memory::SnapshotMemoryEstimate;
+use code_moniker_workspace::memory::{RetainedMaterialMemoryEstimate, SnapshotMemoryEstimate};
 use code_moniker_workspace::snapshot::{
 	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageSnapshot, SourceCatalog,
 	SourceUnit, WorkspaceRequest,
 };
 use code_moniker_workspace::source::{
-	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, LocalSourceCatalog,
-	LocalSourceCatalogOptions, SourceCatalogPort,
+	CodeIndexMaterial, LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions,
+	SourceCatalogPort,
 };
 
 #[cfg(feature = "heap-profile")]
@@ -446,89 +445,25 @@ fn estimate_changes(changes: &ChangeOverlay, estimate: &mut MemoryEstimate) {
 }
 
 fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate) {
-	estimate.add_inline::<IndexedSourceFile>(
-		"material.files.records",
-		material.files.len(),
-		material.files.capacity(),
-	);
+	let retained = RetainedMaterialMemoryEstimate::from_material(material);
 	estimate.add(
 		"material.files.source_text",
-		material
-			.files
-			.iter()
-			.map(|file| file.source.capacity())
-			.sum(),
+		retained.source_bytes,
 		format!("{} retained source texts", material.files.len()),
 	);
 	estimate.add(
-		"material.files.metadata_strings",
-		material
-			.files
-			.iter()
-			.map(|file| indexed_source_payload(file))
-			.sum(),
+		"material.files.metadata",
+		retained.metadata_bytes,
 		format!("{} indexed source files", material.files.len()),
 	);
-	let def_count = material
-		.files
-		.iter()
-		.map(|file| file.graph.defs().count())
-		.sum::<usize>();
-	let ref_count = material
-		.files
-		.iter()
-		.map(|file| file.graph.refs().count())
-		.sum::<usize>();
 	estimate.add(
-		"material.graph.def_records",
-		def_count * mem::size_of::<DefRecord>(),
-		format!(
-			"{def_count} def records, {} B/record",
-			mem::size_of::<DefRecord>()
-		),
+		"material.graph.total",
+		retained.graph_bytes,
+		"definitions, references, payloads, and private definition keys",
 	);
 	estimate.add(
-		"material.graph.ref_records",
-		ref_count * mem::size_of::<RefRecord>(),
-		format!(
-			"{ref_count} ref records, {} B/record",
-			mem::size_of::<RefRecord>()
-		),
-	);
-	let mut def_payload = 0usize;
-	let mut ref_payload = 0usize;
-	let mut graph_index_payload = 0usize;
-	for file in &material.files {
-		for def in file.graph.defs() {
-			def_payload += def_payload_bytes(def);
-			graph_index_payload += def.moniker.as_encoded().len();
-		}
-		for reference in file.graph.refs() {
-			ref_payload += ref_payload_bytes(reference);
-		}
-	}
-	estimate.add(
-		"material.graph.def_payload",
-		def_payload,
-		"monikers and boxed def attrs",
-	);
-	estimate.add(
-		"material.graph.ref_payload",
-		ref_payload,
-		"targets and boxed ref attrs",
-	);
-	estimate.add(
-		"material.graph.def_index_moniker_keys",
-		graph_index_payload,
-		"private lookup index duplicates def moniker keys",
-	);
-	estimate.add(
-		"material.lookup.symbols_by_moniker",
-		material
-			.symbols_by_moniker
-			.iter()
-			.map(|(moniker, symbol)| moniker.as_encoded().len() + std::mem::size_of_val(symbol))
-			.sum(),
+		"material.lookup.total",
+		retained.lookup_bytes,
 		format!(
 			"{} moniker -> symbol entries",
 			material.symbols_by_moniker.len()
@@ -553,34 +488,6 @@ fn change_payload(change: &ChangeRecord) -> usize {
 		+ change.file_path.capacity()
 		+ change.name.capacity()
 		+ change.kind.capacity()
-}
-
-fn indexed_source_payload(file: &IndexedSourceFile) -> usize {
-	std::mem::size_of_val(&file.source_id)
-		+ file.source_uri.capacity()
-		+ file.path.as_os_str().len()
-		+ file.rel_path.as_os_str().len()
-		+ file.anchor.as_os_str().len()
-}
-
-fn def_payload_bytes(def: &DefRecord) -> usize {
-	def.moniker.as_encoded().len()
-		+ def.kind.len()
-		+ def.visibility.len()
-		+ def.signature.len()
-		+ def.call_name.len()
-		+ def.binding.len()
-		+ def.origin.len()
-}
-
-fn ref_payload_bytes(reference: &RefRecord) -> usize {
-	reference.target.as_encoded().len()
-		+ reference.kind.len()
-		+ reference.receiver_hint.len()
-		+ reference.alias.len()
-		+ reference.confidence.len()
-		+ reference.call_name.len()
-		+ reference.binding.len()
 }
 
 #[cfg(target_os = "macos")]

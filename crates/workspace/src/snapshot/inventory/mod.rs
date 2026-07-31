@@ -3,6 +3,7 @@ mod facets;
 mod set;
 
 use std::collections::BTreeSet;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use code_moniker_core::core::shape::Shape;
@@ -67,6 +68,8 @@ pub struct SymbolInventoryIndex {
 	records: FxHashMap<SymbolOrdinal, InventorySymbol>,
 	all_symbols: SymbolSet,
 	facets: SymbolInventoryFacets,
+	compact_identities: FxHashMap<u64, SymbolOrdinal>,
+	compact_identity_collisions: FxHashMap<u64, Vec<SymbolOrdinal>>,
 }
 
 impl Default for SymbolInventoryIndex {
@@ -109,6 +112,15 @@ impl SymbolInventoryIndex {
 			+ self.catalog.estimated_heap_bytes()
 			+ self.all_symbols.estimated_heap_bytes()
 			+ self.facets.estimated_heap_bytes()
+			+ self.compact_identities.capacity()
+				* (std::mem::size_of::<u64>() + std::mem::size_of::<SymbolOrdinal>())
+			+ self
+				.compact_identity_collisions
+				.values()
+				.map(|ordinals| ordinals.capacity() * std::mem::size_of::<SymbolOrdinal>())
+				.sum::<usize>()
+			+ self.compact_identity_collisions.capacity()
+				* (std::mem::size_of::<u64>() + std::mem::size_of::<Vec<SymbolOrdinal>>())
 			+ segment_bytes
 			+ string_bytes
 	}
@@ -120,6 +132,8 @@ impl SymbolInventoryIndex {
 			records: FxHashMap::default(),
 			all_symbols: SymbolSet::new(),
 			facets: SymbolInventoryFacets::default(),
+			compact_identities: FxHashMap::default(),
+			compact_identity_collisions: FxHashMap::default(),
 		}
 	}
 
@@ -169,6 +183,32 @@ impl SymbolInventoryIndex {
 			.and_then(|ordinal| self.record(ordinal))
 	}
 
+	pub fn symbol_id_by_identity(&self, identity: &str) -> Option<SymbolId> {
+		self.catalog
+			.ordinal_by_identity(identity)
+			.and_then(|ordinal| self.catalog.id(ordinal))
+			.copied()
+	}
+
+	pub fn symbol_ids_by_compact_identity(&self, compact: &str) -> Vec<SymbolId> {
+		let hash = compact_identity_hash(compact);
+		let candidates = self
+			.compact_identity_collisions
+			.get(&hash)
+			.map(Vec::as_slice)
+			.or_else(|| self.compact_identities.get(&hash).map(std::slice::from_ref))
+			.unwrap_or_default();
+		candidates
+			.iter()
+			.copied()
+			.filter_map(|ordinal| self.record(ordinal))
+			.filter(|record| {
+				compact_record_identity(record.identity.as_ref()).as_deref() == Some(compact)
+			})
+			.map(|record| record.id)
+			.collect()
+	}
+
 	pub fn facets(&self) -> &SymbolInventoryFacets {
 		&self.facets
 	}
@@ -187,6 +227,9 @@ fn index_record(
 	let record = inventory_record(symbol, source);
 	inventory.all_symbols.insert(ordinal);
 	facets::insert_facets(&mut inventory.facets, &record, ordinal);
+	if let Some(compact) = compact_record_identity(record.identity.as_ref()) {
+		index_compact_identity(inventory, compact_identity_hash(&compact), ordinal);
+	}
 	inventory.records.insert(ordinal, record);
 }
 
@@ -243,6 +286,59 @@ fn unindex_record(inventory: &mut SymbolInventoryIndex, ordinal: SymbolOrdinal) 
 	};
 	inventory.all_symbols.remove(ordinal);
 	facets::remove_facets(&mut inventory.facets, &record, ordinal);
+	if let Some(compact) = compact_record_identity(record.identity.as_ref()) {
+		let hash = compact_identity_hash(&compact);
+		unindex_compact_identity(inventory, hash, ordinal);
+	}
+}
+
+fn index_compact_identity(inventory: &mut SymbolInventoryIndex, hash: u64, ordinal: SymbolOrdinal) {
+	let Some(existing) = inventory.compact_identities.get(&hash).copied() else {
+		inventory.compact_identities.insert(hash, ordinal);
+		return;
+	};
+	let collisions = inventory
+		.compact_identity_collisions
+		.entry(hash)
+		.or_insert_with(|| vec![existing]);
+	if !collisions.contains(&ordinal) {
+		collisions.push(ordinal);
+	}
+}
+
+fn unindex_compact_identity(
+	inventory: &mut SymbolInventoryIndex,
+	hash: u64,
+	ordinal: SymbolOrdinal,
+) {
+	if let Some(collisions) = inventory.compact_identity_collisions.get_mut(&hash) {
+		collisions.retain(|candidate| *candidate != ordinal);
+		match collisions.as_slice() {
+			[] => {
+				inventory.compact_identities.remove(&hash);
+				inventory.compact_identity_collisions.remove(&hash);
+			}
+			[remaining] => {
+				inventory.compact_identities.insert(hash, *remaining);
+				inventory.compact_identity_collisions.remove(&hash);
+			}
+			_ => {}
+		}
+	} else if inventory.compact_identities.get(&hash) == Some(&ordinal) {
+		inventory.compact_identities.remove(&hash);
+	}
+}
+
+fn compact_identity_hash(compact: &str) -> u64 {
+	let mut hasher = rustc_hash::FxHasher::default();
+	compact.hash(&mut hasher);
+	hasher.finish()
+}
+
+fn compact_record_identity(identity: &str) -> Option<String> {
+	let scheme_end = identity.find("://")? + 3;
+	let scheme = &identity[..scheme_end];
+	crate::code::compact_identity(identity, scheme)
 }
 
 fn refresh_inventory(

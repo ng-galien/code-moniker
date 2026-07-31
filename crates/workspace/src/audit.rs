@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -99,69 +99,105 @@ impl Default for AuditOptions {
 }
 
 struct AuditLookups<'a> {
-	symbol_identities: HashMap<crate::snapshot::SymbolId, &'a str>,
-	source_paths: HashMap<crate::snapshot::SourceId, &'a str>,
-	source_texts: HashMap<crate::snapshot::SourceId, &'a str>,
-	unresolved: HashMap<crate::snapshot::ReferenceId, &'static str>,
-	blocked: HashMap<crate::snapshot::ReferenceId, &'static str>,
-	external: HashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin>,
-	resolved: HashMap<
-		crate::snapshot::ReferenceId,
-		(
-			crate::snapshot::ResolutionEvidence,
-			crate::snapshot::SymbolId,
-		),
+	symbols: &'a crate::snapshot::RecordTable<crate::snapshot::SymbolRecord>,
+	sources: &'a [crate::snapshot::SourceFileRecord],
+	read_index: Option<&'a crate::snapshot::LinkageReadIndex>,
+	resolved_fallback: Option<
+		FxHashMap<
+			crate::snapshot::ReferenceId,
+			(
+				crate::snapshot::ResolutionEvidence,
+				crate::snapshot::SymbolId,
+			),
+		>,
 	>,
-	candidates: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::CandidateReference>,
-	dynamic: HashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::DynamicReference>,
+	name_match_resolved: FxHashSet<crate::snapshot::ReferenceId>,
+	unresolved: FxHashMap<crate::snapshot::ReferenceId, &'static str>,
+	blocked: FxHashMap<crate::snapshot::ReferenceId, &'static str>,
+	external: FxHashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin>,
+	candidates: FxHashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::CandidateReference>,
+	dynamic: FxHashMap<crate::snapshot::ReferenceId, &'a crate::snapshot::DynamicReference>,
 }
 
 impl<'a> AuditLookups<'a> {
 	fn new(snapshot: &'a WorkspaceSnapshot) -> Self {
+		let read_index = snapshot.linkage.read_index.get();
 		Self {
-			symbol_identities: symbol_identities(&snapshot.index.symbols),
-			source_paths: source_paths(&snapshot.index.sources),
-			source_texts: source_texts(&snapshot.index.sources),
+			symbols: &snapshot.index.symbols,
+			sources: &snapshot.index.sources,
+			read_index,
+			resolved_fallback: read_index.is_none().then(|| {
+				snapshot
+					.linkage
+					.resolved
+					.iter()
+					.map(|edge| (edge.reference, (edge.evidence, edge.target)))
+					.collect()
+			}),
+			name_match_resolved: if read_index.is_some() {
+				snapshot
+					.linkage
+					.resolved
+					.iter()
+					.filter(|edge| edge.evidence == crate::snapshot::ResolutionEvidence::NameMatch)
+					.map(|edge| edge.reference)
+					.collect()
+			} else {
+				FxHashSet::default()
+			},
 			unresolved: unresolved_reasons(&snapshot.linkage.unresolved),
 			blocked: blocked_reasons(snapshot),
 			external: external_references(&snapshot.linkage.external),
-			resolved: resolved_evidence(&snapshot.linkage.resolved),
 			candidates: candidate_references(&snapshot.linkage.candidates),
 			dynamic: dynamic_references(&snapshot.linkage.dynamic),
 		}
 	}
-}
 
-fn symbol_identities(
-	symbols: &crate::snapshot::RecordTable<crate::snapshot::SymbolRecord>,
-) -> HashMap<crate::snapshot::SymbolId, &str> {
-	symbols
-		.iter()
-		.map(|symbol| (symbol.id, symbol.identity.as_ref()))
-		.collect()
-}
+	fn symbol_identity(&self, id: crate::snapshot::SymbolId) -> Option<&'a str> {
+		self.symbols
+			.file_records(id.file())
+			.get(id.def())
+			.map(|symbol| symbol.identity.as_ref())
+	}
 
-fn source_paths(
-	sources: &[crate::snapshot::SourceFileRecord],
-) -> HashMap<crate::snapshot::SourceId, &str> {
-	sources
-		.iter()
-		.map(|source| (source.id, source.rel_path.as_str()))
-		.collect()
-}
+	fn source(
+		&self,
+		id: crate::snapshot::SourceId,
+	) -> Option<&'a crate::snapshot::SourceFileRecord> {
+		self.sources.get(id.file()).filter(|source| source.id == id)
+	}
 
-fn source_texts(
-	sources: &[crate::snapshot::SourceFileRecord],
-) -> HashMap<crate::snapshot::SourceId, &str> {
-	sources
-		.iter()
-		.map(|source| (source.id, source.text.as_str()))
-		.collect()
+	fn resolved_target(
+		&self,
+		reference: crate::snapshot::ReferenceId,
+	) -> Option<crate::snapshot::SymbolId> {
+		self.read_index
+			.and_then(|index| index.resolved_target(&reference))
+			.copied()
+			.or_else(|| {
+				self.resolved_fallback
+					.as_ref()
+					.and_then(|resolved| resolved.get(&reference))
+					.map(|(_, target)| *target)
+			})
+	}
+
+	fn is_name_match_resolved(&self, reference: crate::snapshot::ReferenceId) -> bool {
+		if self.read_index.is_some() {
+			return self.name_match_resolved.contains(&reference);
+		}
+		self.resolved_fallback
+			.as_ref()
+			.and_then(|resolved| resolved.get(&reference))
+			.is_some_and(|(evidence, _)| {
+				*evidence == crate::snapshot::ResolutionEvidence::NameMatch
+			})
+	}
 }
 
 fn unresolved_reasons(
 	references: &[crate::snapshot::UnresolvedReference],
-) -> HashMap<crate::snapshot::ReferenceId, &'static str> {
+) -> FxHashMap<crate::snapshot::ReferenceId, &'static str> {
 	references
 		.iter()
 		.map(|item| (item.reference, item.reason.as_str()))
@@ -170,7 +206,7 @@ fn unresolved_reasons(
 
 fn blocked_reasons(
 	snapshot: &WorkspaceSnapshot,
-) -> HashMap<crate::snapshot::ReferenceId, &'static str> {
+) -> FxHashMap<crate::snapshot::ReferenceId, &'static str> {
 	snapshot
 		.linkage
 		.blocked
@@ -182,31 +218,16 @@ fn blocked_reasons(
 
 fn external_references(
 	references: &[crate::snapshot::ExternalReference],
-) -> HashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin> {
+) -> FxHashMap<crate::snapshot::ReferenceId, crate::snapshot::ExternalReferenceOrigin> {
 	references
 		.iter()
 		.map(|item| (item.reference, item.origin))
 		.collect()
 }
 
-fn resolved_evidence(
-	edges: &[crate::snapshot::LinkageEdge],
-) -> HashMap<
-	crate::snapshot::ReferenceId,
-	(
-		crate::snapshot::ResolutionEvidence,
-		crate::snapshot::SymbolId,
-	),
-> {
-	edges
-		.iter()
-		.map(|edge| (edge.reference, (edge.evidence, edge.target)))
-		.collect()
-}
-
 fn candidate_references(
 	references: &[crate::snapshot::CandidateReference],
-) -> HashMap<crate::snapshot::ReferenceId, &crate::snapshot::CandidateReference> {
+) -> FxHashMap<crate::snapshot::ReferenceId, &crate::snapshot::CandidateReference> {
 	references
 		.iter()
 		.map(|candidate| (candidate.reference, candidate))
@@ -215,7 +236,7 @@ fn candidate_references(
 
 fn dynamic_references(
 	references: &[crate::snapshot::DynamicReference],
-) -> HashMap<crate::snapshot::ReferenceId, &crate::snapshot::DynamicReference> {
+) -> FxHashMap<crate::snapshot::ReferenceId, &crate::snapshot::DynamicReference> {
 	references
 		.iter()
 		.map(|dynamic| (dynamic.reference, dynamic))
@@ -237,14 +258,12 @@ pub fn resolution_audit(
 ) -> ResolutionAudit {
 	let lookups = AuditLookups::new(snapshot);
 	let mut totals = AuditTotals::default();
-	let mut clusters: HashMap<AuditPattern, (usize, Vec<AuditSample>)> = HashMap::new();
-	let mut zones: HashMap<String, (usize, HashMap<String, usize>)> = HashMap::new();
+	let mut clusters: FxHashMap<AuditPattern, (usize, Vec<AuditSample>)> = FxHashMap::default();
+	let mut zones: FxHashMap<String, (usize, FxHashMap<String, usize>)> = FxHashMap::default();
 
 	for reference in snapshot.index.references.iter() {
 		let source = lookups
-			.symbol_identities
-			.get(&reference.source_symbol)
-			.copied()
+			.symbol_identity(reference.source_symbol)
 			.unwrap_or_default();
 		if !prefix.is_empty() && !source.contains(prefix) {
 			continue;
@@ -278,15 +297,11 @@ pub fn resolution_audit(
 				reference,
 				source,
 				lookups
-					.source_paths
-					.get(&reference.source)
-					.copied()
-					.unwrap_or_default(),
+					.source(reference.source)
+					.map_or("", |source| source.rel_path.as_str()),
 				lookups
-					.source_texts
-					.get(&reference.source)
-					.copied()
-					.unwrap_or_default(),
+					.source(reference.source)
+					.map_or("", |source| source.text.as_str()),
 				classification,
 			));
 		}
@@ -356,8 +371,8 @@ fn classify_reference(
 	reference: &ReferenceRecord,
 	totals: &mut AuditTotals,
 ) -> Option<AuditClassification> {
-	if let Some((evidence, target)) = lookups.resolved.get(&reference.id) {
-		if !lookups.symbol_identities.contains_key(target) {
+	if let Some(target) = lookups.resolved_target(reference.id) {
+		if lookups.symbol_identity(target).is_none() {
 			totals.unresolved += 1;
 			return Some(AuditClassification {
 				status: "unresolved",
@@ -367,7 +382,7 @@ fn classify_reference(
 				candidate_targets: Vec::new(),
 			});
 		}
-		if *evidence != crate::snapshot::ResolutionEvidence::NameMatch {
+		if !lookups.is_name_match_resolved(reference.id) {
 			totals.unique += 1;
 			return None;
 		}
@@ -376,7 +391,7 @@ fn classify_reference(
 		return Some(AuditClassification {
 			status: "candidate",
 			reason: "weak_name_match",
-			evidence: evidence.as_str(),
+			evidence: crate::snapshot::ResolutionEvidence::NameMatch.as_str(),
 			scope: "unknown",
 			candidate_targets: Vec::new(),
 		});
@@ -391,7 +406,7 @@ fn classify_reference(
 			reason: candidate.reason.as_str(),
 			evidence: candidate.evidence.as_str(),
 			scope: candidate.scope.as_str(),
-			candidate_targets: candidate_identities(&candidate.targets, &lookups.symbol_identities),
+			candidate_targets: candidate_identities(&candidate.targets, lookups),
 		});
 	}
 	if let Some(origin) = lookups.external.get(&reference.id) {
@@ -428,10 +443,7 @@ fn classify_reference(
 			reason: dynamic.reason.as_str(),
 			evidence: "runtime",
 			scope: "runtime",
-			candidate_targets: candidate_identities(
-				&dynamic.candidates,
-				&lookups.symbol_identities,
-			),
+			candidate_targets: candidate_identities(&dynamic.candidates, lookups),
 		});
 	}
 	if let Some(reason) = lookups.blocked.get(&reference.id) {
@@ -578,11 +590,11 @@ fn sample_constraints(
 
 fn candidate_identities(
 	candidates: &[crate::snapshot::SymbolId],
-	symbols: &HashMap<crate::snapshot::SymbolId, &str>,
+	lookups: &AuditLookups<'_>,
 ) -> Vec<String> {
 	candidates
 		.iter()
-		.filter_map(|candidate| symbols.get(candidate).copied())
+		.filter_map(|candidate| lookups.symbol_identity(*candidate))
 		.take(8)
 		.map(|identity| identity_tail(identity, 5))
 		.collect()
@@ -838,6 +850,13 @@ mod tests {
 		assert_eq!(audit.totals.explained, 7);
 		assert_eq!(audit.totals.weak_or_unexplained, 3);
 		assert_audit_clusters(&audit);
+		let mut without_read_index = snapshot.clone();
+		without_read_index.linkage.read_index = LinkageReadIndexHandle::default();
+		let fallback =
+			resolution_audit(&without_read_index, "lang:python", AuditOptions::default());
+		assert_eq!(fallback.totals.unique, audit.totals.unique);
+		assert_eq!(fallback.totals.candidate, audit.totals.candidate);
+		assert_eq!(fallback.totals.unresolved, audit.totals.unresolved);
 		let candidate_cluster = audit
 			.clusters
 			.iter()

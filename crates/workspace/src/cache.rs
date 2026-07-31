@@ -28,6 +28,23 @@ const HEADER_FIXED: usize = OFF_PATH_LEN + 4;
 
 static TMP_NONCE: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WorkspaceCacheOutcome {
+	Hit,
+	Miss,
+	Disabled,
+}
+
+impl WorkspaceCacheOutcome {
+	pub(crate) fn as_str(self) -> &'static str {
+		match self {
+			Self::Hit => "hit",
+			Self::Miss => "miss",
+			Self::Disabled => "disabled",
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct CacheKey {
 	pub abs_path: PathBuf,
@@ -174,8 +191,8 @@ pub(crate) fn load_or_extract_workspace_result(
 	lang: Lang,
 	cache_dir: Option<&Path>,
 	ctx: &extract::Context,
-) -> io::Result<(CodeGraph, Option<String>)> {
-	load_or_extract_result_with(path, anchor, lang, cache_dir, ctx, read_source_lossy)
+) -> io::Result<(CodeGraph, Option<String>, WorkspaceCacheOutcome)> {
+	load_or_extract_result_with_outcome(path, anchor, lang, cache_dir, ctx, read_source_lossy)
 }
 
 fn load_or_extract_result_with(
@@ -186,20 +203,32 @@ fn load_or_extract_result_with(
 	ctx: &extract::Context,
 	read: fn(&Path) -> io::Result<String>,
 ) -> io::Result<(CodeGraph, Option<String>)> {
+	load_or_extract_result_with_outcome(path, anchor, lang, cache_dir, ctx, read)
+		.map(|(graph, source, _)| (graph, source))
+}
+
+fn load_or_extract_result_with_outcome(
+	path: &Path,
+	anchor: &Path,
+	lang: Lang,
+	cache_dir: Option<&Path>,
+	ctx: &extract::Context,
+	read: fn(&Path) -> io::Result<String>,
+) -> io::Result<(CodeGraph, Option<String>, WorkspaceCacheOutcome)> {
 	if let Some(dir) = cache_dir
 		&& let Ok(key) = CacheKey::from_path_with_context(path, anchor, ctx)
 	{
-		if let Some(g) = load(dir, &key) {
-			return Ok((g, None));
+		if let Some(graph) = load(dir, &key) {
+			return Ok((graph, None, WorkspaceCacheOutcome::Hit));
 		}
 		let source = read(path)?;
 		let graph = extract::extract_with(lang, &source, anchor, ctx);
 		store(dir, &key, &graph);
-		return Ok((graph, Some(source)));
+		return Ok((graph, Some(source), WorkspaceCacheOutcome::Miss));
 	}
 	let source = read(path)?;
 	let graph = extract::extract_with(lang, &source, anchor, ctx);
-	Ok((graph, Some(source)))
+	Ok((graph, Some(source), WorkspaceCacheOutcome::Disabled))
 }
 
 pub(crate) fn read_source(path: &Path) -> io::Result<String> {
@@ -317,7 +346,7 @@ mod tests {
 		std::fs::write(&src, b"int value; /* legacy: \x96 */\n").unwrap();
 		let anchor = tmp.path().join("anchor");
 
-		let (graph, source) = load_or_extract_workspace_result(
+		let (graph, source, outcome) = load_or_extract_workspace_result(
 			&src,
 			&anchor,
 			Lang::C,
@@ -326,6 +355,7 @@ mod tests {
 		)
 		.expect("legacy source should be indexed lossily");
 
+		assert_eq!(outcome, WorkspaceCacheOutcome::Disabled);
 		assert!(source.expect("source text").contains('\u{fffd}'));
 		assert!(graph.defs().any(|definition| {
 			definition

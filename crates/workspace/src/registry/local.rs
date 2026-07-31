@@ -20,6 +20,7 @@ pub struct LocalWorkspaceOptions {
 	pub cache_dir: Option<PathBuf>,
 	pub files: Option<Vec<PathBuf>>,
 	pub identity: LocalIdentityResolver,
+	pub detailed_telemetry: bool,
 }
 
 impl LocalWorkspaceOptions {
@@ -30,6 +31,7 @@ impl LocalWorkspaceOptions {
 			cache_dir: None,
 			files: None,
 			identity: LocalIdentityResolver::default(),
+			detailed_telemetry: false,
 		}
 	}
 
@@ -45,6 +47,11 @@ impl LocalWorkspaceOptions {
 
 	pub fn with_identity(mut self, identity: LocalIdentityResolver) -> Self {
 		self.identity = identity;
+		self
+	}
+
+	pub fn with_detailed_telemetry(mut self, enabled: bool) -> Self {
+		self.detailed_telemetry = enabled;
 		self
 	}
 }
@@ -72,7 +79,11 @@ pub(crate) fn local_workspace_ports(
 	}
 	WorkspacePorts::new(
 		LocalSourceCatalog::new(source_options, cache.clone()),
-		LocalCodeIndex::new(LocalCodeIndexOptions::new(options.cache_dir), cache.clone()),
+		LocalCodeIndex::new(
+			LocalCodeIndexOptions::new(options.cache_dir)
+				.with_detailed_telemetry(options.detailed_telemetry),
+			cache.clone(),
+		),
 		LocalLinkage::new(cache.clone()),
 		LocalChangeOverlay::new(cache),
 	)

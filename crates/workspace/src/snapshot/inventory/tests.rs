@@ -150,3 +150,78 @@ fn refresh_churn_does_not_grow_storage_with_retired_ordinal_holes() {
 		inventory.records.len()
 	);
 }
+
+#[test]
+fn compact_identity_lookup_tracks_build_and_refresh() {
+	let sources = vec![source(0, "rs", "src/lib.rs")];
+	let before_identity = "code+moniker://./lang:rs/dir:src/class:Before";
+	let before = RecordTable::from_shards(vec![Arc::from(vec![symbol(
+		0,
+		0,
+		before_identity,
+		"before",
+	)])]);
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &before);
+	let before_compact = crate::code::compact_identity(before_identity, "code+moniker://")
+		.expect("compact identity");
+	assert_eq!(
+		inventory.symbol_ids_by_compact_identity(&before_compact),
+		vec![SymbolId::at(0, 0)]
+	);
+
+	let after_identity = "code+moniker://./lang:rs/dir:src/class:After";
+	let after =
+		RecordTable::from_shards(vec![Arc::from(vec![symbol(0, 0, after_identity, "after")])]);
+	let refreshed = inventory.refresh(
+		ResourceGeneration::new(2),
+		&sources,
+		&after,
+		&BTreeSet::from([0]),
+	);
+	assert!(
+		refreshed
+			.symbol_ids_by_compact_identity(&before_compact)
+			.is_empty()
+	);
+	let after_compact =
+		crate::code::compact_identity(after_identity, "code+moniker://").expect("compact identity");
+	assert_eq!(
+		refreshed.symbol_ids_by_compact_identity(&after_compact),
+		vec![SymbolId::at(0, 0)]
+	);
+}
+
+#[test]
+fn compact_identity_lookup_preserves_and_refreshes_ambiguity() {
+	let sources = vec![source(0, "rs", "src/lib.rs")];
+	let primary_identity = "code+moniker://./lang:rs/dir:src/class:Thing";
+	let alternate_identity = "alternate://project/lang:rs/dir:src/class:Thing";
+	let ambiguous = RecordTable::from_shards(vec![Arc::from(vec![
+		symbol(0, 0, primary_identity, "primary"),
+		symbol(0, 1, alternate_identity, "alternate"),
+	])]);
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &ambiguous);
+	let compact = crate::code::compact_identity(primary_identity, "code+moniker://")
+		.expect("compact identity");
+	assert_eq!(
+		inventory.symbol_ids_by_compact_identity(&compact),
+		vec![SymbolId::at(0, 0), SymbolId::at(0, 1)]
+	);
+
+	let unambiguous = RecordTable::from_shards(vec![Arc::from(vec![symbol(
+		0,
+		0,
+		primary_identity,
+		"primary",
+	)])]);
+	let refreshed = inventory.refresh(
+		ResourceGeneration::new(2),
+		&sources,
+		&unambiguous,
+		&BTreeSet::from([0]),
+	);
+	assert_eq!(
+		refreshed.symbol_ids_by_compact_identity(&compact),
+		vec![SymbolId::at(0, 0)]
+	);
+}

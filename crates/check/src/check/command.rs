@@ -486,6 +486,8 @@ fn memory_indexed_files(
 					&ctx,
 				),
 				source: source.body.to_owned(),
+				extraction_cache: "provided",
+				extraction_duration: std::time::Duration::ZERO,
 			})
 		})
 		.collect()

@@ -174,10 +174,14 @@ impl Drop for TelemetryGuard {
 ///
 /// Configuration and exporter failures are diagnostics, never command failures.
 pub(super) fn init() -> TelemetryGuard {
+	code_moniker_daemon::set_telemetry_export_enabled(false);
 	#[cfg(feature = "telemetry")]
 	match telemetry_requested(std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref()) {
 		Ok(true) => match init_otlp() {
-			Ok(guard) => return guard,
+			Ok(guard) => {
+				code_moniker_daemon::set_telemetry_export_enabled(true);
+				return guard;
+			}
 			Err(error) => {
 				eprintln!("code-moniker: OpenTelemetry disabled: {error}");
 			}

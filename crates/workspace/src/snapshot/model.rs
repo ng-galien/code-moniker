@@ -369,11 +369,21 @@ pub struct CodeIndex {
 	pub timings: CodeIndexTimings,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CodeIndexTimings {
 	pub extract_sources: Duration,
 	pub semantic_index: Duration,
 	pub total: Duration,
+	pub extraction: Vec<ExtractionMeasurement>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExtractionMeasurement {
+	pub language: &'static str,
+	pub cache: &'static str,
+	pub files: usize,
+	pub source_bytes: usize,
+	pub duration: Duration,
 }
 
 impl CodeIndex {
