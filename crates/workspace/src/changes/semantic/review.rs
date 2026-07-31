@@ -128,7 +128,9 @@ pub fn build_semantic_review(scan: &ChangeScan<'_>) -> SemanticReview {
 		.iter()
 		.map(|root| (root.label.to_string(), root.path.to_path_buf()))
 		.collect();
-	build_semantic_review_from(scan, &collect_review_diffs(&roots))
+	let collect_span = tracing::info_span!("workspace.change_overlay.collect_git_diffs");
+	let diffs = collect_span.in_scope(|| collect_review_diffs(&roots));
+	build_semantic_review_from(scan, &diffs)
 }
 
 pub fn build_semantic_review_from(scan: &ChangeScan<'_>, diffs: &ReviewDiffs) -> SemanticReview {
@@ -137,26 +139,39 @@ pub fn build_semantic_review_from(scan: &ChangeScan<'_>, diffs: &ReviewDiffs) ->
 		diagnostics: diffs.diagnostics.clone(),
 		..SemanticReview::default()
 	};
-	let pairs = review_pairs(scan, diffs, &mut review);
-	let pairings: Vec<FilePairing> = pairs
-		.iter()
-		.map(|pair| {
-			pair_file(PairInputs {
-				base: pair.base_side(),
-				current: pair.current_side(),
-				file_moved: pair.file_moved,
+	let prepare_span = tracing::info_span!("workspace.change_overlay.prepare_file_pairs");
+	let pairs = prepare_span.in_scope(|| review_pairs(scan, diffs, &mut review));
+	let symbols_span = tracing::info_span!(
+		"workspace.change_overlay.pair_symbols",
+		change.files = pairs.len(),
+	);
+	review.symbol_changes = symbols_span.in_scope(|| {
+		let pairings: Vec<FilePairing> = pairs
+			.iter()
+			.map(|pair| {
+				pair_file(PairInputs {
+					base: pair.base_side(),
+					current: pair.current_side(),
+					file_moved: pair.file_moved,
+				})
 			})
-		})
-		.collect();
-	review.symbol_changes = finish_files(pairings);
+			.collect();
+		finish_files(pairings)
+	});
 	let ctx = rename_context(&review.symbol_changes, &pairs);
-	for pair in &pairs {
-		let refs = pair_refs(&pair.base_side(), &pair.current_side(), &ctx);
-		review
-			.files
-			.push(pair_facts(pair, &review.symbol_changes, &refs));
-		review.ref_changes.extend(refs);
-	}
+	let refs_span = tracing::info_span!(
+		"workspace.change_overlay.pair_references",
+		change.files = pairs.len(),
+	);
+	refs_span.in_scope(|| {
+		for pair in &pairs {
+			let refs = pair_refs(&pair.base_side(), &pair.current_side(), &ctx);
+			review
+				.files
+				.push(pair_facts(pair, &review.symbol_changes, &refs));
+			review.ref_changes.extend(refs);
+		}
+	});
 	review.files.sort_by_key(facts_order);
 	review
 }

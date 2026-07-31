@@ -16,6 +16,7 @@ pub use imports::{
 	ImportLeaf, ImportLeafKind, ImportTree, flatten_import_tree, import_leaf_binding_name,
 	importable_parent,
 };
+pub(crate) use model::ResolvedRefDeduper;
 pub use model::{
 	DefIndex, DefNameKey, DiscoveredDef, DiscoveredFile, ImportKind, ImportTable, ImportTarget,
 	RefHints, ResolvedRef, TargetExpr, UnresolvedRef,

@@ -5,7 +5,7 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::code::{def_kind, is_navigable_def, last_name};
-use crate::environment;
+use crate::lines::LineIndex;
 
 use super::fingerprint::{
 	FingerprintScope, IdentityTail, def_fingerprints, identity_tail, split_callable_name,
@@ -124,6 +124,7 @@ fn container_move_key(def: &SideDef) -> Option<(String, Vec<u8>, u64)> {
 }
 
 fn collect_side_defs(file: &FileSide<'_>) -> Vec<Option<SideDef>> {
+	let lines = LineIndex::new(file.source);
 	let nested_spans: Vec<(u32, u32)> = file
 		.graph
 		.defs()
@@ -133,12 +134,17 @@ fn collect_side_defs(file: &FileSide<'_>) -> Vec<Option<SideDef>> {
 	file.graph
 		.defs()
 		.filter(|def| is_navigable_def(file.lang, def))
-		.filter_map(|def| side_def(file, def, &nested_spans))
+		.filter_map(|def| side_def(file, def, &nested_spans, &lines))
 		.map(Some)
 		.collect()
 }
 
-fn side_def(file: &FileSide<'_>, def: &DefRecord, nested_spans: &[(u32, u32)]) -> Option<SideDef> {
+fn side_def(
+	file: &FileSide<'_>,
+	def: &DefRecord,
+	nested_spans: &[(u32, u32)],
+	lines: &LineIndex,
+) -> Option<SideDef> {
 	let tail = identity_tail(&def.moniker, file.graph.root())?;
 	let last = tail.last()?;
 	let (base_name, params) = split_callable_name(&last.name);
@@ -164,7 +170,7 @@ fn side_def(file: &FileSide<'_>, def: &DefRecord, nested_spans: &[(u32, u32)]) -
 		signature: String::from_utf8_lossy(&def.signature).into_owned(),
 		line_range: def
 			.position
-			.map(|(start, end)| environment::line_range(file.source, start, end)),
+			.map(|(start, end)| lines.line_range(start, end)),
 		body_hash: prints.body,
 	};
 	Some(SideDef {
@@ -405,6 +411,7 @@ fn change_order(change: &SymbolChange) -> (&Path, u32, &str) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::environment;
 	use std::path::{Path, PathBuf};
 
 	fn pair_rust(base: &str, current: &str) -> Vec<SymbolChange> {

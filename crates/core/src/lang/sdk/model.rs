@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
+use rustc_hash::FxHashMap;
 
 use super::scope::{Namespace, ScopeId, ScopeTree};
 
@@ -160,7 +162,7 @@ pub enum TargetExpr {
 	},
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct RefHints {
 	pub receiver_hint: Vec<u8>,
 	pub alias: Vec<u8>,
@@ -187,4 +189,123 @@ pub struct ResolvedRef {
 	pub position: Option<Position>,
 	pub confidence: &'static [u8],
 	pub hints: RefHints,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ResolvedRefDeduper {
+	unique: FxHashMap<u64, usize>,
+	collisions: FxHashMap<u64, Vec<usize>>,
+	include_hints: bool,
+}
+
+impl ResolvedRefDeduper {
+	pub(crate) fn with_hints() -> Self {
+		Self {
+			include_hints: true,
+			..Self::default()
+		}
+	}
+
+	pub(crate) fn push(&mut self, refs: &mut Vec<ResolvedRef>, reference: ResolvedRef) {
+		let hash = resolved_ref_hash(&reference, self.include_hints);
+		self.push_hashed(refs, reference, hash);
+	}
+
+	fn push_hashed(&mut self, refs: &mut Vec<ResolvedRef>, reference: ResolvedRef, hash: u64) {
+		let candidates = self
+			.collisions
+			.get(&hash)
+			.map(Vec::as_slice)
+			.or_else(|| self.unique.get(&hash).map(std::slice::from_ref))
+			.unwrap_or_default();
+		if candidates
+			.iter()
+			.any(|index| same_ref(&refs[*index], &reference, self.include_hints))
+		{
+			return;
+		}
+
+		let index = refs.len();
+		refs.push(reference);
+		let Some(existing) = self.unique.get(&hash).copied() else {
+			self.unique.insert(hash, index);
+			return;
+		};
+		self.collisions
+			.entry(hash)
+			.or_insert_with(|| vec![existing])
+			.push(index);
+	}
+}
+
+fn resolved_ref_hash(reference: &ResolvedRef, include_hints: bool) -> u64 {
+	let mut hasher = rustc_hash::FxHasher::default();
+	reference.source.hash(&mut hasher);
+	reference.target.hash(&mut hasher);
+	reference.kind.hash(&mut hasher);
+	reference.position.hash(&mut hasher);
+	reference.confidence.hash(&mut hasher);
+	if include_hints {
+		reference.hints.hash(&mut hasher);
+	}
+	hasher.finish()
+}
+
+fn same_ref(left: &ResolvedRef, right: &ResolvedRef, include_hints: bool) -> bool {
+	left.source == right.source
+		&& left.target == right.target
+		&& left.kind == right.kind
+		&& left.position == right.position
+		&& left.confidence == right.confidence
+		&& (!include_hints || left.hints == right.hints)
+}
+
+#[cfg(test)]
+mod resolved_ref_deduper_tests {
+	use super::*;
+	use crate::core::moniker::MonikerBuilder;
+
+	fn reference(target: &[u8], receiver_hint: &[u8]) -> ResolvedRef {
+		let mut source = MonikerBuilder::new();
+		source.project(b"app").segment(b"fn", b"source");
+		let mut destination = MonikerBuilder::new();
+		destination.project(b"app").segment(b"fn", target);
+		ResolvedRef {
+			source: source.build(),
+			target: destination.build(),
+			kind: b"calls",
+			position: Some((10, 20)),
+			confidence: b"resolved",
+			hints: RefHints {
+				receiver_hint: receiver_hint.to_vec(),
+				..RefHints::default()
+			},
+		}
+	}
+
+	#[test]
+	fn exact_duplicates_and_hint_policy_match_existing_language_contracts() {
+		let mut refs = Vec::new();
+		let mut linkage = ResolvedRefDeduper::default();
+		linkage.push(&mut refs, reference(b"target", b"left"));
+		linkage.push(&mut refs, reference(b"target", b"right"));
+		assert_eq!(refs.len(), 1, "C/Go/Java ignore hints while deduplicating");
+
+		let mut refs = Vec::new();
+		let mut full = ResolvedRefDeduper::with_hints();
+		full.push(&mut refs, reference(b"target", b"left"));
+		full.push(&mut refs, reference(b"target", b"right"));
+		full.push(&mut refs, reference(b"target", b"right"));
+		assert_eq!(refs.len(), 2, "Rust keeps distinct hints");
+	}
+
+	#[test]
+	fn hash_collisions_are_resolved_by_exact_comparison() {
+		let mut refs = Vec::new();
+		let mut deduper = ResolvedRefDeduper::default();
+		deduper.push_hashed(&mut refs, reference(b"first", b""), 7);
+		deduper.push_hashed(&mut refs, reference(b"second", b""), 7);
+		deduper.push_hashed(&mut refs, reference(b"first", b""), 7);
+		assert_eq!(refs.len(), 2);
+	}
 }

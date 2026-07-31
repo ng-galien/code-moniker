@@ -203,7 +203,7 @@ fn unavailable_telemetry_collector_does_not_stop_the_daemon() {
 		"telemetry path was not initialized:\n{telemetry_diagnostics}"
 	);
 	assert!(
-		telemetry_diagnostics.contains("OpenTelemetry export failed"),
+		telemetry_diagnostics.contains("OpenTelemetry trace export failed"),
 		"unavailable collector was not diagnosed:\n{telemetry_diagnostics}"
 	);
 	wait_for_registry_removal(&config, Duration::from_secs(2));

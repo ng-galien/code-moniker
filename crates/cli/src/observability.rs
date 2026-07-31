@@ -6,7 +6,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use code_moniker_cli::{Cli, Command};
+use code_moniker_cli::{Cli, Command, DaemonCommand};
 use code_moniker_query::bounded_debug;
 
 #[cfg(feature = "telemetry")]
@@ -173,11 +173,11 @@ impl Drop for TelemetryGuard {
 /// Installs the process subscriber and enables OTLP only after explicit opt-in.
 ///
 /// Configuration and exporter failures are diagnostics, never command failures.
-pub(super) fn init() -> TelemetryGuard {
+pub(super) fn init(cli: &Cli) -> TelemetryGuard {
 	code_moniker_daemon::set_telemetry_export_enabled(false);
 	#[cfg(feature = "telemetry")]
 	match telemetry_requested(std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref()) {
-		Ok(true) => match init_otlp() {
+		Ok(true) => match init_otlp(cli) {
 			Ok(guard) => {
 				code_moniker_daemon::set_telemetry_export_enabled(true);
 				return guard;
@@ -239,7 +239,7 @@ fn init_local_logging() {
 }
 
 #[cfg(feature = "telemetry")]
-fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync>> {
+fn init_otlp(cli: &Cli) -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync>> {
 	let span_exporter = opentelemetry_otlp::SpanExporter::builder()
 		.with_http()
 		.with_protocol(Protocol::HttpBinary)
@@ -264,12 +264,18 @@ fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync
 				.build(),
 		)
 		.build();
-	let resource_builder = Resource::builder()
+	let mut resource_builder = Resource::builder()
 		.with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")));
+	if let Some(instance_id) = daemon_instance_id(cli) {
+		resource_builder =
+			resource_builder.with_attribute(KeyValue::new("service.instance.id", instance_id));
+	}
 	let resource = if explicit_service_name_configured() {
 		resource_builder.build()
 	} else {
-		resource_builder.with_service_name("code-moniker").build()
+		resource_builder
+			.with_service_name(default_service_name(cli))
+			.build()
 	};
 	let tracer_provider = SdkTracerProvider::builder()
 		.with_resource(resource.clone())
@@ -324,6 +330,76 @@ fn init_otlp() -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync
 		meter_provider: Some(meter_provider),
 		logger_provider: Some(logger_provider),
 	})
+}
+
+#[cfg(feature = "telemetry")]
+fn default_service_name(cli: &Cli) -> String {
+	match &cli.command {
+		Command::Daemon(args) if matches!(&args.command, DaemonCommand::Start(_)) => format!(
+			"code-moniker-daemon:{}",
+			daemon_workspace_label(cli).unwrap_or_else(|| "workspace".to_string())
+		),
+		#[cfg(feature = "mcp")]
+		Command::Mcp(_) => "code-moniker-mcp".to_string(),
+		_ => "code-moniker-cli".to_string(),
+	}
+}
+
+#[cfg(feature = "telemetry")]
+fn daemon_instance_id(cli: &Cli) -> Option<String> {
+	let Command::Daemon(args) = &cli.command else {
+		return None;
+	};
+	let DaemonCommand::Start(args) = &args.command else {
+		return None;
+	};
+	let roots = args
+		.root
+		.workspace_roots
+		.iter()
+		.map(|root| {
+			std::fs::canonicalize(root)
+				.unwrap_or_else(|_| root.clone())
+				.display()
+				.to_string()
+		})
+		.collect::<Vec<_>>()
+		.join("+");
+	Some(format!("{roots}#{}", std::process::id()))
+}
+
+#[cfg(feature = "telemetry")]
+fn daemon_workspace_label(cli: &Cli) -> Option<String> {
+	let Command::Daemon(args) = &cli.command else {
+		return None;
+	};
+	let DaemonCommand::Start(args) = &args.command else {
+		return None;
+	};
+	let mut label = args
+		.root
+		.workspace_roots
+		.iter()
+		.map(|root| {
+			std::fs::canonicalize(root)
+				.unwrap_or_else(|_| root.clone())
+				.file_name()
+				.and_then(|name| name.to_str())
+				.unwrap_or("workspace")
+				.to_string()
+		})
+		.collect::<Vec<_>>()
+		.join("+");
+	if let Some(project) = args
+		.root
+		.project
+		.as_deref()
+		.filter(|project| *project != ".")
+	{
+		label.push(':');
+		label.push_str(project);
+	}
+	Some(label)
 }
 
 #[cfg(feature = "telemetry")]

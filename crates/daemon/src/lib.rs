@@ -1286,7 +1286,11 @@ fn handle_query(
 	if matches!(&request.query, Query::WorkspaceStatus) {
 		return workspace_status(&daemon.roots, &daemon.registry);
 	}
-	if request.consistency == Consistency::RefreshIfStale
+	let requires_fresh_change_material = matches!(
+		&request.query,
+		Query::ChangeReview(_) | Query::ChangeContext(_)
+	);
+	if (request.consistency == Consistency::RefreshIfStale || requires_fresh_change_material)
 		&& daemon.registry.queries().staleness().is_stale()
 	{
 		refresh_stale(daemon)?;
@@ -1322,7 +1326,10 @@ fn handle_query(
 
 fn concurrent_snapshot_query(query: &Query) -> bool {
 	query.requires_workspace_snapshot()
-		&& !matches!(query, Query::ChangeContext(_) | Query::Notes(_))
+		&& !matches!(
+			query,
+			Query::ChangeReview(_) | Query::ChangeContext(_) | Query::Notes(_)
+		)
 }
 
 fn handle_stale_snapshot_query(
@@ -1448,9 +1455,13 @@ fn dispatch_snapshot_query(
 		Query::RulesApplicable(query) => {
 			rules_applicable_response(&snapshot, response, query, page)
 		}
-		Query::ChangeReview(query) => {
-			change_review_response(&snapshot, &context.roots, query, current_generation)
-		}
+		Query::ChangeReview(query) => change_review_response(
+			&context.cache,
+			&snapshot,
+			&context.roots,
+			query,
+			current_generation,
+		),
 		Query::ChangeContext(_) => {
 			unreachable!("change context is dispatched with exclusive workspace access")
 		}
@@ -2673,23 +2684,28 @@ fn incoming_reference_ids(snapshot: &WorkspaceSnapshot, symbol: &SymbolId) -> Ve
 }
 
 fn change_review_response(
+	cache: &LocalResourceCache,
 	snapshot: &WorkspaceSnapshot,
 	roots: &[PathBuf],
 	query: ChangeReviewQuery,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
 	let _ = selected_roots(roots, query.workspace.as_deref())?;
-	let result = match snapshot.changes.semantic.as_deref() {
-		Some(review) => change_review_dto(review),
-		None => ChangeReviewResult {
-			scope: snapshot.changes.scope.clone(),
-			summary: ChangeReviewSummary::default(),
-			files: Vec::new(),
-			symbol_changes: Vec::new(),
-			ref_changes: Vec::new(),
-			diagnostics: vec!["semantic change review is unavailable in this snapshot".to_string()],
-		},
-	};
+	let material = cache
+		.index_material(snapshot.index.generation)
+		.ok_or_else(|| {
+			QueryError::new(
+				"change_review_unavailable",
+				"code index material is unavailable for semantic change review",
+			)
+		})?;
+	let review_span = tracing::info_span!(
+		"workspace.change_review",
+		index.generation = snapshot.index.generation.value(),
+	);
+	let review = review_span
+		.in_scope(|| code_moniker_workspace::changes::build_semantic_review(material.as_ref()));
+	let result = change_review_dto(&review);
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::ChangeReview(Box::new(result)),
@@ -2926,8 +2942,12 @@ fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyhow::Result<
 }
 
 fn drain_live_events(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
-	while let Ok(event) = daemon.live.rx.try_recv() {
-		apply_live_event(daemon, event)?;
+	let plan = std::iter::from_fn(|| daemon.live.rx.try_recv().ok())
+		.fold(WorkspaceLiveRefreshPlan::default(), |plan, event| {
+			plan.coalesce(WorkspaceLiveRefreshPlan::from_event(event))
+		});
+	if !plan.is_empty() {
+		apply_live_plan_for_policy(daemon, plan)?;
 	}
 	if daemon.live.policy == DaemonLiveRefreshPolicy::Auto
 		&& daemon.registry.queries().staleness().is_stale()
@@ -2937,11 +2957,10 @@ fn drain_live_events(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
 	Ok(())
 }
 
-fn apply_live_event(
+fn apply_live_plan_for_policy(
 	daemon: &mut WorkspaceDaemon,
-	event: WorkspaceLiveEvent,
+	plan: WorkspaceLiveRefreshPlan,
 ) -> Result<(), QueryError> {
-	let plan = WorkspaceLiveRefreshPlan::from_event(event);
 	if plan.is_empty() {
 		return Ok(());
 	}
@@ -4259,6 +4278,7 @@ fn change_context_response(
 	)?;
 	let (rules_total, rules) = context_rules(snapshot, response, &query, max_items)?;
 	let changes = context_changes(
+		&daemon.cache,
 		snapshot,
 		response,
 		query.workspace.clone(),
@@ -4471,6 +4491,7 @@ struct ContextChanges {
 }
 
 fn context_changes(
+	cache: &LocalResourceCache,
 	snapshot: &WorkspaceSnapshot,
 	response: ResponseContext<'_>,
 	workspace: Option<String>,
@@ -4478,6 +4499,7 @@ fn context_changes(
 	max_items: usize,
 ) -> Result<ContextChanges, QueryError> {
 	let review = change_review_response(
+		cache,
 		snapshot,
 		response.roots,
 		ChangeReviewQuery { workspace },
@@ -6684,7 +6706,7 @@ END;"#;
 	}
 
 	#[test]
-	fn change_review_query_serves_semantic_facts_from_the_snapshot() {
+	fn change_review_query_builds_semantic_facts_on_demand() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let git = |args: &[&str]| {
 			let output = std::process::Command::new("git")
@@ -6716,19 +6738,40 @@ END;"#;
 			roots: vec![temp.path().display().to_string()],
 			project: None,
 			cache_dir: None,
-			live_refresh: None,
+			live_refresh: Some("on-demand".to_string()),
 		})
 		.expect("daemon");
 		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
 			command: Command::WorkspaceRefresh,
 		}));
 		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let before_generation = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("initial snapshot")
+			.generation
+			.value();
+		daemon
+			.live
+			.tx
+			.send(WorkspaceLiveEvent::RescanRequired)
+			.expect("queue stale source event");
 
 		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
 			query: Query::ChangeReview(code_moniker_query::ChangeReviewQuery { workspace: None }),
-			consistency: code_moniker_query::Consistency::Current,
+			consistency: code_moniker_query::Consistency::StaleOk,
 			page: Page::default(),
 		})));
+		let after_generation = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("refreshed snapshot")
+			.generation
+			.value();
+		assert_eq!(after_generation, before_generation + 1);
+		assert!(!daemon.registry.queries().staleness().is_stale());
 
 		let ProtocolResponse::Query(query) = response else {
 			panic!("expected query response");
@@ -7600,6 +7643,53 @@ END;"#;
 			}
 			other => panic!("expected symbols result, got {other:?}"),
 		}
+	}
+
+	#[test]
+	fn auto_policy_coalesces_a_burst_into_one_workspace_generation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let source = temp.path().join("lib.rs");
+		fs::write(&source, "pub fn before() {}\n").expect("write source");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("auto".to_string()),
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let before = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("initial snapshot")
+			.generation
+			.value();
+
+		fs::write(&source, "pub fn after() {}\n").expect("rewrite source");
+		for _ in 0..2 {
+			daemon
+				.live
+				.tx
+				.send(WorkspaceLiveEvent::SourcesChanged(vec![source.clone()]))
+				.expect("queue duplicate live event");
+		}
+
+		match search_symbols(&mut daemon, "after") {
+			QueryResult::SymbolList(symbols) => assert_eq!(symbols.rows.len(), 1),
+			other => panic!("expected symbols result, got {other:?}"),
+		}
+		let after = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("refreshed snapshot")
+			.generation
+			.value();
+		assert_eq!(after, before + 1, "one drained burst publishes once");
 	}
 
 	#[test]

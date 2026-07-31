@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tree_sitter::Node;
 
 use crate::core::moniker::Moniker;
-use crate::lang::sdk::{DiscoveredDef, ResolvedRef, TypeExpr};
+use crate::lang::sdk::{DiscoveredDef, ResolvedRef, ResolvedRefDeduper, TypeExpr};
 
 use super::super::Presets;
 use super::defs::{collect_defs, predeclare_types};
@@ -26,6 +26,7 @@ pub(super) struct CDiscover<'src> {
 	pub(super) deep: bool,
 	pub(super) defs: Vec<DiscoveredDef>,
 	pub(super) refs: Vec<ResolvedRef>,
+	ref_deduper: ResolvedRefDeduper,
 	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
 	pub(super) callables: CallableTable,
 	pub(super) macros: CallableTable,
@@ -49,6 +50,7 @@ impl<'src> CDiscover<'src> {
 			deep,
 			defs: Vec::new(),
 			refs: Vec::new(),
+			ref_deduper: ResolvedRefDeduper::default(),
 			type_table: HashMap::new(),
 			callables: CallableTable::new(),
 			macros: CallableTable::new(),
@@ -90,20 +92,6 @@ impl<'src> CDiscover<'src> {
 	}
 
 	pub(super) fn push_ref(&mut self, reference: ResolvedRef) {
-		if !self
-			.refs
-			.iter()
-			.any(|existing| same_ref(existing, &reference))
-		{
-			self.refs.push(reference);
-		}
+		self.ref_deduper.push(&mut self.refs, reference);
 	}
-}
-
-fn same_ref(left: &ResolvedRef, right: &ResolvedRef) -> bool {
-	left.source == right.source
-		&& left.target == right.target
-		&& left.kind == right.kind
-		&& left.position == right.position
-		&& left.confidence == right.confidence
 }

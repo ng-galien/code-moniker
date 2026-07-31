@@ -4,7 +4,7 @@ use code_moniker_core::core::moniker::Moniker;
 use rustc_hash::FxHashMap;
 
 use crate::code::ref_kind;
-use crate::environment;
+use crate::lines::LineIndex;
 
 use super::model::{HunkCoverage, RefChange, RefChangeKind, SymbolChange};
 use super::pairing::FileSide;
@@ -66,39 +66,70 @@ pub fn pair_refs(
 	current: &FileSide<'_>,
 	ctx: &RenameContext,
 ) -> Vec<RefChange> {
-	let mut old_facts = collect_ref_facts(base, Some(ctx));
-	let mut new_facts = collect_ref_facts(current, None);
-	cancel_unchanged(&mut old_facts, &mut new_facts);
-	let mut changes = pair_retargets(&mut old_facts, &mut new_facts, current);
-	changes.extend(old_facts.into_iter().flatten().map(|fact| RefChange {
-		kind: RefChangeKind::Removed,
-		file_path: base.file_path.to_path_buf(),
-		ref_kind: fact.ref_kind,
-		old_target: Some(fact.target),
-		new_target: None,
-		old_line_range: fact.line_range,
-		new_line_range: None,
-	}));
-	changes.extend(new_facts.into_iter().flatten().map(|fact| RefChange {
-		kind: RefChangeKind::Added,
-		file_path: current.file_path.to_path_buf(),
-		ref_kind: fact.ref_kind,
-		old_target: None,
-		new_target: Some(fact.target),
-		old_line_range: None,
-		new_line_range: fact.line_range,
-	}));
+	let old_span = tracing::info_span!(
+		"workspace.change_overlay.collect_base_references",
+		file.path = %base.file_path.display(),
+		graph.references = base.graph.ref_count(),
+	);
+	let mut old_facts = old_span.in_scope(|| collect_ref_facts(base, Some(ctx)));
+	let new_span = tracing::info_span!(
+		"workspace.change_overlay.collect_current_references",
+		file.path = %current.file_path.display(),
+		graph.references = current.graph.ref_count(),
+	);
+	let mut new_facts = new_span.in_scope(|| collect_ref_facts(current, None));
+	let cancel_span = tracing::info_span!(
+		"workspace.change_overlay.cancel_unchanged_references",
+		file.path = %current.file_path.display(),
+	);
+	cancel_span.in_scope(|| cancel_unchanged(&mut old_facts, &mut new_facts));
+	let retarget_span = tracing::info_span!(
+		"workspace.change_overlay.pair_retargeted_references",
+		file.path = %current.file_path.display(),
+	);
+	let mut changes =
+		retarget_span.in_scope(|| pair_retargets(&mut old_facts, &mut new_facts, current));
+	let materialize_span = tracing::info_span!(
+		"workspace.change_overlay.materialize_reference_changes",
+		file.path = %current.file_path.display(),
+	);
+	materialize_span.in_scope(|| {
+		changes.extend(old_facts.into_iter().flatten().map(|fact| RefChange {
+			kind: RefChangeKind::Removed,
+			file_path: base.file_path.to_path_buf(),
+			ref_kind: fact.ref_kind,
+			old_target: Some(fact.target),
+			new_target: None,
+			old_line_range: fact.line_range,
+			new_line_range: None,
+		}));
+		changes.extend(new_facts.into_iter().flatten().map(|fact| RefChange {
+			kind: RefChangeKind::Added,
+			file_path: current.file_path.to_path_buf(),
+			ref_kind: fact.ref_kind,
+			old_target: None,
+			new_target: Some(fact.target),
+			old_line_range: None,
+			new_line_range: fact.line_range,
+		}));
+	});
 	changes
 }
 
 fn collect_ref_facts(file: &FileSide<'_>, ctx: Option<&RenameContext>) -> Vec<Option<RefFact>> {
+	let lines = LineIndex::new(file.source);
 	file.graph
 		.refs()
-		.map(|record| Some(ref_fact(file, record, ctx)))
+		.map(|record| Some(ref_fact(file, record, &lines, ctx)))
 		.collect()
 }
 
-fn ref_fact(file: &FileSide<'_>, record: &RefRecord, ctx: Option<&RenameContext>) -> RefFact {
+fn ref_fact(
+	file: &FileSide<'_>,
+	record: &RefRecord,
+	lines: &LineIndex,
+	ctx: Option<&RenameContext>,
+) -> RefFact {
 	let source = file.graph.def_at(record.source).moniker.clone();
 	let raw_key = ref_key(record, &source, &record.target);
 	let mapped_key = ctx.and_then(|ctx| {
@@ -121,7 +152,7 @@ fn ref_fact(file: &FileSide<'_>, record: &RefRecord, ctx: Option<&RenameContext>
 		target: record.target.clone(),
 		line_range: record
 			.position
-			.map(|(start, end)| environment::line_range(file.source, start, end)),
+			.map(|(start, end)| lines.line_range(start, end)),
 	}
 }
 
@@ -251,6 +282,8 @@ fn merged_spans(spans: &[(u32, u32)]) -> Vec<(u32, u32)> {
 mod tests {
 	use super::super::pairing::{PairInputs, finish_files, pair_file};
 	use super::*;
+	use crate::environment;
+	use code_moniker_core::core::moniker::MonikerBuilder;
 	use code_moniker_core::lang::Lang;
 	use std::path::Path;
 
@@ -275,6 +308,34 @@ mod tests {
 			source: &extraction.source,
 			file_path: Path::new(&extraction.rel),
 		}
+	}
+
+	fn moniker(segments: &[(&[u8], &[u8])]) -> Moniker {
+		let mut builder = MonikerBuilder::new();
+		builder.project(b"app");
+		for (kind, name) in segments {
+			builder.segment(kind, name);
+		}
+		builder.build()
+	}
+
+	#[test]
+	fn rename_context_uses_the_longest_indexed_ancestor() {
+		let old_module = moniker(&[(b"module", b"old")]);
+		let new_module = moniker(&[(b"module", b"new")]);
+		let old_function = moniker(&[(b"module", b"old"), (b"fn", b"work()")]);
+		let new_function = moniker(&[(b"module", b"new"), (b"fn", b"run()")]);
+		let target = moniker(&[
+			(b"module", b"old"),
+			(b"fn", b"work()"),
+			(b"local", b"value"),
+		]);
+		let expected = moniker(&[(b"module", b"new"), (b"fn", b"run()"), (b"local", b"value")]);
+		let mut context = RenameContext::from_changes(&[]);
+		context.push_pair(old_module, new_module);
+		context.push_pair(old_function, new_function);
+
+		assert_eq!(context.apply(&target), Some(expected));
 	}
 
 	#[test]

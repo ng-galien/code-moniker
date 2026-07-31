@@ -39,18 +39,27 @@ impl ChangeOverlayPort for LocalChangeOverlay {
 			)
 		})?;
 		let generation = self.cache.next_generation();
-		let change_index = diff::build_change_index(change_scan(&material));
-		let semantic = super::semantic::review::build_semantic_review(&change_scan(&material));
-		let mut overlay = ChangeOverlay::from_report(change_report(
-			generation,
-			catalog.generation,
-			index.generation,
-			change_index,
-			&material,
-		));
-		overlay.semantic = Some(std::sync::Arc::new(semantic));
+		let change_index_span = tracing::info_span!("workspace.change_overlay.change_index");
+		let change_index =
+			change_index_span.in_scope(|| diff::build_change_index(change_scan(&material)));
+		let report_span = tracing::info_span!("workspace.change_overlay.report");
+		let overlay = report_span.in_scope(|| {
+			ChangeOverlay::from_report(change_report(
+				generation,
+				catalog.generation,
+				index.generation,
+				change_index,
+				&material,
+			))
+		});
 		Ok(overlay)
 	}
+}
+
+pub fn build_semantic_review(
+	material: &CodeIndexMaterial,
+) -> super::semantic::review::SemanticReview {
+	super::semantic::review::build_semantic_review(&change_scan(material))
 }
 
 fn change_scan(material: &CodeIndexMaterial) -> ChangeScan<'_> {

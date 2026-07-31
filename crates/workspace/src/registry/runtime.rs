@@ -293,7 +293,7 @@ impl WorkspaceLiveCommands<'_> {
 			WorkspaceCommandKind::RefreshLivePlan,
 			request,
 		);
-		run_live_plan(self.runtime, self.events, command, &plan)
+		run_live_plan_retaining_failure(self.runtime, self.events, command, plan)
 	}
 
 	pub fn refresh_stale(&mut self, request: WorkspaceRequest) -> WorkspaceLivePlanTransition {
@@ -314,11 +314,7 @@ impl WorkspaceLiveCommands<'_> {
 			WorkspaceCommandKind::RefreshStale,
 			request,
 		);
-		let live = run_live_plan(self.runtime, self.events, command, &plan);
-		if !plan.is_empty() && matches!(live.transition, WorkspaceTransition::Failed { .. }) {
-			coalesce_pending(self.runtime, plan);
-		}
-		live
+		run_live_plan_retaining_failure(self.runtime, self.events, command, plan)
 	}
 
 	pub fn mark_stale(&mut self, plan: WorkspaceLiveRefreshPlan) -> WorkspaceStaleness {
@@ -379,6 +375,19 @@ fn run_live_plan(
 		transition,
 		replace_watcher,
 	}
+}
+
+fn run_live_plan_retaining_failure(
+	runtime: &mut WorkspaceRuntime,
+	events: &mut WorkspaceEventLog,
+	command: WorkspaceCommand,
+	plan: WorkspaceLiveRefreshPlan,
+) -> WorkspaceLivePlanTransition {
+	let live = run_live_plan(runtime, events, command, &plan);
+	if !plan.is_empty() && matches!(live.transition, WorkspaceTransition::Failed { .. }) {
+		coalesce_pending(runtime, plan);
+	}
+	live
 }
 
 fn coalesce_pending(
@@ -780,6 +789,38 @@ roots = ["src/generated"]
 		));
 		assert!(snapshot_has_symbol(&registry, "after_stale"));
 		assert!(!snapshot_has_symbol(&registry, "before_stale"));
+		assert!(!registry.queries().staleness().is_stale());
+	}
+
+	#[test]
+	fn failed_live_plan_is_retained_for_a_later_refresh() {
+		let (temp, source, mut registry) = indexed_registry("pub fn before_retry() {}\n");
+		let _ = &temp;
+		fs::write(&source, "pub fn after_retry() {}\n").expect("rewrite source");
+		let plan =
+			WorkspaceLiveRefreshPlan::from_event(crate::live::WorkspaceLiveEvent::RescanRequired);
+		let cancellation = crate::snapshot::WorkspaceCancellation::default();
+		cancellation.cancel();
+
+		let failed = registry.live_commands().apply_plan(
+			WorkspaceRequest::new("cancelled-live-plan").with_cancellation(cancellation),
+			plan,
+		);
+		assert!(matches!(
+			failed.transition(),
+			WorkspaceTransition::Failed { .. }
+		));
+		assert!(registry.queries().staleness().is_stale());
+		assert!(snapshot_has_symbol(&registry, "before_retry"));
+
+		let retried = registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("retry-live-plan"));
+		assert!(matches!(
+			retried.transition(),
+			WorkspaceTransition::Ready { .. }
+		));
+		assert!(snapshot_has_symbol(&registry, "after_retry"));
 		assert!(!registry.queries().staleness().is_stale());
 	}
 

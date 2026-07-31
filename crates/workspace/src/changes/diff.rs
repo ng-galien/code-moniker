@@ -14,6 +14,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
 use crate::gitignore::GitignoreStack;
+use crate::lines::LineIndex;
 use crate::snapshot::SymbolLocation;
 use crate::source_group::DeclaredSourceGroups;
 
@@ -422,6 +423,7 @@ fn changed_entries_for_file(
 	file: &ChangeFile<'_>,
 	diff: &FileDiff,
 ) -> Vec<ChangeEntry> {
+	let lines = LineIndex::new(file.source);
 	let base = if diff.status == FileDiffStatus::Added {
 		BaseFile::default()
 	} else {
@@ -447,7 +449,7 @@ fn changed_entries_for_file(
 			} else {
 				ChangeStatus::Added
 			};
-			if status == ChangeStatus::Modified && !def_intersects_hunks(def, file.source, diff) {
+			if status == ChangeStatus::Modified && !def_intersects_hunks(def, &lines, diff) {
 				return None;
 			}
 			Some(SymbolLocation {
@@ -484,7 +486,7 @@ fn changed_entries_for_file(
 				hunk_count: diff.hunks.len(),
 				line_range: def
 					.position
-					.map(|(start, end)| environment::line_range(file.source, start, end)),
+					.map(|(start, end)| lines.line_range(start, end)),
 			}
 		})
 		.collect();
@@ -510,11 +512,11 @@ fn changed_entries_for_file(
 	entries
 }
 
-fn def_intersects_hunks(def: &DefRecord, source: &str, diff: &FileDiff) -> bool {
+fn def_intersects_hunks(def: &DefRecord, lines: &LineIndex, diff: &FileDiff) -> bool {
 	let Some((start, end)) = def.position else {
 		return false;
 	};
-	let (start_line, end_line) = environment::line_range(source, start, end);
+	let (start_line, end_line) = lines.line_range(start, end);
 	let def_span = LineSpan {
 		start: start_line,
 		end: end_line,
@@ -580,6 +582,7 @@ fn base_file(
 		None => extraction_context_for_file(scan, file),
 	};
 	let graph = environment::extract_source_with(file.lang, &source, &anchor, &ctx);
+	let lines = LineIndex::new(&source);
 	Ok(BaseFile {
 		defs: graph
 			.defs()
@@ -590,7 +593,7 @@ fn base_file(
 					moniker: def.moniker.clone(),
 					kind: def_kind(def),
 					name: last_name(&def.moniker),
-					line_range: environment::line_range(&source, start, end),
+					line_range: lines.line_range(start, end),
 				})
 			})
 			.collect(),
@@ -628,12 +631,13 @@ fn removed_entries_for_deleted_file(
 	let anchor = anchor_for(scan, root, &rel_path);
 	let ctx = extraction_context_for_path(root, &path);
 	let graph = environment::extract_source_with(lang, &source, &anchor, &ctx);
+	let lines = LineIndex::new(&source);
 	let mut entries = Vec::new();
 	for def in graph.defs().filter(|def| is_navigable_def(lang, def)) {
 		let Some((start, end)) = def.position else {
 			continue;
 		};
-		let range = environment::line_range(&source, start, end);
+		let range = lines.line_range(start, end);
 		entries.push(ChangeEntry {
 			loc: None,
 			status: ChangeStatus::Removed,

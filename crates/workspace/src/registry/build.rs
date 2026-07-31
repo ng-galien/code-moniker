@@ -26,25 +26,47 @@ pub(crate) fn build_complete_snapshot(
 	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let total_timer = Instant::now();
 	let catalog_timer = Instant::now();
-	let catalog = source_catalog.load_catalog_cancellable(&request, &cancellation)?;
+	let catalog_span =
+		tracing::info_span!("workspace.index_phase", index.phase = "source_catalog",);
+	let catalog = catalog_span
+		.in_scope(|| source_catalog.load_catalog_cancellable(&request, &cancellation))?;
 	cancellation.check(WorkspaceResource::SourceCatalog)?;
 	let catalog_elapsed = catalog_timer.elapsed();
 	let index_timer = Instant::now();
-	let index = code_index.build_index_cancellable(&catalog, &cancellation)?;
+	let index_span = tracing::info_span!("workspace.index_phase", index.phase = "code_index");
+	let index =
+		index_span.in_scope(|| code_index.build_index_cancellable(&catalog, &cancellation))?;
 	let index_elapsed = index_timer.elapsed();
+	let phase_parent = tracing::Span::current();
 	let (linkage, changes) = rayon::join(
 		|| {
+			let span = tracing::info_span!(
+				parent: &phase_parent,
+				"workspace.index_phase",
+				index.phase = "linkage",
+			);
 			let timer = Instant::now();
-			cancellation.check(WorkspaceResource::LinkageSnapshot)?;
-			let snapshot = linkage.resolve_linkage(&index)?;
-			cancellation.check(WorkspaceResource::LinkageSnapshot)?;
+			let snapshot = span.in_scope(|| {
+				cancellation.check(WorkspaceResource::LinkageSnapshot)?;
+				let snapshot = linkage.resolve_linkage(&index)?;
+				cancellation.check(WorkspaceResource::LinkageSnapshot)?;
+				Ok::<_, WorkspaceFailure>(snapshot)
+			})?;
 			Ok::<_, WorkspaceFailure>((snapshot, timer.elapsed()))
 		},
 		|| {
+			let span = tracing::info_span!(
+				parent: &phase_parent,
+				"workspace.index_phase",
+				index.phase = "change_overlay",
+			);
 			let timer = Instant::now();
-			cancellation.check(WorkspaceResource::ChangeOverlay)?;
-			let overlay = change_overlay.build_change_overlay(&catalog, &index)?;
-			cancellation.check(WorkspaceResource::ChangeOverlay)?;
+			let overlay = span.in_scope(|| {
+				cancellation.check(WorkspaceResource::ChangeOverlay)?;
+				let overlay = change_overlay.build_change_overlay(&catalog, &index)?;
+				cancellation.check(WorkspaceResource::ChangeOverlay)?;
+				Ok::<_, WorkspaceFailure>(overlay)
+			})?;
 			Ok::<_, WorkspaceFailure>((overlay, timer.elapsed()))
 		},
 	);

@@ -1316,7 +1316,7 @@ fn reference_is_unresolved(
 }
 
 #[test]
-fn change_overlay_carries_semantic_move_facts_after_a_git_mv() {
+fn change_overlay_keeps_lightweight_git_facts_after_a_git_mv() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let git = |args: &[&str]| {
 		let output = std::process::Command::new("git")
@@ -1357,25 +1357,8 @@ fn change_overlay_carries_semantic_move_facts_after_a_git_mv() {
 	));
 	let snapshot = workspace.queries().snapshot().expect("snapshot");
 
-	let semantic = snapshot
-		.changes
-		.semantic
-		.as_ref()
-		.expect("overlay carries the semantic review");
 	assert!(
-		semantic
-			.files
-			.iter()
-			.any(|facts| facts.rollup.disposition.label() == "moved"),
-		"expected a moved disposition: {:?}",
-		semantic.files
-	);
-	assert!(
-		semantic
-			.symbol_changes
-			.iter()
-			.all(|change| change.kind.label() == "moved"),
-		"a pure git mv must classify every symbol as moved: {:?}",
-		semantic.symbol_changes
+		!snapshot.changes.changes.is_empty(),
+		"the lightweight overlay should expose current git facts"
 	);
 }

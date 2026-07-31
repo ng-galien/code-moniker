@@ -4,8 +4,8 @@ use crate::core::code_graph::Position;
 use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::callable::{CallableSlot, extend_segment, join_bytes_with_comma};
 use crate::lang::sdk::{
-	DiscoveredDef, ImportLeafKind, Namespace, RefHints, ResolvedRef, flatten_import_tree,
-	import_leaf_binding_name,
+	DiscoveredDef, ImportLeafKind, Namespace, RefHints, ResolvedRef, ResolvedRefDeduper,
+	flatten_import_tree, import_leaf_binding_name,
 };
 use crate::lang::tree_util::{node_position, node_slice};
 
@@ -37,6 +37,7 @@ pub(super) struct RustDiscover<'src> {
 	deep: bool,
 	defs: Vec<DiscoveredDef>,
 	refs: Vec<ResolvedRef>,
+	ref_deduper: ResolvedRefDeduper,
 	declared_modules: Vec<Moniker>,
 	imported_symbols: Vec<ImportedSymbol>,
 	wildcard_imports: Vec<(Moniker, Moniker)>,
@@ -56,6 +57,7 @@ impl<'src> RustDiscover<'src> {
 			deep,
 			defs: Vec::new(),
 			refs: Vec::new(),
+			ref_deduper: ResolvedRefDeduper::with_hints(),
 			declared_modules: Vec::new(),
 			imported_symbols: Vec::new(),
 			wildcard_imports: Vec::new(),
@@ -93,13 +95,7 @@ impl<'src> RustDiscover<'src> {
 	}
 
 	fn push_ref(&mut self, reference: ResolvedRef) {
-		if !self
-			.refs
-			.iter()
-			.any(|existing| same_ref(existing, &reference))
-		{
-			self.refs.push(reference);
-		}
+		self.ref_deduper.push(&mut self.refs, reference);
 	}
 
 	fn def_env(&self) -> DefEnv<'_> {
@@ -1114,13 +1110,4 @@ fn local_item_kind(kind: &str) -> LocalItemKind {
 		"function_item" => LocalItemKind::NestedFunction,
 		_ => LocalItemKind::Recurse,
 	}
-}
-
-fn same_ref(left: &ResolvedRef, right: &ResolvedRef) -> bool {
-	left.source == right.source
-		&& left.target == right.target
-		&& left.kind == right.kind
-		&& left.position == right.position
-		&& left.confidence == right.confidence
-		&& left.hints == right.hints
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tree_sitter::Node;
 
 use crate::core::moniker::Moniker;
-use crate::lang::sdk::{DiscoveredDef, ResolvedRef, TypeExpr};
+use crate::lang::sdk::{DiscoveredDef, ResolvedRef, ResolvedRefDeduper, TypeExpr};
 
 use super::defs::collect_defs;
 use super::imports::{ImportedSymbol, collect_imports};
@@ -27,6 +27,7 @@ pub(super) struct JavaDiscover<'src> {
 	pub(super) deep: bool,
 	pub(super) defs: Vec<DiscoveredDef>,
 	pub(super) refs: Vec<ResolvedRef>,
+	ref_deduper: ResolvedRefDeduper,
 	pub(super) imports: Vec<ImportedSymbol>,
 	pub(super) callables: CallableTable,
 	pub(super) return_types: ReturnTypeTable,
@@ -48,6 +49,7 @@ impl<'src> JavaDiscover<'src> {
 			deep,
 			defs: Vec::new(),
 			refs: Vec::new(),
+			ref_deduper: ResolvedRefDeduper::default(),
 			imports: Vec::new(),
 			callables: HashMap::new(),
 			return_types: HashMap::new(),
@@ -77,20 +79,6 @@ impl<'src> JavaDiscover<'src> {
 	}
 
 	pub(super) fn push_ref(&mut self, reference: ResolvedRef) {
-		if !self
-			.refs
-			.iter()
-			.any(|existing| same_ref(existing, &reference))
-		{
-			self.refs.push(reference);
-		}
+		self.ref_deduper.push(&mut self.refs, reference);
 	}
-}
-
-fn same_ref(left: &ResolvedRef, right: &ResolvedRef) -> bool {
-	left.source == right.source
-		&& left.target == right.target
-		&& left.kind == right.kind
-		&& left.position == right.position
-		&& left.confidence == right.confidence
 }

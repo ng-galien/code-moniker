@@ -22,7 +22,7 @@ fn main() -> ExitCode {
 		}
 	};
 	#[cfg(any(feature = "mcp", feature = "telemetry"))]
-	let telemetry = observability::init();
+	let telemetry = observability::init(&cli);
 	let mut stdout = io::stdout();
 	let mut stderr = io::stderr();
 	#[cfg(any(feature = "mcp", feature = "telemetry"))]
