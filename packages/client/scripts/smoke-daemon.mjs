@@ -19,6 +19,47 @@ const client = await CodeMonikerClient.connect(endpoint, {
 });
 
 try {
+	const syntaxSource =
+		"CREATE FUNCTION app.with_default(value text DEFAULT $$fallback$$) " +
+		"RETURNS text LANGUAGE plpgsql " +
+		"AS $body$ BEGIN RETURN value; END; $body$;";
+	const syntax = await client.query({
+		op: "syntax_parse",
+		language: "sql",
+		source: syntaxSource,
+		uri: "client-default.sql",
+		max_depth: 20,
+		max_nodes: 500,
+		named_only: true,
+		include_text: true,
+		max_text_chars: 80,
+	});
+	if (syntax.result.kind !== "syntax_tree" || syntax.result.data.has_error) {
+		throw new Error("the daemon did not parse the dollar-quoted SQL default");
+	}
+	const syntaxRoot = syntax.result.data.root;
+	if (!findSyntaxNode(syntaxRoot, (node) => node.kind === "CreateFunctionStmt")) {
+		throw new Error("the syntax tree omitted the function declaration");
+	}
+	if (
+		!findSyntaxNode(
+			syntaxRoot,
+			(node) =>
+				node.kind === "dollar_quoted_string" &&
+				node.text === "$$fallback$$",
+		)
+	) {
+		throw new Error("the syntax tree omitted the dollar-quoted default");
+	}
+	if (
+		!findSyntaxNode(
+			syntaxRoot,
+			(node) => node.kind === "source_file" && node.language === "plpgsql",
+		)
+	) {
+		throw new Error("the syntax tree omitted the PL/pgSQL body");
+	}
+
 	await client.sources.replace({
 		srcset,
 		revision: "1",
@@ -63,7 +104,7 @@ FOR EACH ROW EXECUTE FUNCTION client_smoke_audit();
 	}
 
 	console.log(
-		`daemon smoke passed: ${symbols.data.total} matching symbol(s), graph focus ${trigger.uri}`,
+		`daemon smoke passed: syntax.parse and ${symbols.data.total} matching symbol(s), graph focus ${trigger.uri}`,
 	);
 } finally {
 	try {
@@ -75,4 +116,17 @@ FOR EACH ROW EXECUTE FUNCTION client_smoke_audit();
 
 function createWebSocket(url) {
 	return new WebSocket(url);
+}
+
+function findSyntaxNode(node, predicate) {
+	if (predicate(node)) {
+		return node;
+	}
+	for (const child of node.children) {
+		const found = findSyntaxNode(child, predicate);
+		if (found) {
+			return found;
+		}
+	}
+	return undefined;
 }

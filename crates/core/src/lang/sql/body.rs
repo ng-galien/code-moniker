@@ -3,7 +3,7 @@ use std::ops::Range;
 use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::moniker::Moniker;
-use crate::lang::tree_util::find_descendant;
+use crate::lang::tree_util::{find_descendant, find_named_child};
 use crate::lang::{ParsedDocument, SyntaxInjection};
 
 use super::sdk_pipeline::discover::{
@@ -76,7 +76,7 @@ impl RoutineBody<'_> {
 
 fn routine_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> {
 	let language = function_language(node, source.as_bytes());
-	let dollar = find_descendant(node, "dollar_quoted_string")?;
+	let dollar = find_routine_body_literal(node)?;
 	let full = source.get(dollar.start_byte()..dollar.end_byte())?;
 	let first = full.find('$')?;
 	let end_delim = full[first + 1..].find('$')? + first + 2;
@@ -91,6 +91,22 @@ fn routine_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> 
 		host_byte_range: dollar.start_byte()..dollar.end_byte(),
 		content_byte_range,
 	})
+}
+
+fn find_routine_body_literal(node: Node<'_>) -> Option<Node<'_>> {
+	if node.kind() == "createfunc_opt_item"
+		&& find_named_child(node, "kw_as").is_some()
+		&& let Some(body) = find_named_child(node, "func_as")
+	{
+		return find_descendant(body, "dollar_quoted_string");
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if let Some(body) = find_routine_body_literal(child) {
+			return Some(body);
+		}
+	}
+	None
 }
 
 fn function_language(node: Node<'_>, src: &[u8]) -> Vec<u8> {

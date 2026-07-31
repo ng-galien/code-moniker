@@ -164,6 +164,64 @@ mod tests {
 	}
 
 	#[test]
+	fn dollar_quoted_parameter_default_is_distinct_from_plpgsql_body() {
+		let source = "CREATE FUNCTION app.with_default(value text DEFAULT $$fallback$$)\n\
+			RETURNS text\n\
+			LANGUAGE plpgsql\n\
+			AS $body$ BEGIN RETURN value; END; $body$;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("default.sql", source);
+		let root = document.primary().root_node();
+		assert!(!root.has_error(), "{}", root.to_sexp());
+
+		let function = crate::lang::tree_util::find_descendant(root, "CreateFunctionStmt")
+			.expect("function declaration");
+		let parameter = crate::lang::tree_util::find_descendant(function, "func_arg_with_default")
+			.expect("parameter with default");
+		let default = crate::lang::tree_util::find_descendant(parameter, "dollar_quoted_string")
+			.expect("dollar-quoted default expression");
+		assert_eq!(
+			&source[default.start_byte()..default.end_byte()],
+			"$$fallback$$"
+		);
+
+		let injection = document
+			.injections()
+			.iter()
+			.find(|injection| injection.language() == "plpgsql")
+			.expect("PL/pgSQL body injection");
+		let host_range = injection.host_byte_range();
+		assert_eq!(
+			&source[host_range],
+			"$body$ BEGIN RETURN value; END; $body$"
+		);
+		let content_range = injection.content_byte_range();
+		assert_eq!(&source[content_range], " BEGIN RETURN value; END; ");
+		assert!(!injection.tree().root_node().has_error());
+	}
+
+	#[test]
+	fn multiple_routines_keep_their_own_dollar_quoted_bodies() {
+		let source = "CREATE FUNCTION app.first(value text DEFAULT $$fallback$$) RETURNS text \
+			LANGUAGE plpgsql AS $first$ BEGIN RETURN value; END; $first$;\n\
+			CREATE FUNCTION app.second(value text DEFAULT $default$other$default$) RETURNS text \
+			LANGUAGE plpgsql AS $second$ BEGIN RETURN value; END; $second$;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("routines.sql", source);
+		assert!(!document.primary().root_node().has_error());
+		let bodies = document
+			.injections()
+			.iter()
+			.map(|injection| &source[injection.host_byte_range()])
+			.collect::<Vec<_>>();
+		assert_eq!(
+			bodies,
+			[
+				"$first$ BEGIN RETURN value; END; $first$",
+				"$second$ BEGIN RETURN value; END; $second$",
+			]
+		);
+	}
+
+	#[test]
 	fn qualified_function_emits_full_signature() {
 		let g = run(
 			"foo.sql",

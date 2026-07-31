@@ -6167,6 +6167,59 @@ message = "every selected function is observable"
 		assert!(syntax_node_contains(&tree.root, "stmt_return", None));
 	}
 
+	#[test]
+	fn stateless_syntax_parse_distinguishes_dollar_quoted_default_and_body() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let source = "CREATE FUNCTION app.with_default(value text DEFAULT $$fallback$$)\n\
+			RETURNS text\n\
+			LANGUAGE plpgsql\n\
+			AS $body$ BEGIN RETURN value; END; $body$;";
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "sql".to_string(),
+				source: source.to_string(),
+				uri: Some("default.sql".to_string()),
+				max_depth: 20,
+				max_nodes: 500,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 80,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected stateless syntax response, got {response:?}");
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected syntax tree, got {:?}", response.result);
+		};
+		assert!(!tree.has_error, "valid routine must parse: {tree:#?}");
+
+		let function =
+			syntax_node_find(&tree.root, "CreateFunctionStmt", None).expect("function declaration");
+		assert_eq!(function.byte_range, (0, source.len() - 1));
+		let parameter = syntax_node_find(&tree.root, "func_arg_with_default", None)
+			.expect("parameter with default");
+		let parameter_start = source.find("value text").expect("parameter start");
+		let default_end = source.find(")\n").expect("parameter list end");
+		assert_eq!(parameter.byte_range, (parameter_start, default_end));
+
+		let default = syntax_node_find(&tree.root, "dollar_quoted_string", Some("$$fallback$$"))
+			.expect("dollar-quoted default");
+		let default_start = source.find("$$fallback$$").expect("default start");
+		assert_eq!(
+			default.byte_range,
+			(default_start, default_start + "$$fallback$$".len())
+		);
+
+		let body =
+			syntax_node_find_language(&tree.root, "source_file", "plpgsql").expect("PL/pgSQL body");
+		let body_start = source.find("BEGIN").expect("body start");
+		let body_end = source.rfind("$body$").expect("body end");
+		assert_eq!(body.byte_range, (body_start, body_end));
+		assert!(syntax_node_contains(body, "stmt_return", None));
+	}
+
 	#[tokio::test]
 	async fn rpc_syntax_parse_does_not_wait_for_the_workspace_lock() {
 		let temp = tempfile::tempdir().expect("tempdir");
@@ -8050,11 +8103,20 @@ pub fn production_entry() {}
 	}
 
 	fn syntax_node_contains_language(node: &SyntaxNodeDto, kind: &str, language: &str) -> bool {
-		(node.kind == kind && node.language.as_deref() == Some(language))
-			|| node
-				.children
-				.iter()
-				.any(|child| syntax_node_contains_language(child, kind, language))
+		syntax_node_find_language(node, kind, language).is_some()
+	}
+
+	fn syntax_node_find_language<'a>(
+		node: &'a SyntaxNodeDto,
+		kind: &str,
+		language: &str,
+	) -> Option<&'a SyntaxNodeDto> {
+		if node.kind == kind && node.language.as_deref() == Some(language) {
+			return Some(node);
+		}
+		node.children
+			.iter()
+			.find_map(|child| syntax_node_find_language(child, kind, language))
 	}
 
 	fn syntax_node_language_count(node: &SyntaxNodeDto, language: &str) -> usize {
