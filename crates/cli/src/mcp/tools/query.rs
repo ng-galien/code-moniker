@@ -1,10 +1,13 @@
 use code_moniker_query::{
-	WorkspaceGeneration, format_query_response_projected, parse_query, query_capability_spec,
-	query_projection,
+	QueryCursor, WorkspaceGeneration, format_query_response_projected, parse_query,
+	query_capability_spec, query_projection,
 };
 use serde_json::{Value, json};
 
 use super::common::compact_argument;
+use super::scope::{
+	append_call_bool_arg, append_call_cursor_arg, append_call_string_arg, cursor_argument,
+};
 use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
@@ -21,6 +24,8 @@ impl QueryTool {
 		"daemon or shell fallback. Use query.describe to discover the live grammar. ",
 		"Pass queries for a bounded batch of up to four read-only operations at one ",
 		"workspace generation; compact responses shorten every rendered moniker. ",
+		"Paginated results include an executable next call that preserves the original ",
+		"query and resumes it with the generation-aware cursor. ",
 		"Mutating or mixed queries such as notes are rejected here and remain behind ",
 		"their dedicated MCP tool. Output is compact and hard-budgeted by default."
 	);
@@ -39,6 +44,13 @@ impl QueryTool {
 					"minItems": 1,
 					"maxItems": 4,
 					"description": "Bounded read-only batch. Every result must observe the same workspace generation."
+				},
+				"cursor": {
+					"oneOf": [
+						{ "type": "integer", "minimum": 0 },
+						{ "type": "string", "pattern": "^[0-9]+:[0-9]+$" }
+					],
+					"description": "Resume a single query at an offset or generation-aware cursor. Overrides any cursor embedded in the query expression."
 				}
 			},
 			"oneOf": [
@@ -71,14 +83,29 @@ impl McpTool for QueryTool {
 fn execute_query(context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 	let compact = compact_argument(arguments).map_err(ToolError::failed)?;
 	let expressions = query_expressions(arguments).map_err(ToolError::failed)?;
+	let cursor = cursor_argument(arguments, "cursor")
+		.map_err(ToolError::failed)?
+		.map(|(offset, generation)| QueryCursor::new(offset, generation));
+	if cursor.is_some() && expressions.len() != 1 {
+		return Err(ToolError::failed(anyhow::anyhow!(
+			"`cursor` can only resume a single `query`, not a `queries` batch"
+		)));
+	}
 	let mut outputs = Vec::with_capacity(expressions.len());
 	let mut generation = None;
 	let mut partial = false;
 	let mut errors = 0usize;
 	for (index, expression) in expressions.iter().enumerate() {
-		match run_expression(context, expression, compact, &mut generation) {
-			Ok((capability, body, has_cursor)) => {
-				partial |= has_cursor;
+		match run_expression(
+			context,
+			expression,
+			cursor.as_ref(),
+			compact,
+			&mut generation,
+		) {
+			Ok((capability, body, next_cursor)) => {
+				partial |= next_cursor.is_some();
+				let body = append_query_next(body, expression, next_cursor.as_ref(), compact);
 				if expressions.len() == 1 {
 					outputs.push(format!("operation: {capability}\n\n{body}"));
 				} else {
@@ -118,10 +145,14 @@ fn execute_query(context: &McpContext, arguments: &Value) -> Result<ToolResult, 
 fn run_expression(
 	context: &McpContext,
 	expression: &str,
+	cursor: Option<&QueryCursor>,
 	compact: bool,
 	generation: &mut Option<WorkspaceGeneration>,
-) -> anyhow::Result<(&'static str, String, bool)> {
-	let request = parse_query(expression)?;
+) -> anyhow::Result<(&'static str, String, Option<QueryCursor>)> {
+	let mut request = parse_query(expression)?;
+	if let Some(cursor) = cursor {
+		request.page.cursor = Some(cursor.clone());
+	}
 	let capability = request.query.capability();
 	let projection = query_projection(&request.query).to_vec();
 	let spec = query_capability_spec(capability)
@@ -133,13 +164,32 @@ fn run_expression(
 	if let Some(observed) = response.generation {
 		ensure_generation(generation, observed)?;
 	}
-	let has_cursor = response.next_cursor.is_some();
+	let next_cursor = response.next_cursor.clone();
 	let body = if compact {
 		format_query_response_projected(&response, &projection)
 	} else {
 		serde_json::to_string_pretty(&response)?
 	};
-	Ok((capability, body, has_cursor))
+	Ok((capability, body, next_cursor))
+}
+
+fn append_query_next(
+	mut body: String,
+	expression: &str,
+	next_cursor: Option<&QueryCursor>,
+	compact: bool,
+) -> String {
+	let Some(next_cursor) = next_cursor else {
+		return body;
+	};
+	body.push_str("\nnext:\n  - code_moniker_query");
+	append_call_string_arg(&mut body, "query", expression);
+	append_call_cursor_arg(&mut body, "cursor", next_cursor);
+	if !compact {
+		append_call_bool_arg(&mut body, "compact", false);
+	}
+	body.push('\n');
+	body
 }
 
 fn query_expressions(arguments: &Value) -> anyhow::Result<Vec<&str>> {

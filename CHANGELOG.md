@@ -11,11 +11,35 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Added
+
+- **Architecture review workflow for agents.** The bundled Code Moniker skill
+  now separates indexed facts, architectural interpretation and optional
+  heuristics, loads project-defined views before drawing conclusions, and
+  documents graph coverage, scoped identity maps and exact-versus-descendant
+  usage analysis.
+- **Owner-level usage roll-up and trustworthy graph coverage.** `symbol.usages`
+  accepts `include_descendants:true` to aggregate navigable member activity
+  while removing internal relations and deduplicating references. Symbol and
+  identity graph results expose total, matching and returned/emitted counts so
+  filtered or paginated zeroes cannot be mistaken for absent coupling.
+
 ### Changed
 
 - **Daemon protocol 9 → 10.** `workspace.status` now exposes catalog,
   extraction, semantic-index, linkage, change-overlay and total build timings.
   Full builds run linkage and change-overlay construction concurrently.
+- **Daemon protocol 10 → 11.** `identity.graph` now has a dedicated typed
+  query with pre-aggregation `path` scoping, `min_count` filtering and stable
+  generation-aware pagination. MCP graph and usage follow-ups preserve those
+  filters, and the daemon schema publishes the new coverage DTOs. The generated
+  TypeScript client exposes the same protocol version, request fields, coverage
+  types and paginated graph response; its build regenerates these artifacts
+  before type-checking so schema drift fails compilation.
+- **Installed agent skills distinguish updates from drift.** `agent status`
+  reports `outdated` when the current binary embeds a newer managed skill and
+  reserves `stale` for local content drift; `agent doctor` reports the embedded
+  update as an actionable skill update.
 
 ### Fixed
 
@@ -26,8 +50,10 @@ in `0.y.z`.
   `workspace_loading` response.
 - **MCP follow-ups stay compact and executable.** With `compact=true`, `next`
   calls now use reusable compact monikers (including `workspace` and
-  `workspace/views`) and can be replayed directly. Missing-symbol diagnostics
-  no longer repeat the error label and requested URI.
+  `workspace/views`) and can be replayed directly. Paginated generic queries
+  retain their original expression and expose a generation-aware cursor,
+  including `identity.graph` filters. Missing-symbol diagnostics no longer
+  repeat the error label and requested URI.
 
 ## [0.6.0] - 2026-07-26
 

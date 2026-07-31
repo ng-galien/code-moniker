@@ -325,7 +325,7 @@ fn number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>
 	}
 }
 
-fn cursor_argument(
+pub(super) fn cursor_argument(
 	arguments: &Value,
 	key: &str,
 ) -> anyhow::Result<Option<(usize, Option<WorkspaceGeneration>)>> {

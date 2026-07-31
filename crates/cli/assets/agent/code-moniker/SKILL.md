@@ -1,17 +1,18 @@
 ---
 name: code-moniker
 description: >-
-  Explore and diagnose any codebase through code-moniker's symbolic index,
-  using MCP tools when configured and otherwise the local binary. ALWAYS use
-  this before grep/Glob/Read for architecture, module structure, coupling,
-  dependencies, call graphs, callers/callees, change impact, code smells,
-  refactor targets, codebase health, structural diff review, or interpretation
-  of Code Moniker check, hook, MCP, and daemon output. First identify the exact
-  execution surface; never infer daemon caching or incremental behavior from
-  CLI or hook output. Typical requests include mapping architecture, finding
-  heavy coupling, tracing calls, assessing a refactor, reviewing structural
-  changes, or explaining why a check scanned zero files. Zero project
-  configuration on ts/rs/java/python/go/cs/sql projects.
+  Explore, map, diagnose, and audit any codebase through code-moniker's
+  symbolic index and project-defined contextual views, using MCP tools when
+  configured and otherwise the local binary. ALWAYS use this before
+  grep/Glob/Read for architecture, module structure, coupling, dependencies,
+  call graphs, callers/callees, change impact, code smells, refactor targets,
+  codebase health, structural diff review, or interpretation of Code Moniker
+  check, hook, MCP, and daemon output. First identify the exact execution
+  surface; never infer daemon caching or incremental behavior from CLI or hook
+  output. Typical requests include mapping architecture, finding heavy
+  coupling, tracing calls, auditing boundaries, assessing a refactor, reviewing
+  structural changes, or explaining why a check scanned zero files. Zero
+  project configuration on ts/rs/java/python/go/cs/sql projects.
 ---
 
 # code-moniker
@@ -101,6 +102,16 @@ range fails closed and is reported with available/total coverage. Boolean
 composition is order-independent: a known false `AND` operand or known true
 `OR` operand decides the result; otherwise unavailability propagates.
 
+## Keep indexed facts and architectural judgment distinct
+
+Keep Code Moniker terms exact for indexed facts, use general
+software-architecture language for interpretation, and label optional design
+lenses as heuristics. Do not equate a scope with a module, an `interface`
+symbol with a whole architectural contract, or `ports_in`/`ports_out` graph
+crossings with Ports and Adapters ports. Read
+`references/architecture.md` for the full language, role, workflow and output
+contract.
+
 ## Quick start on an unknown repo
 
 ### With MCP
@@ -109,15 +120,20 @@ composition is order-independent: a known false `AND` operand or known true
    workspace root>"] budget:"small"` for a bounded overview and a fail-closed
    workspace identity check. Stop immediately on `workspace_mismatch`. Stop if
    the overview answers the question.
-2. Narrow with `code_moniker_symbols` (`path`, `lang`, `shape`, `name`, small
+2. For architecture, audit, refactor, or project-convention questions, call
+   `code_moniker_read uri:"workspace/views"` and follow only the relevant
+   returned view call before forming hypotheses.
+3. Narrow with `code_moniker_symbols` (`path`, `lang`, `shape`, `name`, small
    `limit`). Never invent a moniker.
-3. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
-   returned compact moniker or file.
-4. Request `code_moniker_read uri:"<file-or-returned>" ast:true` only when the
+4. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
+   returned compact moniker or file. Keep usages exact by default; for an
+   owner such as a type whose coupling may be carried by fields or methods,
+   set `include_descendants:true` and report that owner roll-up separately.
+5. Request `code_moniker_read uri:"<file-or-returned>" ast:true` only when the
    parser shape itself is required; keep the bounded named-node defaults.
-5. Before a structural edit, call `code_moniker_context focus:"<returned>"`
+6. Before a structural edit, call `code_moniker_context focus:"<returned>"`
    once. It combines impact, notes, applicable rules, local changes and checks.
-6. Use `code_moniker_query` only for an advanced read-only verb not covered by
+7. Use `code_moniker_query` only for an advanced read-only verb not covered by
    an intent tool. Discover its current grammar with `query.describe`; a batch
    is limited to four queries at one workspace generation.
 
@@ -143,7 +159,10 @@ sufficient.
 Then go by need:
 
 - **Understand code, trace flows, find entry points** → `references/explore.md`
-- **Health check, coupling, smells, refactor targets, dependency audit** → `references/diagnose.md`
+- **Architecture audit, contextual views, boundaries, refactor reasoning** →
+  `references/architecture.md`
+- **Health, coupling, smells, refactor evidence, dependency audit** →
+  `references/diagnose.md`
 - **Agent MCP contract, budgets and compact monikers** → `references/mcp.md`
 - **Developer-only query grammar and dogfood** → `references/query-dsl.md`
 
@@ -168,3 +187,6 @@ Then go by need:
   defect: do not continue with another server, the CLI, or guessed filters.
 - Unresolved references are counted, never hidden. Treat the count as data
   (resolution coverage), not as an error.
+- **Read graph coverage literally.** `total` is pre-filter, `matching` is after
+  relational thresholds, and `returned`/`emitted` is the bounded result. A
+  returned zero with a non-zero total means filtered evidence, not absence.

@@ -46,7 +46,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -284,7 +284,14 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		category: "symbol",
 		read_only: true,
 		mcp_tool: "code_moniker_usages",
-		fields: &["workspace", "uri", "direction", "path", "lang"],
+		fields: &[
+			"workspace",
+			"uri",
+			"direction",
+			"path",
+			"lang",
+			"include_descendants",
+		],
 		required_fields: &["uri"],
 		positionals: 1,
 		projection: true,
@@ -421,11 +428,11 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		category: "graph",
 		read_only: true,
 		mcp_tool: "code_moniker_query",
-		fields: &["workspace", "prefix"],
+		fields: &["workspace", "prefix", "path", "min_count"],
 		required_fields: &[],
 		positionals: 1,
 		projection: false,
-		paginated: false,
+		paginated: true,
 		example: "identity.graph prefix:\"lang:rs/dir:crates\"",
 	},
 	QueryCapabilitySpec {
@@ -578,6 +585,7 @@ fn query_field_type(name: &str) -> &'static str {
 		}
 		"include_non_navigable"
 		| "include_code"
+		| "include_descendants"
 		| "include_internal"
 		| "include_text"
 		| "named_only"
@@ -620,7 +628,9 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("rules.check", "report") => Some("true"),
 		("change.context", "max_items") => Some("20"),
 		("notes", "action") => Some("list"),
-		(_, "include_non_navigable" | "include_code" | "include_done") => Some("false"),
+		(_, "include_non_navigable" | "include_code" | "include_descendants" | "include_done") => {
+			Some("false")
+		}
 		_ => None,
 	}
 }
@@ -665,7 +675,7 @@ pub enum Query {
 	SymbolGraph(SymbolGraphQuery),
 	GraphPath(GraphPathQuery),
 	IdentityChildren(IdentityChildrenQuery),
-	IdentityGraph(IdentityChildrenQuery),
+	IdentityGraph(IdentityGraphQuery),
 	ResolutionAudit(ResolutionAuditQuery),
 	Notes(NotesQuery),
 }
@@ -824,6 +834,7 @@ pub struct SymbolUsagesQuery {
 	pub direction: UsageDirection,
 	pub path: Vec<String>,
 	pub lang: Vec<String>,
+	pub include_descendants: bool,
 	pub projection: Vec<String>,
 }
 
@@ -1024,6 +1035,26 @@ pub struct IdentityChildrenQuery {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityGraphQuery {
+	pub workspace: Option<String>,
+	pub prefix: String,
+	pub path: Vec<String>,
+	pub min_count: usize,
+}
+
+impl Default for IdentityGraphQuery {
+	fn default() -> Self {
+		Self {
+			workspace: None,
+			prefix: String::new(),
+			path: Vec::new(),
+			min_count: 1,
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NotesQuery {
 	pub action: NotesAction,
 	pub id: Option<String>,
@@ -1215,11 +1246,29 @@ pub struct UnlinkedRefsDto {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolGraphResult {
 	pub focus: SymbolGraphFocus,
+	pub coverage: SymbolGraphCoverage,
 	pub members: Vec<SymbolDto>,
 	pub internal_edges: Vec<SymbolGraphEdge>,
 	pub callers: Vec<SymbolGraphNeighbor>,
 	pub callees: Vec<SymbolGraphNeighbor>,
 	pub unlinked: UnlinkedRefsDto,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SymbolGraphCoverage {
+	pub members: GraphSectionCoverage,
+	pub internal_edges: GraphSectionCoverage,
+	pub callers: GraphSectionCoverage,
+	pub callees: GraphSectionCoverage,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphSectionCoverage {
+	pub total: usize,
+	pub matching: usize,
+	pub returned: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1414,11 +1463,33 @@ pub struct AuditZoneDto {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct IdentityGraphResult {
 	pub prefix: String,
+	pub path: Vec<String>,
+	pub min_count: usize,
+	pub coverage: IdentityGraphCoverage,
 	pub nodes: Vec<IdentitySegmentDto>,
 	pub edges: Vec<IdentityGraphEdge>,
 	pub ports_in: Vec<IdentityGraphPort>,
 	pub ports_out: Vec<IdentityGraphPort>,
 	pub unlinked: UnlinkedRefsDto,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityGraphCoverage {
+	pub rows_total: usize,
+	pub rows_matching: usize,
+	pub rows_emitted: usize,
+	pub nodes_total: usize,
+	pub nodes_emitted: usize,
+	pub edges_total: usize,
+	pub edges_matching: usize,
+	pub edges_emitted: usize,
+	pub ports_in_total: usize,
+	pub ports_in_matching: usize,
+	pub ports_in_emitted: usize,
+	pub ports_out_total: usize,
+	pub ports_out_matching: usize,
+	pub ports_out_emitted: usize,
 }
 
 // source/target are child segment identities of the requested prefix.
@@ -1814,6 +1885,8 @@ pub struct SourceLine {
 pub struct SymbolUsagesResult {
 	pub target: SymbolDto,
 	pub direction: UsageDirection,
+	pub include_descendants: bool,
+	pub targets: usize,
 	pub rows: Vec<UsageDto>,
 	pub total: usize,
 	pub incoming_summary: Option<UsageSummaryDto>,
@@ -2345,20 +2418,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 				.unwrap_or(SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS),
 		}),
 		"syntax.parse" => Query::SyntaxParse(syntax_parse_query(&fields)?),
-		"symbol.usages" => Query::SymbolUsages(SymbolUsagesQuery {
-			workspace: fields.one("workspace"),
-			uri: fields
-				.one("uri")
-				.or_else(|| fields.positional.first().cloned())
-				.ok_or(QueryParseError::MissingRequired("uri"))?,
-			direction: fields
-				.one("direction")
-				.unwrap_or_else(|| "incoming".to_string())
-				.parse()?,
-			path: fields.many("path"),
-			lang: fields.many("lang"),
-			projection: fields.projection,
-		}),
+		"symbol.usages" => Query::SymbolUsages(symbol_usages_query(&fields)?),
 		"view.read" => Query::ViewRead(ViewReadQuery {
 			uri: fields
 				.one("uri")
@@ -2406,7 +2466,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"graph.path" => Query::GraphPath(graph_path_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
-		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
+		"identity.graph" => Query::IdentityGraph(identity_graph_query(&fields)?),
 		"resolution.audit" => Query::ResolutionAudit(ResolutionAuditQuery {
 			workspace: fields.one("workspace"),
 			prefix: fields
@@ -2543,6 +2603,24 @@ fn symbol_search_query(fields: &FieldBag) -> Result<SymbolSearchQuery, QueryPars
 	})
 }
 
+fn symbol_usages_query(fields: &FieldBag) -> Result<SymbolUsagesQuery, QueryParseError> {
+	Ok(SymbolUsagesQuery {
+		workspace: fields.one("workspace"),
+		uri: fields
+			.one("uri")
+			.or_else(|| fields.positional.first().cloned())
+			.ok_or(QueryParseError::MissingRequired("uri"))?,
+		direction: fields
+			.one("direction")
+			.unwrap_or_else(|| "incoming".to_string())
+			.parse()?,
+		path: fields.many("path"),
+		lang: fields.many("lang"),
+		include_descendants: fields.bool("include_descendants")?.unwrap_or(false),
+		projection: fields.projection.clone(),
+	})
+}
+
 fn syntax_parse_query(fields: &FieldBag) -> Result<SyntaxParseQuery, QueryParseError> {
 	Ok(SyntaxParseQuery {
 		language: fields
@@ -2597,6 +2675,18 @@ fn identity_children_query(fields: &FieldBag) -> IdentityChildrenQuery {
 			.or_else(|| fields.positional.first().cloned())
 			.unwrap_or_default(),
 	}
+}
+
+fn identity_graph_query(fields: &FieldBag) -> Result<IdentityGraphQuery, QueryParseError> {
+	Ok(IdentityGraphQuery {
+		workspace: fields.one("workspace"),
+		prefix: fields
+			.one("prefix")
+			.or_else(|| fields.positional.first().cloned())
+			.unwrap_or_default(),
+		path: fields.many("path"),
+		min_count: fields.usize("min_count")?.unwrap_or(1).max(1),
+	})
 }
 
 fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseError> {
@@ -2871,6 +2961,12 @@ fn format_syntax_node(out: &mut String, node: &SyntaxNodeDto, depth: usize) {
 fn format_symbol_usages(out: &mut String, result: &SymbolUsagesResult, projection: &[String]) {
 	let _ = writeln!(out, "uri: {}", result.target.uri);
 	let _ = writeln!(out, "direction: {}", result.direction.as_str());
+	let scope = if result.include_descendants {
+		"descendants"
+	} else {
+		"exact"
+	};
+	let _ = writeln!(out, "target_scope: {scope} ({} symbols)", result.targets);
 	let _ = writeln!(out, "usages: {}", result.total);
 	for row in &result.rows {
 		if projection.is_empty() {
@@ -3324,13 +3420,38 @@ fn format_identity_graph(out: &mut String, result: &IdentityGraphResult) {
 		&result.prefix
 	};
 	let _ = writeln!(out, "scope: {prefix}");
+	if !result.path.is_empty() {
+		let _ = writeln!(out, "path: {}", result.path.join(", "));
+	}
+	let _ = writeln!(out, "min_count: {}", result.min_count);
 	let _ = writeln!(
 		out,
-		"nodes: {} edges: {}",
-		result.nodes.len(),
-		result.edges.len()
+		"coverage: rows {}/{} matching ({} total)",
+		result.coverage.rows_emitted, result.coverage.rows_matching, result.coverage.rows_total
+	);
+	let _ = writeln!(
+		out,
+		"nodes: {}/{} edges: {}/{} matching ({} total) ports_in: {}/{} matching ({} total) ports_out: {}/{} matching ({} total)",
+		result.coverage.nodes_emitted,
+		result.coverage.nodes_total,
+		result.coverage.edges_emitted,
+		result.coverage.edges_matching,
+		result.coverage.edges_total,
+		result.coverage.ports_in_emitted,
+		result.coverage.ports_in_matching,
+		result.coverage.ports_in_total,
+		result.coverage.ports_out_emitted,
+		result.coverage.ports_out_matching,
+		result.coverage.ports_out_total
 	);
 	format_unlinked(out, &result.unlinked);
+	for node in &result.nodes {
+		let _ = writeln!(
+			out,
+			"- node {} defs:{} children:{}",
+			node.identity, node.defs, node.has_children
+		);
+	}
 	for edge in &result.edges {
 		let _ = writeln!(
 			out,
@@ -3376,11 +3497,21 @@ fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 	}
 	let _ = writeln!(
 		out,
-		"members: {} internal edges: {}",
-		result.members.len(),
-		result.internal_edges.len()
+		"members: {}/{} internal edges: {}/{} matching ({} total)",
+		result.coverage.members.returned,
+		result.coverage.members.total,
+		result.coverage.internal_edges.returned,
+		result.coverage.internal_edges.matching,
+		result.coverage.internal_edges.total
 	);
 	format_unlinked(out, &result.unlinked);
+	let _ = writeln!(
+		out,
+		"callers: {}/{} matching ({} total)",
+		result.coverage.callers.returned,
+		result.coverage.callers.matching,
+		result.coverage.callers.total
+	);
 	for caller in &result.callers {
 		let _ = writeln!(
 			out,
@@ -3392,6 +3523,13 @@ fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 			caller.kinds.join(",")
 		);
 	}
+	let _ = writeln!(
+		out,
+		"callees: {}/{} matching ({} total)",
+		result.coverage.callees.returned,
+		result.coverage.callees.matching,
+		result.coverage.callees.total
+	);
 	for callee in &result.callees {
 		let _ = writeln!(
 			out,
@@ -3826,6 +3964,7 @@ mod tests {
 				direction: UsageDirection::Incoming,
 				path: Vec::new(),
 				lang: Vec::new(),
+				include_descendants: false,
 				projection: Vec::new(),
 			}),
 			"view.read" => serialized_fields(ViewReadQuery {
@@ -3841,9 +3980,8 @@ mod tests {
 			"change.context" => serialized_fields(ChangeContextQuery::default()),
 			"symbol.graph" => serialized_fields(SymbolGraphQuery::default()),
 			"graph.path" => serialized_fields(GraphPathQuery::default()),
-			"identity.children" | "identity.graph" => {
-				serialized_fields(IdentityChildrenQuery::default())
-			}
+			"identity.children" => serialized_fields(IdentityChildrenQuery::default()),
+			"identity.graph" => serialized_fields(IdentityGraphQuery::default()),
 			"resolution.audit" => serialized_fields(ResolutionAuditQuery::default()),
 			"notes" => serialized_fields(NotesQuery {
 				action: NotesAction::List,
@@ -4033,6 +4171,30 @@ mod tests {
 	}
 
 	#[test]
+	fn symbol_usages_can_roll_up_descendant_member_activity_explicitly() {
+		let request = parse_query(
+			"symbol.usages uri:\"symbol:1:2\" direction:incoming include_descendants:true",
+		)
+		.expect("owner rollup usage query");
+		let Query::SymbolUsages(query) = request.query else {
+			panic!("expected symbol usages query");
+		};
+		assert!(query.include_descendants);
+		let capability = describe_query_capabilities(Some("symbol.usages"))
+			.expect("symbol usages capability")
+			.capabilities
+			.pop()
+			.expect("symbol usages descriptor");
+		let field = capability
+			.fields
+			.iter()
+			.find(|field| field.name == "include_descendants")
+			.expect("descendant scope field");
+		assert_eq!(field.value_type, "boolean");
+		assert_eq!(field.default.as_deref(), Some("false"));
+	}
+
+	#[test]
 	fn unquoted_multi_value_fields_still_split_commas() {
 		let request = parse_query("symbol.search path:src,tests shape:callable,type")
 			.expect("unquoted multi-value fields");
@@ -4041,6 +4203,39 @@ mod tests {
 		};
 		assert_eq!(query.path, vec!["src", "tests"]);
 		assert_eq!(query.shape, vec!["callable", "type"]);
+	}
+
+	#[test]
+	fn identity_graph_accepts_path_scope_without_changing_identity_children() {
+		let request = parse_query(
+			"identity.graph prefix:\"lang:java/package:com/package:acme\" path:src/main/**,src/test/**",
+		)
+		.expect("path-scoped identity graph");
+		let Query::IdentityGraph(query) = request.query else {
+			panic!("expected identity graph query");
+		};
+		assert_eq!(query.path, vec!["src/main/**", "src/test/**"]);
+
+		assert!(matches!(
+			parse_query("identity.children path:src/main/**"),
+			Err(QueryParseError::UnknownField { .. })
+		));
+	}
+
+	#[test]
+	fn identity_graph_declares_weight_filter_and_real_pagination() {
+		let request = parse_query("identity.graph prefix:\"lang:rs/dir:src\" min_count:3 limit:2")
+			.expect("filtered identity graph");
+		let Query::IdentityGraph(query) = request.query else {
+			panic!("expected identity graph query");
+		};
+		assert_eq!(query.min_count, 3);
+		assert_eq!(request.page.limit, 2);
+		assert!(
+			query_capability_spec("identity.graph")
+				.expect("identity graph capability")
+				.paginated
+		);
 	}
 
 	#[test]
@@ -4348,6 +4543,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/lib.rs".to_string(),
 			},
+			coverage: SymbolGraphCoverage::default(),
 			members: vec![
 				member("symbol:40:2", "alpha()"),
 				member("symbol:40:7", "beta()"),

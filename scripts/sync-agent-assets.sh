@@ -8,7 +8,7 @@ target_dir="$root/crates/cli/assets/agent/code-moniker"
 mkdir -p "$target_dir/references"
 cp "$source_dir/SKILL.md" "$target_dir/SKILL.md"
 
-for name in diagnose explore mcp query-dsl; do
+for name in architecture diagnose explore mcp query-dsl; do
 	cp "$source_dir/references/$name.md" "$target_dir/references/$name.md"
 done
 

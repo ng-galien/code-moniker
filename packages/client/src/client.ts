@@ -69,6 +69,7 @@ export interface SymbolDetailOptions {
 export interface SymbolUsagesOptions {
 	workspace?: string | null;
 	direction?: UsageDirection;
+	includeDescendants?: boolean;
 	path?: string[];
 	language?: string[];
 	projection?: string[];
@@ -82,8 +83,13 @@ export interface SymbolGraphOptions {
 	includeInternal?: boolean;
 }
 
-export interface IdentityGraphOptions {
+export interface IdentityChildrenOptions {
 	workspace?: string | null;
+}
+
+export interface IdentityGraphOptions extends IdentityChildrenOptions {
+	path?: string[];
+	minCount?: number;
 }
 
 type QueryKind = QueryResult["kind"];
@@ -299,6 +305,7 @@ export class SymbolsClient {
 				direction: options.direction ?? "incoming",
 				path: options.path ?? [],
 				lang: options.language ?? [],
+				include_descendants: options.includeDescendants ?? false,
 				projection: options.projection ?? [],
 			},
 			"symbol_usages",
@@ -332,7 +339,7 @@ export class GraphClient {
 
 	children(
 		prefix: string,
-		options: IdentityGraphOptions = {},
+		options: IdentityChildrenOptions = {},
 		queryOptions?: QueryOptions,
 	): Promise<IdentityChildrenResult> {
 		return this.client.queryData(
@@ -350,12 +357,14 @@ export class GraphClient {
 		prefix: string,
 		options: IdentityGraphOptions = {},
 		queryOptions?: QueryOptions,
-	): Promise<IdentityGraphResult> {
-		return this.client.queryData(
+	): Promise<QueryPage<IdentityGraphResult>> {
+		return this.client.queryPage(
 			{
 				op: "identity_graph",
 				workspace: options.workspace ?? null,
 				prefix,
+				path: options.path ?? [],
+				min_count: options.minCount ?? 1,
 			},
 			"identity_graph",
 			queryOptions,

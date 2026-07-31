@@ -299,6 +299,30 @@ fn tools_list_returns_mcp_shape() {
 			"integer"
 		);
 	}
+	let usages = tools
+		.iter()
+		.find(|tool| tool["name"] == "code_moniker_usages")
+		.expect("usages descriptor");
+	assert_eq!(
+		usages["inputSchema"]["properties"]["include_descendants"]["default"],
+		false
+	);
+	assert!(
+		usages["description"]
+			.as_str()
+			.expect("usages description")
+			.contains("include_descendants=true")
+	);
+	let graph = tools
+		.iter()
+		.find(|tool| tool["name"] == "code_moniker_graph")
+		.expect("graph descriptor");
+	assert!(
+		graph["description"]
+			.as_str()
+			.expect("graph description")
+			.contains("total facts before filters")
+	);
 }
 
 #[test]
@@ -1995,6 +2019,66 @@ fn rules_tool_runs_check_on_multi_root_workspace() {
 		"root: {}",
 		second.canonicalize().expect("canonical second").display()
 	)));
+}
+
+#[test]
+fn generic_query_identity_graph_next_cursor_is_replayable() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java/a")).expect("mkdir a");
+	std::fs::create_dir_all(temp.path().join("src/main/java/b")).expect("mkdir b");
+	std::fs::write(
+		temp.path().join("src/main/java/a/App.java"),
+		"package a; import b.Other; class App { void run() { new Other().work(); } }\n",
+	)
+	.expect("write App");
+	std::fs::write(
+		temp.path().join("src/main/java/b/Other.java"),
+		"package b; public class Other { public void work() {} }\n",
+	)
+	.expect("write Other");
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+	let query =
+		"identity.graph prefix:\"srcset:main/lang:java\" path:\"src/main/**\" min_count:1 limit:1";
+
+	let first = registry
+		.call(&context, "code_moniker_query", &json!({"query": query}))
+		.expect("first identity graph page");
+	assert!(first.text.contains("next:"), "{}", first.text);
+	assert!(
+		first.text.contains("code_moniker_query query="),
+		"{}",
+		first.text
+	);
+	assert!(first.text.contains("path:"), "{}", first.text);
+	assert!(first.text.contains("src/main/"), "{}", first.text);
+	assert!(first.text.contains("min_count:1"), "{}", first.text);
+	assert!(first.text.contains("limit:1"), "{}", first.text);
+	let cursor = first
+		.text
+		.split(" cursor=\"")
+		.nth(1)
+		.and_then(|suffix| suffix.split('"').next())
+		.expect("generation-aware cursor");
+	assert!(cursor.contains(':'), "{cursor}");
+
+	let second = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"query": query, "cursor": cursor}),
+		)
+		.expect("replayed identity graph page");
+	assert!(!second.is_error, "{}", second.text);
+	assert!(
+		second.text.contains("operation: identity.graph"),
+		"{}",
+		second.text
+	);
+	assert_ne!(
+		first.text, second.text,
+		"cursor replay must advance the page"
+	);
 }
 
 #[test]

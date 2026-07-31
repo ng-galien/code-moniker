@@ -42,6 +42,7 @@ impl UsagesTool {
 		"  direction=incoming — consumers of the target symbol\n",
 		"  direction=outgoing — dependencies used by the target symbol\n",
 		"  direction=both     — both sections\n",
+		"Set include_descendants=true to roll member activity into an owner such as a type without changing exact-symbol usage semantics.\n",
 		"Incoming usage diagnostics include file, context, prefix concentration, reference kinds, and a shared-helper signal. ",
 		"Compact output groups repeated references by symbolic context, summarizes technical noise, and includes a bounded set of representative source excerpts."
 	);
@@ -58,6 +59,11 @@ impl UsagesTool {
 					"type": "string",
 					"enum": ["incoming", "outgoing", "both"],
 					"description": "Usage direction to render."
+				},
+				"include_descendants": {
+					"type": "boolean",
+					"default": false,
+					"description": "Include navigable descendant members of the target and exclude relations internal to that owner boundary."
 				},
 				"evidence": {
 					"type": "string",
@@ -138,6 +144,7 @@ impl McpTool for UsagesTool {
 struct UsageRequest {
 	uri: String,
 	direction: UsageDirection,
+	include_descendants: bool,
 	scope: ScopeFilter,
 	paging: Paging,
 	compact: bool,
@@ -157,6 +164,15 @@ impl UsageRequest {
 				.ok_or_else(|| anyhow::anyhow!("`uri` is required"))?
 				.to_string(),
 			direction: UsageDirection::from_arguments(arguments)?,
+			include_descendants: arguments
+				.get("include_descendants")
+				.map(|value| {
+					value
+						.as_bool()
+						.ok_or_else(|| anyhow::anyhow!("`include_descendants` must be a boolean"))
+				})
+				.transpose()?
+				.unwrap_or(false),
 			scope: ScopeFilter::from_arguments(arguments)?,
 			paging: Paging::from_arguments_for_output(arguments, compact)?,
 			compact,
@@ -300,6 +316,7 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<T
 			},
 			path: request.scope.paths.clone(),
 			lang: request.scope.langs.clone(),
+			include_descendants: request.include_descendants,
 			projection: Vec::new(),
 		}),
 		request.paging.daemon_page(),
@@ -351,6 +368,15 @@ fn render_daemon_usages_lmnav(
 		output.push_str("completeness: full\n");
 	}
 	output.push_str(&format!("direction: {}\n", request.direction.as_str()));
+	output.push_str(&format!(
+		"target_scope: {} ({} symbols)\n",
+		if result.include_descendants {
+			"descendants"
+		} else {
+			"exact"
+		},
+		result.targets
+	));
 	output.push_str(&format!("limit: {}\n", request.paging.limit));
 	output.push_str("target:\n");
 	output.push_str(&format!("  kind: {}\n", result.target.kind));
@@ -422,6 +448,7 @@ fn render_daemon_usage_next(
 				technical: request.technical,
 				max_evidence: request.max_evidence,
 				context_lines: request.context_lines,
+				include_descendants: request.include_descendants,
 			},
 		);
 	}
@@ -464,6 +491,7 @@ fn render_daemon_usage_next(
 				technical: request.technical,
 				max_evidence: request.max_evidence,
 				context_lines: request.context_lines,
+				include_descendants: request.include_descendants,
 			},
 		);
 		append_daemon_usages_call(
@@ -479,6 +507,7 @@ fn render_daemon_usage_next(
 				technical: request.technical,
 				max_evidence: request.max_evidence,
 				context_lines: request.context_lines,
+				include_descendants: request.include_descendants,
 			},
 		);
 		output.push_str(&format!(
@@ -627,12 +656,16 @@ struct DaemonUsageCall<'a> {
 	technical: TechnicalMode,
 	max_evidence: usize,
 	context_lines: usize,
+	include_descendants: bool,
 }
 
 fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
 	output.push_str("  - code_moniker_usages");
 	append_call_string_arg(output, "uri", call.target_uri);
 	append_call_string_arg(output, "direction", call.direction.as_str());
+	if call.include_descendants {
+		append_call_bool_arg(output, "include_descendants", true);
+	}
 	call.scope.append_call_args(output);
 	append_call_number_arg(output, "limit", call.limit);
 	if let Some(cursor) = call.cursor {
@@ -1300,7 +1333,7 @@ impl<'a> UsageLookup<'a> {
 
 #[cfg(test)]
 mod tests {
-	use code_moniker_query::{SymbolDto, SymbolUsagesResult, UsageDto};
+	use code_moniker_query::{QueryCursor, SymbolDto, SymbolUsagesResult, UsageDto};
 	use serde_json::json;
 
 	use super::{UsageRequest, render_daemon_usage_next};
@@ -1312,7 +1345,8 @@ mod tests {
 		let wrapper_uri = "acme://./module:model/struct:Plan/method:from_event(event)";
 		let request = UsageRequest::from_arguments(&json!({
 			"uri": target_uri,
-			"direction": "incoming"
+			"direction": "incoming",
+			"include_descendants": true
 		}))
 		.expect("usage request");
 		let result = SymbolUsagesResult {
@@ -1333,6 +1367,8 @@ mod tests {
 				source: None,
 			},
 			direction: code_moniker_query::UsageDirection::Incoming,
+			include_descendants: true,
+			targets: 2,
 			rows: vec![
 				UsageDto {
 					root: "/workspace".to_string(),
@@ -1369,7 +1405,8 @@ mod tests {
 		};
 
 		let mut output = String::new();
-		render_daemon_usage_next(&mut output, scheme, &request, None, &result);
+		let cursor = QueryCursor::new(2, None);
+		render_daemon_usage_next(&mut output, scheme, &request, Some(&cursor), &result);
 
 		assert!(
 			output.contains(&format!("code_moniker_read uri=\"{wrapper_uri}\"")),
@@ -1378,6 +1415,10 @@ mod tests {
 		assert!(
 			!output.contains("code_moniker_read uri=\"symbol:2:3\""),
 			"internal symbol ordinals must never become navigation calls:\n{output}"
+		);
+		assert!(
+			output.contains("include_descendants=true"),
+			"pagination must preserve owner roll-up scope:\n{output}"
 		);
 	}
 }

@@ -21,11 +21,12 @@ selected daemon's reported index generation.
 | `query.describe` | `verb:` | live query capabilities, fields, defaults and projections |
 | `workspace.status` | — | phase, counts, staleness |
 | `identity.children` | `prefix:""` | one level of the identity tree (kind, name, def counts, URIs for defs) |
-| `identity.graph` | `prefix:""` | that level as a graph: nodes, rolled-up edges (kinds + counts), ports_in/out, unresolved count |
+| `identity.graph` | `prefix:""`, `path:`, `min_count:`, `limit:`, `cursor:` | path-selected level as a paginated graph: nodes, rolled-up edges, ports, coverage and unresolved count |
+| `view.read` | `uri:"workspace/views"` | project-defined contextual view list or one returned view with boundaries, rules, gotchas and resolved evidence |
 | `symbol.search` | `name:`, `shape:`, `path:`, `limit:` | matching symbols with exact URIs |
 | `symbol.detail` | `uri:`, `context_lines:` | one symbol + its source zone |
 | `syntax.tree` | `focus:`, `max_depth:`, `max_nodes:`, `named_only:`, `include_text:` | bounded on-demand Tree-sitter tree for a file or symbol |
-| `symbol.usages` | `uri:`, `limit:` | incoming references with kinds and locations |
+| `symbol.usages` | `uri:`, `include_descendants:`, `limit:` | exact usages by default; optional owner roll-up across navigable descendants, with internal relations excluded |
 | `symbol.graph` | `focus:`, `direction:`, `relation:`, `min_count:` | filtered ego view: members, internal edges, callers `<`, callees `>` |
 | `symbol.insights` | `limit:` | languages, kinds, concentration |
 | `tree.children` | `path:` | file-tree navigation |

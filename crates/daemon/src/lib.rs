@@ -78,9 +78,10 @@ use code_moniker_query::{
 	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
 	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide, ChangeReviewSummary,
 	ChangeReviewSymbol, GraphPathCoverage, GraphPathExpectation, GraphPathQuery, GraphPathResult,
-	GraphPathSearchStats, GraphPathStep, GraphPathVerdict, IdentityChildrenQuery,
-	IdentityChildrenResult, IdentityGraphEdge, IdentityGraphPort, IdentityGraphResult,
-	IdentitySegmentDto, RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult,
+	GraphPathSearchStats, GraphPathStep, GraphPathVerdict, GraphSectionCoverage,
+	IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphCoverage, IdentityGraphEdge,
+	IdentityGraphPort, IdentityGraphQuery, IdentityGraphResult, IdentitySegmentDto,
+	RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult, SymbolGraphCoverage,
 	SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
 	UnlinkedRefsDto,
 };
@@ -1261,7 +1262,7 @@ fn dispatch_snapshot_query(
 			identity_children_response(&snapshot, &context.roots, query, current_generation)
 		}
 		Query::IdentityGraph(query) => {
-			identity_graph_response(&snapshot, &context.roots, query, current_generation)
+			identity_graph_response(&snapshot, &context.roots, query, page, current_generation)
 		}
 		Query::ResolutionAudit(query) => {
 			resolution_audit_response(&snapshot, &context.roots, query, page, current_generation)
@@ -1427,13 +1428,50 @@ fn symbol_graph_response(
 		})
 		.collect();
 	member_dtos.sort_by_key(|dto| dto.line_range);
+	let graph = filter_symbol_graph_sections(
+		internal,
+		callers.into_neighbors(snapshot, roots),
+		callees.into_neighbors(snapshot, roots),
+		&query,
+		member_dtos.len(),
+	);
+	let result = SymbolGraphResult {
+		focus,
+		coverage: graph.coverage,
+		members: member_dtos,
+		internal_edges: graph.internal_edges,
+		callers: graph.callers,
+		callees: graph.callees,
+		unlinked,
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::SymbolGraph(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+struct FilteredSymbolGraph {
+	internal_edges: Vec<SymbolGraphEdge>,
+	callers: Vec<SymbolGraphNeighbor>,
+	callees: Vec<SymbolGraphNeighbor>,
+	coverage: SymbolGraphCoverage,
+}
+
+fn filter_symbol_graph_sections(
+	internal: BTreeMap<(SymbolId, SymbolId), (BTreeSet<String>, usize)>,
+	callers: Vec<SymbolGraphNeighbor>,
+	callees: Vec<SymbolGraphNeighbor>,
+	query: &SymbolGraphQuery,
+	member_count: usize,
+) -> FilteredSymbolGraph {
 	let relation_matches = |kinds: &[String]| {
 		query.relation.is_empty()
 			|| kinds
 				.iter()
 				.any(|kind| query.relation.iter().any(|expected| expected == kind))
 	};
-	let mut internal_edges = internal
+	let internal_edges = internal
 		.into_iter()
 		.map(|((source, target), (kinds, count))| SymbolGraphEdge {
 			source: source.to_string(),
@@ -1441,8 +1479,13 @@ fn symbol_graph_response(
 			kinds: kinds.into_iter().collect(),
 			count,
 		})
+		.collect::<Vec<_>>();
+	let internal_edges_total = internal_edges.len();
+	let mut internal_edges = internal_edges
+		.into_iter()
 		.filter(|edge| edge.count >= query.min_count && relation_matches(&edge.kinds))
 		.collect::<Vec<_>>();
+	let internal_edges_matching = internal_edges.len();
 	if !query.include_internal {
 		internal_edges.clear();
 	}
@@ -1454,26 +1497,44 @@ fn symbol_graph_response(
 			})
 			.collect::<Vec<_>>()
 	};
-	let mut callers = filter_neighbors(callers.into_neighbors(snapshot, roots));
-	let mut callees = filter_neighbors(callees.into_neighbors(snapshot, roots));
+	let callers_total = callers.len();
+	let callees_total = callees.len();
+	let mut callers = filter_neighbors(callers);
+	let mut callees = filter_neighbors(callees);
+	let callers_matching = callers.len();
+	let callees_matching = callees.len();
 	match query.direction {
 		UsageDirection::Incoming => callees.clear(),
 		UsageDirection::Outgoing => callers.clear(),
 		UsageDirection::Both => {}
 	}
-	let result = SymbolGraphResult {
-		focus,
-		members: member_dtos,
+	FilteredSymbolGraph {
+		coverage: SymbolGraphCoverage {
+			members: GraphSectionCoverage {
+				total: member_count,
+				matching: member_count,
+				returned: member_count,
+			},
+			internal_edges: GraphSectionCoverage {
+				total: internal_edges_total,
+				matching: internal_edges_matching,
+				returned: internal_edges.len(),
+			},
+			callers: GraphSectionCoverage {
+				total: callers_total,
+				matching: callers_matching,
+				returned: callers.len(),
+			},
+			callees: GraphSectionCoverage {
+				total: callees_total,
+				matching: callees_matching,
+				returned: callees.len(),
+			},
+		},
 		internal_edges,
 		callers,
 		callees,
-		unlinked,
-	};
-	Ok(QueryResponse {
-		generation: current_generation,
-		result: QueryResult::SymbolGraph(Box::new(result)),
-		next_cursor: None,
-	})
+	}
 }
 
 fn graph_path_response(
@@ -1765,10 +1826,25 @@ fn identity_segments(
 	roots: &[PathBuf],
 	prefix: &str,
 ) -> Vec<IdentitySegmentDto> {
+	identity_segments_scoped(snapshot, roots, prefix, &FilePathFilter::default())
+}
+
+fn identity_segments_scoped(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	prefix: &str,
+	path_filter: &FilePathFilter,
+) -> Vec<IdentitySegmentDto> {
 	let sources_view = WorkspaceView::new(snapshot).sources();
 	let mut groups: BTreeMap<&str, SegmentAgg> = BTreeMap::new();
 	for symbol in snapshot.index.symbols.iter() {
 		if !symbol.navigable {
+			continue;
+		}
+		let Some(source) = sources_view.record(&symbol.source) else {
+			continue;
+		};
+		if !path_filter.matches(&source.rel_path) {
 			continue;
 		}
 		let Some(rest) = identity_rest(identity_path(symbol.identity.as_ref()), prefix) else {
@@ -1806,18 +1882,22 @@ fn identity_segments(
 fn identity_graph_response(
 	snapshot: &WorkspaceSnapshot,
 	roots: &[PathBuf],
-	query: IdentityChildrenQuery,
+	query: IdentityGraphQuery,
+	page: Page,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
 	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let path_filter = FilePathFilter::compile(&query.path)
+		.map_err(|err| QueryError::new("invalid_path_filter", err.to_string()))?;
 	let prefix = identity_path(query.prefix.trim_matches('/'))
 		.trim_matches('/')
 		.to_string();
-	let nodes = identity_segments(snapshot, roots, &prefix);
+	let nodes = identity_segments_scoped(snapshot, roots, &prefix, &path_filter);
 	if nodes.is_empty() {
 		require_known_identity_prefix(snapshot, roots, &prefix)?;
 	}
 	let symbols_view = WorkspaceView::new(snapshot).symbols();
+	let sources_view = WorkspaceView::new(snapshot).sources();
 	let mut edges: BTreeMap<(String, String), (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut ports_in: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut ports_out: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
@@ -1832,7 +1912,12 @@ fn identity_graph_response(
 		let Some(source) = navigable_anchor(&symbols_view, reference.source_symbol) else {
 			continue;
 		};
-		let source_segment = scope_segment(source, &prefix);
+		let source_selected = sources_view
+			.record(&source.source)
+			.is_some_and(|record| path_filter.matches(&record.rel_path));
+		let source_segment = source_selected
+			.then(|| scope_segment(source, &prefix))
+			.flatten();
 		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
 			if source_segment.is_some() {
 				classifier.tally(&reference.id, &mut unlinked);
@@ -1842,8 +1927,14 @@ fn identity_graph_response(
 		let Some(target) = navigable_anchor(&symbols_view, target_id) else {
 			continue;
 		};
+		let target_selected = sources_view
+			.record(&target.source)
+			.is_some_and(|record| path_filter.matches(&record.rel_path));
 		let kind = reference.kind.as_str();
-		match (source_segment, scope_segment(target, &prefix)) {
+		let target_segment = target_selected
+			.then(|| scope_segment(target, &prefix))
+			.flatten();
+		match (source_segment, target_segment) {
 			(Some(from), Some(to)) => {
 				if from != to {
 					let entry = edges.entry((from, to)).or_default();
@@ -1864,27 +1955,145 @@ fn identity_graph_response(
 			(None, None) => {}
 		}
 	}
+	let edges = edges
+		.into_iter()
+		.map(|((source, target), (kinds, count))| IdentityGraphEdge {
+			source,
+			target,
+			kinds: kinds.into_iter().collect(),
+			count,
+		})
+		.collect::<Vec<_>>();
+	let ports_in = into_ports(ports_in);
+	let ports_out = into_ports(ports_out);
+	let graph_page = page_identity_graph(
+		IdentityGraphSections {
+			nodes,
+			edges,
+			ports_in,
+			ports_out,
+		},
+		query.min_count,
+		page,
+		current_generation,
+	)?;
 	let result = IdentityGraphResult {
 		prefix,
-		nodes,
-		edges: edges
-			.into_iter()
-			.map(|((source, target), (kinds, count))| IdentityGraphEdge {
-				source,
-				target,
-				kinds: kinds.into_iter().collect(),
-				count,
-			})
-			.collect(),
-		ports_in: into_ports(ports_in),
-		ports_out: into_ports(ports_out),
+		path: query.path,
+		min_count: query.min_count,
+		coverage: graph_page.coverage,
+		nodes: graph_page.nodes,
+		edges: graph_page.edges,
+		ports_in: graph_page.ports_in,
+		ports_out: graph_page.ports_out,
 		unlinked,
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::IdentityGraph(Box::new(result)),
-		next_cursor: None,
+		next_cursor: graph_page.next_cursor,
 	})
+}
+
+struct IdentityGraphPage {
+	nodes: Vec<IdentitySegmentDto>,
+	edges: Vec<IdentityGraphEdge>,
+	ports_in: Vec<IdentityGraphPort>,
+	ports_out: Vec<IdentityGraphPort>,
+	coverage: IdentityGraphCoverage,
+	next_cursor: Option<QueryCursor>,
+}
+
+struct IdentityGraphSections {
+	nodes: Vec<IdentitySegmentDto>,
+	edges: Vec<IdentityGraphEdge>,
+	ports_in: Vec<IdentityGraphPort>,
+	ports_out: Vec<IdentityGraphPort>,
+}
+
+fn page_identity_graph(
+	sections: IdentityGraphSections,
+	min_count: usize,
+	page: Page,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<IdentityGraphPage, QueryError> {
+	let IdentityGraphSections {
+		nodes,
+		edges,
+		ports_in,
+		ports_out,
+	} = sections;
+	let nodes_total = nodes.len();
+	let edges_total = edges.len();
+	let ports_in_total = ports_in.len();
+	let ports_out_total = ports_out.len();
+	let edges = edges
+		.into_iter()
+		.filter(|edge| edge.count >= min_count)
+		.collect::<Vec<_>>();
+	let ports_in = ports_in
+		.into_iter()
+		.filter(|port| port.count >= min_count)
+		.collect::<Vec<_>>();
+	let ports_out = ports_out
+		.into_iter()
+		.filter(|port| port.count >= min_count)
+		.collect::<Vec<_>>();
+	let edges_matching = edges.len();
+	let ports_in_matching = ports_in.len();
+	let ports_out_matching = ports_out.len();
+	let rows_total = nodes_total + edges_total + ports_in_total + ports_out_total;
+	let rows_matching = nodes_total + edges_matching + ports_in_matching + ports_out_matching;
+	let rows = nodes
+		.into_iter()
+		.map(IdentityGraphRow::Node)
+		.chain(edges.into_iter().map(IdentityGraphRow::Edge))
+		.chain(ports_in.into_iter().map(IdentityGraphRow::PortIn))
+		.chain(ports_out.into_iter().map(IdentityGraphRow::PortOut))
+		.collect();
+	let paged = page_rows(rows, page, current_generation)?;
+	let mut nodes = Vec::new();
+	let mut edges = Vec::new();
+	let mut ports_in = Vec::new();
+	let mut ports_out = Vec::new();
+	for row in paged.items {
+		match row {
+			IdentityGraphRow::Node(row) => nodes.push(row),
+			IdentityGraphRow::Edge(row) => edges.push(row),
+			IdentityGraphRow::PortIn(row) => ports_in.push(row),
+			IdentityGraphRow::PortOut(row) => ports_out.push(row),
+		}
+	}
+	Ok(IdentityGraphPage {
+		coverage: IdentityGraphCoverage {
+			rows_total,
+			rows_matching,
+			rows_emitted: nodes.len() + edges.len() + ports_in.len() + ports_out.len(),
+			nodes_total,
+			nodes_emitted: nodes.len(),
+			edges_total,
+			edges_matching,
+			edges_emitted: edges.len(),
+			ports_in_total,
+			ports_in_matching,
+			ports_in_emitted: ports_in.len(),
+			ports_out_total,
+			ports_out_matching,
+			ports_out_emitted: ports_out.len(),
+		},
+		nodes,
+		edges,
+		ports_in,
+		ports_out,
+		next_cursor: paged.next_cursor,
+	})
+}
+
+enum IdentityGraphRow {
+	Node(IdentitySegmentDto),
+	Edge(IdentityGraphEdge),
+	PortIn(IdentityGraphPort),
+	PortOut(IdentityGraphPort),
 }
 
 fn resolution_audit_response(
@@ -3138,6 +3347,16 @@ fn symbol_usages_response(
 	}
 	let mut incoming_rows = Vec::new();
 	let mut outgoing_rows = Vec::new();
+	let targets = if query.include_descendants {
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.filter(|symbol| symbol.navigable && symbol_is_owned_by(snapshot, symbol.id, target.id))
+			.collect::<Vec<_>>()
+	} else {
+		vec![target]
+	};
 	let usage_context = UsageDtoContext {
 		snapshot,
 		roots,
@@ -3149,21 +3368,36 @@ fn symbol_usages_response(
 		query.direction,
 		UsageDirection::Incoming | UsageDirection::Both
 	) {
-		incoming_rows = collect_incoming_usages(snapshot, target, &usage_context);
+		for selected in &targets {
+			incoming_rows.extend(collect_incoming_usages(snapshot, selected, &usage_context));
+		}
+		if query.include_descendants {
+			incoming_rows.retain(|row| !usage_source_is_owned_by(snapshot, row, target.id));
+		}
+		deduplicate_usage_rows(&mut incoming_rows);
 	}
 	if matches!(
 		query.direction,
 		UsageDirection::Outgoing | UsageDirection::Both
 	) {
 		let references = WorkspaceView::new(snapshot).references();
-		for id in references.outgoing_ids(&target.id) {
-			let Some(reference) = references.reference(&id) else {
-				continue;
-			};
-			if let Some(row) = usage_dto(reference, UsageDirection::Outgoing, &usage_context) {
-				outgoing_rows.push(row);
+		for selected in &targets {
+			for id in references.outgoing_ids(&selected.id) {
+				let Some(reference) = references.reference(&id) else {
+					continue;
+				};
+				let internal = query.include_descendants
+					&& resolved_reference_target(snapshot, &reference.id)
+						.is_some_and(|id| symbol_is_owned_by(snapshot, id, target.id));
+				if !internal
+					&& let Some(row) =
+						usage_dto(reference, UsageDirection::Outgoing, &usage_context)
+				{
+					outgoing_rows.push(row);
+				}
 			}
 		}
+		deduplicate_usage_rows(&mut outgoing_rows);
 	}
 	let incoming_summary = matches!(
 		query.direction,
@@ -3186,6 +3420,8 @@ fn symbol_usages_response(
 		result: QueryResult::SymbolUsages(Box::new(SymbolUsagesResult {
 			target: symbol_dto(target, target_source, roots),
 			direction: query.direction,
+			include_descendants: query.include_descendants,
+			targets: targets.len(),
 			total: paged.total,
 			rows: paged.items,
 			incoming_summary,
@@ -3193,6 +3429,33 @@ fn symbol_usages_response(
 		})),
 		next_cursor: paged.next_cursor,
 	})
+}
+
+fn deduplicate_usage_rows(rows: &mut Vec<UsageDto>) {
+	let mut seen = BTreeSet::new();
+	rows.retain(|row| seen.insert(row.reference.clone()));
+}
+
+fn usage_source_is_owned_by(
+	snapshot: &WorkspaceSnapshot,
+	usage: &UsageDto,
+	owner: SymbolId,
+) -> bool {
+	ReferenceId::parse(&usage.reference)
+		.and_then(|id| WorkspaceView::new(snapshot).references().reference(&id))
+		.is_some_and(|reference| symbol_is_owned_by(snapshot, reference.source_symbol, owner))
+}
+
+fn symbol_is_owned_by(snapshot: &WorkspaceSnapshot, symbol: SymbolId, owner: SymbolId) -> bool {
+	let symbols = WorkspaceView::new(snapshot).symbols();
+	let mut current = symbols.find(&symbol);
+	while let Some(candidate) = current {
+		if candidate.id == owner {
+			return true;
+		}
+		current = candidate.parent.and_then(|parent| symbols.find(&parent));
+	}
+	false
 }
 
 fn view_read_response(
@@ -3764,14 +4027,18 @@ fn bounded_context_graph(
 		));
 	};
 	let mut graph = *graph;
-	let members_total = graph.members.len();
-	let internal_edges_total = graph.internal_edges.len();
-	let callers_total = graph.callers.len();
-	let callees_total = graph.callees.len();
+	let members_total = graph.coverage.members.total;
+	let internal_edges_total = graph.coverage.internal_edges.total;
+	let callers_total = graph.coverage.callers.total;
+	let callees_total = graph.coverage.callees.total;
 	graph.callers.truncate(max_items);
 	graph.callees.truncate(max_items);
 	graph.members.truncate(max_items);
 	graph.internal_edges.truncate(max_items);
+	graph.coverage.members.returned = graph.members.len();
+	graph.coverage.internal_edges.returned = graph.internal_edges.len();
+	graph.coverage.callers.returned = graph.callers.len();
+	graph.coverage.callees.returned = graph.callees.len();
 	let focus = graph.focus.clone();
 	let (file, _, _) = focus_rule_coordinates(snapshot, &focus)?;
 	let source = match &focus {
@@ -5473,8 +5740,14 @@ message = "every selected function is observable"
 			panic!("expected filtered graph, got {:?}", filtered.result);
 		};
 		assert!(filtered.callers.is_empty(), "{filtered:?}");
+		assert_eq!(filtered.coverage.callers.total, 1, "{filtered:?}");
+		assert_eq!(filtered.coverage.callers.matching, 0, "{filtered:?}");
+		assert_eq!(filtered.coverage.callers.returned, 0, "{filtered:?}");
 		assert!(filtered.internal_edges.is_empty(), "{filtered:?}");
 		assert_eq!(filtered.callees.len(), 1, "{filtered:?}");
+		assert_eq!(filtered.coverage.callees.total, 2, "{filtered:?}");
+		assert_eq!(filtered.coverage.callees.matching, 1, "{filtered:?}");
+		assert_eq!(filtered.coverage.callees.returned, 1, "{filtered:?}");
 		assert!(filtered.callees[0].symbol.name.starts_with("helper"));
 	}
 
@@ -6470,9 +6743,11 @@ END;"#;
 		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
 		let mut graph = |prefix: &str| {
 			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
-				query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+				query: Query::IdentityGraph(code_moniker_query::IdentityGraphQuery {
 					workspace: None,
 					prefix: prefix.to_string(),
+					path: Vec::new(),
+					min_count: 1,
 				}),
 				consistency: code_moniker_query::Consistency::Current,
 				page: Page::default(),
@@ -6529,6 +6804,239 @@ END;"#;
 			})
 			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
 		assert_eq!(port.count, 2, "{port:?}");
+		assert_identity_graph_filtering_and_pagination(&mut daemon);
+	}
+
+	fn assert_identity_graph_filtering_and_pagination(daemon: &mut WorkspaceDaemon) {
+		let filtered = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::IdentityGraph(code_moniker_query::IdentityGraphQuery {
+				workspace: None,
+				prefix: "lang:rs/dir:src".to_string(),
+				path: Vec::new(),
+				min_count: 3,
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(filtered) = filtered else {
+			panic!("expected filtered identity graph response");
+		};
+		let QueryResult::IdentityGraph(filtered) = filtered.result else {
+			panic!("expected filtered identity graph result");
+		};
+		assert_eq!(filtered.coverage.edges_total, 1, "{filtered:?}");
+		assert_eq!(filtered.coverage.edges_matching, 0, "{filtered:?}");
+		assert!(filtered.edges.is_empty(), "{filtered:?}");
+
+		let mut cursor = None;
+		let mut emitted = 0usize;
+		let mut pages = 0usize;
+		let mut expected_matching = None;
+		loop {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::IdentityGraph(code_moniker_query::IdentityGraphQuery {
+					workspace: None,
+					prefix: "lang:rs/dir:src".to_string(),
+					path: Vec::new(),
+					min_count: 1,
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page { cursor, limit: 1 },
+			})));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("expected paged identity graph response");
+			};
+			cursor = response.next_cursor.clone();
+			let QueryResult::IdentityGraph(page) = response.result else {
+				panic!("expected paged identity graph result");
+			};
+			assert!(page.coverage.rows_emitted <= 1, "{page:?}");
+			emitted += page.coverage.rows_emitted;
+			pages += 1;
+			match expected_matching {
+				Some(expected) => assert_eq!(page.coverage.rows_matching, expected),
+				None => expected_matching = Some(page.coverage.rows_matching),
+			}
+			if cursor.is_none() {
+				break;
+			}
+		}
+		assert!(pages > 1, "pagination must expose more than one page");
+		assert_eq!(emitted, expected_matching.expect("matching row count"));
+	}
+
+	#[test]
+	fn identity_graph_applies_path_scope_before_java_package_rollup() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let main = temp.path().join("src/com/acme");
+		let tests = temp.path().join("tests/com/acme");
+		fs::create_dir_all(&main).expect("main sources");
+		fs::create_dir_all(&tests).expect("test sources");
+		fs::write(
+			main.join("StorageService.java"),
+			"package com.acme; public class StorageService { public static void save() {} }\n",
+		)
+		.expect("write main source");
+		fs::write(
+			tests.join("StorageServiceTest.java"),
+			"package com.acme; public class StorageServiceTest { void testSave() { StorageService.save(); } }\n",
+		)
+		.expect("write test source");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		let mut graph = |expression: &str| {
+			let request =
+				code_moniker_query::parse_query(expression).expect("identity graph query");
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(request)));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("expected identity graph response, got {response:?}");
+			};
+			let QueryResult::IdentityGraph(result) = response.result else {
+				panic!("expected identity graph result, got {:?}", response.result);
+			};
+			result
+		};
+
+		let complete = graph("identity.graph prefix:\"lang:java\"");
+		let main_only = graph("identity.graph prefix:\"lang:java\" path:\"src/**\"");
+		assert_eq!(main_only.path, vec!["src/**"]);
+		let complete_defs: usize = complete.nodes.iter().map(|node| node.defs).sum();
+		let main_defs: usize = main_only.nodes.iter().map(|node| node.defs).sum();
+		assert!(main_defs > 0, "{main_only:?}");
+		assert!(
+			main_defs < complete_defs,
+			"the test package must not be merged into the selected main package: complete={complete:?} main={main_only:?}"
+		);
+		assert!(
+			main_only.ports_in.iter().any(|port| port.count > 0),
+			"references from excluded test sources must remain visible as incoming boundary crossings: {main_only:?}"
+		);
+	}
+
+	#[test]
+	fn symbol_usages_rolls_up_singleton_member_activity_without_internal_refs() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src = temp.path().join("src/com/acme");
+		fs::create_dir_all(&src).expect("sources");
+		fs::write(
+			src.join("StorageService.java"),
+			concat!(
+				"package com.acme; public class StorageService { ",
+				"public static final StorageService instance = new StorageService(); ",
+				"public void save() {} }\n"
+			),
+		)
+		.expect("write singleton");
+		fs::write(
+			src.join("ClientA.java"),
+			"package com.acme; public class ClientA { void run() { StorageService.instance.save(); } }\n",
+		)
+		.expect("write client A");
+		fs::write(
+			src.join("ClientB.java"),
+			"package com.acme; public class ClientB { void run() { StorageService.instance.save(); } }\n",
+		)
+		.expect("write client B");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let QueryResult::SymbolList(symbols) = search_symbols_named(&mut daemon, "StorageService")
+		else {
+			panic!("expected storage service symbol");
+		};
+		let service = symbols
+			.rows
+			.iter()
+			.find(|symbol| symbol.kind == "class")
+			.expect("storage service class")
+			.uri
+			.clone();
+
+		let mut usages = |include_descendants| {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::SymbolUsages(code_moniker_query::SymbolUsagesQuery {
+					workspace: None,
+					uri: service.clone(),
+					direction: code_moniker_query::UsageDirection::Incoming,
+					path: Vec::new(),
+					lang: Vec::new(),
+					include_descendants,
+					projection: Vec::new(),
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page {
+					cursor: None,
+					limit: 1_000,
+				},
+			})));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("expected usage response");
+			};
+			let QueryResult::SymbolUsages(result) = response.result else {
+				panic!("expected usage result");
+			};
+			result
+		};
+
+		let exact = usages(false);
+		let rolled = usages(true);
+		assert_eq!(exact.targets, 1, "{exact:?}");
+		assert!(rolled.targets > 1, "{rolled:?}");
+		assert!(
+			exact
+				.rows
+				.iter()
+				.all(|row| !row.context.contains("module:Client")),
+			"exact type usages must keep their existing meaning: {exact:?}"
+		);
+		assert!(
+			rolled
+				.rows
+				.iter()
+				.any(|row| row.context.contains("module:ClientA"))
+				&& rolled
+					.rows
+					.iter()
+					.any(|row| row.context.contains("module:ClientB")),
+			"member-mediated singleton consumers must become visible: {rolled:?}"
+		);
+		assert!(
+			rolled
+				.incoming_summary
+				.as_ref()
+				.is_some_and(|summary| summary.contexts >= 2),
+			"{rolled:?}"
+		);
+		let unique_refs = rolled
+			.rows
+			.iter()
+			.map(|row| row.reference.as_str())
+			.collect::<BTreeSet<_>>();
+		assert_eq!(unique_refs.len(), rolled.rows.len(), "{rolled:?}");
+		assert!(
+			rolled.rows.iter().all(|row| {
+				row.context != service && identity_rest(&row.context, &service).is_none()
+			}),
+			"relations internal to the owner boundary must not count as coupling: {rolled:?}"
+		);
 	}
 
 	#[test]
@@ -6590,9 +7098,11 @@ END;"#;
 		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
 		let mut graph = |prefix: &str| {
 			daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
-				query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+				query: Query::IdentityGraph(code_moniker_query::IdentityGraphQuery {
 					workspace: None,
 					prefix: prefix.to_string(),
+					path: Vec::new(),
+					min_count: 1,
 				}),
 				consistency: code_moniker_query::Consistency::Current,
 				page: Page::default(),
@@ -6632,9 +7142,11 @@ END;"#;
 		}));
 		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
 		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
-			query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+			query: Query::IdentityGraph(code_moniker_query::IdentityGraphQuery {
 				workspace: None,
 				prefix: String::new(),
+				path: Vec::new(),
+				min_count: 1,
 			}),
 			consistency: code_moniker_query::Consistency::Current,
 			page: Page::default(),

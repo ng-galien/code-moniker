@@ -23,13 +23,26 @@ await client.sources.replace({
 	],
 });
 
-const graph = await client.graph.identity("sql/schema:public");
+const graph = await client.graph.identity("sql/schema:public", {
+	path: ["postgres://database/public/**"],
+	minCount: 2,
+});
+console.log(graph.data.coverage, graph.nextCursor);
 client.close();
 ```
 
 The package validates the daemon protocol during the handshake. Its TypeScript
 wire types and `PROTOCOL_VERSION` are generated from
-`docs/schema/daemon.schema.json`.
+`docs/schema/daemon.schema.json`. Every build, type-check and test regenerates
+them first; CI then rejects any generated diff, so a protocol change cannot be
+merged with a stale client.
+
+`client.graph.identity()` returns a `QueryPage<IdentityGraphResult>` because
+identity graphs are generation-aware and paginated. Pass `path` to scope files
+before identity aggregation and `minCount` to filter weak edges while retaining
+their pre-filter totals in `coverage`. `client.symbols.usages()` keeps exact
+symbol semantics by default; `includeDescendants: true` explicitly rolls
+navigable member activity into an owner and removes internal relations.
 
 Workspace targeting is explicit: pass `expectedWorkspaceRoots` to validate the
 daemon identity, or pass `acceptAnyWorkspace: true` when the caller deliberately

@@ -4,21 +4,32 @@ Use counted Code Moniker facts, not manual file sampling. Keep
 `budget:"small"`, compact rendering and a narrow scope until evidence requires
 expansion.
 
+For an architecture audit or design recommendation, gather the facts here and
+then apply the language, dynamic roles, candidate workflow and output contract
+from `architecture.md`.
+
 ## Coupling map
 
 `identity.graph` projects one symbolic level as nodes, weighted relation edges
 and boundary ports. Reach it through the advanced MCP entry:
 
 ```text
-code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" limit:20'
+code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" path:"apps/**" min_count:2 limit:20'
 ```
 
 Start near the requested area rather than at the workspace root. Heavy edges,
 bidirectional pairs and hub nodes are factual refactor signals; `external`,
 `manifest_blocked` and genuinely `unresolved` references remain separate.
+The path filter selects files before identities are aggregated. Follow the
+generation-aware cursor when coverage reports more matching rows than emitted;
+never increase the MCP budget to simulate pagination.
 
 For one unit, prefer `code_moniker_graph`. Filter by `direction`, `relation`
 and `min_count` so the response carries only relevant boundary crossings.
+Interpret a zero against its pre-filter total. For a type, use
+`code_moniker_usages include_descendants:true` when member-mediated access
+(singletons, facades, static utilities) is the coupling hypothesis; internal
+member-to-member references are excluded from that owner roll-up.
 
 ## Smells and architecture rules
 

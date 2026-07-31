@@ -25,6 +25,10 @@ const SKILL_FILES: &[(&str, &str)] = &[
 		include_str!("../../assets/agent/code-moniker/SKILL.md"),
 	),
 	(
+		"references/architecture.md",
+		include_str!("../../assets/agent/code-moniker/references/architecture.md"),
+	),
+	(
 		"references/diagnose.md",
 		include_str!("../../assets/agent/code-moniker/references/diagnose.md"),
 	),
@@ -421,7 +425,9 @@ fn doctor<W: Write>(args: &AgentInspectArgs, stdout: &mut W) -> anyhow::Result<b
 			hooks_coherent = true;
 		}
 		let version_problem = component.version != env!("CARGO_PKG_VERSION");
-		if status_problem {
+		if status == "outdated" {
+			problems.push(format!("skill update available at {}", component.path));
+		} else if status_problem {
 			problems.push(format!("{name} is {status} at {}", component.path));
 		}
 		if version_problem {
@@ -1078,6 +1084,9 @@ fn component_status(
 				"external"
 			};
 		}
+		if component.checksum != skill_checksum() {
+			return "outdated";
+		}
 		return "stale";
 	}
 	if name == "mcp" {
@@ -1584,7 +1593,11 @@ command = "other"
 			root: dir.path().to_path_buf(),
 		};
 		let first = install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
-		assert!(first.message.contains("installed 5 embedded files"));
+		assert!(
+			first
+				.message
+				.contains(&format!("installed {} embedded files", SKILL_FILES.len()))
+		);
 		let skill = user_skill_path(&context.home, AgentClient::Codex);
 		assert!(physical_skill::matches(&context.home, &skill));
 
@@ -1593,8 +1606,52 @@ command = "other"
 			.components
 			.insert("skill".to_string(), first.component);
 		let second = install_skill(&context, AgentClient::Codex, &managed).unwrap();
-		assert!(second.message.contains("installed 5 embedded files"));
+		assert!(
+			second
+				.message
+				.contains(&format!("installed {} embedded files", SKILL_FILES.len()))
+		);
 		assert!(physical_skill::matches(&context.home, &skill));
+	}
+
+	#[test]
+	fn skill_status_distinguishes_embedded_update_from_local_drift() {
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().to_path_buf(),
+		};
+		let installed =
+			install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = Path::new(&installed.component.path);
+		fs::write(skill.join(SKILL_FILES[0].0), "older embedded skill").unwrap();
+
+		let mut outdated = installed.component.clone();
+		outdated.checksum = "previous-embedded-checksum".to_string();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&outdated,
+				AgentClient::Codex,
+			),
+			"outdated"
+		);
+
+		let mut drifted = outdated;
+		drifted.checksum = skill_checksum();
+		assert_eq!(
+			component_status(
+				&context.home,
+				&context.root,
+				"skill",
+				&drifted,
+				AgentClient::Codex,
+			),
+			"stale"
+		);
 	}
 
 	#[test]

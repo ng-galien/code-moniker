@@ -66,12 +66,16 @@ test("symbol and graph facades map ergonomic options to the public query protoco
 	const symbols = await client.symbols.search({ text: "account", language: ["sql"] });
 	const usages = await client.symbols.usages("code+moniker://account", {
 		direction: "both",
+		includeDescendants: true,
 	});
-	const graph = await client.graph.identity("sql/schema:public");
+	const graph = await client.graph.identity("sql/schema:public", {
+		path: ["src/main/**"],
+		minCount: 2,
+	});
 
 	assert.equal(symbols.data.total, 1);
-	assert.equal(usages.data.source.uri, "code+moniker://account");
-	assert.equal(graph.prefix, "sql/schema:public");
+	assert.equal(usages.data.target.uri, "code+moniker://account");
+	assert.equal(graph.data.prefix, "sql/schema:public");
 	assert.deepEqual(queryRequests(daemon), [
 		{
 			op: "symbol_search",
@@ -94,12 +98,15 @@ test("symbol and graph facades map ergonomic options to the public query protoco
 			direction: "both",
 			path: [],
 			lang: [],
+			include_descendants: true,
 			projection: [],
 		},
 		{
 			op: "identity_graph",
 			workspace: null,
 			prefix: "sql/schema:public",
+			path: ["src/main/**"],
+			min_count: 2,
 		},
 	]);
 	client.close();
@@ -460,7 +467,7 @@ function queryResponse(query, page) {
 			result: {
 				kind: "symbol_usages",
 				data: {
-					source: {
+					target: {
 						file: "postgres://database/public/schema.sql",
 						id: "account",
 						kind: "table",
@@ -472,15 +479,11 @@ function queryResponse(query, page) {
 						uri: "code+moniker://account",
 						visibility: "public",
 					},
-					incoming: [],
-					outgoing: [],
-					summary: {
-						incoming: 0,
-						outgoing: 0,
-						incoming_unique_symbols: 0,
-						outgoing_unique_symbols: 0,
-					},
-					unlinked: {},
+					direction: query.direction,
+					include_descendants: query.include_descendants,
+					targets: query.include_descendants ? 2 : 1,
+					rows: [],
+					total: 0,
 				},
 			},
 		};
@@ -492,6 +495,24 @@ function queryResponse(query, page) {
 			kind: "identity_graph",
 			data: {
 				prefix: query.prefix,
+				path: query.path,
+				min_count: query.min_count,
+				coverage: {
+					rows_total: 0,
+					rows_matching: 0,
+					rows_emitted: 0,
+					nodes_total: 0,
+					nodes_emitted: 0,
+					edges_total: 0,
+					edges_matching: 0,
+					edges_emitted: 0,
+					ports_in_total: 0,
+					ports_in_matching: 0,
+					ports_in_emitted: 0,
+					ports_out_total: 0,
+					ports_out_matching: 0,
+					ports_out_emitted: 0,
+				},
 				nodes: [],
 				edges: [],
 				ports_in: [],

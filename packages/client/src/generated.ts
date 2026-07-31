@@ -92,6 +92,7 @@ export type Query =
     }
   | {
       direction: UsageDirection;
+      include_descendants: boolean;
       lang: string[];
       op: "symbol_usages";
       path: string[];
@@ -167,7 +168,9 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      min_count: number;
       op: "identity_graph";
+      path: string[];
       prefix: string;
       workspace?: string | null;
     }
@@ -576,10 +579,12 @@ export interface SyntaxPointDto {
 }
 export interface SymbolUsagesResult {
   direction: UsageDirection;
+  include_descendants: boolean;
   incoming_summary?: UsageSummaryDto | null;
   outgoing_summary?: UsageSummaryDto | null;
   rows: UsageDto[];
   target: SymbolDto;
+  targets: number;
   total: number;
 }
 export interface UsageSummaryDto {
@@ -920,6 +925,7 @@ export interface ChangeContextCoverageDto {
 export interface SymbolGraphResult {
   callees: SymbolGraphNeighbor[];
   callers: SymbolGraphNeighbor[];
+  coverage: SymbolGraphCoverage;
   focus: SymbolGraphFocus;
   internal_edges: SymbolGraphEdge[];
   members: SymbolDto[];
@@ -929,6 +935,17 @@ export interface SymbolGraphNeighbor {
   count: number;
   kinds: string[];
   symbol: SymbolDto;
+}
+export interface SymbolGraphCoverage {
+  callees: GraphSectionCoverage;
+  callers: GraphSectionCoverage;
+  internal_edges: GraphSectionCoverage;
+  members: GraphSectionCoverage;
+}
+export interface GraphSectionCoverage {
+  matching: number;
+  returned: number;
+  total: number;
 }
 export interface SymbolGraphEdge {
   count: number;
@@ -1022,12 +1039,31 @@ export interface IdentitySegmentDto {
   symbol?: SymbolDto | null;
 }
 export interface IdentityGraphResult {
+  coverage: IdentityGraphCoverage;
   edges: IdentityGraphEdge[];
+  min_count: number;
   nodes: IdentitySegmentDto[];
+  path: string[];
   ports_in: IdentityGraphPort[];
   ports_out: IdentityGraphPort[];
   prefix: string;
   unlinked: UnlinkedRefsDto;
+}
+export interface IdentityGraphCoverage {
+  edges_emitted: number;
+  edges_matching: number;
+  edges_total: number;
+  nodes_emitted: number;
+  nodes_total: number;
+  ports_in_emitted: number;
+  ports_in_matching: number;
+  ports_in_total: number;
+  ports_out_emitted: number;
+  ports_out_matching: number;
+  ports_out_total: number;
+  rows_emitted: number;
+  rows_matching: number;
+  rows_total: number;
 }
 export interface IdentityGraphEdge {
   count: number;

@@ -35,9 +35,10 @@ needed.
 | Intent | Tool | Notes |
 |---|---|---|
 | Orient / expand tree / read code or AST | `code_moniker_read` | `uri:"workspace"` for the summary + explorer; a returned compact moniker reads its source zone. Add `ast:true` to a relative or absolute file or returned moniker for a bounded on-demand syntax tree; absolute paths disambiguate duplicate multi-root paths. |
+| Read project-defined contextual views | `code_moniker_read` | `uri:"workspace/views"` lists views; follow a returned `workspace/views/<id>` call for intent, boundaries, ownership, prohibitions, rules, gotchas and current indexed evidence. |
 | List/filter symbols, workspace metrics | `code_moniker_symbols` | `action:"list"` with `path`/`lang`/`kind`/`shape`/`name` (name is a regex here); `action:"insights"` |
-| Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; compact mode groups references by symbolic context, summarizes technical noise, and samples bounded source evidence |
-| Ego neighborhood before editing | `code_moniker_graph` | `focus` = returned moniker or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal` |
+| Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; `include_descendants:true` explicitly rolls member activity into an owner while excluding internal relations; compact mode groups references by symbolic context |
+| Ego neighborhood before editing | `code_moniker_graph` | `focus` = returned moniker or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal`; coverage distinguishes total, matching and returned neighbors |
 | One-call pre-change evidence | `code_moniker_context` | graph, coverage, notes, applicable rules, local changes and canonical suggested checks |
 | Rules: inspect or run | `code_moniker_rules` | `action:"list"` (rationales) or `action:"run"` (optionally file-scoped). It shares rule-engine semantics with agent-hook checks, but MCP uses a daemon query while generated hooks launch the CLI directly. |
 | Changes as symbol facts | `code_moniker_diff` | review surface |
@@ -55,25 +56,33 @@ needed.
    hints, and a first explorer level — plus `next` calls
    sized to the workspace. Deepen with `depth`/`path`/`lang` rather than
    asking for everything.
-2. **Monikers only from tool output.** `code_moniker_symbols` result rows
+2. **Load views when project intent matters**: for architecture, audit,
+   refactor, or project-convention questions, read `workspace/views` and only
+   the relevant returned view before interpreting the graph. A view declares
+   context and resolves evidence against the index; it does not replace graph,
+   rule, change, resolution, or coverage facts.
+3. **Monikers only from tool output.** `code_moniker_symbols` result rows
    include reusable compact monikers. Copy generated calls as-is: they
    preserve the active compact or canonical mode. Compact symbol rows may have
    no pre-built usages call, so pass their moniker to `code_moniker_usages`.
    A hand-built moniker fails with `symbol_not_found` on the first signature
    nuance.
-3. **Respect paging**: `completeness: partial (usages 0-5 of 14, next cursor
+4. **Respect paging**: `completeness: partial (usages 0-5 of 14, next cursor
    5)` tells you exactly what you have; when more rows exist, the optional
    `next` section carries the cursor call. Usage pages may exceed `limit` to
    keep one symbolic context group intact; generated cursors always start at a
    group boundary.
-4. **Bound everything**: keep `budget:"small"`, a narrow `limit` or
+   `identity.graph` is also generation-aware and paginated across deterministic
+   node, edge, incoming-port and outgoing-port rows. Preserve `prefix`, `path`,
+   `min_count`, `limit` and the returned cursor on every page.
+5. **Bound everything**: keep `budget:"small"`, a narrow `limit` or
    `max_items`, and `compact:true`. For AST reads, keep the defaults
    `max_depth:6`, `max_nodes:100`, `named_only:true`; leaf text and punctuation
    are explicit opt-ins. Truncation is reported, never silent.
-5. **Stop progressively**: do not page, broaden scope, request source code or
+6. **Stop progressively**: do not page, broaden scope, request source code or
    switch to `medium`/`full` unless the current evidence is insufficient for
    the question. Never fetch a second rendering of facts you already have.
-6. **Prepare edits once**: after selecting a target, prefer one
+7. **Prepare edits once**: after selecting a target, prefer one
    `code_moniker_context` call over separate graph, notes, rules and diff calls.
 
 For usages, the default `evidence:"representative"` keeps the map exhaustive
@@ -91,7 +100,9 @@ budget and compact-moniker contract. Use `query.describe` or
 `query.describe verb:"identity.graph"` instead of recalling syntax from
 memory. `queries:[...]` executes two to four independent operations at one
 workspace generation. Mutating queries such as notes are rejected; use their
-intent tool.
+intent tool. A paginated single query emits an executable `next` call with the
+original expression and a generation-aware `cursor`; replay that call instead
+of reconstructing `prefix`, `path`, `min_count` or `limit`.
 
 Projections keep expensive collections narrow, for example:
 

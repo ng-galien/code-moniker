@@ -1,8 +1,8 @@
 use std::fmt::Write as _;
 
 use code_moniker_query::{
-	Page, Query, QueryResult, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
-	SymbolGraphResult, UsageDirection,
+	GraphSectionCoverage, Page, Query, QueryResult, SymbolGraphFocus, SymbolGraphNeighbor,
+	SymbolGraphQuery, SymbolGraphResult, UsageDirection,
 };
 use serde_json::{Value, json};
 
@@ -27,7 +27,9 @@ impl GraphTool {
 		"(outside-in) and callees (inside-out), aggregated per neighbor with ",
 		"relation kinds and call counts. Non-unique references remain outside ",
 		"the graph and are classified, never dropped. Filter with direction, ",
-		"relation and min_count before rendering."
+		"relation and min_count before rendering. Coverage distinguishes total ",
+		"facts before filters, matching facts after relational filters, and ",
+		"returned facts after direction, internal-edge and output bounds."
 	);
 
 	const DEFAULT_MAX_ITEMS: usize = 40;
@@ -215,9 +217,12 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDi
 	}
 	let _ = writeln!(
 		out,
-		"members: {} internal edges: {}",
-		result.members.len(),
-		result.internal_edges.len()
+		"members: {}/{} internal edges: {}/{} matching ({} total)",
+		result.coverage.members.returned,
+		result.coverage.members.total,
+		result.coverage.internal_edges.returned,
+		result.coverage.internal_edges.matching,
+		result.coverage.internal_edges.total
 	);
 	let _ = writeln!(
 		out,
@@ -243,17 +248,29 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDi
 		let _ = writeln!(out, "unresolved by reason: {reasons}");
 	}
 	if direction != UsageDirection::Outgoing {
-		render_neighbors(&mut out, "callers", &result.callers, max_items);
+		render_neighbors(
+			&mut out,
+			"callers",
+			&result.callers,
+			result.coverage.callers,
+			max_items,
+		);
 	}
 	if direction != UsageDirection::Incoming {
-		render_neighbors(&mut out, "callees", &result.callees, max_items);
+		render_neighbors(
+			&mut out,
+			"callees",
+			&result.callees,
+			result.coverage.callees,
+			max_items,
+		);
 	}
 	out
 }
 
 #[cfg(test)]
 mod tests {
-	use code_moniker_query::UnlinkedRefsDto;
+	use code_moniker_query::{GraphSectionCoverage, SymbolGraphCoverage, UnlinkedRefsDto};
 
 	use super::*;
 
@@ -263,6 +280,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
 			},
+			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),
 			callers: Vec::new(),
@@ -294,6 +312,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
 			},
+			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),
 			callers: Vec::new(),
@@ -314,6 +333,35 @@ mod tests {
 	}
 
 	#[test]
+	fn graph_render_labels_zero_after_filter_with_the_prefilter_total() {
+		let result = SymbolGraphResult {
+			focus: SymbolGraphFocus::File {
+				path: "src/hub.rs".to_string(),
+			},
+			coverage: SymbolGraphCoverage {
+				callers: GraphSectionCoverage {
+					total: 2_192,
+					matching: 0,
+					returned: 0,
+				},
+				..Default::default()
+			},
+			members: Vec::new(),
+			internal_edges: Vec::new(),
+			callers: Vec::new(),
+			callees: Vec::new(),
+			unlinked: UnlinkedRefsDto::default(),
+		};
+
+		let rendered = render_graph(&result, 10, UsageDirection::Incoming);
+
+		assert!(
+			rendered.contains("callers: 0/0 matching (2192 total)"),
+			"a post-filter zero must retain its pre-filter denominator:\n{rendered}"
+		);
+	}
+
+	#[test]
 	fn graph_render_keeps_canonical_neighbor_uris() {
 		let neighbor_uri = "code+moniker://./lang:rs/module:sample/fn:caller()".to_string();
 		let local_uri =
@@ -322,6 +370,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.rs".to_string(),
 			},
+			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),
 			callers: vec![
@@ -387,9 +436,15 @@ fn render_neighbors(
 	out: &mut String,
 	label: &str,
 	neighbors: &[SymbolGraphNeighbor],
+	coverage: GraphSectionCoverage,
 	max_items: usize,
 ) {
-	let _ = writeln!(out, "{label}: {}", neighbors.len());
+	let shown = neighbors.len().min(max_items);
+	let _ = writeln!(
+		out,
+		"{label}: {shown}/{} matching ({} total)",
+		coverage.matching, coverage.total
+	);
 	for neighbor in neighbors.iter().take(max_items) {
 		let _ = writeln!(
 			out,

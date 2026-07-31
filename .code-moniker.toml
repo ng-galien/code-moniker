@@ -217,6 +217,36 @@ expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = '
 message   = "Production code may call `apply_output_budget` only from `OutputContract::finalize`."
 rationale = "Distributed budgeting creates inconsistent ceilings and allows error paths to escape the public contract."
 
+# ─── Graph query truth and completeness ────────────────────────────
+
+[[rust.shape.type.where]]
+id        = "graph-results-publish-coverage"
+severity  = "warn"
+expr      = "name !~ ^(IdentityGraphResult|SymbolGraphResult)$ OR text =~ 'pub coverage\\s*:'"
+message   = "Graph result `{name}` should publish explicit coverage instead of leaving filtered or paged counts implicit."
+rationale = "Agents must distinguish total, matching, and returned graph facts; an unlabeled zero is not a trustworthy architecture fact."
+
+[[rust.shape.callable.where]]
+id        = "identity-graph-uses-generation-aware-pagination"
+severity  = "warn"
+expr      = "name !~ ^page_identity_graph OR any(out_refs, kind = 'calls' AND target.name = 'page_rows')"
+message   = "`page_identity_graph` should use the shared generation-aware paginator."
+rationale = "Large architecture maps must be completely retrievable with stable cursors instead of relying on larger output budgets."
+
+[[rust.shape.callable.where]]
+id        = "descendant-usage-rollup-deduplicates-references"
+severity  = "warn"
+expr      = "name !~ ^symbol_usages_response OR any(out_refs, kind = 'calls' AND target.name = 'deduplicate_usage_rows')"
+message   = "Descendant usage roll-up should deduplicate reference facts before summaries and pagination."
+rationale = "One reference may be discovered through several owned members or alias paths; owner-level coupling must not double count it."
+
+[[rust.shape.callable.where]]
+id        = "descendant-usage-rollup-uses-symbol-ownership"
+severity  = "warn"
+expr      = "name !~ ^symbol_usages_response OR any(out_refs, kind = 'calls' AND target.name = 'symbol_is_owned_by')"
+message   = "Descendant usage roll-up should follow indexed symbol ownership instead of matching identity strings."
+rationale = "Textual identity prefixes can collide across source sets or roots; the parent relation is the architectural ownership boundary."
+
 # ─── On-demand syntax tree boundary ─────────────────────────────────
 
 [[rust.shape.type.where]]

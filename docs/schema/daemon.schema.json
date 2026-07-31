@@ -1414,6 +1414,31 @@
         "inconclusive"
       ]
     },
+    "GraphSectionCoverage": {
+      "type": "object",
+      "required": [
+        "matching",
+        "returned",
+        "total"
+      ],
+      "properties": {
+        "matching": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "returned": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
     "HandshakeResponse": {
       "type": "object",
       "required": [
@@ -1475,6 +1500,97 @@
         }
       }
     },
+    "IdentityGraphCoverage": {
+      "type": "object",
+      "required": [
+        "edges_emitted",
+        "edges_matching",
+        "edges_total",
+        "nodes_emitted",
+        "nodes_total",
+        "ports_in_emitted",
+        "ports_in_matching",
+        "ports_in_total",
+        "ports_out_emitted",
+        "ports_out_matching",
+        "ports_out_total",
+        "rows_emitted",
+        "rows_matching",
+        "rows_total"
+      ],
+      "properties": {
+        "edges_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "edges_matching": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "edges_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "nodes_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "nodes_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_in_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_in_matching": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_in_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_out_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_out_matching": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ports_out_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "rows_emitted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "rows_matching": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "rows_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
     "IdentityGraphEdge": {
       "type": "object",
       "required": [
@@ -1530,24 +1646,41 @@
     "IdentityGraphResult": {
       "type": "object",
       "required": [
+        "coverage",
         "edges",
+        "min_count",
         "nodes",
+        "path",
         "ports_in",
         "ports_out",
         "prefix",
         "unlinked"
       ],
       "properties": {
+        "coverage": {
+          "$ref": "#/definitions/IdentityGraphCoverage"
+        },
         "edges": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/IdentityGraphEdge"
           }
         },
+        "min_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "nodes": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/IdentitySegmentDto"
+          }
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
         "ports_in": {
@@ -2173,6 +2306,7 @@
           "type": "object",
           "required": [
             "direction",
+            "include_descendants",
             "lang",
             "op",
             "path",
@@ -2182,6 +2316,9 @@
           "properties": {
             "direction": {
               "$ref": "#/definitions/UsageDirection"
+            },
+            "include_descendants": {
+              "type": "boolean"
             },
             "lang": {
               "type": "array",
@@ -2568,15 +2705,28 @@
         {
           "type": "object",
           "required": [
+            "min_count",
             "op",
+            "path",
             "prefix"
           ],
           "properties": {
+            "min_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
             "op": {
               "type": "string",
               "enum": [
                 "identity_graph"
               ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "prefix": {
               "type": "string"
@@ -4043,6 +4193,29 @@
         }
       }
     },
+    "SymbolGraphCoverage": {
+      "type": "object",
+      "required": [
+        "callees",
+        "callers",
+        "internal_edges",
+        "members"
+      ],
+      "properties": {
+        "callees": {
+          "$ref": "#/definitions/GraphSectionCoverage"
+        },
+        "callers": {
+          "$ref": "#/definitions/GraphSectionCoverage"
+        },
+        "internal_edges": {
+          "$ref": "#/definitions/GraphSectionCoverage"
+        },
+        "members": {
+          "$ref": "#/definitions/GraphSectionCoverage"
+        }
+      }
+    },
     "SymbolGraphEdge": {
       "type": "object",
       "required": [
@@ -4140,6 +4313,7 @@
       "required": [
         "callees",
         "callers",
+        "coverage",
         "focus",
         "internal_edges",
         "members",
@@ -4157,6 +4331,9 @@
           "items": {
             "$ref": "#/definitions/SymbolGraphNeighbor"
           }
+        },
+        "coverage": {
+          "$ref": "#/definitions/SymbolGraphCoverage"
         },
         "focus": {
           "$ref": "#/definitions/SymbolGraphFocus"
@@ -4274,13 +4451,18 @@
       "type": "object",
       "required": [
         "direction",
+        "include_descendants",
         "rows",
         "target",
+        "targets",
         "total"
       ],
       "properties": {
         "direction": {
           "$ref": "#/definitions/UsageDirection"
+        },
+        "include_descendants": {
+          "type": "boolean"
         },
         "incoming_summary": {
           "anyOf": [
@@ -4310,6 +4492,11 @@
         },
         "target": {
           "$ref": "#/definitions/SymbolDto"
+        },
+        "targets": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         },
         "total": {
           "type": "integer",
@@ -5454,5 +5641,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 10
+  "x-code-moniker-protocol-version": 11
 }

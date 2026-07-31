@@ -14,6 +14,20 @@ the language mix, definition/reference counts, concentration hints and a
 bounded first explorer level. Stop there if it answers the question; otherwise
 follow only the narrow `next` call relevant to the requested scope.
 
+## Load project context when it changes interpretation
+
+For architecture, audit, refactor, or project-convention questions, call
+`code_moniker_read uri:"workspace/views"` after the verified workspace read.
+Follow only a relevant returned view call. A project-defined view is a
+contextual lens over the current index: its intent, summary, boundaries,
+ownership, prohibitions, rules and gotchas orient exploration while its
+selectors resolve to current evidence.
+
+Treat declared intent as project context and resolved symbols/rules as indexed
+facts. Missing or ambiguous evidence is coverage information, not proof that a
+boundary or responsibility is absent. If the project defines no relevant view,
+continue from the user's scope and the general index without inventing one.
+
 ## Drill structure
 
 Use `code_moniker_read` with `path`, `lang`, `depth` and a small `limit` for
@@ -22,7 +36,7 @@ scope graph, use the advanced MCP entry without leaving MCP:
 
 ```text
 code_moniker_query query:'identity.children prefix:"lang:ts/dir:apps" limit:20'
-code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" limit:20'
+code_moniker_query query:'identity.graph prefix:"lang:ts/dir:apps" path:"apps/**" min_count:2 limit:20'
 ```
 
 Discover the live fields first with
@@ -49,6 +63,9 @@ repeated references by symbolic context and includes only bounded,
 representative source evidence; use `evidence:"none"` for a map without code or
 `technical:"include"` when imports and annotations matter. Keep the first page
 unless the question explicitly requires more.
+For an owner whose behavior is exposed through members, add
+`include_descendants:true`; label the result as owner roll-up, not exact symbol
+usage, and preserve it in pagination calls.
 
 ## Prepare a modification
 

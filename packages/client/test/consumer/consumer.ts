@@ -1,6 +1,7 @@
 import {
 	CodeMonikerClient,
 	type IdentityGraphResult,
+	type QueryPage,
 	type WorkspaceSourceSetDto,
 } from "@code-moniker/client";
 import {
@@ -24,7 +25,7 @@ const sourceSet: WorkspaceSourceSetDto = {
 };
 
 void client.sources.replace(sourceSet);
-const graph: Promise<IdentityGraphResult> =
+const graph: Promise<QueryPage<IdentityGraphResult>> =
 	client.graph.identity("sql/schema:public");
 void graph;
 void client.symbols.search({ text: "account" }).then(readFirstPage);

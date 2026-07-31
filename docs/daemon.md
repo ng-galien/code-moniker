@@ -198,7 +198,15 @@ ventilation) so external-by-design links never read as resolution gaps. This
 feeds the IDE Graph Explorer and the `code_moniker_graph` MCP tool.
 `direction:incoming|outgoing|both`, repeatable `relation:`, `min_count:` and
 `include_internal:` apply the same bounded relational filters in the DSL and
-MCP surface.
+MCP surface. Coverage reports total neighbors before filters, matching
+neighbors after `relation`/`min_count`, and rows returned after direction or
+internal-edge selection, so a filtered zero never reads as an absent relation.
+
+`symbol.usages` keeps exact-symbol semantics by default. With
+`include_descendants:true`, a symbol owner such as a type includes navigable
+member targets, removes relations internal to that owner boundary, deduplicates
+reference facts, and labels the result as a descendant roll-up. Pagination
+preserves that scope.
 
 `identity.children prefix:"<identity prefix>"` returns one level of the
 identity tree - the purely symbolic navigation surface, no filesystem. Each
@@ -207,13 +215,19 @@ child segment carries its kind/name (`package:acme`, `module:pairing`,
 segment itself is a navigable definition. An empty prefix lists the roots
 (`srcset:*`, `lang:*`); full moniker URIs are accepted and normalized.
 
-`identity.graph prefix:"<identity prefix>"` projects that level as a graph:
+`identity.graph prefix:"<identity prefix>" path:"<glob>" min_count:<N>`
+projects that level as a graph:
 nodes are the prefix's children, edges are resolved references rolled up to
 the pair of child segments they connect (kinds + counts), and boundary
 crossings aggregate into `ports_in`/`ports_out` at the scope's own depth.
 References from inside the scope without an in-workspace target are
 decomposed in `unlinked` (external / manifest_blocked / unresolved by
 reason). This feeds the scoped exploration canvas of the IDE Graph Explorer.
+The optional path selection is applied before identity aggregation, so source
+and test files sharing the same logical package can be inspected separately.
+Edges and ports below `min_count` remain represented in pre-filter coverage.
+Nodes, matching edges, incoming ports and outgoing ports form one deterministic
+generation-aware paginated row sequence controlled by `limit` and `cursor`.
 
 ## Discovery
 

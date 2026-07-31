@@ -83,8 +83,8 @@ code-moniker agent uninstall --client codex
 | Command | Behavior |
 | ------- | -------- |
 | `install` | Installs the explicit components, or the defaults supported by this binary. |
-| `status` | Lists the tracked components and whether each is installed, external, stale, or missing. |
-| `doctor` | Checks component contents and binary-version coherence; exits non-zero when repair is needed. |
+| `status` | Lists the tracked components and whether each is installed, external, outdated, stale, or missing. `outdated` means the current binary embeds a newer skill asset set than the tracked installation. |
+| `doctor` | Checks component contents, embedded-skill checksum, and binary-version coherence; reports `skill update available` and exits non-zero when repair is needed. |
 | `update` | Refreshes selected components from the current binary. With no `--components`, it uses the same capability-based defaults as `install`; hooks remain opt-in. Updating hooks reuses their recorded rules file, profile, scope, and violation limit. |
 | `uninstall` | Removes selected managed components, or all tracked components when none are selected. |
 
