@@ -520,6 +520,7 @@ fn publish_current_snapshot(
 
 impl DaemonRpcService {
 	#[tracing::instrument(
+		parent = None,
 		name = "daemon.request",
 		skip_all,
 		fields(

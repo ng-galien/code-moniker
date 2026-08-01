@@ -210,14 +210,7 @@ async fn dispatch_tool_call(
 	let started = Instant::now();
 	let name = request.name.to_string();
 	let arguments = Value::Object(request.arguments.unwrap_or_default());
-	let span = tracing::info_span!(
-		"mcp.tool.call",
-		mcp.tool.name = %name,
-		mcp.tool.arguments = %bounded_debug(&arguments, 4_096),
-		mcp.tool.status = tracing::field::Empty,
-		mcp.response.content_count = tracing::field::Empty,
-		mcp.response.is_error = tracing::field::Empty,
-	);
+	let span = tool_call_span(&name, &arguments);
 	let result_span = span.clone();
 	async move {
 		tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
@@ -269,6 +262,18 @@ async fn dispatch_tool_call(
 	}
 	.instrument(span)
 	.await
+}
+
+fn tool_call_span(name: &str, arguments: &Value) -> tracing::Span {
+	tracing::info_span!(
+		parent: None,
+		"mcp.tool.call",
+		mcp.tool.name = %name,
+		mcp.tool.arguments = %bounded_debug(&arguments, 4_096),
+		mcp.tool.status = tracing::field::Empty,
+		mcp.response.content_count = tracing::field::Empty,
+		mcp.response.is_error = tracing::field::Empty,
+	)
 }
 
 fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &'static str {
@@ -330,7 +335,27 @@ fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+	use std::sync::{Arc, Mutex};
+
 	use super::*;
+	use tracing::Subscriber;
+	use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+
+	#[derive(Clone)]
+	struct RootCapture(Arc<Mutex<Option<bool>>>);
+
+	impl<S: Subscriber> Layer<S> for RootCapture {
+		fn on_new_span(
+			&self,
+			attributes: &tracing::span::Attributes<'_>,
+			_id: &tracing::Id,
+			_context: Context<'_, S>,
+		) {
+			if attributes.metadata().name() == "mcp.tool.call" {
+				*self.0.lock().unwrap() = Some(attributes.is_root());
+			}
+		}
+	}
 
 	#[test]
 	fn server_instructions_are_bounded_and_non_prescriptive() {
@@ -340,6 +365,20 @@ mod tests {
 		assert!(instructions.contains("Verify expected_roots once"));
 		assert!(!instructions.contains("Start every session"));
 		assert!(instructions.contains("known-file"));
+	}
+
+	#[test]
+	fn tool_call_span_is_root_even_inside_a_process_span() {
+		let captured = Arc::new(Mutex::new(None));
+		let subscriber = tracing_subscriber::registry().with(RootCapture(captured.clone()));
+		tracing::subscriber::with_default(subscriber, || {
+			let process = tracing::info_span!("cli.command");
+			let _entered = process.enter();
+			let span = tool_call_span("code_moniker_query", &serde_json::json!({}));
+			let _entered = span.enter();
+		});
+
+		assert_eq!(*captured.lock().unwrap(), Some(true));
 	}
 
 	#[test]
