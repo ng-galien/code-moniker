@@ -146,6 +146,11 @@ fn unavailable_telemetry_collector_does_not_stop_the_daemon() {
 	let _lifecycle = lifecycle_test_lock();
 	let workspace = tempfile::tempdir().expect("workspace");
 	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	std::fs::write(
+		workspace.path().join(".code-moniker.toml"),
+		"[telemetry]\nenabled = true\nendpoint = \"http://127.0.0.1:9\"\nmetric_export_interval_ms = 100\n",
+	)
+	.expect("project telemetry config");
 	let root = workspace.path().canonicalize().expect("canonical root");
 	let config = config_from_roots([root.clone()]).expect("daemon config");
 	let mut supervisor = spawn_supervisor();
@@ -155,8 +160,6 @@ fn unavailable_telemetry_collector_does_not_stop_the_daemon() {
 			.args(["daemon", "start"])
 			.arg(&root)
 			.args(["--supervisor-pid", &supervisor_pid.to_string()])
-			.env("CODE_MONIKER_TELEMETRY", "true")
-			.env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:9")
 			.stdin(Stdio::null())
 			.stdout(Stdio::null())
 			.stderr(Stdio::piped())

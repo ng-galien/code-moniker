@@ -832,6 +832,13 @@ pub struct McpArgs {
 	pub(crate) stdio_worker: bool,
 }
 
+#[cfg(feature = "mcp")]
+impl McpArgs {
+	pub fn is_stdio_supervisor(&self) -> bool {
+		self.transport == McpTransport::Stdio && !self.stdio_worker
+	}
+}
+
 #[derive(Debug, ClapArgs)]
 pub struct StatsArgs {
 	#[arg(value_name = "PATH", num_args = 1..)]

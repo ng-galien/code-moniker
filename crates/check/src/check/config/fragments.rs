@@ -69,6 +69,7 @@ impl RawFragmentConfig {
 	fn into_config(self) -> Config {
 		Config {
 			default_rules: None,
+			telemetry: None,
 			aliases: self.aliases,
 			exclude: Default::default(),
 			refs: self.refs,

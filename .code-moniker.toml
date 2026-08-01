@@ -7,6 +7,11 @@
 # `dir:crates/dir:core/dir:src/dir:lang/dir:ts/module:walker`.
 # Aliases below pin patterns to that encoding.
 
+[telemetry]
+enabled = true
+endpoint = "http://127.0.0.1:4318"
+metric_export_interval_ms = 5000
+
 [aliases]
 # Standalone crates (each at `crates/<name>/`). The crate dirs are unique
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.

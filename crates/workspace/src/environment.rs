@@ -6,6 +6,10 @@ use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::Lang;
 use std::sync::Arc;
 
+mod project_config;
+
+pub use project_config::{PROJECT_CONFIG_FILE, TelemetryConfig, load_telemetry_config};
+
 pub type ExtractContext = crate::extract::Context;
 pub type IdentityResolver = crate::source::LocalIdentityResolver;
 pub type IndexedSourceMaterial = crate::source::CodeIndexMaterial;

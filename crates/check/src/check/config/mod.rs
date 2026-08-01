@@ -24,6 +24,8 @@ pub struct Config {
 	#[serde(default)]
 	pub default_rules: Option<bool>,
 	#[serde(default)]
+	pub telemetry: Option<code_moniker_workspace::environment::TelemetryConfig>,
+	#[serde(default)]
 	pub aliases: HashMap<String, String>,
 	#[serde(default)]
 	pub exclude: ExcludeRules,
@@ -617,6 +619,9 @@ fn ensure_source_groups_owned_by_project_root(
 }
 
 fn merge_into(base: &mut Config, ov: Config) {
+	if ov.telemetry.is_some() {
+		base.telemetry = ov.telemetry;
+	}
 	for (k, v) in ov.aliases {
 		base.aliases.insert(k, v);
 	}

@@ -1,22 +1,26 @@
 # Observability
 
-Code Moniker can export traces, logs, and metrics through OpenTelemetry. The exporter is
-compiled into the default CLI binary but remains disabled until explicitly
-enabled:
+Code Moniker can export traces, logs, and metrics through OpenTelemetry. The
+project's `.code-moniker.toml` owns the normal exporter configuration:
 
-```sh
-CODE_MONIKER_TELEMETRY=true \
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
-code-moniker daemon start .
+```toml
+[telemetry]
+enabled = true
+endpoint = "http://127.0.0.1:4318"
+metric_export_interval_ms = 5000
 ```
 
-The current exporter uses OTLP over HTTP with protobuf payloads. Standard
-OpenTelemetry variables configure the endpoint and resource, including
-`OTEL_EXPORTER_OTLP_ENDPOINT`, the signal-specific endpoint variables,
-`OTEL_SERVICE_NAME`, and `OTEL_RESOURCE_ATTRIBUTES`. The default service name
-is `code-moniker` and the package version is exported as `service.version`.
-`OTEL_METRIC_EXPORT_INTERVAL` controls the metric export period in milliseconds
-(60 seconds by default; 5 seconds is convenient for local inspection).
+`endpoint` is the OTLP/HTTP base URL; Code Moniker appends `/v1/traces`,
+`/v1/metrics`, and `/v1/logs`. The exporter is compiled into the default CLI
+binary but remains disabled unless the project enables it.
+
+`CODE_MONIKER_TELEMETRY=true|false` is an explicit operational override of the
+project switch. When the project does not set an endpoint or metric interval,
+the standard OpenTelemetry variables remain available, including
+`OTEL_EXPORTER_OTLP_ENDPOINT`, signal-specific endpoint variables,
+`OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_SERVICE_NAME`, and
+`OTEL_RESOURCE_ATTRIBUTES`. Package version is exported as `service.version`;
+service names distinguish daemon, MCP, and one-shot CLI processes.
 
 Telemetry is fail-open. Export runs on a dedicated batch thread with a bounded
 queue; a missing, slow, or invalid collector does not turn a successful command
@@ -67,9 +71,11 @@ accounting.
 
 Telemetry is initialized once when each process starts. A long-running daemon
 or MCP server keeps one provider and exports all subsequent operations. A
-one-shot CLI command necessarily owns one short-lived provider. Enabling or
-changing telemetry configuration requires restarting that process once, never
-once per request.
+one-shot CLI command necessarily owns one short-lived provider. With MCP over
+standard I/O, the reloadable worker owns the provider and the stable supervisor
+does not export duplicate telemetry. Enabling or changing project telemetry
+requires restarting the daemon or reloading the MCP worker once, never once per
+request.
 
 Build without the exporter when a minimal binary is required:
 

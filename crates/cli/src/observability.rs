@@ -10,7 +10,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 use code_moniker_cli::DaemonCommand;
 use code_moniker_cli::{Cli, Command};
 use code_moniker_query::bounded_debug;
+#[cfg(feature = "telemetry")]
+use code_moniker_workspace::environment::{
+	PROJECT_CONFIG_FILE, TelemetryConfig, load_telemetry_config,
+};
 
+#[cfg(feature = "telemetry")]
+use std::path::{Path, PathBuf};
 #[cfg(feature = "telemetry")]
 use std::time::Duration;
 #[cfg(feature = "telemetry")]
@@ -178,8 +184,18 @@ impl Drop for TelemetryGuard {
 pub(super) fn init(_cli: &Cli) -> TelemetryGuard {
 	code_moniker_daemon::set_telemetry_export_enabled(false);
 	#[cfg(feature = "telemetry")]
-	match telemetry_requested(std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref()) {
-		Ok(true) => match init_otlp(_cli) {
+	if is_stdio_supervisor(_cli) {
+		init_local_logging();
+		return TelemetryGuard::default();
+	}
+	#[cfg(feature = "telemetry")]
+	let telemetry = project_telemetry_config(_cli);
+	#[cfg(feature = "telemetry")]
+	match telemetry_requested(
+		std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref(),
+		telemetry.enabled,
+	) {
+		Ok(true) => match init_otlp(_cli, &telemetry) {
 			Ok(guard) => {
 				code_moniker_daemon::set_telemetry_export_enabled(true);
 				return guard;
@@ -241,22 +257,37 @@ fn init_local_logging() {
 }
 
 #[cfg(feature = "telemetry")]
-fn init_otlp(cli: &Cli) -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync>> {
+fn init_otlp(
+	cli: &Cli,
+	config: &TelemetryConfig,
+) -> Result<TelemetryGuard, Box<dyn std::error::Error + Send + Sync>> {
 	let span_exporter = opentelemetry_otlp::SpanExporter::builder()
 		.with_http()
 		.with_protocol(Protocol::HttpBinary)
-		.with_timeout(EXPORT_TIMEOUT)
-		.build()?;
+		.with_timeout(EXPORT_TIMEOUT);
+	let span_exporter = match config.endpoint.as_deref() {
+		Some(endpoint) => span_exporter.with_endpoint(signal_endpoint(endpoint, "v1/traces")),
+		None => span_exporter,
+	}
+	.build()?;
 	let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
 		.with_http()
 		.with_protocol(Protocol::HttpBinary)
-		.with_timeout(EXPORT_TIMEOUT)
-		.build()?;
+		.with_timeout(EXPORT_TIMEOUT);
+	let metric_exporter = match config.endpoint.as_deref() {
+		Some(endpoint) => metric_exporter.with_endpoint(signal_endpoint(endpoint, "v1/metrics")),
+		None => metric_exporter,
+	}
+	.build()?;
 	let log_exporter = opentelemetry_otlp::LogExporter::builder()
 		.with_http()
 		.with_protocol(Protocol::HttpBinary)
-		.with_timeout(EXPORT_TIMEOUT)
-		.build()?;
+		.with_timeout(EXPORT_TIMEOUT);
+	let log_exporter = match config.endpoint.as_deref() {
+		Some(endpoint) => log_exporter.with_endpoint(signal_endpoint(endpoint, "v1/logs")),
+		None => log_exporter,
+	}
+	.build()?;
 	let processor = BatchSpanProcessor::builder(DiagnosingExporter::new(span_exporter, "trace"))
 		.with_batch_config(
 			BatchConfigBuilder::default()
@@ -283,8 +314,12 @@ fn init_otlp(cli: &Cli) -> Result<TelemetryGuard, Box<dyn std::error::Error + Se
 		.with_resource(resource.clone())
 		.with_span_processor(processor)
 		.build();
-	let metric_reader =
-		PeriodicReader::builder(DiagnosingExporter::new(metric_exporter, "metric")).build();
+	let metric_reader = PeriodicReader::builder(DiagnosingExporter::new(metric_exporter, "metric"));
+	let metric_reader = match config.metric_export_interval_ms {
+		Some(interval) => metric_reader.with_interval(Duration::from_millis(interval)),
+		None => metric_reader,
+	}
+	.build();
 	let meter_provider = SdkMeterProvider::builder()
 		.with_resource(resource.clone())
 		.with_reader(metric_reader)
@@ -424,9 +459,9 @@ fn resource_attributes_define_service_name(attributes: &str) -> bool {
 }
 
 #[cfg(feature = "telemetry")]
-fn telemetry_requested(value: Option<&str>) -> Result<bool, String> {
+fn telemetry_requested(value: Option<&str>, project_default: bool) -> Result<bool, String> {
 	let Some(value) = value else {
-		return Ok(false);
+		return Ok(project_default);
 	};
 	match value.trim().to_ascii_lowercase().as_str() {
 		"1" | "true" | "yes" | "on" => Ok(true),
@@ -437,18 +472,96 @@ fn telemetry_requested(value: Option<&str>) -> Result<bool, String> {
 	}
 }
 
+#[cfg(feature = "telemetry")]
+fn signal_endpoint(base: &str, signal_path: &str) -> String {
+	format!("{}/{}", base.trim_end_matches('/'), signal_path)
+}
+
+#[cfg(feature = "telemetry")]
+fn project_telemetry_config(cli: &Cli) -> TelemetryConfig {
+	let path = project_config_path(cli);
+	match load_telemetry_config(&path) {
+		Ok(config) => config,
+		Err(error) => {
+			eprintln!(
+				"code-moniker: invalid telemetry configuration in {}: {error:#}; using environment defaults",
+				path.display()
+			);
+			TelemetryConfig::default()
+		}
+	}
+}
+
+#[cfg(feature = "telemetry")]
+fn project_config_path(cli: &Cli) -> PathBuf {
+	let context = match &cli.command {
+		Command::Extract(args) => Some(args.path.as_path()),
+		Command::Stats(args) => args.paths.first().map(PathBuf::as_path),
+		Command::Check(args) => Some(args.path.as_path()),
+		Command::Diff(args) => args
+			.path
+			.as_deref()
+			.or_else(|| (!args.target.contains("..")).then(|| Path::new(&args.target))),
+		#[cfg(feature = "tui")]
+		Command::Ui(args) => args.paths.first().map(PathBuf::as_path),
+		#[cfg(feature = "mcp")]
+		Command::Mcp(args) => args.paths.first().map(PathBuf::as_path),
+		Command::Daemon(args) => match &args.command {
+			DaemonCommand::Start(args) => args.root.workspace_roots.first().map(PathBuf::as_path),
+			DaemonCommand::Status(args) | DaemonCommand::Stop(args) => {
+				args.workspace_roots.first().map(PathBuf::as_path)
+			}
+			DaemonCommand::List => None,
+		},
+		Command::Query(args) => args.workspace_roots.first().map(PathBuf::as_path),
+		Command::Manifest(args) => Some(args.path.as_path()),
+		_ => None,
+	}
+	.unwrap_or_else(|| Path::new("."));
+	project_root(context).join(PROJECT_CONFIG_FILE)
+}
+
+#[cfg(feature = "telemetry")]
+fn project_root(path: &Path) -> &Path {
+	if path.is_file() {
+		path.parent()
+			.filter(|parent| !parent.as_os_str().is_empty())
+			.unwrap_or_else(|| Path::new("."))
+	} else {
+		path
+	}
+}
+
+#[cfg(feature = "telemetry")]
+fn is_stdio_supervisor(_cli: &Cli) -> bool {
+	#[cfg(feature = "mcp")]
+	if let Command::Mcp(args) = &_cli.command {
+		return args.is_stdio_supervisor();
+	}
+	false
+}
+
 #[cfg(all(test, feature = "telemetry"))]
 mod tests {
-	use super::{resource_attributes_define_service_name, telemetry_requested};
+	use super::{resource_attributes_define_service_name, signal_endpoint, telemetry_requested};
 
 	#[test]
 	fn telemetry_requires_explicit_valid_opt_in() {
-		assert_eq!(telemetry_requested(None), Ok(false));
-		assert_eq!(telemetry_requested(Some("")), Ok(false));
-		assert_eq!(telemetry_requested(Some("off")), Ok(false));
-		assert_eq!(telemetry_requested(Some("TRUE")), Ok(true));
-		assert_eq!(telemetry_requested(Some("1")), Ok(true));
-		assert!(telemetry_requested(Some("sometimes")).is_err());
+		assert_eq!(telemetry_requested(None, false), Ok(false));
+		assert_eq!(telemetry_requested(None, true), Ok(true));
+		assert_eq!(telemetry_requested(Some(""), true), Ok(false));
+		assert_eq!(telemetry_requested(Some("off"), true), Ok(false));
+		assert_eq!(telemetry_requested(Some("TRUE"), false), Ok(true));
+		assert_eq!(telemetry_requested(Some("1"), false), Ok(true));
+		assert!(telemetry_requested(Some("sometimes"), true).is_err());
+	}
+
+	#[test]
+	fn project_endpoint_is_expanded_per_signal() {
+		assert_eq!(
+			signal_endpoint("http://127.0.0.1:4318/", "v1/traces"),
+			"http://127.0.0.1:4318/v1/traces"
+		);
 	}
 
 	#[test]
