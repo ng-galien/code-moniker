@@ -1,139 +1,50 @@
-use std::collections::{HashMap, HashSet};
+mod process;
+mod protocol;
+
 use std::ffi::OsString;
-use std::fs::Metadata;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::io::{self, BufWriter, Write};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
-use serde_json::{Value, json};
+
+use self::process::{
+	BinaryFingerprint, Candidate, Event, Worker, spawn_client_reader, spawn_worker_reader,
+	write_frame,
+};
+use self::protocol::{ProtocolState, fail_pending_requests, validate_candidate_initialize};
 
 const STDIO_WORKER_FLAG: &str = "--stdio-worker";
 const BINARY_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const RELOAD_RETRY_DELAY: Duration = Duration::from_secs(2);
-const WORKER_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub(crate) fn supervise_stdio() -> anyhow::Result<()> {
 	let executable = std::env::current_exe().context("resolve the code-moniker executable")?;
 	let worker_args = worker_args();
-	let initial_fingerprint = BinaryFingerprint::read(&executable)?;
+	let fingerprint = BinaryFingerprint::read(&executable)?;
 	let (events_tx, events_rx) = mpsc::channel();
 	spawn_client_reader(events_tx.clone());
-
-	let mut generation = 1;
-	let (mut worker, stdout) = Worker::spawn(&executable, &worker_args)?;
-	spawn_worker_reader(stdout, generation, events_tx.clone());
+	let (worker, stdout) = Worker::spawn(&executable, &worker_args)?;
+	spawn_worker_reader(stdout, 1, events_tx.clone());
 
 	let stdout = io::stdout();
-	let mut client_stdout = BufWriter::new(stdout.lock());
-	let mut state = ProtocolState::default();
-	let mut active_fingerprint = initial_fingerprint;
-	let mut requested_fingerprint = None;
-	let mut retry_at = Instant::now();
-
-	loop {
-		match events_rx.recv_timeout(BINARY_POLL_INTERVAL) {
-			Ok(Event::ClientFrame(frame)) => {
-				state.observe_client_frame(&frame);
-				if let Err(error) = worker.write_frame(&frame) {
-					eprintln!("code-moniker: MCP stdio worker write failed: {error:#}");
-					fail_pending_requests(&mut state, &mut client_stdout)?;
-					worker.stop();
-					return Err(error);
-				}
-			}
-			Ok(Event::ClientEof) => {
-				worker.stop();
-				return Ok(());
-			}
-			Ok(Event::ClientError(error)) => {
-				worker.stop();
-				bail!("read MCP client input: {error}");
-			}
-			Ok(Event::WorkerFrame {
-				generation: frame_generation,
-				frame,
-			}) if frame_generation == generation => {
-				state.observe_worker_frame(&frame);
-				write_frame(&mut client_stdout, &frame)?;
-			}
-			Ok(Event::WorkerEof {
-				generation: frame_generation,
-			}) if frame_generation == generation => {
-				fail_pending_requests(&mut state, &mut client_stdout)?;
-				worker.stop();
-				bail!("MCP stdio worker exited unexpectedly");
-			}
-			Ok(Event::WorkerError {
-				generation: frame_generation,
-				error,
-			}) if frame_generation == generation => {
-				fail_pending_requests(&mut state, &mut client_stdout)?;
-				worker.stop();
-				bail!("read MCP stdio worker output: {error}");
-			}
-			Ok(_) | Err(RecvTimeoutError::Timeout) => {}
-			Err(RecvTimeoutError::Disconnected) => {
-				worker.stop();
-				bail!("MCP stdio supervisor event channel disconnected");
-			}
-		}
-
-		if let Ok(fingerprint) = BinaryFingerprint::read(&executable) {
-			if fingerprint == active_fingerprint {
-				requested_fingerprint = None;
-			} else if requested_fingerprint != Some(fingerprint) {
-				requested_fingerprint = Some(fingerprint);
-				retry_at = Instant::now();
-				eprintln!(
-					"code-moniker: installed binary changed; preparing MCP stdio worker reload"
-				);
-			}
-		}
-
-		let Some(target_fingerprint) = requested_fingerprint else {
-			continue;
-		};
-		if !state.can_reload() || Instant::now() < retry_at {
-			continue;
-		}
-		let (Some(initialize_frame), Some(initialized_frame)) =
-			(state.initialize_frame(), state.initialized_frame())
-		else {
-			continue;
-		};
-
-		let candidate_generation = generation + 1;
-		match prepare_worker(
-			&executable,
-			&worker_args,
-			initialize_frame,
-			initialized_frame,
-		) {
-			Ok((new_worker, new_stdout)) => {
-				worker.stop();
-				worker = new_worker;
-				generation = candidate_generation;
-				spawn_worker_reader(new_stdout, generation, events_tx.clone());
-				active_fingerprint = target_fingerprint;
-				requested_fingerprint = None;
-				write_frame(
-					&mut client_stdout,
-					br#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}"#,
-				)?;
-				eprintln!("code-moniker: MCP stdio worker reloaded");
-			}
-			Err(error) => {
-				eprintln!(
-					"code-moniker: MCP stdio worker reload failed; keeping current worker: {error:#}"
-				);
-				retry_at = Instant::now() + RELOAD_RETRY_DELAY;
-			}
-		}
+	Supervisor {
+		executable,
+		worker_args,
+		events_tx,
+		events_rx,
+		client_stdout: BufWriter::new(stdout.lock()),
+		state: ProtocolState::default(),
+		worker: Some(worker),
+		candidate: None,
+		active_generation: 1,
+		next_generation: 2,
+		active_fingerprint: fingerprint,
+		requested_fingerprint: None,
+		retry_at: Instant::now(),
 	}
+	.run()
 }
 
 fn worker_args() -> Vec<OsString> {
@@ -142,350 +53,273 @@ fn worker_args() -> Vec<OsString> {
 	args
 }
 
-struct Worker {
-	child: Child,
-	stdin: BufWriter<ChildStdin>,
+struct Supervisor<W> {
+	executable: PathBuf,
+	worker_args: Vec<OsString>,
+	events_tx: Sender<Event>,
+	events_rx: Receiver<Event>,
+	client_stdout: W,
+	state: ProtocolState,
+	worker: Option<Worker>,
+	candidate: Option<Candidate>,
+	active_generation: u64,
+	next_generation: u64,
+	active_fingerprint: BinaryFingerprint,
+	requested_fingerprint: Option<BinaryFingerprint>,
+	retry_at: Instant,
 }
 
-impl Worker {
-	fn spawn(executable: &Path, args: &[OsString]) -> anyhow::Result<(Self, ChildStdout)> {
-		let mut child = Command::new(executable)
-			.args(args)
-			.stdin(Stdio::piped())
-			.stdout(Stdio::piped())
-			.stderr(Stdio::inherit())
-			.spawn()
-			.with_context(|| format!("start MCP stdio worker from {}", executable.display()))?;
-		let stdin = child
-			.stdin
-			.take()
-			.context("MCP stdio worker stdin is unavailable")?;
-		let stdout = child
-			.stdout
-			.take()
-			.context("MCP stdio worker stdout is unavailable")?;
-		Ok((
-			Self {
-				child,
-				stdin: BufWriter::new(stdin),
-			},
-			stdout,
-		))
-	}
-
-	fn write_frame(&mut self, frame: &[u8]) -> anyhow::Result<()> {
-		write_frame(&mut self.stdin, frame).context("write to MCP stdio worker")
-	}
-
-	fn stop(&mut self) {
-		let _ = self.child.kill();
-		let _ = self.child.wait();
-	}
-}
-
-fn prepare_worker(
-	executable: &Path,
-	args: &[OsString],
-	initialize_frame: &[u8],
-	initialized_frame: &[u8],
-) -> anyhow::Result<(Worker, BufReader<ChildStdout>)> {
-	let (mut worker, stdout) = Worker::spawn(executable, args)?;
-	if let Err(error) = worker.write_frame(initialize_frame) {
-		worker.stop();
-		return Err(error);
-	}
-	let Some(expected_id) = request_id(initialize_frame) else {
-		worker.stop();
-		bail!("cached initialize request has no id");
-	};
-	let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-	thread::spawn(move || {
-		let mut reader = BufReader::new(stdout);
-		let result = wait_for_initialize_response(&mut reader, &expected_id).map(|()| reader);
-		let _ = ready_tx.send(result);
-	});
-
-	let reader = match ready_rx.recv_timeout(WORKER_INITIALIZE_TIMEOUT) {
-		Ok(Ok(reader)) => reader,
-		Ok(Err(error)) => {
-			worker.stop();
-			return Err(error);
+impl<W: Write> Supervisor<W> {
+	fn run(&mut self) -> anyhow::Result<()> {
+		loop {
+			match self.events_rx.recv_timeout(BINARY_POLL_INTERVAL) {
+				Ok(event) => {
+					if !handle_event(self, event)? {
+						return Ok(());
+					}
+				}
+				Err(RecvTimeoutError::Timeout) => {}
+				Err(RecvTimeoutError::Disconnected) => {
+					bail!("MCP stdio supervisor event channel disconnected");
+				}
+			}
+			observe_executable(self);
+			expire_candidate(self);
+			maybe_cut_over(self)?;
+			maybe_start_candidate(self)?;
 		}
-		Err(error) => {
-			worker.stop();
-			bail!("new MCP stdio worker did not initialize in time: {error}");
-		}
-	};
-	if let Err(error) = worker.write_frame(initialized_frame) {
-		worker.stop();
-		return Err(error);
 	}
-	Ok((worker, reader))
 }
 
-fn wait_for_initialize_response<R: BufRead>(
-	reader: &mut R,
-	expected_id: &str,
+fn handle_event<W: Write>(supervisor: &mut Supervisor<W>, event: Event) -> anyhow::Result<bool> {
+	match event {
+		Event::ClientFrame(frame) => handle_client_frame(supervisor, &frame)?,
+		Event::ClientEof => return Ok(false),
+		Event::ClientError(error) => bail!("read MCP client input: {error}"),
+		Event::WorkerFrame { generation, frame }
+			if generation == supervisor.active_generation && supervisor.worker.is_some() =>
+		{
+			supervisor.state.observe_worker_frame(&frame);
+			write_frame(&mut supervisor.client_stdout, &frame)?;
+		}
+		Event::WorkerEof { generation }
+			if generation == supervisor.active_generation && supervisor.worker.is_some() =>
+		{
+			lose_active_worker(supervisor, "MCP stdio worker exited")?;
+		}
+		Event::WorkerError { generation, error }
+			if generation == supervisor.active_generation && supervisor.worker.is_some() =>
+		{
+			lose_active_worker(
+				supervisor,
+				&format!("MCP stdio worker output failed: {error}"),
+			)?;
+		}
+		Event::CandidateReady {
+			generation,
+			reader,
+			initialize_response,
+		} => handle_candidate_ready(supervisor, generation, reader, initialize_response),
+		Event::CandidateFailed { generation, error }
+			if candidate_generation(supervisor) == Some(generation) =>
+		{
+			reject_candidate(supervisor, error);
+		}
+		_ => {}
+	}
+	Ok(true)
+}
+
+fn handle_client_frame<W: Write>(
+	supervisor: &mut Supervisor<W>,
+	frame: &[u8],
 ) -> anyhow::Result<()> {
-	loop {
-		let Some(frame) = read_frame(reader)? else {
-			bail!("new MCP stdio worker exited before initialize completed");
-		};
-		let Ok(message) = serde_json::from_slice::<Value>(&frame) else {
-			continue;
-		};
-		if response_id(&message).as_deref() != Some(expected_id) {
-			continue;
+	supervisor.state.observe_client_frame(frame);
+	match supervisor
+		.worker
+		.as_mut()
+		.map(|worker| worker.write_frame(frame))
+	{
+		Some(Ok(())) => Ok(()),
+		Some(Err(error)) => {
+			eprintln!("code-moniker: MCP stdio worker write failed: {error:#}");
+			lose_active_worker(supervisor, "MCP stdio worker write failed")
 		}
-		if let Some(error) = message.get("error") {
-			bail!("new MCP stdio worker rejected initialize: {error}");
+		None => fail_pending_requests(&mut supervisor.state, &mut supervisor.client_stdout),
+	}
+}
+
+fn lose_active_worker<W: Write>(
+	supervisor: &mut Supervisor<W>,
+	reason: &str,
+) -> anyhow::Result<()> {
+	eprintln!("code-moniker: {reason}; recovering in place");
+	supervisor.worker = None;
+	fail_pending_requests(&mut supervisor.state, &mut supervisor.client_stdout)?;
+	supervisor.retry_at = Instant::now();
+	Ok(())
+}
+
+fn handle_candidate_ready<W: Write>(
+	supervisor: &mut Supervisor<W>,
+	generation: u64,
+	reader: std::io::BufReader<std::process::ChildStdout>,
+	initialize_response: serde_json::Value,
+) {
+	if candidate_generation(supervisor) != Some(generation) {
+		return;
+	}
+	let compatibility = supervisor
+		.state
+		.initialize_response()
+		.context("active MCP initialize response is unavailable")
+		.and_then(|active| validate_candidate_initialize(active, &initialize_response));
+	match compatibility {
+		Ok(()) => {
+			if let Some(candidate) = supervisor.candidate.as_mut() {
+				candidate.reader = Some(reader);
+			}
 		}
+		Err(error) => reject_candidate(supervisor, error),
+	}
+}
+
+fn observe_executable<W>(supervisor: &mut Supervisor<W>) {
+	let Ok(fingerprint) = BinaryFingerprint::read(&supervisor.executable) else {
+		return;
+	};
+	if supervisor.worker.is_none() {
+		supervisor.requested_fingerprint = Some(fingerprint);
+		return;
+	}
+	if fingerprint == supervisor.active_fingerprint {
+		supervisor.requested_fingerprint = None;
+		return;
+	}
+	if supervisor.requested_fingerprint == Some(fingerprint) {
+		return;
+	}
+	supervisor.requested_fingerprint = Some(fingerprint);
+	supervisor.retry_at = Instant::now();
+	eprintln!("code-moniker: installed binary changed; preparing MCP stdio worker reload");
+	if supervisor
+		.candidate
+		.as_ref()
+		.is_some_and(|candidate| candidate.fingerprint != fingerprint)
+	{
+		supervisor.candidate = None;
+	}
+}
+
+fn expire_candidate<W>(supervisor: &mut Supervisor<W>) {
+	if supervisor
+		.candidate
+		.as_ref()
+		.is_some_and(Candidate::timed_out)
+	{
+		reject_candidate(
+			supervisor,
+			anyhow::anyhow!("new MCP stdio worker did not initialize in time"),
+		);
+	}
+}
+
+fn maybe_cut_over<W: Write>(supervisor: &mut Supervisor<W>) -> anyhow::Result<()> {
+	if !supervisor
+		.candidate
+		.as_ref()
+		.is_some_and(Candidate::is_ready)
+		|| !supervisor.state.can_cut_over()
+	{
 		return Ok(());
 	}
-}
-
-fn spawn_client_reader(events: Sender<Event>) {
-	thread::spawn(move || {
-		let stdin = io::stdin();
-		let mut reader = BufReader::new(stdin);
-		loop {
-			match read_frame(&mut reader) {
-				Ok(Some(frame)) => {
-					if events.send(Event::ClientFrame(frame)).is_err() {
-						return;
-					}
-				}
-				Ok(None) => {
-					let _ = events.send(Event::ClientEof);
-					return;
-				}
-				Err(error) => {
-					let _ = events.send(Event::ClientError(error.to_string()));
-					return;
-				}
-			}
-		}
-	});
-}
-
-fn spawn_worker_reader<R: Read + Send + 'static>(
-	reader: R,
-	generation: u64,
-	events: Sender<Event>,
-) {
-	thread::spawn(move || {
-		let mut reader = BufReader::new(reader);
-		loop {
-			match read_frame(&mut reader) {
-				Ok(Some(frame)) => {
-					if events
-						.send(Event::WorkerFrame { generation, frame })
-						.is_err()
-					{
-						return;
-					}
-				}
-				Ok(None) => {
-					let _ = events.send(Event::WorkerEof { generation });
-					return;
-				}
-				Err(error) => {
-					let _ = events.send(Event::WorkerError {
-						generation,
-						error: error.to_string(),
-					});
-					return;
-				}
-			}
-		}
-	});
-}
-
-fn read_frame<R: BufRead>(reader: &mut R) -> io::Result<Option<Vec<u8>>> {
-	let mut frame = Vec::new();
-	let read = reader.read_until(b'\n', &mut frame)?;
-	if read == 0 { Ok(None) } else { Ok(Some(frame)) }
-}
-
-fn write_frame<W: Write>(writer: &mut W, frame: &[u8]) -> anyhow::Result<()> {
-	writer.write_all(frame)?;
-	if !frame.ends_with(b"\n") {
-		writer.write_all(b"\n")?;
+	let mut ready = supervisor
+		.candidate
+		.take()
+		.context("ready MCP candidate is unavailable")?;
+	let initialized_frame = supervisor
+		.state
+		.initialized_frame()
+		.context("MCP initialized notification is unavailable")?;
+	if let Err(error) = ready.worker.write_frame(initialized_frame) {
+		drop(ready);
+		defer_candidate(supervisor, error);
+		return Ok(());
 	}
-	writer.flush()?;
+
+	let was_recovery = supervisor.worker.is_none();
+	let reader = ready
+		.reader
+		.take()
+		.context("ready MCP candidate reader is unavailable")?;
+	supervisor.worker = Some(ready.worker);
+	supervisor.active_generation = ready.generation;
+	supervisor.active_fingerprint = ready.fingerprint;
+	supervisor.requested_fingerprint = None;
+	spawn_worker_reader(
+		reader,
+		supervisor.active_generation,
+		supervisor.events_tx.clone(),
+	);
+	write_frame(
+		&mut supervisor.client_stdout,
+		br#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}"#,
+	)?;
+	let action = if was_recovery {
+		"recovered"
+	} else {
+		"reloaded"
+	};
+	eprintln!("code-moniker: MCP stdio worker {action}");
 	Ok(())
 }
 
-enum Event {
-	ClientFrame(Vec<u8>),
-	ClientEof,
-	ClientError(String),
-	WorkerFrame { generation: u64, frame: Vec<u8> },
-	WorkerEof { generation: u64 },
-	WorkerError { generation: u64, error: String },
-}
-
-#[derive(Default)]
-struct ProtocolState {
-	initialize: Option<Vec<u8>>,
-	initialized: Option<Vec<u8>>,
-	pending_client_requests: HashMap<String, Value>,
-	pending_worker_requests: HashSet<String>,
-}
-
-impl ProtocolState {
-	fn observe_client_frame(&mut self, frame: &[u8]) {
-		let Ok(message) = serde_json::from_slice::<Value>(frame) else {
-			return;
-		};
-		if message.get("method").and_then(Value::as_str) == Some("initialize") {
-			self.initialize = Some(frame.to_vec());
-		}
-		if message.get("method").and_then(Value::as_str) == Some("notifications/initialized") {
-			self.initialized = Some(frame.to_vec());
-		}
-		if let Some(id) = request_id_value(&message) {
-			self.pending_client_requests.insert(id_key(id), id.clone());
-		} else if let Some(id) = response_id(&message) {
-			self.pending_worker_requests.remove(&id);
-		}
-	}
-
-	fn observe_worker_frame(&mut self, frame: &[u8]) {
-		let Ok(message) = serde_json::from_slice::<Value>(frame) else {
-			return;
-		};
-		if let Some(id) = request_id_value(&message) {
-			self.pending_worker_requests.insert(id_key(id));
-		} else if let Some(id) = response_id(&message) {
-			self.pending_client_requests.remove(&id);
-		}
-	}
-
-	fn can_reload(&self) -> bool {
-		self.initialize.is_some()
-			&& self.initialized.is_some()
-			&& self.pending_client_requests.is_empty()
-			&& self.pending_worker_requests.is_empty()
-	}
-
-	fn initialize_frame(&self) -> Option<&[u8]> {
-		self.initialize.as_deref()
-	}
-
-	fn initialized_frame(&self) -> Option<&[u8]> {
-		self.initialized.as_deref()
-	}
-}
-
-fn fail_pending_requests<W: Write>(
-	state: &mut ProtocolState,
-	client_stdout: &mut W,
-) -> anyhow::Result<()> {
-	for (_, id) in state.pending_client_requests.drain() {
-		let response = serde_json::to_vec(&json!({
-			"jsonrpc": "2.0",
-			"id": id,
-			"error": {
-				"code": -32603,
-				"message": "Code Moniker MCP worker exited during the request"
-			}
-		}))?;
-		write_frame(client_stdout, &response)?;
-	}
-	state.pending_worker_requests.clear();
-	Ok(())
-}
-
-fn request_id(frame: &[u8]) -> Option<String> {
-	let message = serde_json::from_slice::<Value>(frame).ok()?;
-	request_id_value(&message).map(id_key)
-}
-
-fn request_id_value(message: &Value) -> Option<&Value> {
-	message.get("method")?;
-	message.get("id").filter(|id| !id.is_null())
-}
-
-fn response_id(message: &Value) -> Option<String> {
-	if message.get("method").is_some()
-		|| (message.get("result").is_none() && message.get("error").is_none())
+fn maybe_start_candidate<W>(supervisor: &mut Supervisor<W>) -> anyhow::Result<()> {
+	if supervisor.candidate.is_some()
+		|| !supervisor.state.handshake_complete()
+		|| Instant::now() < supervisor.retry_at
+		|| (supervisor.worker.is_some() && supervisor.requested_fingerprint.is_none())
 	{
-		return None;
+		return Ok(());
 	}
-	message.get("id").filter(|id| !id.is_null()).map(id_key)
-}
-
-fn id_key(id: &Value) -> String {
-	id.to_string()
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct BinaryFingerprint {
-	len: u64,
-	modified: Option<SystemTime>,
-	#[cfg(unix)]
-	device: u64,
-	#[cfg(unix)]
-	inode: u64,
-}
-
-impl BinaryFingerprint {
-	fn read(path: &Path) -> anyhow::Result<Self> {
-		let metadata = std::fs::metadata(path)
-			.with_context(|| format!("inspect executable {}", path.display()))?;
-		Ok(Self::from_metadata(&metadata))
-	}
-
-	fn from_metadata(metadata: &Metadata) -> Self {
-		#[cfg(unix)]
-		use std::os::unix::fs::MetadataExt as _;
-
-		Self {
-			len: metadata.len(),
-			modified: metadata.modified().ok(),
-			#[cfg(unix)]
-			device: metadata.dev(),
-			#[cfg(unix)]
-			inode: metadata.ino(),
+	let fingerprint = supervisor
+		.requested_fingerprint
+		.or_else(|| BinaryFingerprint::read(&supervisor.executable).ok())
+		.context("replacement MCP executable is unavailable")?;
+	let initialize_frame = supervisor
+		.state
+		.initialize_frame()
+		.context("MCP initialize request is unavailable")?;
+	match Candidate::start(
+		&supervisor.executable,
+		&supervisor.worker_args,
+		supervisor.next_generation,
+		fingerprint,
+		initialize_frame,
+		supervisor.events_tx.clone(),
+	) {
+		Ok(candidate) => {
+			supervisor.next_generation += 1;
+			supervisor.candidate = Some(candidate);
 		}
+		Err(error) => defer_candidate(supervisor, error),
 	}
+	Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
+fn candidate_generation<W>(supervisor: &Supervisor<W>) -> Option<u64> {
+	supervisor
+		.candidate
+		.as_ref()
+		.map(|candidate| candidate.generation)
+}
 
-	#[test]
-	fn protocol_state_waits_for_handshake_and_idle_transport() {
-		let mut state = ProtocolState::default();
-		state.observe_client_frame(br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#);
-		state.observe_worker_frame(br#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
-		state.observe_client_frame(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
-		assert!(state.can_reload());
+fn reject_candidate<W>(supervisor: &mut Supervisor<W>, error: anyhow::Error) {
+	supervisor.candidate = None;
+	defer_candidate(supervisor, error);
+}
 
-		state.observe_client_frame(br#"{"jsonrpc":"2.0","id":"q","method":"tools/list"}"#);
-		assert!(!state.can_reload());
-		state.observe_worker_frame(br#"{"jsonrpc":"2.0","id":"q","result":{"tools":[]}}"#);
-		assert!(state.can_reload());
-	}
-
-	#[test]
-	fn protocol_state_tracks_worker_initiated_requests() {
-		let mut state = ProtocolState::default();
-		state.initialize = Some(Vec::new());
-		state.initialized = Some(Vec::new());
-		state
-			.observe_worker_frame(br#"{"jsonrpc":"2.0","id":7,"method":"sampling/createMessage"}"#);
-		assert!(!state.can_reload());
-		state.observe_client_frame(br#"{"jsonrpc":"2.0","id":7,"result":{}}"#);
-		assert!(state.can_reload());
-	}
-
-	#[test]
-	fn initialize_response_must_match_the_cached_request() {
-		let input = b"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n";
-		let mut reader = BufReader::new(input.as_slice());
-		wait_for_initialize_response(&mut reader, "1").unwrap();
-	}
+fn defer_candidate<W>(supervisor: &mut Supervisor<W>, error: anyhow::Error) {
+	eprintln!("code-moniker: MCP stdio worker reload rejected; keeping current worker: {error:#}");
+	supervisor.retry_at = Instant::now() + RELOAD_RETRY_DELAY;
 }
