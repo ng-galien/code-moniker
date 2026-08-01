@@ -305,6 +305,10 @@ fn init_otlp(
 	}
 	let resource = if explicit_service_name_configured() {
 		resource_builder.build()
+	} else if let Some(service_name) = config.service_name.as_deref() {
+		resource_builder
+			.with_service_name(service_name.to_string())
+			.build()
 	} else {
 		resource_builder
 			.with_service_name(default_service_name(cli))

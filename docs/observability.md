@@ -6,6 +6,7 @@ project's `.code-moniker.toml` owns the normal exporter configuration:
 ```toml
 [telemetry]
 enabled = true
+service_name = "code-moniker-daemon:my-project"
 endpoint = "http://127.0.0.1:4318"
 metric_export_interval_ms = 5000
 ```
@@ -13,6 +14,11 @@ metric_export_interval_ms = 5000
 `endpoint` is the OTLP/HTTP base URL; Code Moniker appends `/v1/traces`,
 `/v1/metrics`, and `/v1/logs`. The exporter is compiled into the default CLI
 binary but remains disabled unless the project enables it.
+
+`service_name` identifies the project process in traces, logs, metrics, and
+Grafana selectors. `OTEL_SERVICE_NAME` and a `service.name` entry in
+`OTEL_RESOURCE_ATTRIBUTES` remain explicit operational overrides. Without any
+of these settings, Code Moniker derives a service name from the command.
 
 `CODE_MONIKER_TELEMETRY=true|false` is an explicit operational override of the
 project switch. When the project does not set an endpoint or metric interval,

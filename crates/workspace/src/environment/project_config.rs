@@ -11,6 +11,8 @@ pub struct TelemetryConfig {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
+	pub service_name: Option<String>,
+	#[serde(default)]
 	pub endpoint: Option<String>,
 	#[serde(default)]
 	pub metric_export_interval_ms: Option<u64>,
@@ -18,6 +20,12 @@ pub struct TelemetryConfig {
 
 impl TelemetryConfig {
 	fn validate(self) -> anyhow::Result<Self> {
+		if let Some(service_name) = self.service_name.as_deref() {
+			ensure!(
+				!service_name.trim().is_empty(),
+				"telemetry.service_name cannot be empty"
+			);
+		}
 		if let Some(endpoint) = self.endpoint.as_deref() {
 			ensure!(
 				!endpoint.trim().is_empty(),
@@ -71,6 +79,7 @@ root = "workspace"
 
 [telemetry]
 enabled = true
+service_name = "code-moniker-daemon:example"
 endpoint = "http://127.0.0.1:4318"
 metric_export_interval_ms = 5000
 "#,
@@ -80,6 +89,7 @@ metric_export_interval_ms = 5000
 			load_telemetry_config(&path).unwrap(),
 			TelemetryConfig {
 				enabled: true,
+				service_name: Some("code-moniker-daemon:example".to_string()),
 				endpoint: Some("http://127.0.0.1:4318".to_string()),
 				metric_export_interval_ms: Some(5000),
 			}
@@ -91,6 +101,8 @@ metric_export_interval_ms = 5000
 		let directory = tempfile::tempdir().unwrap();
 		let path = directory.path().join(PROJECT_CONFIG_FILE);
 		std::fs::write(&path, "[telemetry]\nmetric_export_interval_ms = 0\n").unwrap();
+		assert!(load_telemetry_config(&path).is_err());
+		std::fs::write(&path, "[telemetry]\nservice_name = \"  \"\n").unwrap();
 		assert!(load_telemetry_config(&path).is_err());
 		std::fs::write(&path, "[telemetry]\nunknown = true\n").unwrap();
 		assert!(load_telemetry_config(&path).is_err());
