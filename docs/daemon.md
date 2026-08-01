@@ -3,8 +3,9 @@
 The daemon is the resident host for one canonical workspace set. It owns the
 live-indexed workspace and exposes a structured query DSL over **JSON-RPC**.
 HTTP MCP, TUI, IDE and interactive CLI are thin clients of the same contract.
-Stdio MCP is deliberately in-process: the invoking client owns its index and
-closing the stdio session cannot leave a detached daemon behind.
+Stdio MCP is deliberately client-owned: a stable supervisor owns the client
+pipe and delegates indexing to an in-process worker. Closing the stdio session
+terminates both processes and cannot leave a detached daemon behind.
 The stdio transport starts before its background preload, so MCP initialize is
 never gated by a full workspace scan. Until the atomically built snapshot is
 ready, `workspace.status` returns the typed `loading` phase and data tools
@@ -13,6 +14,13 @@ the server. Initial failure is likewise observable as `failed` with its cause
 while the endpoint stays available.
 Stdio MCP projects that same lifecycle into both `workspace.status` and data
 query errors; it does not maintain a separate preload verdict.
+
+The supervisor fingerprints its executable path. After an atomic reinstall, it
+waits for the JSON-RPC connection to be idle, starts the replacement worker,
+replays `initialize` and `notifications/initialized`, then switches workers and
+emits `notifications/tools/list_changed`. A replacement that cannot initialize
+does not interrupt the current worker and is retried, so updating the CLI does
+not require restarting the owning client session.
 
 Once a generation has been published, the daemon keeps that immutable snapshot
 separate from the mutable refresh runtime. `stale-ok` reads therefore continue

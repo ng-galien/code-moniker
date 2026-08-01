@@ -141,12 +141,17 @@ impl ServerHandler for CodeMonikerMcp {
 	fn get_info(&self) -> ServerInfo {
 		tracing::info!(event = "initialize_info", "mcp server info requested");
 		let workspace = self.context.workspace_label();
-		ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-			.with_server_info(Implementation::new(
-				"code-moniker",
-				env!("CARGO_PKG_VERSION"),
-			))
-			.with_instructions(server_instructions(&workspace))
+		ServerInfo::new(
+			ServerCapabilities::builder()
+				.enable_tools()
+				.enable_tool_list_changed()
+				.build(),
+		)
+		.with_server_info(Implementation::new(
+			"code-moniker",
+			env!("CARGO_PKG_VERSION"),
+		))
+		.with_instructions(server_instructions(&workspace))
 	}
 
 	fn list_tools(

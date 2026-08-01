@@ -807,7 +807,7 @@ pub struct McpArgs {
 		long,
 		value_enum,
 		default_value_t = McpTransport::Http,
-		help = "MCP transport: http binds a loopback endpoint; stdio is owned by the invoking client"
+		help = "MCP transport: http binds a loopback endpoint; stdio is client-owned and reloads replaced binaries"
 	)]
 	pub(crate) transport: McpTransport,
 
@@ -827,6 +827,9 @@ pub struct McpArgs {
 		help = "live index policy: on-demand marks changes stale until the refresh tool runs; auto refreshes on every change"
 	)]
 	pub live_refresh: LiveRefresh,
+
+	#[arg(long, hide = true)]
+	pub(crate) stdio_worker: bool,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -1539,6 +1542,7 @@ mod tests {
 				assert_eq!(args.transport, McpTransport::Stdio);
 				assert_eq!(args.paths, vec![PathBuf::from(".")]);
 				assert_eq!(args.live_refresh, LiveRefresh::Auto);
+				assert!(!args.stdio_worker);
 			}
 			other => panic!("expected Mcp, got {other:?}"),
 		}

@@ -3,6 +3,8 @@
 When `code_moniker_*` tools are wired, prefer a project-owned stdio server with
 an absolute root: `code-moniker mcp <absolute-root> --transport stdio`. HTTP remains available with
 `code-moniker mcp <root> --transport http --port <p>` and endpoint `/mcp`.
+The stdio supervisor keeps the client pipe stable across an atomic CLI reinstall
+and refreshes the advertised tool list after its replacement worker initializes.
 Use either transport as the complete agent surface:
 do not shell out to the daemon or replay the same exploration through direct
 queries. Responses

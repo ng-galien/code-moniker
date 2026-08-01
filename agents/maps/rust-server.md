@@ -57,8 +57,11 @@ Codex project integrations should use `code-moniker mcp
 `.codex/config.toml`. Do not combine a relative `cwd` with `.` or `..`; host
 resolution can escape the project. Index-creating commands reject a filesystem
 root while daemon status/stop remain available for cleanup. Stdio is
-intentionally in-process and must create no daemon process or registry entry.
-Its transport initializes before background preload; a data call may return
+client-owned: its stable supervisor runs a disposable in-process worker and must
+create no daemon process or registry entry. Replacing the installed executable
+atomically reloads that worker after the current JSON-RPC exchange completes;
+the client connection remains open and receives `notifications/tools/list_changed`.
+Its worker initializes before background preload; a data call may return
 `workspace_loading` until the new snapshot is published atomically. EOF must
 cancel preload and terminate promptly, including when a source read is blocked.
 Keep the HTTP `cm-mcp` session only for HTTP surface dogfood and explicit

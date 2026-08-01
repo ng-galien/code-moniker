@@ -23,6 +23,10 @@ fn run_inner<W1: Write, W2: Write>(
 	_stdout: &mut W1,
 	_stderr: &mut W2,
 ) -> anyhow::Result<()> {
+	if args.transport == McpTransport::Stdio && !args.stdio_worker {
+		return mcp::supervise_stdio();
+	}
+
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let daemon_config = daemon_workspace_config(
 		&args.paths,
