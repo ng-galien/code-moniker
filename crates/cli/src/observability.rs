@@ -6,7 +6,9 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use code_moniker_cli::{Cli, Command, DaemonCommand};
+#[cfg(feature = "telemetry")]
+use code_moniker_cli::DaemonCommand;
+use code_moniker_cli::{Cli, Command};
 use code_moniker_query::bounded_debug;
 
 #[cfg(feature = "telemetry")]
@@ -173,11 +175,11 @@ impl Drop for TelemetryGuard {
 /// Installs the process subscriber and enables OTLP only after explicit opt-in.
 ///
 /// Configuration and exporter failures are diagnostics, never command failures.
-pub(super) fn init(cli: &Cli) -> TelemetryGuard {
+pub(super) fn init(_cli: &Cli) -> TelemetryGuard {
 	code_moniker_daemon::set_telemetry_export_enabled(false);
 	#[cfg(feature = "telemetry")]
 	match telemetry_requested(std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref()) {
-		Ok(true) => match init_otlp(cli) {
+		Ok(true) => match init_otlp(_cli) {
 			Ok(guard) => {
 				code_moniker_daemon::set_telemetry_export_enabled(true);
 				return guard;

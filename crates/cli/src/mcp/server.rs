@@ -146,44 +146,7 @@ impl ServerHandler for CodeMonikerMcp {
 				"code-moniker",
 				env!("CARGO_PKG_VERSION"),
 			))
-			.with_instructions(format!(
-				concat!(
-					"code-moniker serves a symbolic index of the workspace: every definition ",
-					"has a stable moniker URI (scheme code+moniker://) and relations between ",
-					"symbols (calls, uses_type, extends…) are counted facts. ",
-					"This MCP is the complete agent surface: do not shell out to the daemon or ",
-					"repeat an MCP exploration with direct queries. Start with ",
-					"code_moniker_read uri:\"workspace\" and expected_roots set to the current ",
-					"absolute workspace roots for a fail-closed overview, or ",
-					"code_moniker_symbols to find a symbol and obtain its compact moniker. ",
-					"Never guess a moniker. By default budget=small and compact=true: every tool ",
-					"has a hard response ceiling, and canonical symbol URIs in descriptive data ",
-					"are rendered in the existing compact moniker form, for example ",
-					"rs:crates/cli/src/mcp.tools.fn:run(). Compact monikers returned by the ",
-					"server can be passed directly to symbol tools; canonical URIs and symbol ",
-					"ids remain accepted. Generated tool calls use compact monikers by default ",
-					"and remain directly reusable. Set compact=false for canonical verbose data and ",
-					"additional guided follow-up calls. ",
-					"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
-					"compact moniker to code_moniker_usages when needed. ",
-					"Prefer scoped filters and stop once the question is answered; paging, ",
-					"budget=full, code, and broader scopes are opt-in. Use code_moniker_query ",
-					"only for a read-only daemon capability not covered by an intent tool; ",
-					"query.describe exposes the live grammar, and queries batches up to four ",
-					"operations at one generation. ",
-					"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
-					"coupling between scopes, or code_moniker_context once before a ",
-					"structural edit to combine graph, notes, applicable rules, local ",
-					"changes and canonical suggested checks. Use code_moniker_rules for architecture checks, ",
-					"code_moniker_diff for structural change review. ",
-					"Responses contain uri, completeness, and a body; next is optional and ",
-					"appears only when a useful follow-up exists. ",
-					"This server is bound to workspace roots: {workspace}. Start every session ",
-					"with code_moniker_read uri:\"workspace\" and expected_roots set to the ",
-					"current Codex workspace roots. Stop on workspace_mismatch."
-				),
-				workspace = workspace
-			))
+			.with_instructions(server_instructions(&workspace))
 	}
 
 	fn list_tools(
@@ -216,6 +179,22 @@ impl ServerHandler for CodeMonikerMcp {
 			.into_iter()
 			.find(|tool| tool.name == name)
 	}
+}
+
+fn server_instructions(workspace: &str) -> String {
+	format!(
+		concat!(
+			"Code Moniker exposes indexed symbols and relationships for roots: ",
+			"{workspace}. Use it for targeted structural exploration when callers, ",
+			"callees, coupling, ownership or change impact add value; ordinary known-file ",
+			"and exact-string work does not require it. Verify expected_roots once before ",
+			"the first workspace-wide exploration, after reconnect or when roots change, ",
+			"not before every call. Prefer narrow compact calls with small budgets, stop ",
+			"when the question is answered, and never guess a moniker. Do not repeat an ",
+			"MCP exploration through the CLI or raw daemon."
+		),
+		workspace = workspace
+	)
 }
 
 async fn dispatch_tool_call(
@@ -347,6 +326,16 @@ fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn server_instructions_are_bounded_and_non_prescriptive() {
+		let instructions = server_instructions("/workspace");
+
+		assert!(instructions.len() < 800, "{}", instructions.len());
+		assert!(instructions.contains("Verify expected_roots once"));
+		assert!(!instructions.contains("Start every session"));
+		assert!(instructions.contains("known-file"));
+	}
 
 	#[test]
 	fn known_tool_errors_cross_the_agent_output_boundary() {

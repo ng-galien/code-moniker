@@ -1,192 +1,114 @@
 ---
 name: code-moniker
 description: >-
-  Explore, map, diagnose, and audit any codebase through code-moniker's
-  symbolic index and project-defined contextual views, using MCP tools when
-  configured and otherwise the local binary. ALWAYS use this before
-  grep/Glob/Read for architecture, module structure, coupling, dependencies,
-  call graphs, callers/callees, change impact, code smells, refactor targets,
-  codebase health, structural diff review, or interpretation of Code Moniker
-  check, hook, MCP, and daemon output. First identify the exact execution
-  surface; never infer daemon caching or incremental behavior from CLI or hook
-  output. Typical requests include mapping architecture, finding heavy
-  coupling, tracing calls, auditing boundaries, assessing a refactor, reviewing
-  structural changes, or explaining why a check scanned zero files. Zero
-  project configuration on ts/rs/java/python/go/cs/sql projects.
+  Use Code Moniker for targeted structural exploration when indexed facts add
+  value: architecture, callers and callees, coupling, ownership, change impact,
+  codebase-wide mechanisms, or diagnosis of Code Moniker itself. Do not invoke
+  it automatically for known-file edits, exact-string lookup, routine Git or
+  test work, small local diffs, or every turn in a repository that happens to
+  expose Code Moniker.
 ---
 
-# code-moniker
+# Code Moniker
 
-code-moniker builds a symbolic index of a codebase: every definition gets a
-stable moniker URI (`code+moniker://./lang:ts/dir:src/module:api/fn:save(x)`)
-and every reference (calls, uses_type, extends, imports…) is a fact linking
-two monikers. You navigate structure and relations instead of grepping text —
-and you get counts, not impressions.
+Code Moniker provides a symbolic index: stable symbol identities, definitions,
+references and relationships. It is useful when the question is relational or
+workspace-wide. It is not a mandatory wrapper around ordinary repository work.
 
-## Select the installed surface
+## Decision boundary
 
-Code Moniker can be installed in several useful modes. Detect the capabilities
-available in the current session before choosing a workflow:
+Use Code Moniker when at least one of these is true:
 
-1. **MCP tools available** — use the `code_moniker_*` tools as the complete
-   exploration surface.
-2. **No MCP tools, local binary available** — use the binary workflow below.
-   This is a supported installation mode, not a degraded MCP session.
-3. **Hooks configured** — treat their feedback as the project's deterministic
-   write-time policy. Hooks do not replace exploration and do not imply that
-   MCP is installed.
-4. **Neither MCP nor binary available** — report that no Code Moniker read
-   surface is installed. Do not wait for MCP and do not claim that repository
-   hooks provide navigation.
+- the code or repository area is unfamiliar and needs a structural map;
+- the answer depends on callers, callees, coupling, hierarchy or change impact;
+- a repository-wide mechanism owner and its consumers must be identified;
+- the user explicitly asks for Code Moniker or for indexed symbolic evidence;
+- Code Moniker, its daemon, MCP surface, hooks or indexed generation is itself
+  under diagnosis.
 
-For agent exploration, the `code_moniker_*` MCP tools are the complete and
-canonical interface. They add deterministic output budgets, compact rendering,
-compact monikers, pagination and safe follow-up calls around the typed
-query engine. When the MCP surface is configured and available, do not repeat
-the same exploration with `code-moniker query`, a daemon client, grep, or a
-script: that duplicates facts and consumes context.
+Do not use it merely because it is installed. Prefer normal repository tools
+for exact strings in known files, file inventories, Git state, formatting,
+focused tests, direct error messages, straightforward local edits and small
+diffs whose relevant contract is already visible. A review agent should invoke
+Code Moniker only when the review question actually needs relationship or
+workspace-wide ownership evidence.
 
-The MCP surface is optional. If it is not configured in the current
-installation or unavailable in the current session, continue immediately with
-the local `code-moniker` binary instead of blocking or reporting a parity
-defect. Resolve `code-moniker` from `PATH`; a checkout may use the explicit
-Cargo install path. In particular, extractor work should use:
+Use the smallest number of calls that answers the question. Stop when the
+evidence is sufficient.
 
-```sh
-code-moniker extract . --path <file> --shape callable --limit 80
-```
+## Select one surface
 
-Always anchor `extract` on the workspace root (`.`) and narrow with `--path`;
-never anchor extraction directly on the file. The binary is also valid for
-`stats`, `check`, and `diff` dogfood workflows. Use `code-moniker query` only
-when an advanced structural question cannot be answered by those commands, and
-read `references/query-dsl.md` before composing its syntax.
+1. If `code_moniker_*` MCP tools are available, use them for the selected
+   exploration. Do not repeat the same exploration with the CLI or raw daemon
+   requests.
+2. If MCP is unavailable but the local binary exists, use its bounded
+   `stats`, `extract`, `diff` or `check` commands.
+3. Hooks are write-time policy only. They neither replace exploration nor
+   prove anything about daemon state.
+4. If neither MCP nor the binary is available, report that briefly and use the
+   best normal repository inspection available.
 
-If the MCP is wired, responds, and lacks a required read-only capability,
-report a parity defect. That is different from an installation without MCP:
-the latter must use the binary normally. Do not silently fall back to the
-daemon.
+## Workspace identity and freshness
 
-## Establish output provenance before diagnosis
+Verify `expected_roots` once before the first workspace-wide MCP exploration,
+after an MCP reconnect/restart, after roots change, or when a tool reports a
+workspace mismatch. Do not repeat a workspace bootstrap on every turn or before
+every targeted call in the same verified session.
 
-Treat CLI, hook, MCP, and daemon output as evidence from different execution
-paths. Before naming a cache, invalidation, incremental, or stale-state bug,
-record the producer, exact command or tool arguments, workspace and file scope,
-rules source, and triggering event. If any of those are unknown, label the
-diagnosis as a hypothesis and reproduce it; do not assign it to the daemon.
+If the relevant file or symbol scope is already known and the current MCP
+connection is verified, start directly with a narrow `code_moniker_symbols`,
+`code_moniker_usages` or `code_moniker_graph` call. `workspace/views` is for
+unknown-repository or explicit architecture-view work, not a universal prelude.
 
-| Producer | Runtime contract | What an empty or changed result proves |
-|---|---|---|
-| Direct `code-moniker check` | Starts a one-shot filesystem check and loads the selected rules for that invocation. It does not query a running daemon. | Only that command, rules source, and scope. With `--file`, zero matching files is an intentional filtered result. |
-| Generated agent hook | Reads the current write-tool payload, keeps existing touched paths, exits `0` before invoking `check` when none remain, otherwise runs direct `check <scope> --file ...`. | Silence or zero files can describe the tool payload; it does not prove cached rules, a workspace verdict, or daemon state. |
-| `code_moniker_*` MCP tool | Queries the verified MCP workspace through its daemon-backed indexed surface. `code_moniker_rules action:"run"` loads the requested rules now and evaluates the source corpus pinned to the reported daemon generation. | Only the requested MCP scope at the reported workspace generation. Verify `expected_roots` before interpreting it. |
-| `code-moniker query --daemon <ENDPOINT>` | Targets the exact daemon endpoint printed by `daemon list`; it never starts another daemon and never falls back to the filesystem. `rules.check` evaluates that daemon's pinned indexed corpus. | The response belongs to the selected daemon and its reported generation. |
-| Daemon client, TUI, or extension | Uses an explicitly daemon-backed consumer and its indexed generation. | Daemon invalidation is a candidate only after this path and its generation are confirmed. |
+Never infer caching, refresh or stale-state behavior from latency alone. Record
+the producer, exact surface, workspace roots, generation or lifecycle state,
+scope and triggering event before diagnosing invalidation.
 
-Reproduce on the surface under suspicion. For a rules-file invalidation claim,
-run the exact direct CLI command twice, changing only that rules file, and
-capture both exit codes and reports. For a hook claim, replay the actual hook
-payload or generated hook. Compare full checks only with full checks and
-file-scoped checks only with file-scoped checks. A differently named
-`--rules` file is standalone; only the canonical `.code-moniker.toml` root
-discovers `code-moniker.fragment.toml` descendants.
+## Bounded MCP workflow
 
-When testing architecture heuristics on the indexed corpus,
-`workspace.group.expr` can combine boolean logic, `count(member)`, and
-descriptive aggregates over `(member, lines)`. Use a sample-size implication,
-for example `count(member) >= 8 => gini(member, lines) <= 0.65`, and default
-heuristics to warning severity. The currently indexed statistical projection
-is only inclusive symbol `lines`; do not infer support for arbitrary
-projections, entropy over linkage, history, or z-scores. A missing member line
-range fails closed and is reported with available/total coverage. Boolean
-composition is order-independent: a known false `AND` operand or known true
-`OR` operand decides the result; otherwise unavailability propagates.
+- Unknown workspace: one `code_moniker_read` on `workspace` with
+  `expected_roots`, `budget:"small"`, shallow depth and a tight limit.
+- Known scope: use `code_moniker_symbols` with path/name/kind/shape filters.
+- Relationship question: pass a returned moniker to `code_moniker_usages` or
+  `code_moniker_graph`; never invent a moniker.
+- Structural edit with uncertain impact: use `code_moniker_context` once on the
+  selected symbol or file. Skip it for local edits with known consumers.
+- Project-defined architecture view: read `workspace/views` only when that view
+  is relevant to the question.
+- Advanced daemon query: use `code_moniker_query` only when no intent tool
+  covers the required read-only capability, and discover the live grammar
+  before composing a query.
+- Rules: use `code_moniker_rules` only for a requested or applicable rule
+  evaluation, not as a generic completion ritual.
 
-## Keep indexed facts and architectural judgment distinct
+Keep `compact:true`, a small budget and narrow limits by default. Request code,
+larger budgets, paging or broader scope only when the current result proves it
+is necessary.
 
-Keep Code Moniker terms exact for indexed facts, use general
-software-architecture language for interpretation, and label optional design
-lenses as heuristics. Do not equate a scope with a module, an `interface`
-symbol with a whole architectural contract, or `ports_in`/`ports_out` graph
-crossings with Ports and Adapters ports. Read
-`references/architecture.md` for the full language, role, workflow and output
-contract.
+## Local binary workflow
 
-## Quick start on an unknown repo
+- `code-moniker stats <path>` for bounded language and concentration facts.
+- `code-moniker extract . --path <file-or-glob> --shape callable --limit 80`
+  for known files. Always anchor extraction on the workspace root `.`.
+- `code-moniker diff [A..B] .` for a genuinely structural change review.
+- `code-moniker check <scope> --profile <name> --max-violations <N>` only when
+  the project or user selected that profile.
 
-### With MCP
+Do not translate an MCP sequence call-for-call into shell commands.
 
-1. Call `code_moniker_read uri:"workspace" expected_roots:["<current absolute
-   workspace root>"] budget:"small"` for a bounded overview and a fail-closed
-   workspace identity check. Stop immediately on `workspace_mismatch`. Stop if
-   the overview answers the question.
-2. For architecture, audit, refactor, or project-convention questions, call
-   `code_moniker_read uri:"workspace/views"` and follow only the relevant
-   returned view call before forming hypotheses.
-3. Narrow with `code_moniker_symbols` (`path`, `lang`, `shape`, `name`, small
-   `limit`). Never invent a moniker.
-4. Use `code_moniker_usages` or `code_moniker_graph` only for the selected
-   returned compact moniker or file. Keep usages exact by default; for an
-   owner such as a type whose coupling may be carried by fields or methods,
-   set `include_descendants:true` and report that owner roll-up separately.
-5. Request `code_moniker_read uri:"<file-or-returned>" ast:true` only when the
-   parser shape itself is required; keep the bounded named-node defaults.
-6. Before a structural edit, call `code_moniker_context focus:"<returned>"`
-   once. It combines impact, notes, applicable rules, local changes and checks.
-7. Use `code_moniker_query` only for an advanced read-only verb not covered by
-   an intent tool. Discover its current grammar with `query.describe`; a batch
-   is limited to four queries at one workspace generation.
+## Provenance and interpretation
 
-### With the local binary
+CLI, hooks, MCP, daemon clients, TUI and extensions are different execution
+surfaces. Attribute findings only to the surface actually exercised. Keep
+indexed facts separate from architectural judgment, and report coverage or
+truncation literally.
 
-1. Start with `code-moniker stats <path>` for language, definition, reference,
-   resolution and concentration facts.
-2. Narrow known files with
-   `code-moniker extract . --path <file-or-glob> --shape callable --limit 80`.
-   Keep `.` as the anchor.
-3. Use `code-moniker check <scope> --profile <name> --max-violations <N>` only
-   when the project or user explicitly selected that profile. Without an
-   explicit profile, run `code-moniker check <scope> --max-violations <N>`.
-4. Use `code-moniker diff [A..B] .` for symbolic change review.
-5. Use `code-moniker query` only for an advanced structural question that
-   `stats`, `extract`, `check`, and `diff` cannot answer, and read
-   `references/query-dsl.md` before composing its syntax.
+## Deeper references
 
-Do not translate the MCP workflow call-for-call into shell commands. Use the
-bounded CLI primitives that answer the question and stop when evidence is
-sufficient.
+Read only the reference needed for the current task:
 
-Then go by need:
-
-- **Understand code, trace flows, find entry points** → `references/explore.md`
-- **Architecture audit, contextual views, boundaries, refactor reasoning** →
-  `references/architecture.md`
-- **Health, coupling, smells, refactor evidence, dependency audit** →
-  `references/diagnose.md`
-- **Agent MCP contract, budgets and compact monikers** → `references/mcp.md`
-- **Developer-only query grammar and dogfood** → `references/query-dsl.md`
-
-## Rules that save you a failed call
-
-- **Never guess a moniker or a focus path.** Get compact monikers from
-  `code_moniker_symbols` and pass them exactly; a guessed one returns
-  `symbol_not_found` / `focus_not_found`.
-- **Compact monikers are reusable.** The default `rs:...`, `java:...`, etc.
-  form can be passed directly to symbol tools. Canonical URIs and symbol ids
-  remain accepted; generated calls preserve the active compact or canonical
-  mode.
-- **Keep the default small budget.** Set a narrow `limit`/`max_items`; request
-  `medium` or `full`, code, wider scope or the next page only when the current
-  question requires it. Stop once the evidence is sufficient.
-- **Use `compact:true` by default.** `compact:false` is a diagnostic escape
-  hatch for canonical typed detail, not a normal exploration mode.
-- **Anchor extraction on the root**: `code-moniker extract . --path <file>`,
-  never `extract <file>` — this applies only to extractor development.
-- **Verify the workspace before facts.** The first workspace read must pass the
-  current absolute root through `expected_roots`. A mismatch is a routing
-  defect: do not continue with another server, the CLI, or guessed filters.
-- Unresolved references are counted, never hidden. Treat the count as data
-  (resolution coverage), not as an error.
-- **Read graph coverage literally.** `total` is pre-filter, `matching` is after
-  relational thresholds, and `returned`/`emitted` is the bounded result. A
-  returned zero with a non-zero total means filtered evidence, not absence.
+- unfamiliar-code exploration: `references/explore.md`;
+- architecture language and contextual views: `references/architecture.md`;
+- health, coupling and smell diagnosis: `references/diagnose.md`;
+- detailed MCP contracts and budgets: `references/mcp.md`;
+- developer-only query grammar: `references/query-dsl.md`.

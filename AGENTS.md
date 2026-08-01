@@ -1,124 +1,78 @@
 # Repository Guidelines
 
-## Structure
+## Repository map
 
-- Workspace: Rust 2024.
-- `crates/core`: model, URI, language extractors.
-- `crates/workspace`: workspace scan, graph, linkage, changes, glob.
-- `crates/check`: rules engine — DSL, profiles, evaluation, suppression, reports.
-- `crates/query`: query verbs, DTOs, text parser, JSON schema source.
-- `crates/daemon` + `crates/daemon-client`: workspace daemon and its client.
-- `crates/cli`: `code-moniker` binary — CLI, check rendering, TUI/MCP.
-- `vscode-extension/`: VS Code extension (React webviews, daemon-backed trees).
-- `docs/`: reference documentation for humans.
-- `agents/`: shared operational maps and skills — see Agent Layer below.
-- `samples/`, `scripts/dogfood/`, `proptest-regressions/`, `bug/`, `evolutions/`: executable knowledge, dogfood tooling, regressions, reproducers, ideas.
-- Prefer executable knowledge: `.code-moniker.toml`, fragments, samples, tests.
+- Rust 2024 workspace.
+- `crates/core`: model, URI and language extractors.
+- `crates/workspace`: source discovery, index, graph, linkage and changes.
+- `crates/check`: rules DSL and evaluation.
+- `crates/query`: public queries, DTOs and schemas.
+- `crates/daemon` and `crates/daemon-client`: daemon runtime and client.
+- `crates/cli`: CLI, TUI and MCP surfaces.
+- `vscode-extension/`: VS Code extension and webviews.
+- `docs/`: human documentation.
+- `agents/`: reusable agent maps and skills.
+- `samples/`, `bug/` and `proptest-regressions/`: executable examples and regressions.
 
-## Agent Layer
+## Working principles
 
-- `agents/` is the source of truth for shared `maps/` and `skills/`.
-- `.claude/` and `.codex/` are independent, regular client configuration directories. Never symlink them into `agents/`.
-- Project hook scripts and registrations are generated in the selected client's directory by `code-moniker agent install --components hooks`; do not maintain hand-written copies under `agents/`.
-- `docs/` is human reference; operational agent knowledge belongs in `agents/maps/`.
-- Maps: `agents/maps/rust-server.md` (build latency, TUI verification/architecture, boundaries, MCP probes, daemon debugging), `agents/maps/vscode-extension.md` (cartography, ship routine, UI verification harnesses).
+- Inspect the relevant code and current diff before editing. Preserve unrelated
+  user work.
+- Prefer existing owners, contracts and data flows over a parallel mechanism.
+  Search more broadly only when the change introduces shared state or policy,
+  such as a cache, retry loop, parser, classifier or lifecycle transition.
+- Keep changes coherent and scoped. Avoid speculative abstractions and unrelated
+  cleanup.
+- Validate in proportion to the change. Focused formatting, checks and tests are
+  the default; use broader gates for broad or release-sensitive changes, or when
+  the user requests them.
+- Independent review agents are opt-in and run only when the user requests a
+  review or selects a workflow that requires one.
+- Code Moniker is optional, targeted exploration for questions that need indexed
+  relationships, ownership or workspace-wide impact. Do not invoke it for known
+  files, exact-string searches, routine Git/tests or every review.
 
-## Commands
+## Common commands
 
-- Fast core/CLI check: `cargo check --workspace --all-targets`
-- Core/CLI tests: `cargo test --workspace`
-- Format gate: `cargo fmt --all -- --check`
-- CI clippy: `cargo clippy --workspace --tests --no-deps -- -D warnings`
-- Agent guardrail: `cargo moniker-check`
-- Build latency knobs (profiles, jobs, linker): `agents/maps/rust-server.md`. Keep one Cargo command active; keep feature/profile flags stable per session.
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace`
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --tests --no-deps -- -D warnings`
+- `cargo moniker-check`
 
-## Iteration
+Use focused package or test filters during iteration. See
+`agents/maps/rust-server.md` for build latency, daemon debugging and TUI/MCP
+runtime procedures, and `agents/maps/vscode-extension.md` for extension work.
 
-- Inspect symbols: `/Users/alexandreboyer/.cargo/bin/code-moniker extract . --path <file> --shape callable --limit 80`
-- Inspect stats: `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`
-- Format touched Rust: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`
-- Check rules: `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name> --max-violations <N>`
-- Symbolic diff: `/Users/alexandreboyer/.cargo/bin/code-moniker diff [A..B] .` (facts: moves/renames/bodies/refs; `docs/cli/diff.md`)
-- Show rules: `/Users/alexandreboyer/.cargo/bin/code-moniker rules show . --profile <name>`
-- DSL tests: `cargo test -p code-moniker check::expr --lib`
-- UI tests: `cargo test -p code-moniker ui::tests::<test_name> --lib`
-- CLI test: `cargo test -p code-moniker --test cli_e2e <test_name>`
-- Extractor tests: focused language test, then relevant `cargo test -p code-moniker-core snapshot_<lang>`.
-- Docs-only validation: `git diff --check`
-- Always anchor `extract` on `.` with `--path <file>`, never on the file directly (anchor moniker drift — see `agents/maps/rust-server.md`).
+## Agent integration
 
-## Review Gates
+- `agents/` is the source of truth for shared maps and distributable skills.
+- `.codex/` and `.claude/` are independent client configuration directories;
+  do not symlink them into `agents/`.
+- Project hooks and registrations are generated by `code-moniker agent install`;
+  do not maintain duplicate hand-written copies under `agents/`.
+- A globally installed Code Moniker skill is optional. MCP and hooks do not
+  require it.
 
-- Architecture-wide review is mandatory before a local-diff verdict:
-  - For every new state machine, timeout, retry loop, cache, parser, classifier, launcher, or policy, search the full repository for the mechanism it represents, not only for duplicated text.
-  - Name the canonical owner and every consumer. A second owner is a design finding even when the code is not textually cloned.
-  - Prefer completing or extending the existing owner over adding a consumer-local mechanism. Any intentional parallel mechanism needs a distinct contract and rationale.
-  - Include a `Mechanism reuse / duplication` section in the review with symbolic-search evidence and the surfaces compared. A local code-quality review without this section is incomplete.
-  - The smell DSL does not perform clone detection or prove semantic uniqueness; a clean smell report never waives this repository-wide check. See `agents/maps/rust-server.md` for daemon lifecycle ownership.
-- Short gate:
-  - `rustfmt --edition 2024 --config-path rustfmt.toml --check <touched-rust-files>`
-  - focused test group
-  - `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile agent --max-violations 50`
-- Full non-release gate:
-  - `cargo test --workspace --quiet`
-  - `cargo clippy --workspace --tests --no-deps -- -D warnings`
-  - `cargo test -p code-moniker --features mcp --no-default-features --lib`
-  - `cargo test -p code-moniker --features tui,mcp --no-default-features --lib`
-- MCP surface gate (after touching `crates/cli/src/mcp/`):
-  - `cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings`
-- TUI surface gate (after touching `crates/cli/src/ui/` or `crates/workspace/src/snapshot/`):
-  - `cargo clippy -p code-moniker --features tui,mcp --no-default-features --lib --no-deps -- -D warnings`
-  - visible-contract verification: `agents/maps/rust-server.md`.
-- CLI/TUI install gate: `cargo install --path crates/cli --features tui,mcp --no-default-features` and check the exit code; `-q` piped through `tail` hides failures.
-- VS Code extension gate (after touching `vscode-extension/`): `npm test` + `npm run compile` + `npm run test:integration`; UI claims require a webview ack or a browser-harness screenshot (`agents/maps/vscode-extension.md`).
+## Code and tests
 
-## MCP Dogfood
+- Rust formatting follows `rustfmt.toml` (`hard_tabs = true`).
+- Language extractors live under `crates/core/src/lang/<lang>/`.
+- CLI integration tests live in `crates/cli/tests/`; extractor fixtures live in
+  `crates/core/tests/fixtures/`.
+- Add a focused regression when behavior changes. Documentation-only changes
+  normally need only `git diff --check`.
+- Commit messages use a short Conventional Commit subject.
 
-- Session tmux: `cm-mcp`. Keep MCP up while working on this repo; treat it as the navigation compass.
-- Structural questions (who calls X, module map, impact of a change, hierarchy of a type) go through code-moniker FIRST — load the `code-moniker` skill before the first such query of a session, never type query syntax from memory. Grep is for exact strings in files you already know.
-- Rebuild and restart `cm-mcp` after MCP/TUI/CLI changes or crashes.
-- Normal use: MCP client tools only (`code_moniker_read`, `code_moniker_symbols`, `code_moniker_usages`, `code_moniker_rules`). No JSON-RPC/curl for code exploration.
-- Post-restart probes: `agents/maps/rust-server.md`.
+## CI and release
 
-```sh
-tmux new-session -d -s cm-mcp 'cargo run -p code-moniker --features mcp --no-default-features -- mcp . --transport http --port 3210'
-tmux capture-pane -t cm-mcp -p
-```
+- CI is defined in `.github/workflows/ci.yml`.
+- Release configuration lives in `dist-workspace.toml` and `docs/release.md`.
+  `.github/workflows/v-release.yml` is generated; do not edit it directly.
+- The VS Code extension is published separately from CLI/crate releases.
 
-## Refactoring
+## Safety
 
-- Start with `$code-moniker-smell-review` or `code-moniker check <target> --profile smells --max-violations 50 --report`.
-- Adopt smell rules one by one: new rules `warn`, promote to `error` after signal review and module cleanup, keep promoted rules visible to `agent`.
-- Refactor by functional unit; validate each unit narrowly; commit each unit Conventional-style.
-
-## Rules Knowledge
-
-- Structural finding: prefer DSL rule.
-- Reusable example: executable scenario in `samples/` (`docs/check-scenarios.md`).
-- Missing DSL/operator: `evolutions/`.
-- Behavior preservation: focused test.
-- Broad check output: always pass `--max-violations <N>`.
-- JSON analysis: redirect to temp file; inspect with `jq`.
-- Pre-commit symbolic review: `code-moniker extract`/`stats`; independent review agent before staging. The review agent must apply the architecture-wide mechanism-reuse gate above, not only inspect touched lines.
-
-## CI & Release
-
-- CI workflow: `.github/workflows/ci.yml` — fmt, clippy, lib tests, `cargo moniker-check`.
-- Release: `v*.*.*` tag → cargo-dist-generated `.github/workflows/v-release.yml`; binary config lives in `dist-workspace.toml`, and crates.io publication lives in the reusable `.github/workflows/publish-crates.yml`. Publish order: `code-moniker-core`, `code-moniker-query`, `code-moniker-workspace`, `code-moniker-daemon-client`, `code-moniker-check`, `code-moniker-daemon`, `code-moniker`.
-- Do not hand-edit `.github/workflows/v-release.yml`; update `dist-workspace.toml` and rerun the pinned `dist init`. See `docs/release.md`.
-- The release workflow publishes crates and the CLI binaries only. The VS Code extension is published separately with `vsce publish` from `vscode-extension/`.
-- After release: bump `[workspace.package]` version on `main`; no `-snapshot` suffix.
-
-## Style
-
-- Formatting: `rustfmt`, `hard_tabs = true`.
-- Extractor path: `crates/core/src/lang/<lang>/` (`mod.rs`, `kinds.rs`, `canonicalize.rs`, `strategy.rs`).
-- Shared public APIs: `pub`. Module focus: one responsibility.
-- Tests: CLI in `crates/cli/tests/`; extractor fixtures in `crates/core/tests/fixtures/`.
-- Commits: Conventional Commit, short scope. PR evidence: command outputs relevant to changed surface.
-- Screenshots: docs or visual assets only.
-
-## Security
-
-- Never commit `target/`, local dogfood clones, or credentials.
-- Config examples: `.code-moniker.toml` and documented defaults.
+- Never commit `target/`, local dogfood clones, generated credentials or secrets.
+- Treat `.code-moniker.toml` and documented examples as the public configuration
+  contract.
