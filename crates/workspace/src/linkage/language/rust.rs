@@ -13,6 +13,9 @@ pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>
 	{
 		return false;
 	}
+	if !rust_reference_namespace_accepts(query, candidate) {
+		return false;
+	}
 	candidate.moniker.bind_match(query.target)
 		|| query.target.bind_match(candidate.moniker)
 		|| rust_path_target_matches_def(query, candidate)
@@ -345,6 +348,24 @@ fn is_rust_callable_kind(kind: &[u8]) -> bool {
 
 fn is_rust_call_ref(kind: &[u8]) -> bool {
 	kind == kinds::CALLS || kind == kinds::METHOD_CALL
+}
+
+fn rust_reference_namespace_accepts(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	if !matches!(
+		query.reference_kind.as_bytes(),
+		kinds::USES_TYPE | kinds::EXTENDS | kinds::IMPLEMENTS
+	) {
+		return true;
+	}
+	candidate.last_segment.is_some_and(|segment| {
+		matches!(
+			segment.kind,
+			kinds::PATH | kinds::STRUCT | kinds::ENUM | kinds::TRAIT | kinds::TYPE
+		)
+	})
 }
 
 fn is_rust_path_target_kind(kind: &[u8]) -> bool {

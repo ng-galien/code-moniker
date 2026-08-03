@@ -98,6 +98,18 @@ fn rust_bin_lib_linkage_is_anchored_to_the_manifest_not_a_src_segment() {
 }
 
 #[test]
+fn rust_type_references_ignore_value_namespace_homonyms() {
+	let snapshot = load_workspace("projects/rust/type-value-homonym");
+
+	assert_linked_once_to(
+		&snapshot,
+		"uses_type",
+		"module:config/path:Config",
+		"module:config/struct:Config",
+	);
+}
+
+#[test]
 fn global_name_matches_do_not_cross_language_boundaries() {
 	let snapshot = load_workspace("projects/mixed-language");
 	let source_identity = "module:caller/struct:Caller/method:call_language_homonyms()";
