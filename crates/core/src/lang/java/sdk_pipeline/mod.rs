@@ -8,6 +8,7 @@ mod builtins;
 mod defs;
 mod discover;
 mod imports;
+mod lombok;
 mod refs;
 mod symbols;
 mod syntax;

@@ -5,7 +5,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::resolve::manifest::{GlobalTargetAuthority, GlobalTargetQueries};
 use crate::linkage::resolve::{
-	CrateForwards, GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
+	CrateForwards, ManifestPolicy, WorkspacePackageIndex, resolve_global_scope, resolve_local_scope,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
@@ -34,17 +34,11 @@ impl ReferenceSite<'_> {
 
 pub(in crate::linkage) struct ReferenceResolver<'a> {
 	material: &'a CodeIndexMaterial,
-	local: LocalScopeResolver,
-	global: GlobalScopeResolver,
 }
 
 impl<'a> ReferenceResolver<'a> {
 	pub(in crate::linkage) fn new(material: &'a CodeIndexMaterial) -> Self {
-		Self {
-			material,
-			local: LocalScopeResolver,
-			global: GlobalScopeResolver,
-		}
+		Self { material }
 	}
 
 	pub(in crate::linkage) fn resolve_reference(
@@ -83,7 +77,7 @@ impl<'a> ReferenceResolver<'a> {
 		site: ReferenceSite<'_>,
 		policies: &LinkagePolicies<'_>,
 	) -> Option<ReferenceLinkageDecision> {
-		let global_targets = self.global.resolve(query, policies.candidates);
+		let global_targets = resolve_global_scope(query, policies.candidates);
 		let global_targets = prefer_definitions_over_reexport_aliases(
 			self.material,
 			policies.candidates,
@@ -123,7 +117,7 @@ impl<'a> ReferenceResolver<'a> {
 		if !policies.manifests.declares_external_target(original) {
 			return None;
 		}
-		let targets = self.global.resolve(forwarded, policies.candidates);
+		let targets = resolve_global_scope(forwarded, policies.candidates);
 		let targets =
 			prefer_definitions_over_reexport_aliases(self.material, policies.candidates, targets);
 		let targets = confirm_name_match_targets(policies.candidates, forwarded, targets);
@@ -209,7 +203,7 @@ fn resolve_scopes(
 	site: ReferenceSite<'_>,
 	policies: &LinkagePolicies<'_>,
 ) -> ReferenceLinkageDecision {
-	let local_targets = resolver.local.resolve(query, policies.candidates);
+	let local_targets = resolve_local_scope(query, policies.candidates);
 	if !local_targets.is_empty() {
 		let evidence = local_resolution_evidence(query, policies.candidates, &local_targets);
 		return ReferenceLinkageDecision::resolved(ResolutionDecision::new(

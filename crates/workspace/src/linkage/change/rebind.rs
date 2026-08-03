@@ -11,7 +11,7 @@ use crate::linkage::binding::LinkageStore;
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolOrdinalCatalog, SymbolSet};
-use crate::linkage::change::LinkageRefreshImpact;
+use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta};
 use crate::linkage::resolve::{matches_any_source, matches_any_symbol};
 use crate::path_util::normalize_path;
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, SourceId};
@@ -127,7 +127,7 @@ impl RebindCause {
 			Self::RetargetedTargets => {
 				references_resolved_to_retargeted_targets(bindings, graph, impact, edited_sources)
 			}
-			Self::MissingTargets => references_resolved_to_missing_targets(bindings, graph),
+			Self::MissingTargets => references_resolved_to_missing_targets(bindings, graph, impact),
 			Self::PythonBindings => {
 				references_affected_by_python_bindings(graph, impact, edited_sources)
 			}
@@ -492,7 +492,14 @@ fn references_resolved_to_retargeted_targets(
 fn references_resolved_to_missing_targets(
 	bindings: &BindingReadModel<'_>,
 	graph: &EditedGraph<'_>,
+	impact: &LinkageRefreshImpact,
 ) -> ReferenceSet {
+	if matches!(
+		impact.definitions(),
+		SymbolDelta::Unchanged | SymbolDelta::AdditiveOnly { .. }
+	) {
+		return ReferenceSet::new();
+	}
 	references_for_ids(
 		bindings,
 		bindings
@@ -567,17 +574,10 @@ fn references_matching_symbols(
 ) -> ReferenceSet {
 	let mut seen = ReferenceSet::new();
 	let mut stale = ReferenceSet::new();
-	for key in changed_candidate_keys(graph.candidates, symbols) {
+	for (key, key_symbols) in changed_candidates_by_key(graph.candidates, symbols) {
 		let Some(ids) = bindings.store.indexes.references_by_name.get(&key) else {
 			continue;
 		};
-		let mut key_symbols = symbols.clone();
-		if let Some(key_candidates) = graph.candidates.indexes().symbols_by_key(&key) {
-			key_symbols.intersect_with(key_candidates);
-		}
-		if key_symbols.is_empty() {
-			continue;
-		}
 		collect_matching_symbol_references(graph, ids, &key_symbols, &mut seen, &mut stale);
 	}
 	stale
@@ -705,26 +705,23 @@ fn references_needing_target_index_refresh(
 	references
 }
 
-fn changed_candidate_keys(
+fn changed_candidates_by_key(
 	candidates: &CandidateCatalog,
 	changed_symbols: &SymbolSet,
-) -> Vec<Vec<u8>> {
-	let mut keys = Vec::new();
+) -> FxHashMap<Vec<u8>, SymbolSet> {
+	let mut symbols_by_key = FxHashMap::default();
 	for symbol in changed_symbols.iter() {
 		let Some(symbol_keys) = candidates.query_keys_for_symbol(symbol) else {
 			continue;
 		};
 		for key in symbol_keys {
-			push_unique_key(&mut keys, key);
+			symbols_by_key
+				.entry(key)
+				.or_insert_with(SymbolSet::new)
+				.insert(symbol);
 		}
 	}
-	keys
-}
-
-fn push_unique_key(keys: &mut Vec<Vec<u8>>, key: Vec<u8>) {
-	if !keys.iter().any(|existing| existing == &key) {
-		keys.push(key);
-	}
+	symbols_by_key
 }
 
 fn changed_source_files(

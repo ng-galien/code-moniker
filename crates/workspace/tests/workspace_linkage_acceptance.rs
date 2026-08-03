@@ -824,14 +824,14 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 		"package:com/package:acme/package:nomanifest/package:caller/module:MainCaller/class:MainCaller/method:readLabel(SharedRecord)",
 		"getLabel",
 		0,
-		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:getLabel()",
 	);
 	assert_call_linked_to(
 		&snapshot,
 		"package:com/package:acme/package:nomanifest/package:caller/module:TestCaller/class:TestCaller/method:readLabel(SharedRecord)",
 		"getLabel",
 		0,
-		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:getLabel()",
 	);
 	assert_call_linked_to(
 		&snapshot,
@@ -853,7 +853,7 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 fn java_declared_source_groups_block_cross_group_calls() {
 	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
-	assert_call_unresolved(
+	assert_call_blocked(
 		&snapshot,
 		"package:com/package:acme/package:nomanifest/package:outsider/module:OutsiderCaller/class:OutsiderCaller/method:readLabel(SharedRecord)",
 		"getLabel",
@@ -968,11 +968,11 @@ fn java_inherited_fields_type_receivers_across_files() {
 		"class:HolderChild/method:useHelper()",
 		"module:Helper",
 	);
-	assert_external_reference_from_symbol(
+	assert_call_unresolved(
 		&snapshot,
-		"method_call",
-		"class:LoggedChild/method:run()",
-		"Logger",
+		"package:com/package:acme/package:nomanifest/module:LoggedChild/class:LoggedChild/method:run()",
+		"info",
+		1,
 	);
 }
 
@@ -2330,13 +2330,13 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		2,
 		"external_pkg:org/path:slf4j/path:Logger/method:info",
 	);
-	for (call, arity, field) in [
-		("setStatus", 1, "field:status"),
-		("setPriority", 1, "field:priority"),
-		("getReviewed", 0, "field:reviewed"),
-		("getImmutableCode", 0, "field:immutableCode"),
-		("getStatus", 0, "field:status"),
-		("isPriority", 0, "field:priority"),
+	for (call, arity, method) in [
+		("setStatus", 1, "method:setStatus(_)"),
+		("setPriority", 1, "method:setPriority(_)"),
+		("getReviewed", 0, "method:getReviewed()"),
+		("getImmutableCode", 0, "method:getImmutableCode()"),
+		("getStatus", 0, "method:getStatus()"),
+		("isPriority", 0, "method:isPriority()"),
 	] {
 		assert_call_linked_to(
 			snapshot,
@@ -2344,7 +2344,7 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 			call,
 			arity,
 			&format!(
-				"package:com/package:acme/package:order/module:LombokOrderState/class:LombokOrderState/{field}"
+				"package:com/package:acme/package:order/module:LombokOrderState/class:LombokOrderState/{method}"
 			),
 		);
 	}
@@ -2352,7 +2352,7 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"calls",
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
-		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/field:fieldOnly",
+		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
 	);
 	for call in ["builder", "build"] {
 		assert_call_linked_to(
@@ -2360,17 +2360,19 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
 			call,
 			0,
-			"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder",
+			&format!(
+				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/method:{call}()"
+			),
 		);
 	}
-	for (call, field) in [("reference", "field:reference"), ("status", "field:status")] {
+	for call in ["reference", "status"] {
 		assert_call_linked_to(
 			snapshot,
 			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
 			call,
 			1,
 			&format!(
-				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/{field}"
+				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/method:{call}(_)"
 			),
 		);
 	}

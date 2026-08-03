@@ -4,16 +4,11 @@ use crate::linkage::catalog::SymbolSet;
 use crate::linkage::catalog::{CandidateCatalog, LinkageQuery, SymbolOrdinal, query_keys};
 use crate::linkage::language;
 
-pub(in crate::linkage) struct LocalScopeResolver;
-
-impl LocalScopeResolver {
-	pub(in crate::linkage) fn resolve(
-		&self,
-		query: &LinkageQuery<'_>,
-		candidates: &CandidateCatalog,
-	) -> SymbolSet {
-		local_symbols(candidates, query)
-	}
+pub(in crate::linkage) fn resolve_local_scope(
+	query: &LinkageQuery<'_>,
+	candidates: &CandidateCatalog,
+) -> SymbolSet {
+	matching_symbols(candidates, local_indexes(candidates, query), query)
 }
 
 pub(in crate::linkage) fn matches_any_source(
@@ -34,14 +29,6 @@ pub(in crate::linkage) fn matches_any_symbol(
 			.candidate(symbol)
 			.is_some_and(|candidate| language::matches_candidate(query, &candidate))
 	})
-}
-
-fn local_symbols(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
-	matching_symbols(catalog, local_indexes(catalog, query), query)
-}
-
-fn global_symbols(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
-	matching_symbols(catalog, global_indexes(catalog, query), query)
 }
 
 fn local_indexes(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
@@ -170,14 +157,9 @@ impl<'a, 'q> CandidateSourceMatcher<'a, 'q> {
 	}
 }
 
-pub(in crate::linkage) struct GlobalScopeResolver;
-
-impl GlobalScopeResolver {
-	pub(in crate::linkage) fn resolve(
-		&self,
-		query: &LinkageQuery<'_>,
-		candidates: &CandidateCatalog,
-	) -> SymbolSet {
-		global_symbols(candidates, query)
-	}
+pub(in crate::linkage) fn resolve_global_scope(
+	query: &LinkageQuery<'_>,
+	candidates: &CandidateCatalog,
+) -> SymbolSet {
+	matching_symbols(candidates, global_indexes(candidates, query), query)
 }

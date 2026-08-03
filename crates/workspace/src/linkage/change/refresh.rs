@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-use code_moniker_core::core::moniker::query::bare_callable_name;
 use rayon::prelude::*;
 
 use crate::linkage::binding::LinkageMemoryMetrics;
@@ -12,9 +11,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
-use crate::linkage::change::{
-	LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta, changes_c_include_topology,
-};
+use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta, changes_c_include_topology};
 use crate::linkage::resolve::CrateForwards;
 use crate::linkage::resolve::LinkagePolicies;
 use crate::linkage::resolve::ManifestPolicy;
@@ -67,20 +64,6 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 			},
 			memory: full.memory,
 		});
-	}
-	if let Some(refresh) = refresh_symbol_only_without_linkage_work(
-		FastRefreshInput {
-			store: &mut linkage.store,
-			previous,
-			code_index,
-			material: &material,
-			impact: &refresh_impact,
-			memory: linkage.memory,
-			total_timer,
-		},
-		linkage.candidates.as_ref(),
-	) {
-		return Ok(refresh);
 	}
 	let generation = linkage.cache.next_generation();
 	let candidate_timer = Instant::now();
@@ -160,129 +143,6 @@ fn refresh_empty_linkage(
 		},
 		memory,
 	}
-}
-
-struct FastRefreshInput<'a> {
-	store: &'a mut Option<LinkageStore>,
-	previous: &'a LinkageSnapshot,
-	code_index: &'a CodeIndex,
-	material: &'a CodeIndexMaterial,
-	impact: &'a LinkageRefreshImpact,
-	memory: LinkageMemoryMetrics,
-	total_timer: Instant,
-}
-
-fn refresh_symbol_only_without_linkage_work(
-	input: FastRefreshInput<'_>,
-	candidates: Option<&CandidateCatalog>,
-) -> Option<TimedLinkageRefresh> {
-	let store = input.store.as_mut()?;
-	let can_skip = match input.impact.shape() {
-		LinkageRefreshShape::AdditiveSymbolsOnly(symbols) => {
-			let added_keys = symbol_query_keys(input.material, symbols);
-			!added_keys.is_empty() && !references_contain_any_key(store, &added_keys)
-		}
-		LinkageRefreshShape::RemovedSymbolsOnly(symbols) => candidates.is_some_and(|candidates| {
-			!resolved_references_contain_any_symbol(store, candidates.symbols(), symbols)
-		}),
-		_ => false,
-	};
-	can_skip.then(|| {
-		refresh_without_linkage_work(
-			store,
-			input.previous,
-			input.code_index,
-			input.memory,
-			input.total_timer,
-		)
-	})
-}
-
-fn refresh_without_linkage_work(
-	store: &mut LinkageStore,
-	previous: &LinkageSnapshot,
-	code_index: &CodeIndex,
-	memory: LinkageMemoryMetrics,
-	total_timer: Instant,
-) -> TimedLinkageRefresh {
-	store.advance_index_generation(code_index.generation);
-	let mut snapshot = previous.clone();
-	snapshot.index_generation = code_index.generation;
-	TimedLinkageRefresh {
-		snapshot,
-		timings: LinkageRefreshTimings {
-			total: total_timer.elapsed(),
-			..LinkageRefreshTimings::default()
-		},
-		memory,
-	}
-}
-
-fn resolved_references_contain_any_symbol(
-	store: &LinkageStore,
-	catalog: &crate::linkage::catalog::SymbolOrdinalCatalog,
-	symbols: &[crate::snapshot::SymbolId],
-) -> bool {
-	let Some(index) = &store.indexes.resolved_by_target_source else {
-		return true;
-	};
-	symbols.iter().any(|symbol| {
-		catalog
-			.ordinal(symbol)
-			.and_then(|ordinal| index.get_symbol(ordinal))
-			.is_some_and(|references| !references.is_empty())
-	})
-}
-
-fn references_contain_any_key(store: &LinkageStore, keys: &[Vec<u8>]) -> bool {
-	keys.iter()
-		.any(|key| store.indexes.references_by_name.contains_key(key))
-}
-
-fn symbol_query_keys(
-	material: &CodeIndexMaterial,
-	symbols: &[crate::snapshot::SymbolId],
-) -> Vec<Vec<u8>> {
-	let mut keys = Vec::new();
-	for symbol in symbols {
-		push_symbol_query_keys(material, symbol, &mut keys);
-	}
-	keys
-}
-
-fn push_symbol_query_keys(
-	material: &CodeIndexMaterial,
-	symbol: &crate::snapshot::SymbolId,
-	keys: &mut Vec<Vec<u8>>,
-) {
-	let Some((file_idx, def_idx)) = material.identity.symbol_location(symbol) else {
-		return;
-	};
-	let Some(file) = material.files.get(file_idx) else {
-		return;
-	};
-	if def_idx >= file.graph.def_count() {
-		return;
-	}
-	let def = file.graph.def_at(def_idx);
-	if !def.call_name.is_empty() {
-		push_unique_query_key(keys, def.call_name.to_vec());
-	}
-	if let Some(segment) = def.moniker.as_view().segments().last() {
-		push_unique_query_key(keys, bare_callable_name(segment.name).to_vec());
-		if segment.kind == code_moniker_core::lang::kinds::CLASS
-			&& let Some(short_name) = segment.name.strip_suffix(b"Attribute")
-		{
-			push_unique_query_key(keys, short_name.to_vec());
-		}
-	}
-}
-
-fn push_unique_query_key(keys: &mut Vec<Vec<u8>>, key: Vec<u8>) {
-	if key.is_empty() || keys.iter().any(|existing| existing == &key) {
-		return;
-	}
-	keys.push(key);
 }
 
 struct IncrementalLinkageInput<'a> {

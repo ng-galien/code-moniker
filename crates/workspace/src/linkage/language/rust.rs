@@ -6,23 +6,17 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::LanguageLinkageStrategy;
-
-pub(super) struct RustLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for RustLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		if query
-			.target_first
-			.is_some_and(|segment| segment.kind == kinds::SDK)
-		{
-			return false;
-		}
-		candidate.moniker.bind_match(query.target)
-			|| query.target.bind_match(candidate.moniker)
-			|| rust_path_target_matches_def(query, candidate)
-			|| rust_contextual_name_matches_def(query, candidate)
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	if query
+		.target_first
+		.is_some_and(|segment| segment.kind == kinds::SDK)
+	{
+		return false;
 	}
+	candidate.moniker.bind_match(query.target)
+		|| query.target.bind_match(candidate.moniker)
+		|| rust_path_target_matches_def(query, candidate)
+		|| rust_contextual_name_matches_def(query, candidate)
 }
 
 pub(super) fn external_crate_target_matches_def(

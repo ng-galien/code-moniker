@@ -5,15 +5,10 @@ use rustc_hash::FxHashSet;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
 
-pub(super) struct TsLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for TsLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| external_package_symbol_match(query, candidate)
-	}
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	generic_matches(query, candidate) || external_package_symbol_match(query, candidate)
 }
 
 fn external_package_symbol_match(

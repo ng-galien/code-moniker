@@ -2,20 +2,18 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::{LinkageCandidate, LinkageQuery};
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
+use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
+use crate::source::CodeIndexMaterial;
 
-pub(super) struct SqlLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for SqlLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		if sql_callable_query(query) {
-			return sql_callable_matches(query, candidate);
-		}
-		if sql_object_query(query) {
-			return sql_object_matches(query, candidate);
-		}
-		GenericLanguageLinkageStrategy.matches(query, candidate)
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	if sql_callable_query(query) {
+		return sql_callable_matches(query, candidate);
 	}
+	if sql_object_query(query) {
+		return sql_object_matches(query, candidate);
+	}
+	generic_matches(query, candidate)
 }
 
 fn sql_callable_query(query: &LinkageQuery<'_>) -> bool {
@@ -138,6 +136,56 @@ fn candidate_schema<'a>(candidate: &'a LinkageCandidate<'_>) -> Option<&'a [u8]>
 
 fn identifier_matches(left: &[u8], right: &[u8]) -> bool {
 	left == right
+}
+
+pub(super) fn classify_open_references(
+	material: &CodeIndexMaterial,
+	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&rustc_hash::FxHashSet<ReferenceId>>,
+) {
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		if !super::reference_is_language(material, reference, b"sql") {
+			continue;
+		}
+		if reference.kind == "calls"
+			&& decision
+				.linkage_targets()
+				.is_some_and(|targets| !targets.is_empty())
+		{
+			continue;
+		}
+		let reason = match reference.kind.as_str() {
+			"calls" => Some(DynamicReason::ExternalDependencyUnindexed),
+			"uses_type"
+				if matches!(
+					reference.confidence.as_deref(),
+					Some("name_match" | "resolved")
+				) =>
+			{
+				Some(DynamicReason::InsufficientLocalFacts)
+			}
+			_ => None,
+		};
+		let Some(reason) = reason else { continue };
+		let candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+		*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+			reason,
+			reference_idx,
+			reference.id,
+			candidates,
+		);
+	}
 }
 
 fn call_arity_matches(call: Option<usize>, required: Option<usize>, callable_name: &[u8]) -> bool {

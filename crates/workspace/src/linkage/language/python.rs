@@ -4,15 +4,12 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
+use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
+use crate::source::CodeIndexMaterial;
 
-pub(super) struct PythonLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for PythonLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| python_path_target_matches_def(query, candidate)
-	}
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	generic_matches(query, candidate) || python_path_target_matches_def(query, candidate)
 }
 
 fn python_path_target_matches_def(
@@ -163,4 +160,93 @@ fn is_python_callable_kind(kind: &[u8]) -> bool {
 		kind,
 		kinds::FUNCTION | kinds::ASYNC_FUNCTION | kinds::METHOD
 	)
+}
+
+pub(super) fn classify_open_references(
+	material: &CodeIndexMaterial,
+	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&rustc_hash::FxHashSet<ReferenceId>>,
+) {
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		if !super::reference_is_language(material, reference, b"python") {
+			continue;
+		}
+		let imported_external = reference.confidence.as_deref() == Some("imported")
+			&& material
+				.reference_target(&reference.id)
+				.is_some_and(super::external_target_shape);
+		let reason = if imported_external {
+			Some(DynamicReason::ExternalDependencyUnindexed)
+		} else {
+			match reference.kind.as_str() {
+				"method_call" => Some(match reference.receiver.as_deref() {
+					Some("self" | "cls") if explicit_mixin_source(material, reference) => {
+						DynamicReason::MixinContract
+					}
+					Some("member" | "subscript") => DynamicReason::DynamicAttribute,
+					_ => DynamicReason::InsufficientLocalFacts,
+				}),
+				"reads" if reference.confidence.as_deref() == Some("unresolved") => {
+					Some(DynamicReason::InsufficientLocalFacts)
+				}
+				"annotates" | "uses_type"
+					if reference.confidence.as_deref() == Some("name_match") =>
+				{
+					Some(DynamicReason::InsufficientLocalFacts)
+				}
+				_ => None,
+			}
+		};
+		let Some(reason) = reason else { continue };
+		let candidates = decision
+			.linkage_targets()
+			.cloned()
+			.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+		*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+			reason,
+			reference_idx,
+			reference.id,
+			candidates,
+		);
+	}
+}
+
+fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
+	material
+		.symbol_moniker(&reference.source_symbol)
+		.and_then(enclosing_class)
+		.and_then(|class| {
+			class
+				.as_view()
+				.segments()
+				.last()
+				.map(|segment| segment.name.to_vec())
+		})
+		.is_some_and(|name| name.ends_with(b"Mixin"))
+}
+
+fn enclosing_class(
+	source: &code_moniker_core::core::moniker::Moniker,
+) -> Option<code_moniker_core::core::moniker::Moniker> {
+	let mut current = Some(source.clone());
+	while let Some(moniker) = current {
+		if moniker
+			.as_view()
+			.segments()
+			.last()
+			.is_some_and(|segment| segment.kind == kinds::CLASS)
+		{
+			return Some(moniker);
+		}
+		current = moniker.parent();
+	}
+	None
 }

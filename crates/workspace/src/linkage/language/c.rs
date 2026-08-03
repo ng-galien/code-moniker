@@ -4,32 +4,27 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
 
 // C translation-unit visibility is recorded as `module` and checked before
 // any generic or program-wide name matching.
-pub(super) struct CLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for CLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		if candidate.visibility == b"module"
-			&& candidate.source_file != query.source_file
-			&& !source_imports_candidate_file(query, candidate)
-		{
-			return false;
-		}
-		if libc_target_matches_workspace_function(query, candidate) {
-			return true;
-		}
-		if imported_macro_matches_call(query, candidate) {
-			return true;
-		}
-		if imported_constant_matches_read(query, candidate) {
-			return true;
-		}
-		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| c_program_linkage_target_matches_def(query, candidate)
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	if candidate.visibility == b"module"
+		&& candidate.source_file != query.source_file
+		&& !source_imports_candidate_file(query, candidate)
+	{
+		return false;
 	}
+	if libc_target_matches_workspace_function(query, candidate) {
+		return true;
+	}
+	if imported_macro_matches_call(query, candidate) {
+		return true;
+	}
+	if imported_constant_matches_read(query, candidate) {
+		return true;
+	}
+	generic_matches(query, candidate) || c_program_linkage_target_matches_def(query, candidate)
 }
 
 pub(super) fn matches_include_candidate(
@@ -40,7 +35,7 @@ pub(super) fn matches_include_candidate(
 		|| macro_matches_call(query, candidate)
 		|| constant_matches_read(query, candidate)
 		|| object_macro_matches_type_modifier(query, candidate)
-		|| GenericLanguageLinkageStrategy.matches(query, candidate)
+		|| generic_matches(query, candidate)
 		|| normalized_c_target_matches_def(query, candidate)
 }
 

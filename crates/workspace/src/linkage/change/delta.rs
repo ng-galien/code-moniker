@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use code_moniker_core::lang::build_manifest::Manifest;
-
 use crate::source::CodeIndexMaterial;
 
 use crate::code::CodeIndexGraphDiff;
@@ -65,16 +63,6 @@ pub(in crate::linkage) enum SymbolDelta {
 	},
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::linkage) enum LinkageRefreshShape<'a> {
-	Empty,
-	SourceLevel,
-	ManifestPolicy,
-	AdditiveSymbolsOnly(&'a [SymbolId]),
-	RemovedSymbolsOnly(&'a [SymbolId]),
-	LinkageRelevant,
-}
-
 impl LinkageRefreshImpact {
 	pub fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
 		Self {
@@ -102,10 +90,6 @@ impl LinkageRefreshImpact {
 		self.scope.is_empty()
 			&& self.references.is_empty()
 			&& symbol_delta_is_unchanged(&self.symbols)
-	}
-
-	pub(in crate::linkage) fn shape(&self) -> LinkageRefreshShape<'_> {
-		classify_refresh_shape(self)
 	}
 
 	pub(in crate::linkage) fn changed_sources(&self) -> &[SourceId] {
@@ -188,28 +172,6 @@ impl From<CodeIndexGraphDiff> for LinkageGraphDelta {
 	}
 }
 
-fn classify_refresh_shape(impact: &LinkageRefreshImpact) -> LinkageRefreshShape<'_> {
-	if impact.is_empty() {
-		return LinkageRefreshShape::Empty;
-	}
-	if !impact.has_precise_graph_diff() {
-		return LinkageRefreshShape::SourceLevel;
-	}
-	if impact.scope.has_manifest_path_change() {
-		return LinkageRefreshShape::ManifestPolicy;
-	}
-	if !impact.references.is_empty() {
-		return LinkageRefreshShape::LinkageRelevant;
-	}
-	match &impact.symbols {
-		SymbolDelta::AdditiveOnly { added } => LinkageRefreshShape::AdditiveSymbolsOnly(added),
-		SymbolDelta::RemovedOnly { removed, .. } => {
-			LinkageRefreshShape::RemovedSymbolsOnly(removed)
-		}
-		SymbolDelta::Unchanged | SymbolDelta::Mixed { .. } => LinkageRefreshShape::LinkageRelevant,
-	}
-}
-
 impl RefreshScope {
 	fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
 		Self {
@@ -228,12 +190,6 @@ impl RefreshScope {
 
 	fn changed_paths(&self) -> &[PathBuf] {
 		&self.changed_paths
-	}
-
-	fn has_manifest_path_change(&self) -> bool {
-		self.changed_paths
-			.iter()
-			.any(|path| Manifest::for_filename(path).is_some())
 	}
 }
 

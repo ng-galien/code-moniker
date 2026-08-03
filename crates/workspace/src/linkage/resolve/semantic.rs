@@ -88,15 +88,6 @@ impl<'a> SemanticLinkage<'a> {
 		enhance_decisions(self, decisions, references, Some(changed_references));
 	}
 
-	fn semantic_context(&self) -> language::SemanticContext<'a> {
-		language::SemanticContext {
-			material: self.material,
-			candidates: self.candidates,
-			locations: self.locations,
-			source_groups: self.source_groups,
-		}
-	}
-
 	fn resolved_method_targets(
 		&self,
 		owner: &Moniker,
@@ -176,13 +167,6 @@ fn enhance_decisions(
 		changed_references,
 	);
 	let tables = build_receiver_field_tables(linkage, decisions, references);
-	language::enhance_reference_semantics(
-		&linkage.semantic_context(),
-		&tables.extends_of,
-		decisions,
-		references,
-		changed_references,
-	);
 	enhance_receiver_fields(linkage, &tables, decisions, references, changed_references);
 	enhance_python_bindings(
 		linkage,
@@ -195,9 +179,7 @@ fn enhance_decisions(
 	let pending = pending_receiver_chains(decisions, references, changed_references);
 	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
 	enhance_structural_receivers(linkage, decisions, references, changed_references);
-	classify_open_python_references(linkage, decisions, references, changed_references);
-	classify_open_csharp_references(linkage, decisions, references, changed_references);
-	classify_open_sql_references(linkage, decisions, references, changed_references);
+	language::classify_open_references(linkage.material, decisions, references, changed_references);
 	if let Some(c_includes) = &c_includes {
 		classify_c_unindexed_external_dependencies(
 			linkage,
@@ -1038,188 +1020,6 @@ fn structural_receiver_name(reference: &ReferenceRecord) -> Option<&str> {
 		return None;
 	}
 	Some(receiver)
-}
-
-fn classify_open_python_references(
-	linkage: &SemanticLinkage<'_>,
-	decisions: &mut [ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&FxHashSet<ReferenceId>>,
-) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
-			continue;
-		};
-		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-			continue;
-		}
-		let reference = &references[reference_idx];
-		if !reference_is_python(linkage.material, reference) {
-			continue;
-		}
-		let imported_external = reference.confidence.as_deref() == Some("imported")
-			&& linkage
-				.material
-				.reference_target(&reference.id)
-				.is_some_and(external_target_shape);
-		let reason = if imported_external {
-			Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed)
-		} else {
-			match reference.kind.as_str() {
-				"method_call" => Some(match reference.receiver.as_deref() {
-					Some("self" | "cls") if explicit_mixin_source(linkage.material, reference) => {
-						crate::snapshot::DynamicReason::MixinContract
-					}
-					Some("member" | "subscript") => {
-						crate::snapshot::DynamicReason::DynamicAttribute
-					}
-					_ => crate::snapshot::DynamicReason::InsufficientLocalFacts,
-				}),
-				"reads" if reference.confidence.as_deref() == Some("unresolved") => {
-					Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
-				}
-				"annotates" | "uses_type"
-					if reference.confidence.as_deref() == Some("name_match") =>
-				{
-					Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
-				}
-				_ => None,
-			}
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
-			.linkage_targets()
-			.cloned()
-			.unwrap_or_else(SymbolSet::new);
-		*decision =
-			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
-	}
-}
-
-fn classify_open_csharp_references(
-	linkage: &SemanticLinkage<'_>,
-	decisions: &mut [ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&FxHashSet<ReferenceId>>,
-) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
-			continue;
-		};
-		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-			continue;
-		}
-		let reference = &references[reference_idx];
-		if !reference_is_language(linkage.material, reference, b"cs") {
-			continue;
-		}
-		let imported_external = reference.confidence.as_deref() == Some("imported")
-			&& linkage
-				.material
-				.reference_target(&reference.id)
-				.is_some_and(external_target_shape);
-		let reason = if imported_external {
-			Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed)
-		} else if reference.confidence.as_deref() == Some("name_match")
-			&& matches!(
-				reference.kind.as_str(),
-				"method_call"
-					| "calls" | "uses_type"
-					| "typed_as" | "annotates"
-					| "instantiates"
-					| "extends"
-			) {
-			Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
-		} else {
-			None
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
-			.linkage_targets()
-			.cloned()
-			.unwrap_or_else(SymbolSet::new);
-		*decision =
-			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
-	}
-}
-
-fn classify_open_sql_references(
-	linkage: &SemanticLinkage<'_>,
-	decisions: &mut [ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&FxHashSet<ReferenceId>>,
-) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
-			continue;
-		};
-		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-			continue;
-		}
-		let reference = &references[reference_idx];
-		if !reference_is_language(linkage.material, reference, b"sql") {
-			continue;
-		}
-		if reference.kind == "calls"
-			&& decision
-				.linkage_targets()
-				.is_some_and(|targets| !targets.is_empty())
-		{
-			continue;
-		}
-		let reason = match reference.kind.as_str() {
-			"calls" => Some(crate::snapshot::DynamicReason::ExternalDependencyUnindexed),
-			"uses_type"
-				if matches!(
-					reference.confidence.as_deref(),
-					Some("name_match" | "resolved")
-				) =>
-			{
-				Some(crate::snapshot::DynamicReason::InsufficientLocalFacts)
-			}
-			_ => None,
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
-			.linkage_targets()
-			.cloned()
-			.unwrap_or_else(SymbolSet::new);
-		*decision =
-			ReferenceLinkageDecision::dynamic(reason, reference_idx, reference.id, candidates);
-	}
-}
-
-fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
-	material
-		.symbol_moniker(&reference.source_symbol)
-		.and_then(enclosing_class)
-		.and_then(|class| {
-			class
-				.as_view()
-				.segments()
-				.last()
-				.map(|segment| segment.name.to_vec())
-		})
-		.is_some_and(|name| name.ends_with(b"Mixin"))
-}
-
-fn reference_is_python(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {
-	reference_is_language(material, reference, b"python")
-}
-
-fn reference_is_language(
-	material: &CodeIndexMaterial,
-	reference: &ReferenceRecord,
-	language: &[u8],
-) -> bool {
-	material
-		.symbol_moniker(&reference.source_symbol)
-		.is_some_and(|source| {
-			source
-				.as_view()
-				.segments()
-				.any(|segment| segment.kind == kinds::LANG && segment.name == language)
-		})
 }
 
 fn runtime_binding_name(reference: &ReferenceRecord) -> Option<&str> {

@@ -60,6 +60,7 @@ impl<'src> JavaDiscover<'src> {
 		collect_imports(&mut discover, root_node, &root);
 		predeclare_types(&mut discover, root_node, &root);
 		collect_defs(&mut discover, root_node, &root);
+		super::lombok::emit_generated_members(&mut discover, root_node, &root);
 		collect_refs(&mut discover, root_node, &root);
 		DiscoveredJavaFile {
 			root,
