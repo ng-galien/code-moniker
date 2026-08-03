@@ -62,6 +62,16 @@ fn dump(snapshot: &WorkspaceSnapshot, out_path: &PathBuf) {
 		.iter()
 		.map(|symbol| (symbol.id, symbol))
 		.collect();
+	let mut methods_by_call = HashMap::<(String, Option<usize>), Vec<&str>>::new();
+	for symbol in snapshot.index.symbols.iter() {
+		let Some(call_name) = &symbol.call_name else {
+			continue;
+		};
+		methods_by_call
+			.entry((call_name.clone(), symbol.call_arity))
+			.or_default()
+			.push(symbol.identity.as_ref());
+	}
 	let unresolved_by_ref: HashMap<_, _> = snapshot
 		.linkage
 		.unresolved
@@ -165,6 +175,12 @@ fn dump(snapshot: &WorkspaceSnapshot, out_path: &PathBuf) {
 				})
 			})
 			.unwrap_or_default();
+		let structural_method_candidates = reference
+			.call_name
+			.as_ref()
+			.and_then(|name| methods_by_call.get(&(name.clone(), reference.call_arity)))
+			.cloned()
+			.unwrap_or_default();
 		let record = serde_json::json!({
 			"status": status,
 			"reason": reason,
@@ -178,6 +194,7 @@ fn dump(snapshot: &WorkspaceSnapshot, out_path: &PathBuf) {
 			"target": reference.target_identity.as_ref(),
 			"target_count": target_count,
 			"candidates": candidates,
+			"structural_method_candidates": structural_method_candidates,
 			"source_symbol": source_identity,
 			"resolved_target": resolved_target,
 		});
