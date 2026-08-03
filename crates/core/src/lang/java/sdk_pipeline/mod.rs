@@ -178,4 +178,43 @@ mod tests {
 			.collect::<HashSet<_>>();
 		assert_eq!(local_type_targets, local_records);
 	}
+
+	#[test]
+	fn qualified_inner_class_creation_keeps_its_outer_type_owner() {
+		let source = r#"
+			package com.acme;
+			class Nesting {
+				class Outer { class Inner {} }
+				void create(Outer outer) {
+					Outer.Inner inner = outer.new Inner();
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.build();
+		let graph = crate::lang::java::extract(
+			"src/main/java/com/acme/Nesting.java",
+			source,
+			&anchor,
+			true,
+			&Presets::default(),
+		);
+		let inner = MonikerBuilder::from_view(graph.root().as_view())
+			.segment(kinds::CLASS, b"Nesting")
+			.segment(kinds::CLASS, b"Outer")
+			.segment(kinds::CLASS, b"Inner")
+			.build();
+		assert!(graph.contains(&inner));
+		let qualified_targets = graph
+			.refs()
+			.filter(|reference| {
+				(reference.kind == kinds::USES_TYPE || reference.kind == kinds::INSTANTIATES)
+					&& reference.target.bind_match(&inner)
+			})
+			.count();
+
+		assert_eq!(qualified_targets, 3);
+	}
 }

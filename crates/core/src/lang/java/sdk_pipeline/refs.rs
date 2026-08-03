@@ -233,7 +233,18 @@ fn expr_refs(
 		"method_declaration" | "constructor_declaration" => {
 			return;
 		}
-		"object_creation_expression" => object_creation_ref(state, node, source),
+		"object_creation_expression" => {
+			if qualified_object_creation_refs(state, node, source, owner, env) {
+				let type_id = node.child_by_field_name("type").map(|ty| ty.id());
+				for child in named_children(node) {
+					if Some(child.id()) != type_id {
+						expr_refs(state, child, source, owner, env);
+					}
+				}
+				return;
+			}
+			object_creation_ref(state, node, source);
+		}
 		"local_variable_declaration" => {
 			if let Some(ty) = node.child_by_field_name("type") {
 				emit_type_refs(state, ty, source);
@@ -336,6 +347,57 @@ fn object_creation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Mo
 		confidence,
 		hints: RefHints::default(),
 	});
+}
+
+fn qualified_object_creation_refs(
+	state: &mut JavaDiscover<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> bool {
+	let Some(ty) = node.child_by_field_name("type") else {
+		return false;
+	};
+	let Some(path) = type_path(ty, state.source) else {
+		return false;
+	};
+	let Some(name) = path.last() else {
+		return false;
+	};
+	let Some(qualifier) = named_children(node).find(|child| child.end_byte() <= ty.start_byte())
+	else {
+		return false;
+	};
+	let Some(qualifier_owner) = receiver_owner(state, qualifier, owner, env) else {
+		return false;
+	};
+	let target = extend_segment(&qualifier_owner, kinds::CLASS, name);
+	let confidence = owner_confidence(state, &qualifier_owner);
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target: target.clone(),
+		kind: kinds::INSTANTIATES,
+		position: Some(node_position(node)),
+		confidence,
+		hints: RefHints::default(),
+	});
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target,
+		kind: kinds::USES_TYPE,
+		position: Some(node_position(type_anchor(ty))),
+		confidence,
+		hints: RefHints::default(),
+	});
+	if ty.kind() == "generic_type"
+		&& let Some(args) = generic_type_arguments(ty)
+	{
+		for argument in named_children(args) {
+			emit_type_refs(state, argument, source);
+		}
+	}
+	true
 }
 
 fn identifier_ref(

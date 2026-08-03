@@ -284,7 +284,7 @@ the acceptance surface for a failure class.
 
 ### Iteration protocol
 
-For one language and one fixed corpus:
+For one language, one discovery corpus, and a fixed qualification panel:
 
 1. Record the exact revision, corpus root, source count, elapsed phases, total
    references, and counts for all six final statuses: `resolved`, `external`,
@@ -308,10 +308,15 @@ For one language and one fixed corpus:
    expected cardinality, neighbouring buckets must not grow unexpectedly, no
    formerly certain edge may become weaker or retarget incorrectly, and
    `unclassified` must remain zero.
-8. Compare the aggregate benchmark with the fixed oracle. Quality must not
+8. Run the same before/after census on at least two other corpora for that
+   language: one small and one medium when available. A zero delta is useful
+   evidence for a syntax class absent from a corpus; any non-zero delta must be
+   explained by the same membership predicate, not merely accepted as a score
+   improvement.
+9. Compare the aggregate benchmark with the fixed oracle. Quality must not
    regress; performance must be recorded but cannot compensate for false
    edges. Remove any older specialization made redundant by the correction.
-9. Commit the validated class before selecting the next one. The commit subject
+10. Commit the validated class before selecting the next one. The commit subject
    names the semantic correction, not the witness project.
 
 ### Responsibility matrix
@@ -444,6 +449,38 @@ deltas are deterministic.
 This is the intended operating-map outcome: one source-proven class was fixed
 at extraction, its complete corpus delta was measured, and unrelated overload
 ambiguity was left untouched rather than hidden by a global name fallback.
+
+### Java qualification panel
+
+Java corrections are not accepted on Gson alone. The initial panel fixes three
+independent repositories and revisions:
+
+| Role | Corpus | Revision | Java files | Baseline references |
+| --- | --- | --- | ---: | ---: |
+| discovery / library with overload-heavy API | `dogfood/java/gson` | `828a97b` | 249 | 56,441 before local-type extraction |
+| small application/library | `../fork/rsql-jpa-specification` | `a405ec1` | 91 | 14,229 |
+| medium driver and test suite | `../fork/pgjdbc` | `77837f80` | 1,131 | 119,562 |
+
+The second Java class concerns qualified inner-class creation such as
+`outer.new Inner()` and `parent.new Child()`. The extractor previously ignored
+the qualifying expression's type and targeted a fictitious same-package
+`module:Inner/path:Inner`. The correction preserves the outer receiver type and
+targets its nested class for both `instantiates` and `uses_type`.
+
+Its cross-corpus qualification is exact:
+
+| Corpus | Resolved delta | Unresolved delta | Candidate/dynamic/blocked delta |
+| --- | ---: | ---: | ---: |
+| Gson | +12 | -12 | 0 |
+| rsql-jpa-specification | 0 | 0 | 0 |
+| pgjdbc | 0 | 0 | 0 |
+
+The zero deltas mean the qualified-creation syntax is absent from the two
+additional corpora under the measured facts; they also show that ordinary
+creation and nested-type lookup were not perturbed. Future Java classes use the
+same panel, extended with a targeted Cassandra or Pulsar subtree when the class
+needs scale or framework-specific evidence. Full Cassandra and Pulsar are not
+the default inner loop.
 
 ## Rust witness acceptance
 
