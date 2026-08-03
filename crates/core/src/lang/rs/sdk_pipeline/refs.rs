@@ -809,6 +809,7 @@ fn type_node_expr(
 				.filter_map(|child| type_node_expr(env, child, source, type_env))
 				.collect(),
 		)),
+		"unit_type" => Some(TypeExpr::Tuple(Vec::new())),
 		"type_binding" => node
 			.child_by_field_name("type")
 			.and_then(|ty| type_node_expr(env, ty, source, type_env)),
@@ -853,6 +854,7 @@ fn infer_value_type_expr(
 ) -> Option<TypeExpr> {
 	match value.kind() {
 		"call_expression" => infer_call_type_expr(env, type_env, value, function),
+		"match_expression" => infer_match_type_expr(env, type_env, value, function),
 		"struct_expression" => {
 			let name = value.child_by_field_name("name")?;
 			Some(TypeExpr::resolved(
@@ -862,6 +864,68 @@ fn infer_value_type_expr(
 		"identifier" => type_env
 			.resolve_local(node_slice(value, env.source))
 			.cloned(),
+		_ => None,
+	}
+}
+
+fn infer_match_type_expr(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
+	match_expression: Node<'_>,
+	function: &Moniker,
+) -> Option<TypeExpr> {
+	let matched = match_expression
+		.child_by_field_name("value")
+		.and_then(|value| infer_value_type_expr(env, type_env, value, function))?;
+	let body = match_expression.child_by_field_name("body")?;
+
+	for arm in named_children(body).filter(|child| child.kind() == "match_arm") {
+		let Some((variant, binding)) = arm
+			.child_by_field_name("pattern")
+			.and_then(|pattern| match_variant_binding(pattern, env.source))
+		else {
+			continue;
+		};
+		let Some(item) = variant_payload_type(&matched, variant) else {
+			continue;
+		};
+		let Some(value) = arm.child_by_field_name("value") else {
+			continue;
+		};
+		let mut arm_env = type_env.clone();
+		arm_env.bind_local(binding, item);
+		if let Some(ty) = infer_value_type_expr(env, &arm_env, value, function) {
+			return Some(ty);
+		}
+	}
+	None
+}
+
+fn match_variant_binding<'a>(pattern: Node<'a>, source: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+	let pattern = if pattern.kind() == "match_pattern" {
+		named_children(pattern).next()?
+	} else {
+		pattern
+	};
+	(pattern.kind() == "tuple_struct_pattern").then_some(())?;
+	let constructor = pattern.child_by_field_name("type")?;
+	let binding = named_children(pattern)
+		.find(|child| child.kind() == "identifier" && child.id() != constructor.id())
+		.map(|binding| node_slice(binding, source))?;
+	Some((node_slice(constructor, source), binding))
+}
+
+fn variant_payload_type(matched: &TypeExpr, variant: &[u8]) -> Option<TypeExpr> {
+	match matched {
+		TypeExpr::Ref(inner) | TypeExpr::Pointer(inner) => variant_payload_type(inner, variant),
+		TypeExpr::Generic { args, .. } => {
+			let index = match variant {
+				b"Some" | b"Ok" => 0,
+				b"Err" => 1,
+				_ => return None,
+			};
+			args.get(index).cloned()
+		}
 		_ => None,
 	}
 }
