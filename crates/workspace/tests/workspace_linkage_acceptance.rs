@@ -282,6 +282,11 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 }
 
 fn assert_c_preprocessor_linkage(snapshot: &WorkspaceSnapshot) {
+	let injected = find_reference(snapshot, "reads", "module:fragment/var:injected_value")
+		.expect("macro-introduced local read");
+	assert!(snapshot.linkage.dynamic.iter().any(|dynamic| {
+		dynamic.reference == injected.id && dynamic.reason == DynamicReason::PreprocessorExpansion
+	}));
 	assert_linked_once_from_symbol(
 		snapshot,
 		"reads",

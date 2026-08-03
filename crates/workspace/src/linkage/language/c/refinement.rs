@@ -63,14 +63,100 @@ pub(in crate::linkage) fn classify_c_preprocessor_tokens(
 	let transformed_call_ranges = collect_c_transformed_macro_arguments(
 		linkage, visibility, decisions, references, selection,
 	);
+	let expanded_macro_tokens = collect_c_expanded_macro_tokens(linkage, decisions, references);
 	classify_c_pending_macro_tokens(
 		linkage,
 		visibility,
 		decisions,
 		references,
 		&transformed_call_ranges,
+		&expanded_macro_tokens,
 		selection,
 	);
+}
+
+struct ExpandedMacroTokens {
+	invocation_end: u32,
+	tokens: FxHashSet<Vec<u8>>,
+}
+
+fn collect_c_expanded_macro_tokens(
+	linkage: &LinkageRefiner<'_>,
+	decisions: &[ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+) -> FxHashMap<crate::snapshot::SymbolId, Vec<ExpandedMacroTokens>> {
+	let mut expanded = FxHashMap::<_, Vec<ExpandedMacroTokens>>::default();
+	for decision in decisions {
+		let reference = &references[decision.reference_idx()];
+		if reference.kind != "calls" {
+			continue;
+		}
+		let Some(location) = linkage.locations.get(decision.reference_idx()) else {
+			continue;
+		};
+		let Some(invocation_range) = linkage
+			.material
+			.files
+			.get(location.source_file)
+			.and_then(|file| file.graph.ref_at(location.reference).position)
+		else {
+			continue;
+		};
+		let Some(targets) = decision.linkage_targets() else {
+			continue;
+		};
+		for target in targets.iter() {
+			let Some(candidate) = linkage.candidates.candidate(target) else {
+				continue;
+			};
+			if candidate
+				.last_segment
+				.is_none_or(|segment| segment.kind != b"macro")
+			{
+				continue;
+			}
+			let Some(file) = linkage.material.files.get(candidate.source_file) else {
+				continue;
+			};
+			let Some((start, end)) = file.graph.locate(candidate.moniker) else {
+				continue;
+			};
+			let Some(body) = file.source.as_bytes().get(start as usize..end as usize) else {
+				continue;
+			};
+			let tokens = c_identifier_tokens(body);
+			if !tokens.is_empty() {
+				expanded
+					.entry(reference.source_symbol)
+					.or_default()
+					.push(ExpandedMacroTokens {
+						invocation_end: invocation_range.1,
+						tokens,
+					});
+			}
+		}
+	}
+	expanded
+}
+
+fn c_identifier_tokens(source: &[u8]) -> FxHashSet<Vec<u8>> {
+	let mut tokens = FxHashSet::default();
+	let mut start = None;
+	for (index, byte) in source.iter().copied().enumerate() {
+		let identifier = byte == b'_' || byte.is_ascii_alphanumeric();
+		match (start, identifier) {
+			(None, true) if byte == b'_' || byte.is_ascii_alphabetic() => start = Some(index),
+			(Some(token_start), false) => {
+				tokens.insert(source[token_start..index].to_vec());
+				start = None;
+			}
+			_ => {}
+		}
+	}
+	if let Some(token_start) = start {
+		tokens.insert(source[token_start..].to_vec());
+	}
+	tokens
 }
 
 fn collect_c_transformed_macro_arguments(
@@ -168,6 +254,7 @@ fn classify_c_pending_macro_tokens(
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	transformed_call_ranges: &FxHashMap<crate::snapshot::SymbolId, Vec<(u32, u32)>>,
+	expanded_macro_tokens: &FxHashMap<crate::snapshot::SymbolId, Vec<ExpandedMacroTokens>>,
 	selection: DecisionSelection<'_>,
 ) {
 	for &decision_idx in selection.indices() {
@@ -226,7 +313,22 @@ fn classify_c_pending_macro_tokens(
 					.iter()
 					.any(|range| read_range.0 >= range.0 && read_range.1 <= range.1)
 			});
-		if !in_token_macro {
+		let expanded_by_prior_macro = raw_reference
+			.target
+			.as_view()
+			.segments()
+			.last()
+			.is_some_and(|target| {
+				expanded_macro_tokens
+					.get(&reference.source_symbol)
+					.is_some_and(|macros| {
+						macros.iter().any(|expanded| {
+							expanded.invocation_end <= read_range.0
+								&& expanded.tokens.contains(target.name)
+						})
+					})
+			});
+		if !in_token_macro && !expanded_by_prior_macro {
 			continue;
 		}
 		*decision = ReferenceLinkageDecision::dynamic(
