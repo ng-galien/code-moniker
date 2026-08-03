@@ -346,6 +346,10 @@ fn is_rust_callable_kind(kind: &[u8]) -> bool {
 	kind == kinds::FN || kind == kinds::METHOD
 }
 
+fn is_rust_call_candidate_kind(kind: &[u8]) -> bool {
+	is_rust_callable_kind(kind) || kind == b"macro"
+}
+
 fn is_rust_call_ref(kind: &[u8]) -> bool {
 	kind == kinds::CALLS || kind == kinds::METHOD_CALL
 }
@@ -354,6 +358,11 @@ fn rust_reference_namespace_accepts(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
+	if is_rust_call_ref(query.reference_kind.as_bytes()) {
+		return candidate
+			.last_segment
+			.is_some_and(|segment| is_rust_call_candidate_kind(segment.kind));
+	}
 	if !matches!(
 		query.reference_kind.as_bytes(),
 		kinds::USES_TYPE | kinds::EXTENDS | kinds::IMPLEMENTS

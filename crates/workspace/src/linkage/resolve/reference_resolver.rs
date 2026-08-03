@@ -5,7 +5,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::resolve::manifest::{GlobalTargetAuthority, GlobalTargetQueries};
 use crate::linkage::resolve::{
-	ManifestPolicy, ReexportForwards, WorkspacePackageIndex, resolve_global_scope,
+	BindingForwards, ManifestPolicy, WorkspacePackageIndex, resolve_global_scope,
 	resolve_local_scope,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
@@ -18,7 +18,7 @@ pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) manifests: &'a ManifestPolicy,
 	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
 	pub(in crate::linkage) packages: &'a WorkspacePackageIndex,
-	pub(in crate::linkage) forwards: &'a ReexportForwards,
+	pub(in crate::linkage) forwards: &'a BindingForwards,
 }
 
 #[derive(Clone, Copy)]
@@ -217,9 +217,12 @@ fn resolve_scopes(
 	}
 	if let Some(forwarded) = policies.forwards.rewrite_rust_named(query.target) {
 		let forwarded_query = query.with_target(&forwarded);
-		if let Some(decision) =
+		let decision = if external_tagged(query) {
 			resolver.resolve_forwarded_global(query, &forwarded_query, site, policies)
-		{
+		} else {
+			resolver.resolve_global(&forwarded_query, site, policies)
+		};
+		if let Some(decision) = decision {
 			return decision;
 		}
 	}

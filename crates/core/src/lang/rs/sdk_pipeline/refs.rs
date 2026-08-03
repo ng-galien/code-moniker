@@ -1040,28 +1040,8 @@ fn resolve_type_path(
 	let Some((head, rest)) = pieces.split_first() else {
 		return (source.clone(), kinds::CONF_UNRESOLVED);
 	};
-	match head.as_slice() {
-		b"crate" => {
-			return (
-				local_crate_path_target(source, rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		b"self" => {
-			return (
-				local_relative_path_target(&enclosing_module(source), rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		b"super" => {
-			let module = rust_parent_module(&enclosing_module(source))
-				.unwrap_or_else(|| enclosing_module(source));
-			return (
-				local_relative_path_target(&module, rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		_ => {}
+	if let Some(target) = local_qualified_path_target(source, pieces) {
+		return (target, kinds::CONF_NAME_MATCH);
 	}
 	if let Some(import) = direct_imported_symbol(env, source, head) {
 		return (
@@ -1129,6 +1109,9 @@ fn imported_path_target(
 	pieces: &[Vec<u8>],
 ) -> Option<(Moniker, &'static [u8])> {
 	let (head, rest) = pieces.split_first()?;
+	if let Some(target) = local_qualified_path_target(source, pieces) {
+		return Some((target, kinds::CONF_NAME_MATCH));
+	}
 	if let Some(target) = rust_std_associated_path(source, pieces) {
 		return Some((target, kinds::CONF_EXTERNAL));
 	}
@@ -1237,6 +1220,9 @@ fn resolve_path_call_target(
 ) -> (Moniker, &'static [u8]) {
 	if let Some(target) = rust_std_associated_path(function, pieces) {
 		return (target, kinds::CONF_EXTERNAL);
+	}
+	if let Some(target) = local_qualified_path_target(function, pieces) {
+		return (target, kinds::CONF_NAME_MATCH);
 	}
 	let Some((call_name, type_pieces)) = pieces.split_last() else {
 		return (function.clone(), kinds::CONF_UNRESOLVED);
@@ -2223,6 +2209,24 @@ fn local_crate_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	builder.build()
 }
 
+fn local_qualified_path_target(source: &Moniker, path: &[Vec<u8>]) -> Option<Moniker> {
+	let (head, mut rest) = path.split_first()?;
+	let mut base = match head.as_slice() {
+		b"crate" => project_source_root(source),
+		b"self" => enclosing_module(source),
+		b"super" => {
+			let module = enclosing_module(source);
+			rust_parent_module(&module).unwrap_or_else(|| project_source_root(&module))
+		}
+		_ => return None,
+	};
+	while rest.first().is_some_and(|piece| piece == b"super") {
+		base = rust_parent_module(&base).unwrap_or_else(|| project_source_root(&base));
+		rest = &rest[1..];
+	}
+	Some(local_relative_path_target(&base, rest))
+}
+
 fn local_relative_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	let mut builder = MonikerBuilder::from_view(scope.as_view());
 	append_symbol_path(&mut builder, path);
@@ -2287,10 +2291,18 @@ fn local_import_base<'a>(scope: &Moniker, path: &'a [Vec<u8>]) -> (Moniker, &'a 
 	match path.first().map(Vec::as_slice) {
 		Some(b"crate") => (project_source_root(scope), &path[1..]),
 		Some(b"self") => (scope.clone(), &path[1..]),
-		Some(b"super") => (
-			rust_parent_module(scope).unwrap_or_else(|| scope.clone()),
-			&path[1..],
-		),
+		Some(b"super") => {
+			let mut base = scope.clone();
+			let mut consumed = 0;
+			while path
+				.get(consumed)
+				.is_some_and(|piece| piece.as_slice() == b"super")
+			{
+				base = rust_parent_module(&base).unwrap_or_else(|| project_source_root(&base));
+				consumed += 1;
+			}
+			(base, &path[consumed..])
+		}
 		_ => (unqualified_import_base(scope), path),
 	}
 }

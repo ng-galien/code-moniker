@@ -7,12 +7,11 @@ use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::manifest::source_package_roots;
 use crate::source::CodeIndexMaterial;
 
-// A facade crate re-exporting another crate wholesale (`pub use inner::*;`)
-// makes its own name an alias for the inner crate's surface; the extractor
-// records that as a module-level reexport to the bare external root, and the
-// resolver retries unmatched external targets under the forwarded root.
+// Imports and reexports introduce binding paths distinct from their canonical
+// definitions. This table follows local Rust aliases, language barrels and
+// external facade roots before candidate selection.
 #[derive(Default)]
-pub(in crate::linkage) struct ReexportForwards {
+pub(in crate::linkage) struct BindingForwards {
 	by_root: FxHashMap<Vec<u8>, Vec<u8>>,
 	by_barrel: FxHashMap<Moniker, Moniker>,
 	rust: RustForwards,
@@ -22,17 +21,18 @@ pub(in crate::linkage) struct ReexportForwards {
 struct RustForwards {
 	by_rust_member: FxHashMap<(Vec<u8>, Vec<Vec<u8>>), Moniker>,
 	by_rust_alias: FxHashMap<Moniker, Moniker>,
+	by_rust_local_alias: FxHashMap<(Vec<u8>, Vec<Vec<u8>>), Moniker>,
 	by_rust_prefix: FxHashMap<(Vec<u8>, Vec<Vec<u8>>), Moniker>,
 }
 
-struct ReexportSite<'a> {
+struct ForwardSite<'a> {
 	manifests: &'a ManifestPolicy,
 	file_idx: usize,
 	source: &'a DefRecord,
 	reference: &'a RefRecord,
 }
 
-impl ReexportForwards {
+impl BindingForwards {
 	pub(in crate::linkage) fn build(
 		material: &CodeIndexMaterial,
 		manifests: &ManifestPolicy,
@@ -42,9 +42,9 @@ impl ReexportForwards {
 			for ref_idx in 0..file.graph.ref_count() {
 				let reference = file.graph.ref_at(ref_idx);
 				let source = file.graph.def_at(reference.source);
-				forwards.record_reexport(
+				forwards.record_forward(
 					file.lang,
-					ReexportSite {
+					ForwardSite {
 						manifests,
 						file_idx,
 						source,
@@ -56,7 +56,10 @@ impl ReexportForwards {
 		forwards
 	}
 
-	fn record_reexport(&mut self, lang: Lang, site: ReexportSite<'_>) {
+	fn record_forward(&mut self, lang: Lang, site: ForwardSite<'_>) {
+		if lang == Lang::Rs {
+			self.rust.record_local_binding(&site);
+		}
 		if site.reference.kind != kinds::REEXPORTS {
 			return;
 		}
@@ -74,7 +77,7 @@ impl ReexportForwards {
 		self.record_barrel(site.source, site.reference);
 	}
 
-	fn record_external_root(&mut self, site: &ReexportSite<'_>, target: &[u8]) {
+	fn record_external_root(&mut self, site: &ForwardSite<'_>, target: &[u8]) {
 		for root in source_package_roots(site.manifests, site.file_idx) {
 			self.by_root.entry(root).or_insert_with(|| target.to_vec());
 		}
@@ -128,7 +131,23 @@ impl ReexportForwards {
 }
 
 impl RustForwards {
-	fn record_member(&mut self, site: &ReexportSite<'_>) {
+	fn record_local_binding(&mut self, site: &ForwardSite<'_>) {
+		if !matches!(
+			site.reference.kind.as_ref(),
+			kinds::REEXPORTS | kinds::IMPORTS_MODULE | kinds::IMPORTS_SYMBOL
+		) {
+			return;
+		}
+		if let Some(alias) = rust_reexport_alias_moniker(site.source, site.reference) {
+			insert_forward(
+				&mut self.by_rust_local_alias,
+				rust_local_alias_key(&alias),
+				&site.reference.target,
+			);
+		}
+	}
+
+	fn record_member(&mut self, site: &ForwardSite<'_>) {
 		let Some(path) = rust_named_reexport_path(site.source, site.reference) else {
 			return;
 		};
@@ -151,7 +170,7 @@ impl RustForwards {
 		}
 	}
 
-	fn record_prefix(&mut self, site: &ReexportSite<'_>) {
+	fn record_prefix(&mut self, site: &ForwardSite<'_>) {
 		let Some(path) = rust_named_reexport_path(site.source, site.reference) else {
 			return;
 		};
@@ -165,6 +184,9 @@ impl RustForwards {
 	}
 
 	fn rewrite_named(&self, target: &Moniker) -> Option<Moniker> {
+		if let Some(forwarded) = self.rewrite_local_alias(target) {
+			return self.follow_aliases(forwarded);
+		}
 		let mut segments = target.as_view().segments();
 		let head = segments.next()?;
 		if head.kind != kinds::EXTERNAL_PKG {
@@ -206,14 +228,63 @@ impl RustForwards {
 	}
 
 	fn follow_aliases(&self, mut target: Moniker) -> Option<Moniker> {
-		for _ in 0..=self.by_rust_alias.len() {
-			let Some(forwarded) = self.by_rust_alias.get(&target) else {
+		let limit = self.by_rust_alias.len() + self.by_rust_local_alias.len();
+		for _ in 0..=limit {
+			let forwarded = self
+				.by_rust_alias
+				.get(&target)
+				.cloned()
+				.or_else(|| self.rewrite_local_alias(&target));
+			let Some(forwarded) = forwarded else {
 				return Some(target);
 			};
-			target = forwarded.clone();
+			target = forwarded;
 		}
 		None
 	}
+
+	fn rewrite_local_alias(&self, target: &Moniker) -> Option<Moniker> {
+		let view = target.as_view();
+		let segments = view
+			.segments()
+			.filter(|segment| {
+				segment.kind != kinds::MODULE || !matches!(segment.name, b"lib" | b"main")
+			})
+			.collect::<Vec<_>>();
+		for prefix_len in (1..=segments.len()).rev() {
+			let key = (
+				view.project().to_vec(),
+				segments[..prefix_len]
+					.iter()
+					.map(|segment| segment.name.to_vec())
+					.collect(),
+			);
+			let Some(forwarded) = self.by_rust_local_alias.get(&key) else {
+				continue;
+			};
+			let mut builder = MonikerBuilder::from_view(forwarded.as_view());
+			for segment in &segments[prefix_len..] {
+				builder.segment(segment.kind, segment.name);
+			}
+			let rewritten = builder.build();
+			if rewritten != *target {
+				return Some(rewritten);
+			}
+		}
+		None
+	}
+}
+
+fn rust_local_alias_key(moniker: &Moniker) -> (Vec<u8>, Vec<Vec<u8>>) {
+	let view = moniker.as_view();
+	let path = view
+		.segments()
+		.filter(|segment| {
+			segment.kind != kinds::MODULE || !matches!(segment.name, b"lib" | b"main")
+		})
+		.map(|segment| segment.name.to_vec())
+		.collect();
+	(view.project().to_vec(), path)
 }
 
 fn insert_forward<K>(forwards: &mut FxHashMap<K, Moniker>, key: K, target: &Moniker)

@@ -12,11 +12,11 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
 use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta, changes_c_include_topology};
+use crate::linkage::resolve::BindingForwards;
 use crate::linkage::resolve::LinkagePolicies;
 use crate::linkage::resolve::LinkageRefiner;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
-use crate::linkage::resolve::ReexportForwards;
 use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::resolve::run_full_linkage_with_timings;
@@ -340,7 +340,7 @@ fn resolve_reference_decisions(
 	refresh_policies: &RefreshPolicies,
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = ReferenceResolver::new(input.material);
-	let forwards = ReexportForwards::build(input.material, &refresh_policies.manifests);
+	let forwards = BindingForwards::build(input.material, &refresh_policies.manifests);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &refresh_policies.manifests,

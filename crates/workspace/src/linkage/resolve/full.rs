@@ -5,9 +5,9 @@ use rayon::prelude::*;
 use crate::linkage::binding::LinkageStore;
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
+use crate::linkage::resolve::BindingForwards;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
-use crate::linkage::resolve::ReexportForwards;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
 use crate::linkage::resolve::{
 	LinkageRefiner, MethodTable, RefinementPolicies, WorkspacePackageIndex,
@@ -73,7 +73,7 @@ fn resolve_full_linkage(
 	let manifests = ManifestPolicy::build(material);
 	let source_groups = SourceGroupPolicy::build(material);
 	let packages = WorkspacePackageIndex::build(material);
-	let forwards = ReexportForwards::build(material, &manifests);
+	let forwards = BindingForwards::build(material, &manifests);
 	timings.manifest_policy = manifest_timer.elapsed();
 	let policies = LinkagePolicies {
 		candidates,

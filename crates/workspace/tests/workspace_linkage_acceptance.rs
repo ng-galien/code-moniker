@@ -770,6 +770,22 @@ fn rust_facade_reexport_does_not_rival_the_canonical_definition() {
 		"CheckRun",
 		"module:command/struct:CheckRun",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/fn:build(_run:&CheckRun)",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/module:nested/fn:execute_from_parent()",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
 }
 
 #[test]
@@ -782,7 +798,7 @@ fn rust_qualified_calls_resolve_through_module_reexports() {
 		"calls",
 		"version",
 		0,
-		"module:store/path:version",
+		"module:store/module:engine/fn:version()",
 	);
 	assert_external_reference_from_symbol(
 		&snapshot,

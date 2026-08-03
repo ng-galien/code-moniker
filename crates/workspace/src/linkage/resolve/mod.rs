@@ -6,11 +6,11 @@ mod refinement;
 mod scope;
 mod workspace_packages;
 
-mod reexport_forwards;
+mod binding_forwards;
+pub(in crate::linkage) use binding_forwards::BindingForwards;
 pub(in crate::linkage) use full::run_full_linkage_with_timings;
 pub(in crate::linkage) use manifest::ManifestPolicy;
 pub(in crate::linkage) use method_indexer::MethodIndexer;
-pub(in crate::linkage) use reexport_forwards::ReexportForwards;
 pub(in crate::linkage) use reference_resolver::{LinkagePolicies, ReferenceResolver};
 pub(in crate::linkage) use refinement::{
 	DecisionSelection, LinkageRefiner, MethodTable, RefinementPolicies,
