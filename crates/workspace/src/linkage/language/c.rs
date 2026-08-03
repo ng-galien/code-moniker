@@ -7,12 +7,12 @@ use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::language::generic_matches;
 
 mod includes;
-mod semantic;
+mod refinement;
 
 pub(in crate::linkage) use includes::CIncludeVisibility;
-pub(in crate::linkage) use semantic::{
+pub(in crate::linkage) use refinement::{
 	classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
-	enhance_c_include_visibility,
+	refine_c_include_visibility,
 };
 
 // C translation-unit visibility is recorded as `module` and checked before

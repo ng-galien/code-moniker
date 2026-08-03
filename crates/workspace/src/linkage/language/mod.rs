@@ -20,7 +20,7 @@ mod ts;
 
 pub(in crate::linkage) use c::{
 	CIncludeVisibility, classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
-	enhance_c_include_visibility,
+	refine_c_include_visibility,
 };
 pub(in crate::linkage) use python::PythonBindingGraph;
 
@@ -127,7 +127,7 @@ pub(super) fn classify_open_references(
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 			continue;
 		};
 		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
@@ -147,14 +147,14 @@ pub(super) fn classify_open_references(
 	}
 }
 
-pub(super) fn enhance_external_reexports(
+pub(super) fn refine_external_reexports(
 	material: &CodeIndexMaterial,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 	decision_indices: &[usize],
 ) {
-	ts::enhance_external_reexports(
+	ts::refine_external_reexports(
 		material,
 		decisions,
 		references,

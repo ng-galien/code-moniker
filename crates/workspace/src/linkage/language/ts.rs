@@ -59,7 +59,7 @@ pub(super) fn source_declares_external_package(
 	deps.contains(&format!("{}\0{package_prefix}", manifest.tag()))
 }
 
-pub(super) fn enhance_external_reexports(
+pub(super) fn refine_external_reexports(
 	material: &CodeIndexMaterial,
 	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,

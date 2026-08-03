@@ -16,7 +16,7 @@ use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::linkage::language::{
 	CIncludeVisibility, PythonBindingGraph, classify_c_preprocessor_tokens,
-	classify_c_unindexed_external_dependencies, enhance_c_include_visibility,
+	classify_c_unindexed_external_dependencies, refine_c_include_visibility,
 };
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::WorkspacePackageIndex;
@@ -30,11 +30,11 @@ pub(in crate::linkage) use receivers::{
 	MethodCallReference, MethodTable, ReceiverFieldTables, resolve_method_through_supers,
 };
 use receivers::{
-	build_receiver_field_tables, enhance_receiver_chains, enhance_receiver_fields,
-	enhance_structural_receivers, pending_receiver_chains,
+	build_receiver_field_tables, pending_receiver_chains, refine_receiver_chains,
+	refine_receiver_fields, refine_structural_receivers,
 };
 
-pub(in crate::linkage) struct SemanticLinkage<'a> {
+pub(in crate::linkage) struct LinkageRefiner<'a> {
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
 	methods: &'a MethodTable,
 	pub(in crate::linkage) candidates: &'a CandidateCatalog,
@@ -44,19 +44,19 @@ pub(in crate::linkage) struct SemanticLinkage<'a> {
 	manifests: &'a ManifestPolicy,
 }
 
-pub(in crate::linkage) struct SemanticPolicies<'a> {
+pub(in crate::linkage) struct RefinementPolicies<'a> {
 	source_groups: &'a SourceGroupPolicy,
 	packages: &'a WorkspacePackageIndex,
 	manifests: &'a ManifestPolicy,
 }
 
 #[derive(Clone, Copy)]
-pub(in crate::linkage) struct SemanticSelection<'a> {
+pub(in crate::linkage) struct DecisionSelection<'a> {
 	decision_indices: &'a [usize],
 	changed_references: Option<&'a FxHashSet<ReferenceId>>,
 }
 
-impl<'a> SemanticSelection<'a> {
+impl<'a> DecisionSelection<'a> {
 	fn new(
 		decision_indices: &'a [usize],
 		changed_references: Option<&'a FxHashSet<ReferenceId>>,
@@ -77,7 +77,7 @@ impl<'a> SemanticSelection<'a> {
 	}
 }
 
-impl<'a> SemanticPolicies<'a> {
+impl<'a> RefinementPolicies<'a> {
 	pub(in crate::linkage) fn new(
 		source_groups: &'a SourceGroupPolicy,
 		packages: &'a WorkspacePackageIndex,
@@ -91,13 +91,13 @@ impl<'a> SemanticPolicies<'a> {
 	}
 }
 
-impl<'a> SemanticLinkage<'a> {
+impl<'a> LinkageRefiner<'a> {
 	pub(in crate::linkage) fn new(
 		material: &'a CodeIndexMaterial,
 		methods: &'a MethodTable,
 		candidates: &'a CandidateCatalog,
 		locations: &'a ReferenceLocations,
-		policies: SemanticPolicies<'a>,
+		policies: RefinementPolicies<'a>,
 	) -> Self {
 		Self {
 			material,
@@ -110,34 +110,34 @@ impl<'a> SemanticLinkage<'a> {
 		}
 	}
 
-	pub(in crate::linkage) fn enhance(
+	pub(in crate::linkage) fn refine(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
 	) {
-		enhance_decisions(self, decisions, references, None);
+		refine_decisions(self, decisions, references, None);
 	}
 
-	pub(in crate::linkage) fn enhance_changed(
+	pub(in crate::linkage) fn refine_changed(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
 		changed_references: &FxHashSet<ReferenceId>,
 	) {
-		enhance_decisions(self, decisions, references, Some(changed_references));
+		refine_decisions(self, decisions, references, Some(changed_references));
 	}
 }
 
-fn enhance_decisions(
-	linkage: &SemanticLinkage<'_>,
+fn refine_decisions(
+	linkage: &LinkageRefiner<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	let (c_decisions, python_decisions, typescript_decisions) =
 		partition_language_decisions(linkage, decisions);
-	let c_selection = SemanticSelection::new(&c_decisions, changed_references);
-	let python_selection = SemanticSelection::new(&python_decisions, changed_references);
+	let c_selection = DecisionSelection::new(&c_decisions, changed_references);
+	let python_selection = DecisionSelection::new(&python_decisions, changed_references);
 	language::classify_runtime_imports(
 		linkage.material,
 		decisions,
@@ -145,7 +145,7 @@ fn enhance_decisions(
 		changed_references,
 		&python_decisions,
 	);
-	language::enhance_external_reexports(
+	language::refine_external_reexports(
 		linkage.material,
 		decisions,
 		references,
@@ -154,7 +154,7 @@ fn enhance_decisions(
 	);
 	let c_includes = (!c_decisions.is_empty()).then(|| CIncludeVisibility::build(linkage.material));
 	if let Some(c_includes) = &c_includes {
-		enhance_c_include_visibility(linkage, c_includes, decisions, references, c_selection);
+		refine_c_include_visibility(linkage, c_includes, decisions, references, c_selection);
 		classify_c_preprocessor_tokens(linkage, c_includes, decisions, references, c_selection);
 	}
 	let bindings = if python_decisions.is_empty() {
@@ -168,17 +168,17 @@ fn enhance_decisions(
 			references,
 			&python_decisions,
 		);
-		bindings.enhance(linkage, &bootstrap, decisions, references, python_selection);
+		bindings.refine(linkage, &bootstrap, decisions, references, python_selection);
 		Some(bindings)
 	};
 	let tables = build_receiver_field_tables(linkage, decisions, references);
-	enhance_receiver_fields(linkage, &tables, decisions, references, changed_references);
+	refine_receiver_fields(linkage, &tables, decisions, references, changed_references);
 	if let Some(bindings) = &bindings {
-		bindings.enhance(linkage, &tables, decisions, references, python_selection);
+		bindings.refine(linkage, &tables, decisions, references, python_selection);
 	}
 	let pending = pending_receiver_chains(decisions, references, changed_references);
-	enhance_receiver_chains(linkage, &tables, decisions, references, pending);
-	enhance_structural_receivers(linkage, decisions, references, changed_references);
+	refine_receiver_chains(linkage, &tables, decisions, references, pending);
+	refine_structural_receivers(linkage, decisions, references, changed_references);
 	language::classify_open_references(linkage.material, decisions, references, changed_references);
 	if let Some(c_includes) = &c_includes {
 		classify_c_unindexed_external_dependencies(
@@ -192,7 +192,7 @@ fn enhance_decisions(
 }
 
 fn partition_language_decisions(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	decisions: &[ReferenceLinkageDecision],
 ) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
 	let mut c = Vec::new();

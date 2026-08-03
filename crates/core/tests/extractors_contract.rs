@@ -530,6 +530,48 @@ fn normalize(values: Vec<String>) -> bool {
 }
 
 #[test]
+fn rust_method_call_through_match_binding_targets_declared_method() {
+	let source = r#"
+struct CandidateCatalog;
+
+impl CandidateCatalog {
+	fn refresh_files(&mut self) {}
+}
+
+fn refresh(catalog: Option<&mut CandidateCatalog>) {
+	let candidates = match catalog {
+		Some(candidates) => candidates,
+		None => return,
+	};
+	candidates.refresh_files();
+}
+"#;
+	let graph = lang::rs::Lang::extract(
+		"src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let declared = graph
+		.defs()
+		.find(|def| render(&def.moniker).ends_with("/struct:CandidateCatalog/method:refresh_files()"))
+		.expect("refresh_files declaration is extracted");
+	let call = graph
+		.refs()
+		.find(|reference| {
+			reference.kind == b"method_call" && reference.receiver_hint == b"candidates"
+		})
+		.expect("candidates.refresh_files() call is extracted");
+
+	assert_eq!(
+		render(&call.target),
+		render(&declared.moniker),
+		"the extracted method call must target the method declaration"
+	);
+}
+
+#[test]
 fn rejects_unknown_expectation_fields() {
 	let spec_path = Path::new("bad.expect.toml");
 	let value = r#"

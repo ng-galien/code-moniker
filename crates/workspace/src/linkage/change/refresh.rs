@@ -13,11 +13,11 @@ use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
 use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta, changes_c_include_topology};
 use crate::linkage::resolve::LinkagePolicies;
+use crate::linkage::resolve::LinkageRefiner;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReexportForwards;
 use crate::linkage::resolve::ReferenceResolver;
-use crate::linkage::resolve::SemanticLinkage;
 use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::resolve::run_full_linkage_with_timings;
 use crate::linkage::source_groups::SourceGroupPolicy;
@@ -54,7 +54,7 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 				candidate_index: full.timings.candidate_index,
 				plan_invalidation: full.timings.manifest_policy,
 				resolve_references: full.timings.resolve_references,
-				semantic_enhance: full.timings.semantic_enhance,
+				semantic_refinement: full.timings.semantic_refinement,
 				rebuild_indexes: full.timings.store_index,
 				project_snapshot: full.timings.project_snapshot,
 				total: full.timings.total,
@@ -282,30 +282,30 @@ fn refresh_incremental_linkage(
 	let method_timer = Instant::now();
 	let methods = indexer.reindex(input.material, candidates, execution.changed_files());
 	timings.candidate_index += method_timer.elapsed();
-	let semantic_timer = Instant::now();
+	let refinement_timer = Instant::now();
 	let stale_reference_ids =
 		reference_ids_for_set(execution.stale_references(), &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
 	let Some(refresh_policies) = refresh_policies.as_ref() else {
 		unreachable!("changed references always build refresh policies");
 	};
-	SemanticLinkage::new(
+	LinkageRefiner::new(
 		input.material,
 		methods,
 		candidates,
 		&locations,
-		crate::linkage::resolve::SemanticPolicies::new(
+		crate::linkage::resolve::RefinementPolicies::new(
 			&refresh_policies.source_groups,
 			&refresh_policies.packages,
 			&refresh_policies.manifests,
 		),
 	)
-	.enhance_changed(
+	.refine_changed(
 		store.decisions_mut(),
 		&input.index.references,
 		&stale_reference_ids,
 	);
-	timings.semantic_enhance = semantic_timer.elapsed();
+	timings.semantic_refinement = refinement_timer.elapsed();
 	let rebuild_timer = Instant::now();
 	store.refresh_resolved_target_index(
 		execution.target_index_references(),

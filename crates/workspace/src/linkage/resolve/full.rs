@@ -10,7 +10,7 @@ use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReexportForwards;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
 use crate::linkage::resolve::{
-	MethodTable, SemanticLinkage, SemanticPolicies, WorkspacePackageIndex,
+	LinkageRefiner, MethodTable, RefinementPolicies, WorkspacePackageIndex,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
@@ -96,16 +96,16 @@ fn resolve_full_linkage(
 		})
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
-	let semantic_timer = Instant::now();
-	SemanticLinkage::new(
+	let refinement_timer = Instant::now();
+	LinkageRefiner::new(
 		material,
 		methods,
 		candidates,
 		&locations,
-		SemanticPolicies::new(&source_groups, &packages, &manifests),
+		RefinementPolicies::new(&source_groups, &packages, &manifests),
 	)
-	.enhance(&mut decisions, &index.references);
-	timings.semantic_enhance = semantic_timer.elapsed();
+	.refine(&mut decisions, &index.references);
+	timings.semantic_refinement = refinement_timer.elapsed();
 	let store_timer = Instant::now();
 	let store = LinkageStore::new(
 		generation,

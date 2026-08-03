@@ -46,7 +46,7 @@ impl MonikerTypeSet {
 }
 
 pub(in crate::linkage) fn build_receiver_field_tables(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	decisions: &[ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 ) -> ReceiverFieldTables {
@@ -156,8 +156,8 @@ fn field_owner_and_name(field: &Moniker) -> Option<(Moniker, Vec<u8>)> {
 	Some((field.parent()?, last.name.to_vec()))
 }
 
-pub(in crate::linkage) fn enhance_receiver_fields(
-	linkage: &SemanticLinkage<'_>,
+pub(in crate::linkage) fn refine_receiver_fields(
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
@@ -170,7 +170,7 @@ pub(in crate::linkage) fn enhance_receiver_fields(
 			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 				return None;
 			}
-			let reference_idx = decision.semantic_type_refinable_reference_idx()?;
+			let reference_idx = decision.type_refinement_reference_idx()?;
 			let reference = &references[reference_idx];
 			resolve_receiver_field_call(linkage, tables, reference_idx, reference)
 				.or_else(|| resolve_imported_method_call(linkage, tables, reference_idx, reference))
@@ -188,7 +188,7 @@ pub(in crate::linkage) fn enhance_receiver_fields(
 }
 
 fn resolve_receiver_field_call(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
@@ -248,7 +248,7 @@ fn field_type_through_extends<'a>(
 }
 
 pub(super) fn typed_receiver_decision(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	ty: &Moniker,
 	method_call: MethodCallReference<'_>,
@@ -259,7 +259,7 @@ pub(super) fn typed_receiver_decision(
 }
 
 pub(super) fn typed_receiver_types_decision(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	types: &MonikerTypeSet,
 	method_call: MethodCallReference<'_>,
@@ -327,7 +327,7 @@ pub(super) fn typed_receiver_types_decision(
 }
 
 fn resolve_imported_method_call(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
@@ -344,7 +344,7 @@ fn resolve_imported_method_call(
 }
 
 fn resolve_typed_value_call(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
@@ -365,7 +365,7 @@ fn resolve_typed_value_call(
 }
 
 fn resolve_typed_value_annotation(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
@@ -398,7 +398,7 @@ fn resolve_typed_value_annotation(
 }
 
 fn resolve_self_method_call(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
@@ -446,7 +446,7 @@ fn strip_self_path_echo(owner: &Moniker) -> Option<Moniker> {
 }
 
 pub(in crate::linkage) fn resolve_method_through_supers(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	owner: &Moniker,
 	method_call: MethodCallReference<'_>,
@@ -481,7 +481,7 @@ pub(in crate::linkage) fn resolve_method_through_supers(
 }
 
 fn declared_groups_permit_decision(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	decision: &ReferenceLinkageDecision,
 ) -> bool {
 	let Some(targets) = decision.linkage_targets() else {

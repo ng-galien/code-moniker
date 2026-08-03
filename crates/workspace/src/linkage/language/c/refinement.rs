@@ -6,22 +6,22 @@ use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
 };
 use crate::linkage::catalog::SymbolSet;
-use crate::linkage::resolve::{SemanticLinkage, SemanticSelection};
+use crate::linkage::resolve::{DecisionSelection, LinkageRefiner};
 use crate::snapshot::{RecordTable, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 
 use super::CIncludeVisibility;
 
 pub(in crate::linkage) fn classify_c_unindexed_external_dependencies(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	visibility: &CIncludeVisibility,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
-	selection: SemanticSelection<'_>,
+	selection: DecisionSelection<'_>,
 ) {
 	for &decision_idx in selection.indices() {
 		let decision = &mut decisions[decision_idx];
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 			continue;
 		};
 		if !selection.includes(decision.reference()) {
@@ -54,11 +54,11 @@ pub(in crate::linkage) fn classify_c_unindexed_external_dependencies(
 }
 
 pub(in crate::linkage) fn classify_c_preprocessor_tokens(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	visibility: &CIncludeVisibility,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
-	selection: SemanticSelection<'_>,
+	selection: DecisionSelection<'_>,
 ) {
 	let transformed_call_ranges = collect_c_transformed_macro_arguments(
 		linkage, visibility, decisions, references, selection,
@@ -74,11 +74,11 @@ pub(in crate::linkage) fn classify_c_preprocessor_tokens(
 }
 
 fn collect_c_transformed_macro_arguments(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	visibility: &CIncludeVisibility,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
-	selection: SemanticSelection<'_>,
+	selection: DecisionSelection<'_>,
 ) -> FxHashMap<crate::snapshot::SymbolId, Vec<(u32, u32)>> {
 	let mut transformed = FxHashMap::<crate::snapshot::SymbolId, Vec<(u32, u32)>>::default();
 	let mut structural_macros = FxHashMap::<Moniker, Vec<usize>>::default();
@@ -126,7 +126,7 @@ fn collect_c_transformed_macro_arguments(
 		for target in visible_macros.iter() {
 			targets.insert(target);
 		}
-		if let Some(reference_idx) = decision.semantic_pending_reference_idx()
+		if let Some(reference_idx) = decision.refinement_pending_reference_idx()
 			&& !visible_macros.is_empty()
 		{
 			pending_macro_calls.push((decision_slot, reference_idx, reference.id, visible_macros));
@@ -163,16 +163,16 @@ fn collect_c_transformed_macro_arguments(
 }
 
 fn classify_c_pending_macro_tokens(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	visibility: &CIncludeVisibility,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	transformed_call_ranges: &FxHashMap<crate::snapshot::SymbolId, Vec<(u32, u32)>>,
-	selection: SemanticSelection<'_>,
+	selection: DecisionSelection<'_>,
 ) {
 	for &decision_idx in selection.indices() {
 		let decision = &mut decisions[decision_idx];
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 			continue;
 		};
 		if !selection.includes(decision.reference()) {
@@ -239,7 +239,7 @@ fn classify_c_pending_macro_tokens(
 }
 
 fn compatible_macro_candidates(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	candidates: SymbolSet,
 	actual_arity: usize,
 ) -> SymbolSet {
@@ -570,16 +570,16 @@ fn mask_c_literals_and_comments(source: &str) -> String {
 	String::from_utf8(masked).unwrap_or_default()
 }
 
-pub(in crate::linkage) fn enhance_c_include_visibility(
-	linkage: &SemanticLinkage<'_>,
+pub(in crate::linkage) fn refine_c_include_visibility(
+	linkage: &LinkageRefiner<'_>,
 	visibility: &CIncludeVisibility,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
-	selection: SemanticSelection<'_>,
+	selection: DecisionSelection<'_>,
 ) {
 	for &decision_idx in selection.indices() {
 		let decision = &mut decisions[decision_idx];
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 			continue;
 		};
 		if !selection.includes(decision.reference()) {

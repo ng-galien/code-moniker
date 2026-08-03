@@ -1,13 +1,13 @@
 use super::*;
 
 pub(super) fn build_receiver_call_index(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	decisions: &[ReferenceLinkageDecision],
 	pending: &[usize],
 ) -> ReceiverCallIndex {
 	let mut pending_by_file = FxHashMap::<usize, Vec<(usize, usize)>>::default();
 	for idx in pending {
-		let Some(reference_idx) = decisions[*idx].semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decisions[*idx].refinement_pending_reference_idx() else {
 			continue;
 		};
 		let Some(location) = linkage.locations.get(reference_idx) else {
@@ -27,7 +27,7 @@ pub(super) fn build_receiver_call_index(
 }
 
 fn index_file_receiver_calls(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	file_idx: usize,
 	pending_refs: &[(usize, usize)],
 	index: &mut ReceiverCallIndex,
@@ -146,7 +146,7 @@ pub(in crate::linkage) fn pending_receiver_chains(
 			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 				return None;
 			}
-			let reference_idx = decision.semantic_pending_reference_idx()?;
+			let reference_idx = decision.refinement_pending_reference_idx()?;
 			MethodCallReference::new(reference_idx, &references[reference_idx]).map(|_| idx)
 		})
 		.collect()
@@ -159,7 +159,7 @@ pub(super) struct ChainContext<'a> {
 }
 
 pub(super) fn resolve_receiver_chain(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	context: &ChainContext<'_>,
 	reference_idx: usize,
@@ -352,7 +352,7 @@ pub(super) fn external_target_shape(target: &Moniker) -> bool {
 }
 
 pub(super) fn external_origin(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	target: &Moniker,
 	method_call: MethodCallReference<'_>,

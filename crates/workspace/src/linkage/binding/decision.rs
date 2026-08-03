@@ -93,7 +93,6 @@ impl ResolutionDecision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::linkage) enum ResolutionScope {
 	Local,
 	Global,
@@ -115,7 +114,6 @@ impl From<ResolutionScope> for CandidateScope {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::linkage) enum BlockReason {
 	ManifestPolicy,
 	Visibility,
@@ -123,7 +121,6 @@ pub(in crate::linkage) enum BlockReason {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::linkage) enum UnknownReason {
 	MissingQuery,
 	NoCandidate,
@@ -200,7 +197,6 @@ impl ReferenceLinkageDecision {
 		Self::Candidate { reason, resolution }
 	}
 
-	#[allow(dead_code)]
 	pub(in crate::linkage) fn dynamic(
 		reason: DynamicReason,
 		reference_idx: usize,
@@ -285,7 +281,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(in crate::linkage) fn semantic_pending_reference_idx(&self) -> Option<usize> {
+	pub(in crate::linkage) fn refinement_pending_reference_idx(&self) -> Option<usize> {
 		match self {
 			Self::Candidate {
 				reason: CandidateReason::WeakNameMatch,
@@ -300,10 +296,10 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(in crate::linkage) fn semantic_type_refinable_reference_idx(&self) -> Option<usize> {
+	pub(in crate::linkage) fn type_refinement_reference_idx(&self) -> Option<usize> {
 		match self {
 			Self::Candidate { resolution, .. } => Some(resolution.reference_idx),
-			_ => self.semantic_pending_reference_idx(),
+			_ => self.refinement_pending_reference_idx(),
 		}
 	}
 

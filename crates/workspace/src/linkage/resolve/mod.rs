@@ -2,8 +2,8 @@ mod full;
 mod manifest;
 mod method_indexer;
 mod reference_resolver;
+mod refinement;
 mod scope;
-mod semantic;
 mod workspace_packages;
 
 mod reexport_forwards;
@@ -12,13 +12,13 @@ pub(in crate::linkage) use manifest::ManifestPolicy;
 pub(in crate::linkage) use method_indexer::MethodIndexer;
 pub(in crate::linkage) use reexport_forwards::ReexportForwards;
 pub(in crate::linkage) use reference_resolver::{LinkagePolicies, ReferenceResolver};
-pub(in crate::linkage) use scope::{
-	matches_any_source, matches_any_symbol, resolve_global_scope, resolve_local_scope,
+pub(in crate::linkage) use refinement::{
+	DecisionSelection, LinkageRefiner, MethodTable, RefinementPolicies,
 };
-pub(in crate::linkage) use semantic::{
+pub(in crate::linkage) use refinement::{
 	MethodCallReference, ReceiverFieldTables, resolve_method_through_supers,
 };
-pub(in crate::linkage) use semantic::{
-	MethodTable, SemanticLinkage, SemanticPolicies, SemanticSelection,
+pub(in crate::linkage) use scope::{
+	matches_any_source, matches_any_symbol, resolve_global_scope, resolve_local_scope,
 };
 pub(in crate::linkage) use workspace_packages::WorkspacePackageIndex;

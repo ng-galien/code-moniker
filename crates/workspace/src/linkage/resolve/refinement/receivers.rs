@@ -12,11 +12,11 @@ use chains::{
 };
 use fields::{MonikerTypeSet, typed_receiver_decision, typed_receiver_types_decision};
 pub(in crate::linkage) use fields::{ReceiverFieldTables, resolve_method_through_supers};
-pub(in crate::linkage) use fields::{build_receiver_field_tables, enhance_receiver_fields};
+pub(in crate::linkage) use fields::{build_receiver_field_tables, refine_receiver_fields};
 use methods::ReceiverCallIndex;
 pub(in crate::linkage) use methods::{MethodCallReference, MethodTable};
 
-impl SemanticLinkage<'_> {
+impl LinkageRefiner<'_> {
 	fn resolved_method_targets(
 		&self,
 		owner: &Moniker,
@@ -55,8 +55,8 @@ impl SemanticLinkage<'_> {
 	}
 }
 
-pub(super) fn enhance_structural_receivers(
-	linkage: &SemanticLinkage<'_>,
+pub(super) fn refine_structural_receivers(
+	linkage: &LinkageRefiner<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
@@ -111,7 +111,7 @@ pub(super) fn enhance_structural_receivers(
 
 	const MAX_STRUCTURAL_OWNERS: usize = 32;
 	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 			continue;
 		};
 		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
@@ -151,7 +151,7 @@ pub(super) fn enhance_structural_receivers(
 }
 
 fn accumulate_structural_owner(
-	linkage: &SemanticLinkage<'_>,
+	linkage: &LinkageRefiner<'_>,
 	owners_by_binding: &mut FxHashMap<(crate::snapshot::SymbolId, String), SymbolSet>,
 	reference: &ReferenceRecord,
 ) {
@@ -197,8 +197,8 @@ fn structural_receiver_name(reference: &ReferenceRecord) -> Option<&str> {
 	Some(receiver)
 }
 
-pub(super) fn enhance_receiver_chains(
-	linkage: &SemanticLinkage<'_>,
+pub(super) fn refine_receiver_chains(
+	linkage: &LinkageRefiner<'_>,
 	tables: &ReceiverFieldTables,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
@@ -225,7 +225,7 @@ pub(super) fn enhance_receiver_chains(
 		let replacements = pending
 			.par_iter()
 			.filter_map(|idx| {
-				let reference_idx = decisions[*idx].semantic_pending_reference_idx()?;
+				let reference_idx = decisions[*idx].refinement_pending_reference_idx()?;
 				resolve_receiver_chain(
 					linkage,
 					tables,
@@ -245,7 +245,7 @@ pub(super) fn enhance_receiver_chains(
 			}
 			decisions[idx] = replacement;
 		}
-		pending.retain(|idx| decisions[*idx].semantic_pending_reference_idx().is_some());
+		pending.retain(|idx| decisions[*idx].refinement_pending_reference_idx().is_some());
 	}
 }
 

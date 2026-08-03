@@ -12,7 +12,7 @@ use crate::linkage::binding::{
 };
 use crate::linkage::catalog::{CandidateCatalog, SymbolSet};
 use crate::linkage::resolve::{
-	MethodCallReference, ReceiverFieldTables, SemanticLinkage, SemanticSelection,
+	DecisionSelection, LinkageRefiner, MethodCallReference, ReceiverFieldTables,
 	resolve_method_through_supers,
 };
 use crate::snapshot::{
@@ -52,16 +52,16 @@ impl PythonBindingGraph {
 		graph
 	}
 
-	pub(in crate::linkage) fn enhance(
+	pub(in crate::linkage) fn refine(
 		&self,
-		linkage: &SemanticLinkage<'_>,
+		linkage: &LinkageRefiner<'_>,
 		tables: &ReceiverFieldTables,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
-		selection: SemanticSelection<'_>,
+		selection: DecisionSelection<'_>,
 	) {
 		PythonBindingResolver { graph: self }
-			.enhance(linkage, tables, decisions, references, selection);
+			.refine(linkage, tables, decisions, references, selection);
 	}
 
 	fn record_decision(
@@ -372,17 +372,17 @@ struct PythonBindingResolver<'a> {
 }
 
 impl PythonBindingResolver<'_> {
-	fn enhance(
+	fn refine(
 		&self,
-		linkage: &SemanticLinkage<'_>,
+		linkage: &LinkageRefiner<'_>,
 		tables: &ReceiverFieldTables,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
-		selection: SemanticSelection<'_>,
+		selection: DecisionSelection<'_>,
 	) {
 		for &decision_idx in selection.indices() {
 			let decision = &mut decisions[decision_idx];
-			let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
 				continue;
 			};
 			if !selection.includes(decision.reference()) {
@@ -399,7 +399,7 @@ impl PythonBindingResolver<'_> {
 
 	fn resolve_reference(
 		&self,
-		linkage: &SemanticLinkage<'_>,
+		linkage: &LinkageRefiner<'_>,
 		tables: &ReceiverFieldTables,
 		reference_idx: usize,
 		reference: &ReferenceRecord,
