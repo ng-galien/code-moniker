@@ -255,36 +255,201 @@ Thus the false-unused witness spans two measured classes: incomplete receiver
 linkage for eleven references and one missing extracted call. Treating either
 class alone as the complete bug would leave the diagnostic unsound.
 
-## Plan
+## Language-independent operating map
 
-1. Keep `linkage_census` exhaustive for every final decision and fail the
-   diagnostic if any reference is unclassified.
-2. Add decision-path evidence: candidate counts before and after policy,
-   refinements considered, and the terminal reason for each failed refinement.
-3. Run the full dogfood census and group by language, reference kind, receiver
-   shape, decision stage, and reason.
-4. Select a complete failure class by cardinality and semantic coherence. Add
-   one regression representing the class, not one regression per call site.
-5. Correct the class at its owning boundary. A local-analysis fix must improve
-   extracted residue; a linkage fix must consume that residue generically.
-6. Re-run the census and require the complete bucket to shrink or disappear
-   without growth in neighbouring buckets. Remove specialized paths made
-   redundant by the general correction.
-7. For the catalog witness, reconcile all 13 compiler-proven call sites with
-   indexed references, require every call to target its declaration, and
-   require all six false unused-method warnings to disappear.
+The Rust investigation defines a linkage method, not a Rust implementation
+recipe. Apply the same loop to every supported language and to every dogfood
+corpus. Language-specific knowledge enters only when assigning ownership or
+interpreting the emitted residue.
 
-## Acceptance
+### Required instruments
 
-The work is complete only when:
+Keep three independent sources of evidence:
 
-- all 13 rustc-proven production call sites are accounted for by the index;
-- each call is linked to its `CandidateCatalog` or `CandidateIndexes`
-  declaration;
-- each of the six methods has at least one linked `in_ref`;
-- the temporary unused-method rule reports none of the six as unused;
-- Core and Workspace extraction/linkage regressions remain green.
+1. The exhaustive `linkage_census` classifies every extracted reference. It
+   must report zero `unclassified` decisions and retain the final status,
+   reason, language, reference kind, extractor confidence, receiver shape,
+   target count, candidate identities, and structurally compatible methods.
+2. A source-level witness establishes what the program means. Prefer the
+   language compiler or type checker when it can provide a counter-check;
+   otherwise use a minimal source fixture whose declaration and consumer are
+   unambiguous.
+3. The extractor output for the witness establishes what local information
+   survived. It must be inspected before changing linkage. A correct source
+   program and an unresolved edge do not prove that linkage owns the defect.
 
-If precise receiver linkage cannot be established, an unused-method analysis
-must be inconclusive when a compatible unresolved call exists. Missing linked
-edges must never be presented as definitive proof that a method is unused.
+The benchmark and the census answer different questions. The benchmark gives
+elapsed time and aggregate quality. The census explains the aggregate and is
+the acceptance surface for a failure class.
+
+### Iteration protocol
+
+For one language and one fixed corpus:
+
+1. Record the exact revision, corpus root, source count, elapsed phases, total
+   references, and counts for all six final statuses: `resolved`, `external`,
+   `candidate`, `dynamic`, `blocked`, and `unresolved`.
+2. Partition imperfect decisions first by status, reference kind, extraction
+   confidence, receiver shape, and terminal reason. Do not group by call name
+   first: a repeated name is a symptom, not a semantic class.
+3. Subdivide the dominant bucket with evidence that changes the remedy:
+   candidate cardinality, owner availability, namespace, lexical scope,
+   source-set boundary, receiver type, argument types, inheritance, import
+   forwarding, generated code, SDK ownership, or dynamic dispatch.
+4. Select a complete and semantically coherent class. Keep several source
+   witnesses from the corpus, including at least one case that must not resolve,
+   so that a tempting name-only fallback cannot pass acceptance.
+5. Inspect the extracted graph for those witnesses and assign the earliest
+   boundary that lost information using the responsibility matrix below.
+6. Add one focused regression for the class contract. Correct the owning
+   boundary generically; do not add a call-name, project, or file-specific
+   exception.
+7. Re-run the same corpus census. The selected bucket must shrink by the
+   expected cardinality, neighbouring buckets must not grow unexpectedly, no
+   formerly certain edge may become weaker or retarget incorrectly, and
+   `unclassified` must remain zero.
+8. Compare the aggregate benchmark with the fixed oracle. Quality must not
+   regress; performance must be recorded but cannot compensate for false
+   edges. Remove any older specialization made redundant by the correction.
+9. Commit the validated class before selecting the next one. The commit subject
+   names the semantic correction, not the witness project.
+
+### Responsibility matrix
+
+| Observed loss | Owning boundary | Required correction |
+| --- | --- | --- |
+| reference absent, wrong kind/arity/span, receiver collapsed, local type or nesting lost | language extractor / local semantic pass | emit the missing locally knowable fact or residue |
+| local or parameter name competes outside its lexical scope | local scope resolution | bind or eliminate the intra-file alternative before global linkage |
+| import, alias, package, module, source set, or visibility is misrepresented | language binding model | normalize the language's binding and namespace rules |
+| correct residue exists but compatible declarations are absent | catalog / workspace surface | expose the required workspace, SDK, manifest, generated, or inherited symbols |
+| correct residue and candidates exist but owner/type evidence is not propagated | linkage refinement | consume receiver, return, argument, heritage, or forwarding evidence |
+| correct candidates remain indistinguishable under available facts | final decision | retain `candidate` or `dynamic`; never guess from uniqueness in the corpus |
+| declaration is outside the analysed workspace or SDK model | external classification | classify as external with a causal origin rather than unresolved |
+
+The boundary rule is deliberately language-neutral: extraction reports facts
+that are decidable inside one source unit; linkage combines those facts with
+other source units and catalogs. Java overload resolution, Rust namespaces,
+TypeScript structural APIs, Python dynamic dispatch, C declarations, C# type
+metadata, Go selectors, and SQL schema lookup differ in residue vocabulary, not
+in this diagnostic sequence.
+
+### Failure-class acceptance
+
+A class is complete only when:
+
+- its membership predicate is explicit and reproducible from census evidence;
+- every selected positive witness resolves to the source-proven declaration;
+- negative witnesses remain unresolved, candidate, dynamic, or external as
+  their semantics require;
+- the before/after delta accounts for the whole selected bucket, rather than
+  one convenient call site;
+- no weaker aggregate status is hidden by a stronger but incorrect edge;
+- extractor, linkage acceptance, formatting, and lint gates relevant to the
+  changed boundary remain green.
+
+If precise linkage cannot be established, an unused-symbol analysis must be
+inconclusive when a compatible imperfect reference exists. Missing linked edges
+must never be presented as definitive proof that a symbol is unused.
+
+## First Java application: Gson baseline
+
+The first cross-language run applies the operating map to
+`dogfood/java/gson` on this branch. The command is:
+
+```sh
+cargo run -q -p code-moniker-workspace --release \
+  --example linkage_census -- \
+  dogfood/java/gson /tmp/code-moniker-linkage-census-gson-baseline.jsonl
+```
+
+The census classified all 56,441 references with zero `unclassified` or
+`blocked` decisions:
+
+| Final status | Count |
+| --- | ---: |
+| resolved | 32,433 |
+| external | 21,828 |
+| candidate | 1,581 |
+| dynamic | 70 |
+| unresolved | 529 |
+
+The first partition of the 2,180 imperfect decisions is:
+
+| Class witness | Count | Current interpretation | Next evidence |
+| --- | ---: | --- | --- |
+| imported identifier `method_call`, multiple targets | 1,467 | owner is known; Java overload remains ambiguous | argument expression types and applicability |
+| name-matched `method_call`, receiver `call` | 135 | interrupted return chain or external API | inner-call decision and return type |
+| name-matched `method_call`, receiver `member` | 120 | interrupted field/member receiver | field path and declared type |
+| resolved-confidence `uses_type`, no candidate | 86 | local/nested type or target-shape/source-set mismatch | exact extracted definition identity |
+| name-matched `method_call`, identifier receiver | 59 | missing receiver binding, inheritance, or SDK owner | receiver declaration and catalog owner |
+| duck-typed identifier method set | 56 | owner not proven; dynamic is conservative | local type and heritage facts |
+| resolved-confidence direct `calls`, multiple targets | 54 | overload or static-owner ambiguity | owner plus argument types |
+| resolved-confidence `instantiates`, no candidate | 34 | constructor/type identity mismatch or absent catalog | type definition and constructor identities |
+
+This baseline already separates two very different dominant cases. Of the
+1,467 imported identifier-method candidates, 1,347 are `fromJson` or `toJson`:
+the `Gson` owner is found, but name and arity retain several overloads. That is
+an overload-refinement class, not receiver resolution. Conversely, the 314
+unresolved Java method calls include 119 with no structurally compatible
+workspace method, 84 with exactly one, and 111 with several. A unique method in
+the corpus is diagnostic evidence only; it is not permission to link without
+receiver or owner evidence.
+
+The next Java iteration starts with the smallest coherent owner-proven class,
+then moves toward receiver chains and overload applicability. Each correction
+must update this table with its exact before/after delta.
+
+### Java iteration 1: callable-scoped local types
+
+The baseline's resolved-confidence type failures exposed an extractor-owned
+class. Gson contains many Java records and classes declared inside methods. The
+extractor emitted references such as `uses_type LocalRecord` and
+`instantiates LocalRecord`, but emitted no corresponding local type definition.
+Its predeclaration table was keyed only by simple name, so several methods that
+each declared `LocalRecord` also collapsed onto one class-scoped identity.
+
+The correction makes the Java type table lexical: declarations are keyed by
+declaring scope and simple name, lookup walks the current callable/type ancestry,
+and local class, interface, enum, record, and annotation declarations are
+emitted beneath their callable. Reference traversal enters the same local type
+scope. A regression uses two methods that each declare a different `record
+Local`; both definitions and both sets of references must remain distinct.
+
+The repeated Gson census produced this delta:
+
+| Final status | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| resolved | 32,433 | 32,659 | +226 |
+| external | 21,828 | 21,968 | +140 |
+| candidate | 1,581 | 1,581 | 0 |
+| dynamic | 70 | 70 | 0 |
+| unresolved | 529 | 404 | -125 |
+| total references | 56,441 | 56,682 | +241 |
+
+The 241 new references come from local type bodies and record components that
+were previously absent. Within the unresolved bucket, `uses_type` fell from
+115 to 22, `instantiates` from 35 to 7, `method_call` from 337 to 335, and
+`reads` from 6 to 4. All 26 unresolved `LocalRecord` type uses disappeared;
+candidate and dynamic counts did not move. The Java extractor conformance,
+contract, and snapshot suites remained green.
+
+The fixed `main` oracle and the branch benchmark report a linkage score change
+from 93.89% to 94.27%. In one run, linkage time moved from 163 ms to 142 ms,
+while index time moved from 296 ms to 339 ms after adding 148 symbols and 241
+references; total time moved from 527 ms to 540 ms. A single run at this scale
+does not establish a performance regression or improvement, so these timings
+are recorded as context rather than acceptance. The quality and cardinality
+deltas are deterministic.
+
+This is the intended operating-map outcome: one source-proven class was fixed
+at extraction, its complete corpus delta was measured, and unrelated overload
+ambiguity was left untouched rather than hidden by a global name fallback.
+
+## Rust witness acceptance
+
+The original catalog witness remains a concrete application of the general
+method. It is complete only when all 13 rustc-proven production call sites are
+accounted for, each call is linked to its `CandidateCatalog` or
+`CandidateIndexes` declaration, each of the six methods has at least one linked
+`in_ref`, the temporary rule reports none of them as unused, and Core and
+Workspace regressions remain green.

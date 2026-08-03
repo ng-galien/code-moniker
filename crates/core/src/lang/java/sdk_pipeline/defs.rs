@@ -96,7 +96,7 @@ fn type_def(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker, kind:
 	let moniker = extend_segment(scope, kind, name);
 	state
 		.type_table
-		.entry(name.to_vec())
+		.entry((scope.clone(), name.to_vec()))
 		.or_insert(moniker.clone());
 	register_type_parameters(state, node, &moniker);
 	state.push_def(def_record(DefInput {
@@ -348,6 +348,29 @@ fn param_defs(state: &mut JavaDiscover<'_>, params: Node<'_>, callable: &Moniker
 }
 
 fn local_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, callable: &Moniker) {
+	match node.kind() {
+		"class_declaration" => {
+			type_def(state, node, callable, kinds::CLASS);
+			return;
+		}
+		"interface_declaration" => {
+			type_def(state, node, callable, kinds::INTERFACE);
+			return;
+		}
+		"enum_declaration" => {
+			type_def(state, node, callable, kinds::ENUM);
+			return;
+		}
+		"record_declaration" => {
+			record_def(state, node, callable);
+			return;
+		}
+		"annotation_type_declaration" => {
+			type_def(state, node, callable, kinds::ANNOTATION_TYPE);
+			return;
+		}
+		_ => {}
+	}
 	if node.kind() == "local_variable_declaration" {
 		for declarator in named_children(node).filter(|child| child.kind() == "variable_declarator")
 		{

@@ -104,6 +104,8 @@ fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'src str {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashSet;
+
 	use super::*;
 
 	#[test]
@@ -125,5 +127,55 @@ mod tests {
 
 		assert_eq!(windows, posix);
 		assert_eq!(&windows, graph.root());
+	}
+
+	#[test]
+	fn local_types_are_defined_and_resolved_in_their_callable_scope() {
+		let source = r#"
+			package com.acme;
+			class Records {
+				void first() {
+					record Local(int value) {}
+					Local local = new Local(1);
+				}
+				void second() {
+					record Local(String value) {}
+					Local local = new Local("two");
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.build();
+		let graph = crate::lang::java::extract(
+			"src/main/java/com/acme/Records.java",
+			source,
+			&anchor,
+			true,
+			&Presets::default(),
+		);
+		let local_records = graph
+			.defs()
+			.filter(|def| {
+				def.kind == kinds::RECORD
+					&& def
+						.moniker
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"Local")
+			})
+			.map(|def| def.moniker.clone())
+			.collect::<HashSet<_>>();
+
+		assert_eq!(local_records.len(), 2, "{local_records:#?}");
+		let local_type_targets = graph
+			.refs()
+			.filter(|reference| reference.kind == kinds::USES_TYPE)
+			.filter(|reference| local_records.contains(&reference.target))
+			.map(|reference| reference.target.clone())
+			.collect::<HashSet<_>>();
+		assert_eq!(local_type_targets, local_records);
 	}
 }
