@@ -7,7 +7,6 @@ use code_moniker_core::lang::kinds;
 use roaring::RoaringBitmap;
 
 use crate::linkage::catalog::{CandidateCatalog, LinkageQuery, SymbolSet, query_keys};
-use crate::linkage::language;
 use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct CIncludeVisibility {
@@ -170,7 +169,7 @@ impl CIncludeVisibility {
 				};
 				for symbol in symbols.iter() {
 					if catalog.candidate(symbol).is_some_and(|candidate| {
-						language::c_include_matches_candidate(query, &candidate)
+						super::matches_include_candidate(query, &candidate)
 					}) {
 						candidates.insert(symbol);
 					}

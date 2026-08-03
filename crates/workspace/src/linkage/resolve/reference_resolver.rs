@@ -5,7 +5,8 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::resolve::manifest::{GlobalTargetAuthority, GlobalTargetQueries};
 use crate::linkage::resolve::{
-	CrateForwards, ManifestPolicy, WorkspacePackageIndex, resolve_global_scope, resolve_local_scope,
+	ManifestPolicy, ReexportForwards, WorkspacePackageIndex, resolve_global_scope,
+	resolve_local_scope,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
@@ -17,7 +18,7 @@ pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) manifests: &'a ManifestPolicy,
 	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
 	pub(in crate::linkage) packages: &'a WorkspacePackageIndex,
-	pub(in crate::linkage) forwards: &'a CrateForwards,
+	pub(in crate::linkage) forwards: &'a ReexportForwards,
 }
 
 #[derive(Clone, Copy)]

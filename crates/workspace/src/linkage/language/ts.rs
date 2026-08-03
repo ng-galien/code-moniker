@@ -1,11 +1,13 @@
-use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::moniker::query::bare_callable_name;
+use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rustc_hash::FxHashSet;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::language::generic_matches;
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
+use crate::source::CodeIndexMaterial;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	generic_matches(query, candidate) || external_package_symbol_match(query, candidate)
@@ -55,4 +57,129 @@ pub(super) fn source_declares_external_package(
 		return false;
 	}
 	deps.contains(&format!("{}\0{package_prefix}", manifest.tag()))
+}
+
+pub(super) fn enhance_external_reexports(
+	material: &CodeIndexMaterial,
+	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+	decision_indices: &[usize],
+) {
+	type ExternalBinding = (crate::linkage::binding::ExternalOrigin, Moniker);
+	let mut aliases = rustc_hash::FxHashMap::<(Moniker, Vec<u8>), ExternalBinding>::default();
+	for &decision_idx in decision_indices {
+		let decision = &decisions[decision_idx];
+		let reference = &references[decision.reference_idx()];
+		if reference.kind != "reexports" {
+			continue;
+		}
+		let crate::linkage::binding::ReferenceLinkageDecision::External { origin, target, .. } =
+			decision
+		else {
+			continue;
+		};
+		let Some(target) = target
+			.clone()
+			.or_else(|| material.reference_target(&reference.id).cloned())
+		else {
+			continue;
+		};
+		if let Some(key) = exported_binding_key(material, reference) {
+			aliases.insert(key, (*origin, target));
+		}
+	}
+
+	loop {
+		let mut changed = false;
+		for &decision_idx in decision_indices {
+			let decision = &decisions[decision_idx];
+			let reference = &references[decision.reference_idx()];
+			if reference.kind != "reexports" {
+				continue;
+			}
+			let Some(requested) = material.reference_target(&reference.id) else {
+				continue;
+			};
+			let Some(target) = binding_key(requested)
+				.and_then(|key| aliases.get(&key))
+				.cloned()
+			else {
+				continue;
+			};
+			let Some(key) = exported_binding_key(material, reference) else {
+				continue;
+			};
+			changed |= aliases.insert(key, target.clone()).as_ref() != Some(&target);
+		}
+		if !changed {
+			break;
+		}
+	}
+
+	for &decision_idx in decision_indices {
+		let decision = &mut decisions[decision_idx];
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference_idx = decision.reference_idx();
+		let reference = &references[reference_idx];
+		let Some(requested) = material.reference_target(&reference.id) else {
+			continue;
+		};
+		let Some((origin, target)) = binding_key(requested).and_then(|key| aliases.get(&key))
+		else {
+			continue;
+		};
+		*decision = crate::linkage::binding::ReferenceLinkageDecision::external_target(
+			*origin,
+			reference_idx,
+			reference.id,
+			reexport_target(target, requested),
+		);
+	}
+}
+
+fn exported_binding_key(
+	material: &CodeIndexMaterial,
+	reference: &ReferenceRecord,
+) -> Option<(Moniker, Vec<u8>)> {
+	let owner = material.symbol_moniker(&reference.source_symbol)?.clone();
+	let name = reference
+		.alias
+		.as_deref()
+		.filter(|alias| !alias.is_empty())
+		.map(|alias| alias.as_bytes().to_vec())
+		.or_else(|| {
+			material
+				.reference_target(&reference.id)?
+				.as_view()
+				.segments()
+				.last()
+				.map(|segment| bare_callable_name(segment.name).to_vec())
+		})?;
+	Some((owner, name))
+}
+
+fn binding_key(target: &Moniker) -> Option<(Moniker, Vec<u8>)> {
+	let segment = target.as_view().segments().last()?;
+	Some((target.parent()?, bare_callable_name(segment.name).to_vec()))
+}
+
+fn reexport_target(alias: &Moniker, requested: &Moniker) -> Moniker {
+	let Some(alias_last) = alias.as_view().segments().last() else {
+		return alias.clone();
+	};
+	let Some(requested_last) = requested.as_view().segments().last() else {
+		return alias.clone();
+	};
+	if bare_callable_name(alias_last.name) != bare_callable_name(requested_last.name) {
+		return alias.clone();
+	}
+	let Some(owner) = alias.parent() else {
+		return alias.clone();
+	};
+	MonikerBuilder::from_view(owner.as_view())
+		.segment(requested_last.kind, requested_last.name)
+		.build()
 }

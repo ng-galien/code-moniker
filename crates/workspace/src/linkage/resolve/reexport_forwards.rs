@@ -12,7 +12,7 @@ use crate::source::CodeIndexMaterial;
 // records that as a module-level reexport to the bare external root, and the
 // resolver retries unmatched external targets under the forwarded root.
 #[derive(Default)]
-pub(in crate::linkage) struct CrateForwards {
+pub(in crate::linkage) struct ReexportForwards {
 	by_root: FxHashMap<Vec<u8>, Vec<u8>>,
 	by_barrel: FxHashMap<Moniker, Moniker>,
 	rust: RustForwards,
@@ -32,7 +32,7 @@ struct ReexportSite<'a> {
 	reference: &'a RefRecord,
 }
 
-impl CrateForwards {
+impl ReexportForwards {
 	pub(in crate::linkage) fn build(
 		material: &CodeIndexMaterial,
 		manifests: &ManifestPolicy,

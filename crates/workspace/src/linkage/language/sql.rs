@@ -3,8 +3,7 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::{LinkageCandidate, LinkageQuery};
 use crate::linkage::language::generic_matches;
-use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
-use crate::source::CodeIndexMaterial;
+use crate::snapshot::{DynamicReason, ReferenceRecord};
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	if sql_callable_query(query) {
@@ -138,54 +137,41 @@ fn identifier_matches(left: &[u8], right: &[u8]) -> bool {
 	left == right
 }
 
-pub(super) fn classify_open_references(
-	material: &CodeIndexMaterial,
-	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&rustc_hash::FxHashSet<ReferenceId>>,
+pub(super) fn classify_open_reference(
+	decision: &mut crate::linkage::binding::ReferenceLinkageDecision,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
 ) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
-			continue;
-		};
-		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-			continue;
-		}
-		let reference = &references[reference_idx];
-		if !super::reference_is_language(material, reference, b"sql") {
-			continue;
-		}
-		if reference.kind == "calls"
-			&& decision
-				.linkage_targets()
-				.is_some_and(|targets| !targets.is_empty())
-		{
-			continue;
-		}
-		let reason = match reference.kind.as_str() {
-			"calls" => Some(DynamicReason::ExternalDependencyUnindexed),
-			"uses_type"
-				if matches!(
-					reference.confidence.as_deref(),
-					Some("name_match" | "resolved")
-				) =>
-			{
-				Some(DynamicReason::InsufficientLocalFacts)
-			}
-			_ => None,
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
+	if reference.kind == "calls"
+		&& decision
 			.linkage_targets()
-			.cloned()
-			.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
-		*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
-			reason,
-			reference_idx,
-			reference.id,
-			candidates,
-		);
+			.is_some_and(|targets| !targets.is_empty())
+	{
+		return;
 	}
+	let reason = match reference.kind.as_str() {
+		"calls" => Some(DynamicReason::ExternalDependencyUnindexed),
+		"uses_type"
+			if matches!(
+				reference.confidence.as_deref(),
+				Some("name_match" | "resolved")
+			) =>
+		{
+			Some(DynamicReason::InsufficientLocalFacts)
+		}
+		_ => None,
+	};
+	let Some(reason) = reason else { return };
+	let candidates = decision
+		.linkage_targets()
+		.cloned()
+		.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+	*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+		reason,
+		reference_idx,
+		reference.id,
+		candidates,
+	);
 }
 
 fn call_arity_matches(call: Option<usize>, required: Option<usize>, callable_name: &[u8]) -> bool {

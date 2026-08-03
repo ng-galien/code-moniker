@@ -1,12 +1,19 @@
 use code_moniker_core::core::moniker::Segment;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
+use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::linkage::binding::ReferenceLinkageDecision;
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::SymbolSet;
 use crate::linkage::language::generic_matches;
 use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
+
+mod bindings;
+
+pub(in crate::linkage) use bindings::PythonBindingGraph;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	generic_matches(query, candidate) || python_path_target_matches_def(query, candidate)
@@ -162,61 +169,135 @@ fn is_python_callable_kind(kind: &[u8]) -> bool {
 	)
 }
 
-pub(super) fn classify_open_references(
+pub(super) fn classify_open_reference(
 	material: &CodeIndexMaterial,
-	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&rustc_hash::FxHashSet<ReferenceId>>,
+	decision: &mut crate::linkage::binding::ReferenceLinkageDecision,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
 ) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+	let imported_external = reference.confidence.as_deref() == Some("imported")
+		&& material
+			.reference_target(&reference.id)
+			.is_some_and(super::external_target_shape);
+	let reason = if imported_external {
+		Some(DynamicReason::ExternalDependencyUnindexed)
+	} else {
+		match reference.kind.as_str() {
+			"method_call" => Some(match reference.receiver.as_deref() {
+				Some("self" | "cls") if explicit_mixin_source(material, reference) => {
+					DynamicReason::MixinContract
+				}
+				Some("member" | "subscript") => DynamicReason::DynamicAttribute,
+				_ => DynamicReason::InsufficientLocalFacts,
+			}),
+			"reads" if reference.confidence.as_deref() == Some("unresolved") => {
+				Some(DynamicReason::InsufficientLocalFacts)
+			}
+			"annotates" | "uses_type" if reference.confidence.as_deref() == Some("name_match") => {
+				Some(DynamicReason::InsufficientLocalFacts)
+			}
+			_ => None,
+		}
+	};
+	let Some(reason) = reason else { return };
+	let candidates = decision
+		.linkage_targets()
+		.cloned()
+		.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+	*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+		reason,
+		reference_idx,
+		reference.id,
+		candidates,
+	);
+}
+
+pub(super) fn classify_runtime_imports(
+	material: &CodeIndexMaterial,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+	decision_indices: &[usize],
+) {
+	let mut local_import_candidates = FxHashMap::default();
+	let mut module_import_candidates = FxHashMap::default();
+	for &decision_idx in decision_indices {
+		let decision = &decisions[decision_idx];
+		let reference = &references[decision.reference_idx()];
+		if reference.receiver.as_deref() != Some("python_conditional_import")
+			|| !matches!(
+				reference.kind.as_bytes(),
+				kinds::IMPORTS_MODULE | kinds::IMPORTS_SYMBOL
+			) {
+			continue;
+		}
+		let Some(name) = runtime_binding_name(reference) else {
 			continue;
 		};
+		let source_is_module = material
+			.symbol_moniker(&reference.source_symbol)
+			.and_then(|moniker| moniker.as_view().segments().last())
+			.is_some_and(|segment| segment.kind == kinds::MODULE);
+		let candidates = if source_is_module {
+			module_import_candidates
+				.entry((reference.source, name.to_owned()))
+				.or_insert_with(SymbolSet::new)
+		} else {
+			local_import_candidates
+				.entry((reference.source_symbol, name.to_owned()))
+				.or_insert_with(SymbolSet::new)
+		};
+		if let Some(targets) = decision.linkage_targets() {
+			for target in targets.iter() {
+				candidates.insert(target);
+			}
+		}
+	}
+	for &decision_idx in decision_indices {
+		let decision = &mut decisions[decision_idx];
 		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
 			continue;
 		}
+		let reference_idx = decision.reference_idx();
 		let reference = &references[reference_idx];
-		if !super::reference_is_language(material, reference, b"python") {
+		if reference.receiver.as_deref() != Some("python_conditional_import") {
 			continue;
 		}
-		let imported_external = reference.confidence.as_deref() == Some("imported")
-			&& material
-				.reference_target(&reference.id)
-				.is_some_and(super::external_target_shape);
-		let reason = if imported_external {
-			Some(DynamicReason::ExternalDependencyUnindexed)
-		} else {
-			match reference.kind.as_str() {
-				"method_call" => Some(match reference.receiver.as_deref() {
-					Some("self" | "cls") if explicit_mixin_source(material, reference) => {
-						DynamicReason::MixinContract
-					}
-					Some("member" | "subscript") => DynamicReason::DynamicAttribute,
-					_ => DynamicReason::InsufficientLocalFacts,
-				}),
-				"reads" if reference.confidence.as_deref() == Some("unresolved") => {
-					Some(DynamicReason::InsufficientLocalFacts)
-				}
-				"annotates" | "uses_type"
-					if reference.confidence.as_deref() == Some("name_match") =>
-				{
-					Some(DynamicReason::InsufficientLocalFacts)
-				}
-				_ => None,
-			}
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
+		let mut candidates = decision
 			.linkage_targets()
 			.cloned()
-			.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
-		*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
-			reason,
+			.unwrap_or_else(SymbolSet::new);
+		if let Some(name) = runtime_binding_name(reference) {
+			if let Some(imports) =
+				local_import_candidates.get(&(reference.source_symbol, name.to_owned()))
+			{
+				for target in imports.iter() {
+					candidates.insert(target);
+				}
+			}
+			if let Some(imports) =
+				module_import_candidates.get(&(reference.source, name.to_owned()))
+			{
+				for target in imports.iter() {
+					candidates.insert(target);
+				}
+			}
+		}
+		*decision = ReferenceLinkageDecision::dynamic(
+			DynamicReason::RuntimeImport,
 			reference_idx,
 			reference.id,
 			candidates,
 		);
 	}
+}
+
+fn runtime_binding_name(reference: &ReferenceRecord) -> Option<&str> {
+	reference
+		.call_name
+		.as_deref()
+		.or_else(|| reference.alias.as_deref().filter(|alias| !alias.is_empty()))
+		.or_else(|| reference.target_identity.rsplit(':').next())
 }
 
 fn explicit_mixin_source(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> bool {

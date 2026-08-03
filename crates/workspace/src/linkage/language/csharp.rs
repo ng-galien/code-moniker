@@ -3,7 +3,7 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::{LinkageCandidate, LinkageQuery};
 use crate::linkage::language::generic_matches;
-use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
+use crate::snapshot::{DynamicReason, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
@@ -63,52 +63,40 @@ fn is_def_callable_kind(kind: &[u8]) -> bool {
 	matches!(kind, kinds::METHOD | kinds::CONSTRUCTOR)
 }
 
-pub(super) fn classify_open_references(
+pub(super) fn classify_open_reference(
 	material: &CodeIndexMaterial,
-	decisions: &mut [crate::linkage::binding::ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&rustc_hash::FxHashSet<ReferenceId>>,
+	decision: &mut crate::linkage::binding::ReferenceLinkageDecision,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
 ) {
-	for decision in decisions {
-		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
-			continue;
-		};
-		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-			continue;
-		}
-		let reference = &references[reference_idx];
-		if !super::reference_is_language(material, reference, b"cs") {
-			continue;
-		}
-		let imported_external = reference.confidence.as_deref() == Some("imported")
-			&& material
-				.reference_target(&reference.id)
-				.is_some_and(super::external_target_shape);
-		let reason = if imported_external {
-			Some(DynamicReason::ExternalDependencyUnindexed)
-		} else if reference.confidence.as_deref() == Some("name_match")
-			&& matches!(
-				reference.kind.as_str(),
-				"method_call"
-					| "calls" | "uses_type"
-					| "typed_as" | "annotates"
-					| "instantiates"
-					| "extends"
-			) {
-			Some(DynamicReason::InsufficientLocalFacts)
-		} else {
-			None
-		};
-		let Some(reason) = reason else { continue };
-		let candidates = decision
-			.linkage_targets()
-			.cloned()
-			.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
-		*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
-			reason,
-			reference_idx,
-			reference.id,
-			candidates,
-		);
-	}
+	let imported_external = reference.confidence.as_deref() == Some("imported")
+		&& material
+			.reference_target(&reference.id)
+			.is_some_and(super::external_target_shape);
+	let reason = if imported_external {
+		Some(DynamicReason::ExternalDependencyUnindexed)
+	} else if reference.confidence.as_deref() == Some("name_match")
+		&& matches!(
+			reference.kind.as_str(),
+			"method_call"
+				| "calls" | "uses_type"
+				| "typed_as" | "annotates"
+				| "instantiates"
+				| "extends"
+		) {
+		Some(DynamicReason::InsufficientLocalFacts)
+	} else {
+		None
+	};
+	let Some(reason) = reason else { return };
+	let candidates = decision
+		.linkage_targets()
+		.cloned()
+		.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+	*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+		reason,
+		reference_idx,
+		reference.id,
+		candidates,
+	);
 }

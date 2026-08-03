@@ -6,6 +6,15 @@ use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::language::generic_matches;
 
+mod includes;
+mod semantic;
+
+pub(in crate::linkage) use includes::CIncludeVisibility;
+pub(in crate::linkage) use semantic::{
+	classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
+	enhance_c_include_visibility,
+};
+
 // C translation-unit visibility is recorded as `module` and checked before
 // any generic or program-wide name matching.
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {

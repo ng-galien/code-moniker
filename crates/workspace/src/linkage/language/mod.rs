@@ -18,6 +18,12 @@ mod rust;
 mod sql;
 mod ts;
 
+pub(in crate::linkage) use c::{
+	CIncludeVisibility, classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
+	enhance_c_include_visibility,
+};
+pub(in crate::linkage) use python::PythonBindingGraph;
+
 pub(super) fn matches_candidate(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
@@ -45,13 +51,6 @@ pub(super) fn matches_candidate(
 
 fn generic_matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
 	candidate.moniker.bind_match(query.target) || query.target.bind_match(candidate.moniker)
-}
-
-pub(super) fn c_include_matches_candidate(
-	query: &LinkageQuery<'_>,
-	candidate: &LinkageCandidate<'_>,
-) -> bool {
-	c::matches_include_candidate(query, candidate)
 }
 
 pub(super) fn sql_call_has_strong_evidence(query: &LinkageQuery<'_>) -> bool {
@@ -127,39 +126,69 @@ pub(super) fn classify_open_references(
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	let mut python_present = false;
-	let mut csharp_present = false;
-	let mut sql_present = false;
-	for file in &material.files {
-		match file.lang {
-			Lang::Python => python_present = true,
-			Lang::Cs => csharp_present = true,
-			Lang::Sql => sql_present = true,
+	for decision in decisions {
+		let Some(reference_idx) = decision.semantic_pending_reference_idx() else {
+			continue;
+		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
+		let reference = &references[reference_idx];
+		match reference_language(material, reference) {
+			Some(Lang::Python) => {
+				python::classify_open_reference(material, decision, reference_idx, reference)
+			}
+			Some(Lang::Cs) => {
+				csharp::classify_open_reference(material, decision, reference_idx, reference)
+			}
+			Some(Lang::Sql) => sql::classify_open_reference(decision, reference_idx, reference),
 			_ => {}
 		}
 	}
-	if python_present {
-		python::classify_open_references(material, decisions, references, changed_references);
-	}
-	if csharp_present {
-		csharp::classify_open_references(material, decisions, references, changed_references);
-	}
-	if sql_present {
-		sql::classify_open_references(material, decisions, references, changed_references);
-	}
 }
 
-fn reference_is_language(
+pub(super) fn enhance_external_reexports(
 	material: &CodeIndexMaterial,
-	reference: &ReferenceRecord,
-	language: &[u8],
-) -> bool {
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+	decision_indices: &[usize],
+) {
+	ts::enhance_external_reexports(
+		material,
+		decisions,
+		references,
+		changed_references,
+		decision_indices,
+	);
+}
+
+pub(super) fn classify_runtime_imports(
+	material: &CodeIndexMaterial,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+	decision_indices: &[usize],
+) {
+	python::classify_runtime_imports(
+		material,
+		decisions,
+		references,
+		changed_references,
+		decision_indices,
+	);
+}
+
+fn reference_language(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> Option<Lang> {
 	material
 		.symbol_moniker(&reference.source_symbol)
-		.is_some_and(|source| {
-			source.as_view().segments().any(|segment| {
-				segment.kind == code_moniker_core::lang::kinds::LANG && segment.name == language
-			})
+		.and_then(|source| {
+			source
+				.as_view()
+				.segments()
+				.find(|segment| segment.kind == code_moniker_core::lang::kinds::LANG)
+				.and_then(|segment| std::str::from_utf8(segment.name).ok())
+				.and_then(Lang::from_tag)
 		})
 }
 
