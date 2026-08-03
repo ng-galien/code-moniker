@@ -786,6 +786,14 @@ fn rust_facade_reexport_does_not_rival_the_canonical_definition() {
 		0,
 		"module:command/fn:execute()",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/module:nested/fn:execute_from_wildcard()",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
 }
 
 #[test]

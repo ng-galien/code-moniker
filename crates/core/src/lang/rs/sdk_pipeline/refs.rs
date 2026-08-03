@@ -1414,10 +1414,14 @@ fn resolve_callable(
 
 fn resolve_callable_parent(env: &RefEnv<'_>, function: &Moniker, name: &[u8]) -> Option<Moniker> {
 	let module = enclosing_module(function);
-	env.defs
+	if env
+		.defs
 		.iter()
 		.any(|def| def.parent == module && def.kind == kinds::FN && def.call_name == name)
-		.then_some(module)
+	{
+		return Some(module);
+	}
+	wildcard_module(env, function)
 }
 
 fn unresolved_method(function: &Moniker, name: &[u8]) -> (Moniker, &'static [u8]) {
