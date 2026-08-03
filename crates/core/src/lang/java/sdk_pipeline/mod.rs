@@ -183,7 +183,7 @@ mod tests {
 	fn qualified_inner_class_creation_keeps_its_outer_type_owner() {
 		let source = r#"
 			package com.acme;
-			class Nesting {
+			class Container {
 				class Outer { class Inner {} }
 				void create(Outer outer) {
 					Outer.Inner inner = outer.new Inner();
@@ -202,7 +202,7 @@ mod tests {
 			&Presets::default(),
 		);
 		let inner = MonikerBuilder::from_view(graph.root().as_view())
-			.segment(kinds::CLASS, b"Nesting")
+			.segment(kinds::CLASS, b"Container")
 			.segment(kinds::CLASS, b"Outer")
 			.segment(kinds::CLASS, b"Inner")
 			.build();

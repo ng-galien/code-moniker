@@ -482,6 +482,35 @@ same panel, extended with a targeted Cassandra or Pulsar subtree when the class
 needs scale or framework-specific evidence. Full Cassandra and Pulsar are not
 the default inner loop.
 
+### Rejected Java experiment: wildcard imports without membership
+
+The RSQL census exposed unresolved types and calls behind imports such as
+`java.util.*` and `import static org.hamcrest.CoreMatchers.*`. A first
+experiment made an unknown type external whenever the file had exactly one
+non-static wildcard import. The panel rejected it:
+
+| Corpus | Resolved | External | Candidate | Dynamic | Unresolved | Total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gson | 0 | 0 | 0 | 0 | 0 | 0 |
+| rsql-jpa-specification | -104 | +595 | -10 | -32 | -435 | +14 |
+| pgjdbc | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The falling unresolved count was therefore misleading. The heuristic stole
+same-package types such as `RSQLCustomPredicate` and `QuerySupport`, whose Java
+precedence is higher than an on-demand import, and relabelled them as external.
+The total also changed because those wrong owners altered which bodies and
+references survived later processing.
+
+This establishes a reusable rule for every language with wildcard or glob
+imports: import cardinality is not symbol membership. Extraction records the
+imported namespace and preserves the unresolved simple name; resolution must
+combine that residue with an actual export surface or SDK catalogue. For Java,
+the order is lexical declarations, explicit single-type imports, the current
+package, then on-demand imports. If membership in an on-demand namespace is not
+known, the decision stays imperfect. A lower unresolved count alone never
+validates such a correction; resolved, external, candidate, dynamic, total,
+and concrete owner witnesses must all remain coherent across the panel.
+
 ## Rust witness acceptance
 
 The original catalog witness remains a concrete application of the general
