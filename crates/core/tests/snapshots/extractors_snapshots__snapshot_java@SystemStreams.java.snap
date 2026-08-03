@@ -54,7 +54,7 @@ input_file: crates/core/tests/fixtures/extractors/java/SystemStreams.java
         120,
         341
       ],
-      "signature": "String",
+      "signature": "static String",
       "visibility": "public"
     },
     {

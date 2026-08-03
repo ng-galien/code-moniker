@@ -341,12 +341,14 @@ fn resolve_reference_decisions(
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = ReferenceResolver::new(input.material);
 	let forwards = BindingForwards::build(input.material, &refresh_policies.manifests);
+	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(input.material);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &refresh_policies.manifests,
 		source_groups: &refresh_policies.source_groups,
 		packages: &refresh_policies.packages,
 		forwards: &forwards,
+		java_on_demand: &java_on_demand,
 	};
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()

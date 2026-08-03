@@ -19,6 +19,7 @@ pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
 	pub(in crate::linkage) packages: &'a WorkspacePackageIndex,
 	pub(in crate::linkage) forwards: &'a BindingForwards,
+	pub(in crate::linkage) java_on_demand: &'a crate::linkage::resolve::JavaOnDemandImports,
 }
 
 #[derive(Clone, Copy)]
@@ -144,6 +145,41 @@ impl<'a> ReferenceResolver<'a> {
 			global_resolution_evidence(forwarded),
 		)
 	}
+
+	fn resolve_java_on_demand(
+		&self,
+		query: &LinkageQuery<'_>,
+		site: ReferenceSite<'_>,
+		policies: &LinkagePolicies<'_>,
+	) -> Option<ReferenceLinkageDecision> {
+		let targets = policies
+			.java_on_demand
+			.matching_targets(query, policies.candidates);
+		if targets.is_empty() {
+			return None;
+		}
+		let policy = policies.manifests.evaluate_global_targets(
+			GlobalTargetQueries {
+				candidate: query,
+				authority: query,
+			},
+			targets,
+			policies.candidates,
+			|target_file| {
+				policies.source_groups.link_permission(
+					self.material,
+					query.source_file,
+					target_file,
+				)
+			},
+			GlobalTargetAuthority::Direct,
+		);
+		policy.for_reference(
+			site.reference_idx,
+			site.reference,
+			ResolutionEvidence::GlobalBinding,
+		)
+	}
 }
 
 // A rust `pub use` façade indexes a path alias that rivals the definition
@@ -227,6 +263,9 @@ fn resolve_scopes(
 		}
 	}
 	if let Some(decision) = resolver.resolve_global(query, site, policies) {
+		return decision;
+	}
+	if let Some(decision) = resolver.resolve_java_on_demand(query, site, policies) {
 		return decision;
 	}
 	if let Some(forwarded) = policies.forwards.rewrite(query.target) {

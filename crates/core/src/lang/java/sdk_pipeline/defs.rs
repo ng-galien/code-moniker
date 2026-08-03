@@ -260,8 +260,7 @@ fn callable_def(
 	};
 	let name = node_slice(name_node, state.source);
 	let slots = formal_parameter_slots(node, state.source);
-	let signature =
-		join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+	let signature = callable_signature(node, &slots);
 	let moniker = extend_callable_slots(scope, kind, name, &slots);
 	register_type_parameters(state, node, &moniker);
 	state.callables.insert(
@@ -469,7 +468,13 @@ fn push_typed_as_ref(state: &mut JavaDiscover<'_>, field: &Moniker, ty: &TypeExp
 
 fn field_declaration_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 	let mut signature = Vec::new();
+	if has_modifier(node, "static") {
+		signature.extend_from_slice(b"static");
+	}
 	if has_modifier(node, "final") {
+		if !signature.is_empty() {
+			signature.push(b' ');
+		}
 		signature.extend_from_slice(b"final");
 	}
 	let ty = field_type_signature(node, source);
@@ -478,6 +483,19 @@ fn field_declaration_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 			signature.push(b' ');
 		}
 		signature.extend_from_slice(&ty);
+	}
+	signature
+}
+
+fn callable_signature(node: Node<'_>, slots: &[CallableSlot]) -> Vec<u8> {
+	let params = join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+	if !has_modifier(node, "static") {
+		return params;
+	}
+	let mut signature = b"static".to_vec();
+	if !params.is_empty() {
+		signature.push(b' ');
+		signature.extend_from_slice(&params);
 	}
 	signature
 }

@@ -74,6 +74,7 @@ fn resolve_full_linkage(
 	let source_groups = SourceGroupPolicy::build(material);
 	let packages = WorkspacePackageIndex::build(material);
 	let forwards = BindingForwards::build(material, &manifests);
+	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
 	let policies = LinkagePolicies {
 		candidates,
@@ -81,6 +82,7 @@ fn resolve_full_linkage(
 		source_groups: &source_groups,
 		packages: &packages,
 		forwards: &forwards,
+		java_on_demand: &java_on_demand,
 	};
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);

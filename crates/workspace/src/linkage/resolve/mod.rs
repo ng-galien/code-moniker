@@ -1,4 +1,5 @@
 mod full;
+mod java_imports;
 mod manifest;
 mod method_indexer;
 mod reference_resolver;
@@ -9,6 +10,7 @@ mod workspace_packages;
 mod binding_forwards;
 pub(in crate::linkage) use binding_forwards::BindingForwards;
 pub(in crate::linkage) use full::run_full_linkage_with_timings;
+pub(in crate::linkage) use java_imports::JavaOnDemandImports;
 pub(in crate::linkage) use manifest::ManifestPolicy;
 pub(in crate::linkage) use method_indexer::MethodIndexer;
 pub(in crate::linkage) use reference_resolver::{LinkagePolicies, ReferenceResolver};

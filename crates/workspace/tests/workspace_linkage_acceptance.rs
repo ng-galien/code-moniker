@@ -891,6 +891,36 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 }
 
 #[test]
+fn java_workspace_wildcard_imports_resolve_only_exported_members() {
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
+
+	assert_linked_once_to(
+		&snapshot,
+		"uses_type",
+		"package:caller/module:Widget/path:Widget",
+		"package:exports/module:Widget/class:Widget",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"instantiates",
+		"package:caller/module:Widget/path:Widget",
+		"package:exports/module:Widget/class:Widget",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"module:WildcardCaller/class:WildcardCaller/method:decorate()",
+		"package:exports/module:Tools/class:Tools/method:decorate()",
+	);
+	assert_named_call_unresolved(
+		&snapshot,
+		"package:caller/module:WildcardCaller/class:WildcardCaller/method:invalidStaticImport()",
+		"instanceOnly",
+		0,
+	);
+}
+
+#[test]
 fn java_declared_source_groups_block_cross_group_calls() {
 	let snapshot = load_workspace("projects/java/no-manifest-declared");
 

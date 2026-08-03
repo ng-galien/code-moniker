@@ -53,7 +53,9 @@ fn import_declaration(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moni
 		.map(|piece| std::str::from_utf8(piece).unwrap_or(""))
 		.collect::<Vec<_>>();
 	let confidence = external_or_imported(&str_pieces);
-	let target = if wildcard {
+	let target = if wildcard && static_import {
+		static_wildcard_target(&state.root, &str_pieces, confidence)
+	} else if wildcard {
 		wildcard_target(&state.root, &str_pieces, confidence)
 	} else {
 		symbol_target(&state.root, &str_pieces, confidence)
@@ -69,7 +71,10 @@ fn import_declaration(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moni
 		kind,
 		position: Some(node_position(node)),
 		confidence,
-		hints: RefHints::default(),
+		hints: RefHints {
+			alias: wildcard.then_some(b"*".to_vec()).unwrap_or_default(),
+			..RefHints::default()
+		},
 	});
 	if !wildcard && let Some(name) = pieces.last() {
 		state.imports.push(ImportedSymbol {
@@ -95,6 +100,26 @@ pub(super) fn wildcard_target(module: &Moniker, pieces: &[&str], confidence: &[u
 		return builder.build();
 	}
 	external_or_sdk_target(module.as_view().project(), pieces)
+}
+
+fn static_wildcard_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Moniker {
+	if confidence != kinds::CONF_IMPORTED || pieces.is_empty() {
+		return external_or_sdk_target(module.as_view().project(), pieces);
+	}
+	let mut builder = project_regime_builder(module);
+	builder.segment(crate::lang::kinds::LANG, b"java");
+	let last = pieces.len() - 1;
+	for (index, piece) in pieces.iter().enumerate() {
+		builder.segment(
+			if index == last {
+				kinds::MODULE
+			} else {
+				kinds::PACKAGE
+			},
+			piece.as_bytes(),
+		);
+	}
+	builder.build()
 }
 
 pub(super) fn symbol_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Moniker {

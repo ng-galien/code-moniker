@@ -511,6 +511,51 @@ known, the decision stays imperfect. A lower unresolved count alone never
 validates such a correction; resolved, external, candidate, dynamic, total,
 and concrete owner witnesses must all remain coherent across the panel.
 
+### Java iteration 3: catalogue-backed workspace wildcard imports
+
+The accepted correction keeps the namespace fact emitted by extraction and
+resolves it in the workspace linkage layer, where the candidate catalogue is
+available. Direct lexical and same-package resolution still runs first. Only
+then does an on-demand package import construct a type query, or a static
+on-demand import construct a member query. Several imported namespaces produce
+the union of their real matching exports, so ambiguity remains a candidate set
+instead of being hidden by import order.
+
+The policy is language-scoped, not a global import index: its sparse map stores
+only files whose extracted language is Java, and query evaluation rejects a
+non-Java source before lookup. Its placement under `linkage/resolve` expresses
+pipeline ownership; it does not broaden its semantic scope to other languages.
+
+Static membership required one missing extractor fact. Java callable and field
+signatures now preserve the `static` modifier; the candidate catalogue exposes
+that signature to the Java import policy. A focused acceptance witness proves
+both sides: `exports.*` resolves `Widget`, `static Tools.*` resolves the static
+`decorate()`, and an instance method `Tools.instanceOnly()` is not imported.
+The unfiltered prototype resolved five such instance methods on RSQL; the
+accepted implementation leaves all five unresolved.
+
+The cross-corpus delta against iteration 2 is:
+
+| Corpus | Resolved | External | Candidate | Dynamic | Blocked | Unresolved |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gson | 0 | 0 | 0 | 0 | 0 | 0 |
+| rsql-jpa-specification | +200 | -13 | +135 | 0 | +2 | -324 |
+| pgjdbc | 0 | 0 | 0 | 0 | 0 | 0 |
+
+On RSQL, 106 type references now bind to types actually exported through a
+workspace package wildcard. Static calls split into 87 unique resolutions,
+135 overload candidate sets, one manifest-blocked call, and five correctly
+unresolved instance methods. Six static wildcard import facts now link to their
+workspace owner; one is manifest-blocked. The 13 former external decisions were
+workspace-owned imports or calls that manifest fallthrough had previously
+misclassified. Total reference cardinality, candidate/dynamic decisions on the
+two control corpora, and every control-corpus status remain unchanged.
+
+This iteration deliberately does not guess members of SDK or dependency
+wildcards. Those require an SDK/dependency export catalogue; the mere fact that
+an imported namespace starts with `java` or appears in a manifest is ownership
+evidence for the namespace, not membership evidence for an arbitrary name.
+
 ## Rust witness acceptance
 
 The original catalog witness remains a concrete application of the general
