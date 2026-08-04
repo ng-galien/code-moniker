@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -1558,7 +1558,15 @@ pub struct MetricsCouplingResult {
 	pub same_symbol_references: usize,
 	pub coverage: MetricsCouplingCoverage,
 	pub by_kind: Vec<CountDto>,
+	pub by_target: Vec<MetricsCouplingTargetUsage>,
 	pub unlinked: UnlinkedRefsDto,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MetricsCouplingTargetUsage {
+	pub moniker: String,
+	pub references: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -3661,6 +3669,15 @@ fn format_metrics_coupling(out: &mut String, result: &MetricsCouplingResult) {
 		);
 	}
 	format_unlinked(out, &result.unlinked);
+	if !result.by_target.is_empty() {
+		let _ = writeln!(out, "public boundary usage by target:");
+		for target in &result.by_target {
+			let _ = writeln!(out, "- {} x{}", target.moniker, target.references);
+		}
+	}
+	if !result.by_kind.is_empty() {
+		let _ = writeln!(out, "usage by relation kind:");
+	}
 	for kind in &result.by_kind {
 		let _ = writeln!(out, "- {} x{}", kind.name, kind.count);
 	}

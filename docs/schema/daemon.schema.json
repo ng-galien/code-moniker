@@ -1773,6 +1773,7 @@
       "type": "object",
       "required": [
         "by_kind",
+        "by_target",
         "connections",
         "coverage",
         "export_recorded",
@@ -1792,6 +1793,12 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/CountDto"
+          }
+        },
+        "by_target": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MetricsCouplingTargetUsage"
           }
         },
         "connections": {
@@ -1855,6 +1862,23 @@
         },
         "unlinked": {
           "$ref": "#/definitions/UnlinkedRefsDto"
+        }
+      }
+    },
+    "MetricsCouplingTargetUsage": {
+      "type": "object",
+      "required": [
+        "moniker",
+        "references"
+      ],
+      "properties": {
+        "moniker": {
+          "type": "string"
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       }
     },
@@ -5854,5 +5878,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 15
+  "x-code-moniker-protocol-version": 16
 }

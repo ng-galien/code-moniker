@@ -258,11 +258,15 @@ measures coupling inside that scope. `relation:` is repeatable and limits the
 measurement to selected reference kinds; without it, every resolved reference
 kind participates. The result reports reference occurrences, distinct
 source-target connections, participating source and target symbols, and counts
-by relation kind. References whose source and target roll up to the same
-navigable symbol are reported separately and excluded from coupling so local
-implementation activity does not inflate a package metric. Coverage includes
-all considered outgoing references from the source scope, their resolved
-subset, and the existing external/candidate/dynamic/unresolved classification.
+by relation kind. When `from` and `to` are different, it also groups
+occurrences by target moniker so a boundary review can distinguish repeated
+use of an existing public symbol from use of a different symbol on the target
+surface. Same-scope measurements deliberately omit this drill-down. References
+whose source and target roll up to the same navigable symbol are reported
+separately and excluded from coupling so local implementation activity does
+not inflate a package metric. Coverage includes all considered outgoing
+references from the source scope, their resolved subset, and the existing
+external/candidate/dynamic/unresolved classification.
 The verb is available through the CLI `query` command and the generic
 `code_moniker_query` MCP tool; it is the dynamic contract that declarative
 project metric entries can reuse without a second graph evaluator.

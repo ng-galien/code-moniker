@@ -87,9 +87,10 @@ use code_moniker_query::{
 	GraphPathResult, GraphPathSearchStats, GraphPathStep, GraphPathVerdict, GraphSectionCoverage,
 	IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphCoverage, IdentityGraphEdge,
 	IdentityGraphPort, IdentityGraphQuery, IdentityGraphResult, IdentitySegmentDto,
-	MetricsCouplingCoverage, MetricsCouplingQuery, MetricsCouplingResult, RuleApplicabilityDto,
-	RulesApplicableQuery, RulesApplicableResult, SymbolGraphCoverage, SymbolGraphEdge,
-	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
+	MetricsCouplingCoverage, MetricsCouplingQuery, MetricsCouplingResult,
+	MetricsCouplingTargetUsage, RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult,
+	SymbolGraphCoverage, SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
+	SymbolGraphResult, UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -2257,6 +2258,8 @@ fn metrics_coupling_response(
 	let mut target_symbols = BTreeSet::new();
 	let mut connections = BTreeSet::new();
 	let mut by_kind = BTreeMap::<String, usize>::new();
+	let mut by_target = BTreeMap::<String, usize>::new();
+	let measure_boundary_targets = from != to;
 	let mut unlinked = UnlinkedRefsDto::default();
 
 	for reference in source_files
@@ -2294,6 +2297,11 @@ fn metrics_coupling_response(
 		target_symbols.insert(target.id);
 		connections.insert((source.id, target.id));
 		*by_kind.entry(kind.to_string()).or_default() += 1;
+		if measure_boundary_targets {
+			*by_target
+				.entry(identity_path(target.identity.as_ref()).to_string())
+				.or_default() += 1;
+		}
 	}
 
 	let mut result = MetricsCouplingResult {
@@ -2316,6 +2324,13 @@ fn metrics_coupling_response(
 		by_kind: by_kind
 			.into_iter()
 			.map(|(name, count)| CountDto { name, count })
+			.collect(),
+		by_target: by_target
+			.into_iter()
+			.map(|(moniker, references)| MetricsCouplingTargetUsage {
+				moniker,
+				references,
+			})
 			.collect(),
 		unlinked,
 	};
@@ -7422,6 +7437,12 @@ END;"#;
 		assert_eq!(cross.connections, 1, "{cross:?}");
 		assert_eq!(cross.source_symbols, 1, "{cross:?}");
 		assert_eq!(cross.target_symbols, 1, "{cross:?}");
+		assert_eq!(cross.by_target.len(), 1, "{cross:?}");
+		assert!(
+			cross.by_target[0].moniker.ends_with("/fn:remote()"),
+			"{cross:?}"
+		);
+		assert_eq!(cross.by_target[0].references, 2, "{cross:?}");
 		assert_eq!(
 			cross.by_kind,
 			vec![CountDto {
@@ -7436,6 +7457,7 @@ END;"#;
 		);
 		assert_eq!(internal.references, 1, "{internal:?}");
 		assert_eq!(internal.connections, 1, "{internal:?}");
+		assert!(internal.by_target.is_empty(), "{internal:?}");
 		assert_eq!(internal.same_symbol_references, 1, "{internal:?}");
 		assert_eq!(internal.coverage.source_references, 4, "{internal:?}");
 		assert_eq!(

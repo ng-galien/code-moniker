@@ -1096,6 +1096,7 @@ export interface IdentityGraphPort {
 }
 export interface MetricsCouplingResult {
   by_kind: CountDto[];
+  by_target: MetricsCouplingTargetUsage[];
   connections: number;
   coverage: MetricsCouplingCoverage;
   export_recorded: boolean;
@@ -1110,6 +1111,10 @@ export interface MetricsCouplingResult {
   target_symbols: number;
   to: string;
   unlinked: UnlinkedRefsDto;
+}
+export interface MetricsCouplingTargetUsage {
+  moniker: string;
+  references: number;
 }
 export interface MetricsCouplingCoverage {
   resolved_source_references: number;

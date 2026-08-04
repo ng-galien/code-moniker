@@ -259,6 +259,13 @@ pub(crate) fn record_coupling_metrics(result: &MetricsCouplingResult) -> bool {
 				.coupling_references_by_kind
 				.record(to_u64(kind.count), &kind_attributes);
 		}
+		for target in &result.by_target {
+			let mut target_attributes = attributes.to_vec();
+			target_attributes.push(KeyValue::new("target.moniker", target.moniker.clone()));
+			metrics
+				.coupling_references_by_target
+				.record(to_u64(target.references), &target_attributes);
+		}
 		true
 	}
 	#[cfg(not(feature = "telemetry"))]
@@ -466,6 +473,7 @@ struct WorkspaceMetrics {
 	daemon_request_duration: opentelemetry::metrics::Histogram<f64>,
 	coupling_references: opentelemetry::metrics::Gauge<u64>,
 	coupling_references_by_kind: opentelemetry::metrics::Gauge<u64>,
+	coupling_references_by_target: opentelemetry::metrics::Gauge<u64>,
 	coupling_connections: opentelemetry::metrics::Gauge<u64>,
 	coupling_source_symbols: opentelemetry::metrics::Gauge<u64>,
 	coupling_target_symbols: opentelemetry::metrics::Gauge<u64>,
@@ -551,6 +559,9 @@ fn metrics() -> &'static WorkspaceMetrics {
 				.build(),
 			coupling_references_by_kind: meter
 				.u64_gauge("code_moniker.analysis.coupling.references_by_kind")
+				.build(),
+			coupling_references_by_target: meter
+				.u64_gauge("code_moniker.analysis.coupling.references_by_target")
 				.build(),
 			coupling_connections: meter
 				.u64_gauge("code_moniker.analysis.coupling.connections")
