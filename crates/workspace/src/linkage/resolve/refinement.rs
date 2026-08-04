@@ -15,7 +15,7 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::linkage::language::{
-	CIncludeVisibility, PythonBindingGraph, classify_c_preprocessor_tokens,
+	CIncludeVisibility, PythonBindings, classify_c_preprocessor_tokens,
 	classify_c_unindexed_external_dependencies, refine_c_include_visibility,
 };
 use crate::linkage::resolve::ManifestPolicy;
@@ -162,7 +162,7 @@ fn refine_decisions(
 		None
 	} else {
 		let bootstrap = build_receiver_field_tables(linkage, decisions, references);
-		let bindings = PythonBindingGraph::build(
+		let bindings = PythonBindings::build(
 			linkage.material,
 			linkage.candidates,
 			decisions,

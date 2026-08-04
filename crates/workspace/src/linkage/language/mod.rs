@@ -24,7 +24,7 @@ pub(in crate::linkage) use c::{
 	refine_c_include_visibility,
 };
 pub(in crate::linkage) use python::binding_invalidation_sources;
-pub(in crate::linkage) use python::{BindingTarget, PythonBindingGraph};
+pub(in crate::linkage) use python::{BindingTarget, PythonBindings};
 pub(in crate::linkage) use selection::{
 	confirm_name_match_targets, global_resolution_evidence, local_resolution_evidence,
 	prefer_concrete_definitions,

@@ -14,7 +14,7 @@ use crate::source::CodeIndexMaterial;
 pub(in crate::linkage) mod bindings;
 mod invalidation;
 
-pub(in crate::linkage) use bindings::{BindingTarget, PythonBindingGraph};
+pub(in crate::linkage) use bindings::{BindingTarget, PythonBindings};
 pub(in crate::linkage) use invalidation::binding_invalidation_sources;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {

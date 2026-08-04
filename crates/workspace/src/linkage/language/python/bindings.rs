@@ -13,15 +13,14 @@ use crate::snapshot::{
 };
 use crate::source::CodeIndexMaterial;
 
-pub(in crate::linkage) struct PythonBindingGraph {
+pub(in crate::linkage) struct PythonBindings {
 	aliases: FxHashMap<Moniker, FxHashMap<Vec<u8>, BindingTarget>>,
 	export_policies: FxHashMap<Moniker, ExportPolicy>,
 	wildcard_imports: Vec<WildcardImport>,
 	dynamic_wildcard_owners: FxHashSet<Moniker>,
-	pending_bindings: Vec<PendingBinding>,
 }
 
-impl PythonBindingGraph {
+impl PythonBindings {
 	pub(in crate::linkage) fn build(
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog,
@@ -29,20 +28,25 @@ impl PythonBindingGraph {
 		references: &RecordTable<ReferenceRecord>,
 		decision_indices: &[usize],
 	) -> Self {
-		let mut graph = Self {
+		let mut bindings = Self {
 			aliases: FxHashMap::default(),
 			export_policies: FxHashMap::default(),
 			wildcard_imports: Vec::new(),
 			dynamic_wildcard_owners: FxHashSet::default(),
-			pending_bindings: Vec::new(),
 		};
-		graph.seed_module_definitions(material, candidates);
+		let mut pending_bindings = Vec::new();
+		bindings.seed_module_definitions(material, candidates);
 		for &decision_idx in decision_indices {
 			let decision = &decisions[decision_idx];
-			graph.record_decision(material, decision, &references[decision.reference_idx()]);
+			bindings.record_decision(
+				material,
+				decision,
+				&references[decision.reference_idx()],
+				&mut pending_bindings,
+			);
 		}
-		graph.propagate_bindings();
-		graph
+		bindings.propagate_bindings(&pending_bindings);
+		bindings
 	}
 
 	fn record_decision(
@@ -50,11 +54,13 @@ impl PythonBindingGraph {
 		material: &CodeIndexMaterial,
 		decision: &ReferenceLinkageDecision,
 		reference: &ReferenceRecord,
+		pending_bindings: &mut Vec<PendingBinding>,
 	) {
 		let Some(raw_owner) = material.symbol_moniker(&reference.source_symbol) else {
 			return;
 		};
 		let is_reexport = reference.kind.as_bytes() == REF_REEXPORTS;
+		let receiver = reference.receiver.as_deref();
 		let python_module = is_python_module(raw_owner);
 		if !is_reexport && !python_module {
 			return;
@@ -64,16 +70,54 @@ impl PythonBindingGraph {
 		} else {
 			vec![raw_owner.clone()]
 		};
-		if let Some(directive) = all_directive(reference) {
-			self.apply_export_directive(&owners, directive);
-			return;
+		if is_reexport && reference.alias.as_deref().is_none_or(str::is_empty) {
+			match receiver {
+				Some("python_all_replace") => {
+					for owner in owners {
+						self.export_policies
+							.insert(owner, ExportPolicy::Static(FxHashSet::default()));
+					}
+					return;
+				}
+				Some("python_all_extend") => {
+					for owner in owners {
+						self.export_policies
+							.entry(owner)
+							.or_insert(ExportPolicy::Dynamic);
+					}
+					return;
+				}
+				Some("python_all_dynamic") => {
+					for owner in owners {
+						self.export_policies.insert(owner, ExportPolicy::Dynamic);
+					}
+					return;
+				}
+				_ => {}
+			}
 		}
-		if python_module && is_wildcard_import(reference) {
-			if reference.receiver.as_deref() == Some("python_conditional_import") {
+		if python_module
+			&& reference.kind.as_bytes() == kinds::IMPORTS_MODULE
+			&& reference.alias.as_deref() == Some("*")
+		{
+			if receiver == Some("python_conditional_import") {
 				self.dynamic_wildcard_owners.extend(owners);
 				return;
 			}
-			self.record_wildcard(material, decision, reference, owners);
+			let Some(target) = material.reference_target(&reference.id).cloned() else {
+				return;
+			};
+			let external = match decision {
+				ReferenceLinkageDecision::External { origin, .. } => Some(*origin),
+				_ => None,
+			};
+			for owner in owners {
+				self.wildcard_imports.push(WildcardImport {
+					owner,
+					target: target.clone(),
+					external,
+				});
+			}
 			return;
 		}
 		if !is_reexport
@@ -87,60 +131,32 @@ impl PythonBindingGraph {
 			return;
 		};
 		if is_reexport {
-			self.record_explicit_export(&owners, &name);
+			for owner in &owners {
+				let policy = self
+					.export_policies
+					.entry(owner.clone())
+					.or_insert_with(|| ExportPolicy::Static(FxHashSet::default()));
+				if let ExportPolicy::Static(names) = policy {
+					names.insert(name.clone());
+				}
+			}
 		}
 		let fallback = material.reference_target(&reference.id).cloned();
 		let Some(mut target) = BindingTarget::from_decision(decision, fallback) else {
 			if let Some((target_owner, target_name)) = Self::target_key(material, reference) {
-				self.pending_bindings.push(PendingBinding {
+				pending_bindings.push(PendingBinding {
 					owners,
 					name,
 					target_owner,
 					target_name,
-					conditional: reference.receiver.as_deref() == Some("python_conditional_import"),
+					conditional: receiver == Some("python_conditional_import"),
 				});
 			}
 			return;
 		};
-		if reference.receiver.as_deref() == Some("python_conditional_import") {
+		if receiver == Some("python_conditional_import") {
 			target = target.into_dynamic();
 		}
-		self.record_aliases(owners, name, target);
-	}
-
-	fn apply_export_directive(&mut self, owners: &[Moniker], directive: ExportDirective) {
-		for owner in owners {
-			match directive {
-				ExportDirective::Replace => {
-					self.export_policies
-						.insert(owner.clone(), ExportPolicy::Static(FxHashSet::default()));
-				}
-				ExportDirective::Extend => {
-					self.export_policies
-						.entry(owner.clone())
-						.or_insert(ExportPolicy::Dynamic);
-				}
-				ExportDirective::Dynamic => {
-					self.export_policies
-						.insert(owner.clone(), ExportPolicy::Dynamic);
-				}
-			}
-		}
-	}
-
-	fn record_explicit_export(&mut self, owners: &[Moniker], name: &[u8]) {
-		for owner in owners {
-			let policy = self
-				.export_policies
-				.entry(owner.clone())
-				.or_insert_with(|| ExportPolicy::Static(FxHashSet::default()));
-			if let ExportPolicy::Static(names) = policy {
-				names.insert(name.to_vec());
-			}
-		}
-	}
-
-	fn record_aliases(&mut self, owners: Vec<Moniker>, name: Vec<u8>, target: BindingTarget) {
 		for owner in owners {
 			self.merge_alias((owner, name.clone()), target.clone());
 		}
@@ -215,12 +231,7 @@ impl PythonBindingGraph {
 		self.wildcard_imports
 			.iter()
 			.filter(move |wildcard| &wildcard.owner == owner)
-			.filter_map(|wildcard| {
-				wildcard
-					.external
-					.as_ref()
-					.map(|external| (external.origin, &external.target))
-			})
+			.filter_map(|wildcard| wildcard.external.map(|origin| (origin, &wildcard.target)))
 	}
 
 	#[cfg(test)]
@@ -234,37 +245,10 @@ impl PythonBindingGraph {
 			export_policies: FxHashMap::default(),
 			wildcard_imports: vec![WildcardImport {
 				owner,
-				target: target.clone(),
-				external: Some(ExternalWildcard { origin, target }),
+				target,
+				external: Some(origin),
 			}],
 			dynamic_wildcard_owners: FxHashSet::default(),
-			pending_bindings: Vec::new(),
-		}
-	}
-
-	fn record_wildcard(
-		&mut self,
-		material: &CodeIndexMaterial,
-		decision: &ReferenceLinkageDecision,
-		reference: &ReferenceRecord,
-		owners: Vec<Moniker>,
-	) {
-		let Some(target) = material.reference_target(&reference.id).cloned() else {
-			return;
-		};
-		let external = match decision {
-			ReferenceLinkageDecision::External { origin, .. } => Some(ExternalWildcard {
-				origin: *origin,
-				target: target.clone(),
-			}),
-			_ => None,
-		};
-		for owner in owners {
-			self.wildcard_imports.push(WildcardImport {
-				owner,
-				target: target.clone(),
-				external: external.clone(),
-			});
 		}
 	}
 
@@ -294,12 +278,11 @@ impl PythonBindingGraph {
 		}
 	}
 
-	fn propagate_bindings(&mut self) {
-		let pending_bindings = std::mem::take(&mut self.pending_bindings);
+	fn propagate_bindings(&mut self, pending_bindings: &[PendingBinding]) {
 		loop {
 			self.propagate_wildcards();
 			let mut changed = false;
-			for pending in &pending_bindings {
+			for pending in pending_bindings {
 				let Some(mut target) = self
 					.alias(&pending.target_owner, &pending.target_name)
 					.cloned()
@@ -318,8 +301,6 @@ impl PythonBindingGraph {
 				break;
 			}
 		}
-		self.pending_bindings = pending_bindings;
-		self.propagate_wildcards();
 	}
 
 	fn exported_aliases(&self, owner: &Moniker) -> Vec<(Vec<u8>, BindingTarget)> {
@@ -356,32 +337,11 @@ enum ExportPolicy {
 	Dynamic,
 }
 
-#[derive(Clone, Copy)]
-enum ExportDirective {
-	Replace,
-	Extend,
-	Dynamic,
-}
-
-fn all_directive(reference: &ReferenceRecord) -> Option<ExportDirective> {
-	if reference.kind.as_bytes() != REF_REEXPORTS
-		|| reference.alias.as_deref().is_some_and(|a| !a.is_empty())
-	{
-		return None;
-	}
-	match reference.receiver.as_deref()? {
-		"python_all_replace" => Some(ExportDirective::Replace),
-		"python_all_extend" => Some(ExportDirective::Extend),
-		"python_all_dynamic" => Some(ExportDirective::Dynamic),
-		_ => None,
-	}
-}
-
 #[derive(Clone)]
 struct WildcardImport {
 	owner: Moniker,
 	target: Moniker,
-	external: Option<ExternalWildcard>,
+	external: Option<ExternalOrigin>,
 }
 
 #[derive(Clone)]
@@ -391,12 +351,6 @@ struct PendingBinding {
 	target_owner: Moniker,
 	target_name: Vec<u8>,
 	conditional: bool,
-}
-
-#[derive(Clone)]
-struct ExternalWildcard {
-	origin: ExternalOrigin,
-	target: Moniker,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -450,9 +404,10 @@ impl BindingTarget {
 			ReferenceLinkageDecision::Candidate { reason, resolution } => {
 				Some(Self::from_workspace_resolution(resolution, Some(*reason)))
 			}
-			ReferenceLinkageDecision::External { origin, target, .. } => {
-				Self::from_external_resolution(*origin, target, fallback_external_target)
-			}
+			ReferenceLinkageDecision::External { origin, target, .. } => Some(Self::External {
+				origin: *origin,
+				target: target.clone().or(fallback_external_target)?,
+			}),
 			ReferenceLinkageDecision::Dynamic { candidates, .. } => Some(Self::Dynamic {
 				candidates: candidates.clone(),
 			}),
@@ -472,17 +427,6 @@ impl BindingTarget {
 		}
 	}
 
-	fn from_external_resolution(
-		origin: ExternalOrigin,
-		target: &Option<Moniker>,
-		fallback: Option<Moniker>,
-	) -> Option<Self> {
-		Some(Self::External {
-			origin,
-			target: target.clone().or(fallback)?,
-		})
-	}
-
 	fn merge(self, other: Self) -> Self {
 		match (self, other) {
 			(
@@ -499,10 +443,7 @@ impl BindingTarget {
 					candidate_reason: other_reason,
 				},
 			) => {
-				let mut merged = targets;
-				for target in other_targets.iter() {
-					merged.insert(target);
-				}
+				let merged = targets.union(&other_targets);
 				let candidate_reason = candidate_reason
 					.or(other_reason)
 					.or_else(|| (merged.len() > 1).then_some(CandidateReason::MultipleTargets));
@@ -527,13 +468,13 @@ impl BindingTarget {
 				Self::External { origin, target }
 			}
 			(Self::Dynamic { candidates }, Self::Workspace { targets, .. }) => Self::Dynamic {
-				candidates: merged_targets(&candidates, &targets),
+				candidates: candidates.union(&targets),
 			},
 			(Self::Workspace { targets, .. }, Self::Dynamic { candidates }) => Self::Dynamic {
-				candidates: merged_targets(&targets, &candidates),
+				candidates: targets.union(&candidates),
 			},
 			(Self::Dynamic { candidates }, Self::Dynamic { candidates: other }) => Self::Dynamic {
-				candidates: merged_targets(&candidates, &other),
+				candidates: candidates.union(&other),
 			},
 			(Self::Workspace { targets, .. }, Self::External { .. }) => Self::Dynamic {
 				candidates: targets,
@@ -594,14 +535,6 @@ impl BindingTarget {
 	}
 }
 
-fn merged_targets(left: &SymbolSet, right: &SymbolSet) -> SymbolSet {
-	let mut merged = left.clone();
-	for target in right.iter() {
-		merged.insert(target);
-	}
-	merged
-}
-
 fn is_python_module(owner: &Moniker) -> bool {
 	let segments = owner.as_view().segments().collect::<Vec<_>>();
 	segments
@@ -614,14 +547,12 @@ fn is_python_module(owner: &Moniker) -> bool {
 
 fn binding_owners(owner: &Moniker) -> Vec<Moniker> {
 	let mut owners = vec![owner.clone()];
-	if let Some(collapsed) = collapsed_init_owner(owner) {
-		if !owners.contains(&collapsed) {
-			owners.push(collapsed);
-		}
-	}
-	if let Some(folded) = folded_init_import_owner(owner) {
-		if !owners.contains(&folded) {
-			owners.push(folded);
+	for alternate in [collapsed_init_owner(owner), folded_init_import_owner(owner)]
+		.into_iter()
+		.flatten()
+	{
+		if !owners.contains(&alternate) {
+			owners.push(alternate);
 		}
 	}
 	owners
@@ -681,10 +612,6 @@ fn folded_init_import_owner(owner: &Moniker) -> Option<Moniker> {
 		}
 	}
 	Some(builder.build())
-}
-
-fn is_wildcard_import(reference: &ReferenceRecord) -> bool {
-	reference.kind.as_bytes() == kinds::IMPORTS_MODULE && reference.alias.as_deref() == Some("*")
 }
 
 fn binding_name(material: &CodeIndexMaterial, reference: &ReferenceRecord) -> Option<Vec<u8>> {
