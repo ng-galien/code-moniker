@@ -2,14 +2,12 @@ use std::sync::Arc;
 
 use code_moniker_core::core::moniker::Moniker;
 
-use super::{
-	BlockReason, ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, UnknownReason,
-};
-use crate::linkage::catalog::{SymbolOrdinalCatalog, SymbolSet};
+use super::{ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision};
+use crate::linkage::catalog::SymbolOrdinalCatalog;
 use crate::snapshot::{
-	CandidateReason, CandidateReference, CandidateScope, DynamicReason, DynamicReference,
-	ExternalReference, LinkageEdge, LinkageSnapshot, RecordTable, ReferenceRecord,
-	ResourceGeneration, UnresolvedReason, UnresolvedReference,
+	CandidateReason, CandidateReference, CandidateScope, DynamicReference, ExternalReference,
+	LinkageEdge, LinkageSnapshot, RecordTable, ReferenceRecord, ResourceGeneration,
+	UnresolvedReason, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
 
@@ -22,6 +20,7 @@ pub(in crate::linkage) fn project_decisions(
 	LinkageReportProjection::from_decisions(decisions, references, identity, symbols)
 }
 
+#[derive(Default)]
 pub(in crate::linkage) struct LinkageReportProjection {
 	resolved: Vec<LinkageEdge>,
 	candidates: Vec<CandidateReference>,
@@ -38,36 +37,65 @@ impl LinkageReportProjection {
 		identity: &LocalIdentityResolver,
 		symbols: &SymbolOrdinalCatalog,
 	) -> Self {
-		let capacity = LinkageProjectionCapacity::from_decisions(decisions);
-		decisions
-			.iter()
-			.map(|decision| {
-				LinkageDecisionProjection::from_decision(decision, references, identity, symbols)
-			})
-			.fold(Self::with_capacity(capacity), Self::collect)
-	}
-
-	fn with_capacity(capacity: LinkageProjectionCapacity) -> Self {
-		Self {
-			resolved: Vec::with_capacity(capacity.resolved_edges),
-			candidates: Vec::with_capacity(capacity.candidate_refs),
-			external: Vec::with_capacity(capacity.external_refs),
-			dynamic: Vec::with_capacity(capacity.dynamic_refs),
-			blocked: Vec::with_capacity(capacity.blocked_refs),
-			unresolved: Vec::with_capacity(capacity.unresolved_refs),
+		let mut projection = Self::default();
+		for decision in decisions {
+			match decision {
+				ReferenceLinkageDecision::Unique { resolution } => {
+					project_unique_decision(&mut projection, resolution, references, symbols);
+				}
+				ReferenceLinkageDecision::Candidate { reason, resolution } => {
+					projection.candidates.push(CandidateReference::new(
+						references[resolution.reference_idx].id,
+						symbols.ids(&resolution.targets),
+						*reason,
+						resolution.scope.into(),
+						resolution.evidence,
+					));
+				}
+				ReferenceLinkageDecision::Blocked {
+					reason,
+					reference_idx,
+					..
+				} => projection.blocked.push(unresolved_reference(
+					&references[*reference_idx],
+					reason.unresolved_reason(),
+				)),
+				ReferenceLinkageDecision::Unknown {
+					reason,
+					reference_idx,
+					..
+				} => projection.unresolved.push(unresolved_reference(
+					&references[*reference_idx],
+					reason.unresolved_reason(),
+				)),
+				ReferenceLinkageDecision::External {
+					origin,
+					reference_idx,
+					target,
+					..
+				} => projection.external.push(external_reference(
+					&references[*reference_idx],
+					*origin,
+					target.as_ref(),
+					identity,
+				)),
+				ReferenceLinkageDecision::Dynamic {
+					reason,
+					reference_idx,
+					candidates,
+					..
+				} => {
+					let reference = &references[*reference_idx];
+					projection.dynamic.push(DynamicReference::new(
+						reference.id,
+						Arc::clone(&reference.target_identity),
+						*reason,
+						symbols.ids(candidates),
+					));
+				}
+			}
 		}
-	}
-
-	fn collect(mut self, decision: LinkageDecisionProjection) -> Self {
-		match decision {
-			LinkageDecisionProjection::Resolved(resolved) => self.resolved.push(resolved),
-			LinkageDecisionProjection::Candidate(candidate) => self.candidates.push(candidate),
-			LinkageDecisionProjection::External(external) => self.external.push(external),
-			LinkageDecisionProjection::Dynamic(dynamic) => self.dynamic.push(dynamic),
-			LinkageDecisionProjection::Blocked(reference) => self.blocked.push(reference),
-			LinkageDecisionProjection::Unresolved(reference) => self.unresolved.push(reference),
-		}
-		self
+		projection
 	}
 
 	pub(in crate::linkage) fn into_snapshot(
@@ -125,192 +153,35 @@ impl LinkageReportProjection {
 	}
 }
 
-struct LinkageProjectionCapacity {
-	resolved_edges: usize,
-	candidate_refs: usize,
-	external_refs: usize,
-	dynamic_refs: usize,
-	blocked_refs: usize,
-	unresolved_refs: usize,
-}
-
-impl LinkageProjectionCapacity {
-	fn from_decisions(decisions: &[ReferenceLinkageDecision]) -> Self {
-		decisions.iter().fold(
-			Self {
-				resolved_edges: 0,
-				candidate_refs: 0,
-				external_refs: 0,
-				dynamic_refs: 0,
-				blocked_refs: 0,
-				unresolved_refs: 0,
-			},
-			|mut capacity, decision| {
-				match decision {
-					ReferenceLinkageDecision::Unique { resolution } => {
-						capacity.resolved_edges += resolution.targets.len();
-					}
-					ReferenceLinkageDecision::Candidate { .. } => capacity.candidate_refs += 1,
-					ReferenceLinkageDecision::Dynamic { .. } => capacity.dynamic_refs += 1,
-					ReferenceLinkageDecision::Blocked { .. } => capacity.blocked_refs += 1,
-					ReferenceLinkageDecision::Unknown { .. } => capacity.unresolved_refs += 1,
-					ReferenceLinkageDecision::External { .. } => capacity.external_refs += 1,
-				}
-				capacity
-			},
-		)
-	}
-}
-
-enum LinkageDecisionProjection {
-	Resolved(LinkageEdge),
-	Candidate(CandidateReference),
-	External(ExternalReference),
-	Dynamic(DynamicReference),
-	Blocked(UnresolvedReference),
-	Unresolved(UnresolvedReference),
-}
-
-impl LinkageDecisionProjection {
-	fn from_decision(
-		decision: &ReferenceLinkageDecision,
-		references: &RecordTable<ReferenceRecord>,
-		identity: &LocalIdentityResolver,
-		symbols: &SymbolOrdinalCatalog,
-	) -> Self {
-		match decision {
-			ReferenceLinkageDecision::Unique { resolution } => {
-				project_unique_decision(resolution, references, symbols)
-			}
-			ReferenceLinkageDecision::Candidate { reason, resolution } => {
-				project_candidate_decision(*reason, resolution, references, symbols)
-			}
-			ReferenceLinkageDecision::Blocked {
-				reason,
-				reference_idx,
-				..
-			} => project_blocked_decision(*reason, *reference_idx, references),
-			ReferenceLinkageDecision::Unknown {
-				reason,
-				reference_idx,
-				..
-			} => project_unknown_decision(reason, *reference_idx, references),
-			ReferenceLinkageDecision::External {
-				origin,
-				reference_idx,
-				target,
-				..
-			} => project_external_decision(
-				*origin,
-				*reference_idx,
-				target.as_ref(),
-				references,
-				identity,
-			),
-			ReferenceLinkageDecision::Dynamic {
-				reason,
-				reference_idx,
-				candidates,
-				..
-			} => project_dynamic_decision(*reason, *reference_idx, candidates, references, symbols),
-		}
-	}
-}
-
 fn project_unique_decision(
+	projection: &mut LinkageReportProjection,
 	resolution: &ResolutionDecision,
 	references: &RecordTable<ReferenceRecord>,
 	symbols: &SymbolOrdinalCatalog,
-) -> LinkageDecisionProjection {
+) {
 	let reference = &references[resolution.reference_idx];
 	let mut targets = symbols.ids(&resolution.targets);
 	match targets.pop() {
-		Some(target) if targets.is_empty() => LinkageDecisionProjection::Resolved(
-			LinkageEdge::with_evidence(reference.id, target, resolution.evidence),
-		),
+		Some(target) if targets.is_empty() => projection.resolved.push(LinkageEdge::with_evidence(
+			reference.id,
+			target,
+			resolution.evidence,
+		)),
 		Some(target) => {
 			targets.push(target);
-			LinkageDecisionProjection::Candidate(CandidateReference::new(
+			projection.candidates.push(CandidateReference::new(
 				reference.id,
 				targets,
 				CandidateReason::MultipleTargets,
 				CandidateScope::Unknown,
 				resolution.evidence,
-			))
+			));
 		}
-		None => LinkageDecisionProjection::Unresolved(unresolved_reference(
+		None => projection.unresolved.push(unresolved_reference(
 			reference,
 			UnresolvedReason::NoCandidate,
 		)),
 	}
-}
-
-fn project_candidate_decision(
-	reason: CandidateReason,
-	resolution: &ResolutionDecision,
-	references: &RecordTable<ReferenceRecord>,
-	symbols: &SymbolOrdinalCatalog,
-) -> LinkageDecisionProjection {
-	LinkageDecisionProjection::Candidate(CandidateReference::new(
-		references[resolution.reference_idx].id,
-		symbols.ids(&resolution.targets),
-		reason,
-		resolution.scope.into(),
-		resolution.evidence,
-	))
-}
-
-fn project_blocked_decision(
-	reason: BlockReason,
-	reference_idx: usize,
-	references: &RecordTable<ReferenceRecord>,
-) -> LinkageDecisionProjection {
-	LinkageDecisionProjection::Blocked(unresolved_reference(
-		&references[reference_idx],
-		reason.unresolved_reason(),
-	))
-}
-
-fn project_unknown_decision(
-	reason: &UnknownReason,
-	reference_idx: usize,
-	references: &RecordTable<ReferenceRecord>,
-) -> LinkageDecisionProjection {
-	LinkageDecisionProjection::Unresolved(unresolved_reference(
-		&references[reference_idx],
-		reason.unresolved_reason(),
-	))
-}
-
-fn project_external_decision(
-	origin: ExternalOrigin,
-	reference_idx: usize,
-	target: Option<&Moniker>,
-	references: &RecordTable<ReferenceRecord>,
-	identity: &LocalIdentityResolver,
-) -> LinkageDecisionProjection {
-	LinkageDecisionProjection::External(external_reference(
-		&references[reference_idx],
-		origin,
-		target,
-		identity,
-	))
-}
-
-fn project_dynamic_decision(
-	reason: DynamicReason,
-	reference_idx: usize,
-	candidates: &SymbolSet,
-	references: &RecordTable<ReferenceRecord>,
-	symbols: &SymbolOrdinalCatalog,
-) -> LinkageDecisionProjection {
-	let reference = &references[reference_idx];
-	LinkageDecisionProjection::Dynamic(DynamicReference::new(
-		reference.id,
-		Arc::clone(&reference.target_identity),
-		reason,
-		symbols.ids(candidates),
-	))
 }
 
 fn unresolved_reference(
