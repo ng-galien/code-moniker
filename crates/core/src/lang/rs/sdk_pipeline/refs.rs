@@ -12,7 +12,7 @@ use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::kinds;
 use super::imports::import_tree;
-use super::syntax::{named_children, path_pieces};
+use super::syntax::{named_children, path_pieces, previous_attributes};
 
 #[derive(Clone, Copy)]
 pub(super) struct RefEnv<'a> {
@@ -66,6 +66,9 @@ pub(super) fn type_refs_from_signature(
 ) -> Vec<ResolvedRef> {
 	let mut refs = Vec::new();
 	let type_params = type_parameters(node, env.source);
+	if let Some(params) = node.child_by_field_name("type_parameters") {
+		type_refs_from_node(&env, params, source, &type_params, &mut refs);
+	}
 	if let Some(params) = node.child_by_field_name("parameters") {
 		for param in named_children(params).filter(|child| child.kind() == "parameter") {
 			if let Some(ty) = param.child_by_field_name("type") {
@@ -77,6 +80,18 @@ pub(super) fn type_refs_from_signature(
 		type_refs_from_node(&env, return_type, source, &type_params, &mut refs);
 	}
 	refs
+}
+
+pub(super) fn type_refs_from_generic_bounds(
+	env: RefEnv<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+) -> Vec<ResolvedRef> {
+	let Some(params) = node.child_by_field_name("type_parameters") else {
+		return Vec::new();
+	};
+	let type_params = type_parameters(node, env.source);
+	type_refs_from_type_node(env, params, source, &type_params)
 }
 
 pub(super) fn type_refs_from_type_node(
@@ -130,6 +145,18 @@ pub(super) fn attribute_refs(env: RefEnv<'_>, node: Node<'_>, scope: &Moniker) -
 		refs.extend(attribute_ref_items(&env, attribute, scope));
 	}
 	refs
+}
+
+pub(super) fn item_attribute_refs(
+	env: RefEnv<'_>,
+	item: Node<'_>,
+	scope: &Moniker,
+) -> Vec<ResolvedRef> {
+	previous_attributes(item)
+		.into_iter()
+		.rev()
+		.flat_map(|attribute| attribute_refs(env, attribute, scope))
+		.collect()
 }
 
 fn attribute_ref_items(env: &RefEnv<'_>, attribute: Node<'_>, scope: &Moniker) -> Vec<ResolvedRef> {
@@ -355,15 +382,26 @@ fn identifier_read(
 	out: &mut Vec<ResolvedRef>,
 ) {
 	let name = node_slice(node, env.source);
-	let Some(target) = resolve_local_binding(env.defs, function, name) else {
-		return;
-	};
+	let (target, kind, confidence) =
+		if let Some(target) = resolve_local_binding(env.defs, function, name) {
+			(target, kinds::READS, kinds::CONF_LOCAL)
+		} else if let Some(target) = resolve_type(env.defs, function, name).filter(|target| {
+			target
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.kind == kinds::STRUCT)
+		}) {
+			(target, kinds::INSTANTIATES, kinds::CONF_RESOLVED)
+		} else {
+			return;
+		};
 	out.push(ResolvedRef {
 		source: function.clone(),
 		target,
-		kind: kinds::READS,
+		kind,
 		position: Some(node_position(node)),
-		confidence: kinds::CONF_LOCAL,
+		confidence,
 		hints: RefHints::default(),
 	});
 }

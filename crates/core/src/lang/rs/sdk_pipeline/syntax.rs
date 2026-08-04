@@ -27,7 +27,7 @@ pub(super) fn is_test_function(node: Node<'_>, source: &[u8]) -> bool {
 		.any(|child| is_bare_test_attribute(child, source))
 }
 
-fn previous_attributes(node: Node<'_>) -> Vec<Node<'_>> {
+pub(super) fn previous_attributes(node: Node<'_>) -> Vec<Node<'_>> {
 	let mut out = Vec::new();
 	let mut sibling = node.prev_named_sibling();
 	while let Some(previous) = sibling {

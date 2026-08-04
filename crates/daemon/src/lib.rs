@@ -83,13 +83,13 @@ struct MemorySourceLimits {
 use code_moniker_query::{
 	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
 	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide, ChangeReviewSummary,
-	ChangeReviewSymbol, GraphPathCoverage, GraphPathExpectation, GraphPathQuery, GraphPathResult,
-	GraphPathSearchStats, GraphPathStep, GraphPathVerdict, GraphSectionCoverage,
+	ChangeReviewSymbol, GitRevisionDto, GraphPathCoverage, GraphPathExpectation, GraphPathQuery,
+	GraphPathResult, GraphPathSearchStats, GraphPathStep, GraphPathVerdict, GraphSectionCoverage,
 	IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphCoverage, IdentityGraphEdge,
 	IdentityGraphPort, IdentityGraphQuery, IdentityGraphResult, IdentitySegmentDto,
-	RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult, SymbolGraphCoverage,
-	SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
-	UnlinkedRefsDto,
+	MetricsCouplingCoverage, MetricsCouplingQuery, MetricsCouplingResult, RuleApplicabilityDto,
+	RulesApplicableQuery, RulesApplicableResult, SymbolGraphCoverage, SymbolGraphEdge,
+	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -1478,6 +1478,9 @@ fn dispatch_snapshot_query(
 		Query::IdentityGraph(query) => {
 			identity_graph_response(&snapshot, &context.roots, query, page, current_generation)
 		}
+		Query::MetricsCoupling(query) => {
+			metrics_coupling_response(&snapshot, &context.roots, query, current_generation)
+		}
 		Query::ResolutionAudit(query) => {
 			resolution_audit_response(&snapshot, &context.roots, query, page, current_generation)
 		}
@@ -2029,10 +2032,7 @@ fn identity_prefix_exists(snapshot: &WorkspaceSnapshot, prefix: &str) -> bool {
 		.symbols
 		.iter()
 		.filter(|symbol| symbol.navigable)
-		.any(|symbol| {
-			let identity = identity_path(symbol.identity.as_ref());
-			identity == prefix || identity_rest(identity, prefix).is_some()
-		})
+		.any(|symbol| identity_in_scope(identity_path(symbol.identity.as_ref()), prefix))
 }
 
 fn identity_segments(
@@ -2206,6 +2206,143 @@ fn identity_graph_response(
 		generation: current_generation,
 		result: QueryResult::IdentityGraph(Box::new(result)),
 		next_cursor: graph_page.next_cursor,
+	})
+}
+
+fn metrics_coupling_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: MetricsCouplingQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let selected_roots = selected_roots(roots, query.workspace.as_deref())?;
+	let git = coupling_git_revision(&selected_roots);
+	let snapshot_label = query
+		.snapshot
+		.as_deref()
+		.map(str::trim)
+		.filter(|label| !label.is_empty())
+		.unwrap_or("current")
+		.to_string();
+	let from = identity_path(query.from.trim_matches('/'))
+		.trim_matches('/')
+		.to_string();
+	let to = identity_path(query.to.trim_matches('/'))
+		.trim_matches('/')
+		.to_string();
+	require_known_identity_prefix(snapshot, roots, &from)?;
+	require_known_identity_prefix(snapshot, roots, &to)?;
+
+	let relations = query
+		.relation
+		.iter()
+		.map(String::as_str)
+		.collect::<HashSet<_>>();
+	let symbols = WorkspaceView::new(snapshot).symbols();
+	let source_files = snapshot
+		.index
+		.symbols
+		.iter()
+		.filter(|symbol| {
+			symbol.navigable && identity_in_scope(identity_path(symbol.identity.as_ref()), &from)
+		})
+		.map(|symbol| symbol.id.file())
+		.collect::<BTreeSet<_>>();
+	let classifier = UnlinkedClassifier::new(snapshot);
+	let mut source_references = 0usize;
+	let mut resolved_source_references = 0usize;
+	let mut references = 0usize;
+	let mut same_symbol_references = 0usize;
+	let mut source_symbols = BTreeSet::new();
+	let mut target_symbols = BTreeSet::new();
+	let mut connections = BTreeSet::new();
+	let mut by_kind = BTreeMap::<String, usize>::new();
+	let mut unlinked = UnlinkedRefsDto::default();
+
+	for reference in source_files
+		.iter()
+		.flat_map(|file| snapshot.index.references.file_records(*file))
+	{
+		let Some(source) = navigable_anchor(&symbols, reference.source_symbol) else {
+			continue;
+		};
+		if !identity_in_scope(identity_path(source.identity.as_ref()), &from) {
+			continue;
+		}
+		let kind = reference.kind.as_str();
+		if !relations.is_empty() && !relations.contains(kind) {
+			continue;
+		}
+		source_references += 1;
+		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
+			classifier.tally(&reference.id, &mut unlinked);
+			continue;
+		};
+		resolved_source_references += 1;
+		let Some(target) = navigable_anchor(&symbols, target_id) else {
+			continue;
+		};
+		if !identity_in_scope(identity_path(target.identity.as_ref()), &to) {
+			continue;
+		}
+		if source.id == target.id {
+			same_symbol_references += 1;
+			continue;
+		}
+		references += 1;
+		source_symbols.insert(source.id);
+		target_symbols.insert(target.id);
+		connections.insert((source.id, target.id));
+		*by_kind.entry(kind.to_string()).or_default() += 1;
+	}
+
+	let mut result = MetricsCouplingResult {
+		from,
+		to,
+		relation: query.relation,
+		snapshot: snapshot_label,
+		git,
+		export_requested: query.export,
+		export_recorded: false,
+		references,
+		connections: connections.len(),
+		source_symbols: source_symbols.len(),
+		target_symbols: target_symbols.len(),
+		same_symbol_references,
+		coverage: MetricsCouplingCoverage {
+			source_references,
+			resolved_source_references,
+		},
+		by_kind: by_kind
+			.into_iter()
+			.map(|(name, count)| CountDto { name, count })
+			.collect(),
+		unlinked,
+	};
+	if result.export_requested {
+		result.export_recorded = telemetry::record_coupling_metrics(&result);
+	}
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::MetricsCoupling(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+fn coupling_git_revision(roots: &[&PathBuf]) -> Option<GitRevisionDto> {
+	let revisions = roots
+		.iter()
+		.map(|root| code_moniker_workspace::changes::diff::git_revision(root))
+		.collect::<Result<Vec<_>, _>>()
+		.ok()?;
+	let first = revisions.first()?;
+	if revisions.iter().any(|revision| revision != first) {
+		return None;
+	}
+	Some(GitRevisionDto {
+		branch: first.branch.clone(),
+		commit: first.commit.clone(),
+		dirty: first.dirty,
 	})
 }
 
@@ -2610,6 +2747,10 @@ fn identity_rest<'a>(identity: &'a str, prefix: &str) -> Option<&'a str> {
 	} else {
 		None
 	}
+}
+
+fn identity_in_scope(identity: &str, prefix: &str) -> bool {
+	prefix.is_empty() || identity == prefix || identity_rest(identity, prefix).is_some()
 }
 
 fn resolve_unit_boundary(
@@ -7232,6 +7373,82 @@ END;"#;
 			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
 		assert_eq!(port.count, 2, "{port:?}");
 		assert_identity_graph_filtering_and_pagination(&mut daemon);
+	}
+
+	#[test]
+	fn coupling_metrics_measure_cross_scope_and_internal_connections() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub mod engine;\npub mod driver;\n").expect("write lib");
+		fs::write(
+			src_dir.join("engine.rs"),
+			"pub fn entry() { crate::driver::remote(); crate::driver::remote(); helper(); }\nfn helper() { helper(); }\n",
+		)
+		.expect("write engine");
+		fs::write(src_dir.join("driver.rs"), "pub fn remote() {}\n").expect("write driver");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		let mut metrics = |expression: &str| {
+			let request = code_moniker_query::parse_query(expression).expect("metrics query");
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(request)));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("expected metrics response, got {response:?}");
+			};
+			let QueryResult::MetricsCoupling(result) = response.result else {
+				panic!("expected coupling metrics, got {:?}", response.result);
+			};
+			result
+		};
+
+		let cross = metrics(
+			"metrics.coupling from:\"lang:rs/dir:src/module:engine\" to:\"lang:rs/dir:src/module:driver\" relation:calls",
+		);
+		assert_eq!(cross.references, 2, "{cross:?}");
+		assert_eq!(cross.snapshot, "current", "{cross:?}");
+		assert!(cross.git.is_none(), "{cross:?}");
+		assert!(!cross.export_requested, "{cross:?}");
+		assert!(!cross.export_recorded, "{cross:?}");
+		assert_eq!(cross.connections, 1, "{cross:?}");
+		assert_eq!(cross.source_symbols, 1, "{cross:?}");
+		assert_eq!(cross.target_symbols, 1, "{cross:?}");
+		assert_eq!(
+			cross.by_kind,
+			vec![CountDto {
+				name: "calls".to_string(),
+				count: 2,
+			}],
+			"{cross:?}"
+		);
+
+		let internal = metrics(
+			"metrics.coupling from:\"lang:rs/dir:src/module:engine\" to:\"lang:rs/dir:src/module:engine\" relation:calls",
+		);
+		assert_eq!(internal.references, 1, "{internal:?}");
+		assert_eq!(internal.connections, 1, "{internal:?}");
+		assert_eq!(internal.same_symbol_references, 1, "{internal:?}");
+		assert_eq!(internal.coverage.source_references, 4, "{internal:?}");
+		assert_eq!(
+			internal.coverage.resolved_source_references, 4,
+			"{internal:?}"
+		);
+
+		let export = metrics(
+			"metrics.coupling from:\"lang:rs/dir:src/module:engine\" to:\"lang:rs/dir:src/module:driver\" relation:calls snapshot:test export:true",
+		);
+		assert_eq!(export.snapshot, "test", "{export:?}");
+		assert!(export.export_requested, "{export:?}");
+		assert!(!export.export_recorded, "{export:?}");
 	}
 
 	fn assert_identity_graph_filtering_and_pagination(daemon: &mut WorkspaceDaemon) {

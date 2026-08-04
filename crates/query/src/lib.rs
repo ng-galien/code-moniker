@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 15;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -438,6 +438,18 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		example: "identity.graph prefix:\"lang:rs/dir:crates\"",
 	},
 	QueryCapabilitySpec {
+		name: "metrics.coupling",
+		category: "metrics",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &["workspace", "from", "to", "relation", "snapshot", "export"],
+		required_fields: &["from", "to"],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "metrics.coupling from:\"lang:rs/dir:crates/dir:check\" to:\"lang:rs/dir:crates/dir:workspace\"",
+	},
+	QueryCapabilitySpec {
 		name: "resolution.audit",
 		category: "diagnostic",
 		read_only: true,
@@ -678,6 +690,7 @@ pub enum Query {
 	GraphPath(GraphPathQuery),
 	IdentityChildren(IdentityChildrenQuery),
 	IdentityGraph(IdentityGraphQuery),
+	MetricsCoupling(MetricsCouplingQuery),
 	ResolutionAudit(ResolutionAuditQuery),
 	Notes(NotesQuery),
 }
@@ -704,6 +717,7 @@ impl Query {
 			Self::GraphPath(_) => "graph.path",
 			Self::IdentityChildren(_) => "identity.children",
 			Self::IdentityGraph(_) => "identity.graph",
+			Self::MetricsCoupling(_) => "metrics.coupling",
 			Self::ResolutionAudit(_) => "resolution.audit",
 			Self::Notes(_) => "notes",
 		}
@@ -1044,6 +1058,17 @@ pub struct IdentityGraphQuery {
 	pub min_count: usize,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MetricsCouplingQuery {
+	pub workspace: Option<String>,
+	pub from: String,
+	pub to: String,
+	pub relation: Vec<String>,
+	pub snapshot: Option<String>,
+	pub export: bool,
+}
+
 impl Default for IdentityGraphQuery {
 	fn default() -> Self {
 		Self {
@@ -1223,6 +1248,7 @@ pub enum QueryResult {
 	GraphPath(Box<GraphPathResult>),
 	IdentityChildren(IdentityChildrenResult),
 	IdentityGraph(Box<IdentityGraphResult>),
+	MetricsCoupling(Box<MetricsCouplingResult>),
 	ResolutionAudit(Box<ResolutionAuditResult>),
 	Notes(NotesResult),
 }
@@ -1513,6 +1539,41 @@ pub struct IdentityGraphPort {
 	pub identity: String,
 	pub kinds: Vec<String>,
 	pub count: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MetricsCouplingResult {
+	pub from: String,
+	pub to: String,
+	pub relation: Vec<String>,
+	pub snapshot: String,
+	pub git: Option<GitRevisionDto>,
+	pub export_requested: bool,
+	pub export_recorded: bool,
+	pub references: usize,
+	pub connections: usize,
+	pub source_symbols: usize,
+	pub target_symbols: usize,
+	pub same_symbol_references: usize,
+	pub coverage: MetricsCouplingCoverage,
+	pub by_kind: Vec<CountDto>,
+	pub unlinked: UnlinkedRefsDto,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GitRevisionDto {
+	pub branch: String,
+	pub commit: String,
+	pub dirty: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MetricsCouplingCoverage {
+	pub source_references: usize,
+	pub resolved_source_references: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2534,6 +2595,18 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 		"graph.path" => Query::GraphPath(graph_path_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_graph_query(&fields)?),
+		"metrics.coupling" => Query::MetricsCoupling(MetricsCouplingQuery {
+			workspace: fields.one("workspace"),
+			from: fields
+				.one("from")
+				.ok_or(QueryParseError::MissingRequired("from"))?,
+			to: fields
+				.one("to")
+				.ok_or(QueryParseError::MissingRequired("to"))?,
+			relation: fields.many("relation"),
+			snapshot: fields.one("snapshot"),
+			export: fields.bool("export")?.unwrap_or(false),
+		}),
 		"resolution.audit" => Query::ResolutionAudit(ResolutionAuditQuery {
 			workspace: fields.one("workspace"),
 			prefix: fields
@@ -2887,6 +2960,7 @@ pub fn format_query_response_projected(response: &QueryResponse, projection: &[S
 		QueryResult::GraphPath(result) => format_graph_path(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
+		QueryResult::MetricsCoupling(result) => format_metrics_coupling(&mut out, result),
 		QueryResult::ResolutionAudit(result) => format_resolution_audit(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
@@ -3549,6 +3623,49 @@ fn format_identity_graph(out: &mut String, result: &IdentityGraphResult) {
 	}
 }
 
+fn format_metrics_coupling(out: &mut String, result: &MetricsCouplingResult) {
+	let _ = writeln!(out, "from: {}", result.from);
+	let _ = writeln!(out, "to: {}", result.to);
+	let _ = writeln!(out, "snapshot: {}", result.snapshot);
+	if let Some(git) = &result.git {
+		let _ = writeln!(
+			out,
+			"git: branch {} commit {} dirty {}",
+			git.branch, git.commit, git.dirty
+		);
+	}
+	if !result.relation.is_empty() {
+		let _ = writeln!(out, "relation: {}", result.relation.join(", "));
+	}
+	let export = match (result.export_requested, result.export_recorded) {
+		(false, _) => "not requested",
+		(true, true) => "recorded",
+		(true, false) => "telemetry disabled",
+	};
+	let _ = writeln!(out, "otel export: {export}");
+	let _ = writeln!(
+		out,
+		"coupling: references {} connections {} source_symbols {} target_symbols {}",
+		result.references, result.connections, result.source_symbols, result.target_symbols
+	);
+	let _ = writeln!(
+		out,
+		"coverage: resolved source references {}/{}",
+		result.coverage.resolved_source_references, result.coverage.source_references
+	);
+	if result.same_symbol_references > 0 {
+		let _ = writeln!(
+			out,
+			"same-symbol references excluded: {}",
+			result.same_symbol_references
+		);
+	}
+	format_unlinked(out, &result.unlinked);
+	for kind in &result.by_kind {
+		let _ = writeln!(out, "- {} x{}", kind.name, kind.count);
+	}
+}
+
 fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 	match &result.focus {
 		SymbolGraphFocus::Symbol { symbol } => {
@@ -4049,6 +4166,7 @@ mod tests {
 			"graph.path" => serialized_fields(GraphPathQuery::default()),
 			"identity.children" => serialized_fields(IdentityChildrenQuery::default()),
 			"identity.graph" => serialized_fields(IdentityGraphQuery::default()),
+			"metrics.coupling" => serialized_fields(MetricsCouplingQuery::default()),
 			"resolution.audit" => serialized_fields(ResolutionAuditQuery::default()),
 			"notes" => serialized_fields(NotesQuery {
 				action: NotesAction::List,
@@ -4301,6 +4419,39 @@ mod tests {
 		assert!(
 			query_capability_spec("identity.graph")
 				.expect("identity graph capability")
+				.paginated
+		);
+	}
+
+	#[test]
+	fn coupling_metrics_requires_explicit_scopes_and_accepts_relations() {
+		let request = parse_query(
+			"metrics.coupling from:\"lang:java/package:com/package:acme\" to:\"lang:java/package:com/package:storage\" relation:calls,imports_symbol snapshot:current export:true",
+		)
+		.expect("coupling metrics query");
+		let Query::MetricsCoupling(query) = request.query else {
+			panic!("expected coupling metrics query");
+		};
+		assert_eq!(query.from, "lang:java/package:com/package:acme");
+		assert_eq!(query.to, "lang:java/package:com/package:storage");
+		assert_eq!(query.relation, vec!["calls", "imports_symbol"]);
+		assert_eq!(query.snapshot.as_deref(), Some("current"));
+		assert!(query.export);
+		let Query::MetricsCoupling(default_export) =
+			parse_query("metrics.coupling from:\"lang:java\" to:\"lang:java/package:com\"")
+				.expect("coupling metrics without export")
+				.query
+		else {
+			panic!("expected coupling metrics query");
+		};
+		assert!(!default_export.export);
+		assert!(matches!(
+			parse_query("metrics.coupling from:\"lang:java\""),
+			Err(QueryParseError::MissingRequired("to"))
+		));
+		assert!(
+			!query_capability_spec("metrics.coupling")
+				.expect("metrics capability")
 				.paginated
 		);
 	}

@@ -78,3 +78,78 @@ kind = "calls"
 from = "code+moniker://app/lang:rs/module:rust_refs/fn:dispatcher()"
 to = "code+moniker://app/lang:rs/module:rust_refs/module:nested/fn:nested_sibling"
 confidence = "name_match"
+
+[[defs]]
+label = "mapped root"
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/struct:MappedRoot"
+
+[[defs]]
+label = "source root"
+kind = "enum"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/enum:SourceRoot"
+
+[[refs]]
+label = "enum variant payload uses mapped root"
+kind = "uses_type"
+from = "code+moniker://app/lang:rs/module:rust_refs/enum:SourceRoot"
+to = "code+moniker://app/lang:rs/module:rust_refs/struct:MappedRoot"
+confidence = "resolved"
+
+[[defs]]
+label = "filesystem workspace"
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/struct:FsWorkspace"
+
+[[defs]]
+label = "unit struct consumer"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/fn:unit_struct_consumer()"
+
+[[refs]]
+label = "bare unit struct instantiates workspace"
+kind = "instantiates"
+from = "code+moniker://app/lang:rs/module:rust_refs/fn:unit_struct_consumer()"
+to = "code+moniker://app/lang:rs/module:rust_refs/struct:FsWorkspace"
+confidence = "resolved"
+
+[[defs]]
+label = "resolver strategy"
+kind = "trait"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/trait:ResolverStrategy"
+
+[[defs]]
+label = "local resolver"
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/struct:LocalResolver"
+
+[[refs]]
+label = "generic impl bound uses resolver strategy"
+kind = "uses_type"
+from = "code+moniker://app/lang:rs/module:rust_refs/struct:LocalResolver"
+to = "code+moniker://app/lang:rs/module:rust_refs/trait:ResolverStrategy"
+confidence = "resolved"
+
+[[defs]]
+label = "generated api"
+kind = "trait"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/trait:GeneratedApi"
+
+[[refs]]
+label = "generated api carries rpc annotation"
+kind = "annotates"
+from = "code+moniker://app/lang:rs/module:rust_refs/trait:GeneratedApi"
+to_contains = "/external_pkg:agent_macros/path:rpc"
+confidence = "external"
+
+[[defs]]
+label = "wire event"
+kind = "enum"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/enum:WireEvent"
+
+[[refs]]
+label = "wire event carries wire annotation"
+kind = "annotates"
+from = "code+moniker://app/lang:rs/module:rust_refs/enum:WireEvent"
+to_contains = "/external_pkg:agent_macros/path:wire"
+confidence = "external"

@@ -57,6 +57,36 @@ impl GitResourceStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitRevision {
+	pub branch: String,
+	pub commit: String,
+	pub dirty: bool,
+}
+
+pub fn git_revision(path: &Path) -> Result<GitRevision, String> {
+	let worktree = GitWorktree::discover(path)?;
+	let commit = git_cli_text(worktree.root(), &["rev-parse", "HEAD"])?
+		.trim()
+		.to_string();
+	let branch = git_cli_text(worktree.root(), &["branch", "--show-current"])?
+		.trim()
+		.to_string();
+	let status = git_cli_text(
+		worktree.root(),
+		&["status", "--porcelain=v1", "--untracked-files=normal"],
+	)?;
+	Ok(GitRevision {
+		branch: if branch.is_empty() {
+			"detached".to_string()
+		} else {
+			branch
+		},
+		commit,
+		dirty: !status.trim().is_empty(),
+	})
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChangeEntry {
 	pub loc: Option<SymbolLocation>,
 	pub status: ChangeStatus,
@@ -1054,6 +1084,18 @@ mod tests {
 		let repo = GitWorktree::discover(&nested).unwrap();
 
 		assert_eq!(repo.root(), normalize_path(tmp.path()).as_path());
+	}
+
+	#[test]
+	fn git_revision_reports_branch_commit_and_dirty_state() {
+		let tmp = committed_repo();
+		let clean = git_revision(tmp.path()).unwrap();
+		assert!(!clean.branch.is_empty());
+		assert_eq!(clean.commit.len(), 40);
+		assert!(!clean.dirty);
+
+		write(tmp.path(), "src/Foo.java", "class Foo { int changed; }\n");
+		assert!(git_revision(tmp.path()).unwrap().dirty);
 	}
 
 	#[test]

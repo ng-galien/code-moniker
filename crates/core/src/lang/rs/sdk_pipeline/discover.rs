@@ -17,8 +17,9 @@ use super::defs::{
 };
 use super::imports::import_tree;
 use super::refs::{
-	ImportedSymbol, RefEnv, attribute_refs, expand_import, macro_call_ref, read_refs,
-	trait_refs_from_node, type_parameters, type_refs_from_signature, type_refs_from_type_node,
+	ImportedSymbol, RefEnv, attribute_refs, expand_import, item_attribute_refs, macro_call_ref,
+	read_refs, trait_refs_from_node, type_parameters, type_refs_from_generic_bounds,
+	type_refs_from_signature, type_refs_from_type_node,
 };
 use super::syntax::{
 	children, is_test_function, language_macro_variants, named_children, path_pieces,
@@ -189,7 +190,22 @@ fn visit_item(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, tra
 		ItemKind::Trait => trait_def(state, node, scope),
 		ItemKind::Function => function_def(state, node, scope, trait_impl),
 		ItemKind::Use => use_declaration(state, node, scope),
-		ItemKind::Attribute => {}
+		ItemKind::Attribute => {
+			let mut next = node.next_named_sibling();
+			while next
+				.is_some_and(|sibling| matches!(item_kind(sibling.kind()), ItemKind::Attribute))
+			{
+				next = next.and_then(|sibling| sibling.next_named_sibling());
+			}
+			let attaches_to_named_item = next.is_some_and(|item| match item_kind(item.kind()) {
+				ItemKind::Function | ItemKind::Enum | ItemKind::Trait => true,
+				ItemKind::Simple(kind, _) => kind == kinds::STRUCT,
+				_ => false,
+			});
+			if !attaches_to_named_item {
+				state.extend_refs(attribute_refs(state.ref_env(), node, scope));
+			}
+		}
 		ItemKind::Impl => impl_items(state, node, scope),
 		ItemKind::Module => module_def(state, node, scope),
 		ItemKind::MacroInvocation => macro_invocation(state, node, scope),
@@ -549,7 +565,7 @@ fn collect_item_refs(
 		ItemKind::Ignore => {}
 		ItemKind::Function => collect_function_refs(state, node, scope, trait_impl),
 		ItemKind::Use => collect_use_refs(state, node, scope),
-		ItemKind::Attribute => state.extend_refs(attribute_refs(state.ref_env(), node, scope)),
+		ItemKind::Attribute => {}
 		ItemKind::Impl => collect_impl_refs(state, node, scope),
 		ItemKind::Module => collect_module_refs(state, node, scope),
 		ItemKind::Trait => collect_trait_refs(state, node, scope),
@@ -566,7 +582,12 @@ fn collect_struct_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Mon
 	let Some(struct_moniker) = named_def_moniker(state, node, scope, kinds::STRUCT) else {
 		return;
 	};
-	state.extend_refs(attribute_refs(state.ref_env(), node, &struct_moniker));
+	state.extend_refs(item_attribute_refs(state.ref_env(), node, &struct_moniker));
+	state.extend_refs(type_refs_from_generic_bounds(
+		state.ref_env(),
+		node,
+		&struct_moniker,
+	));
 	collect_field_type_refs(state, node, &struct_moniker);
 	collect_refs(state, node, &struct_moniker, false);
 }
@@ -602,7 +623,24 @@ fn collect_enum_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monik
 	let Some(enum_moniker) = named_def_moniker(state, node, scope, kinds::ENUM) else {
 		return;
 	};
+	state.extend_refs(item_attribute_refs(state.ref_env(), node, &enum_moniker));
+	state.extend_refs(type_refs_from_generic_bounds(
+		state.ref_env(),
+		node,
+		&enum_moniker,
+	));
 	if let Some(body) = node.child_by_field_name("body") {
+		let type_params = type_parameters(node, state.source);
+		for variant in named_children(body).filter(|child| child.kind() == "enum_variant") {
+			for child in named_children(variant).filter(|child| child.kind() != "identifier") {
+				state.extend_refs(type_refs_from_type_node(
+					state.ref_env(),
+					child,
+					&enum_moniker,
+					&type_params,
+				));
+			}
+		}
 		collect_refs(state, body, &enum_moniker, false);
 	}
 }
@@ -616,6 +654,7 @@ fn collect_function_refs(
 	let Some(function) = function_moniker(state, node, scope, trait_impl) else {
 		return;
 	};
+	state.extend_refs(item_attribute_refs(state.ref_env(), node, &function));
 	state.extend_refs(type_refs_from_signature(state.ref_env(), node, &function));
 	if let Some(body) = node.child_by_field_name("body") {
 		collect_body_use_refs(state, body, &function);
@@ -701,6 +740,11 @@ fn collect_impl_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monik
 	};
 	let target = find_local_type(&state.defs, scope, type_name.as_bytes())
 		.unwrap_or_else(|| extend_segment(&state.root, kinds::STRUCT, type_name.as_bytes()));
+	state.extend_refs(type_refs_from_generic_bounds(
+		state.ref_env(),
+		node,
+		&target,
+	));
 	if let Some(trait_node) = node.child_by_field_name("trait") {
 		state.extend_refs(trait_refs_from_node(
 			state.ref_env(),
@@ -734,6 +778,12 @@ fn collect_trait_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moni
 	let Some(trait_moniker) = named_def_moniker(state, node, scope, kinds::TRAIT) else {
 		return;
 	};
+	state.extend_refs(item_attribute_refs(state.ref_env(), node, &trait_moniker));
+	state.extend_refs(type_refs_from_generic_bounds(
+		state.ref_env(),
+		node,
+		&trait_moniker,
+	));
 	if let Some(bounds) = node.child_by_field_name("bounds") {
 		state.extend_refs(trait_refs_from_node(
 			state.ref_env(),

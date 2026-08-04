@@ -184,9 +184,13 @@ impl RustForwards {
 	}
 
 	fn rewrite_named(&self, target: &Moniker) -> Option<Moniker> {
-		if let Some(forwarded) = self.rewrite_local_alias(target) {
-			return self.follow_aliases(forwarded);
-		}
+		let forwarded = self
+			.rewrite_local_alias(target)
+			.or_else(|| self.rewrite_external_member(target))?;
+		self.follow_aliases(forwarded)
+	}
+
+	fn rewrite_external_member(&self, target: &Moniker) -> Option<Moniker> {
 		let mut segments = target.as_view().segments();
 		let head = segments.next()?;
 		if head.kind != kinds::EXTERNAL_PKG {
@@ -202,7 +206,7 @@ impl RustForwards {
 			.get(&(head.name.to_vec(), path.clone()))
 			.cloned()
 			.or_else(|| self.rewrite_prefix(head.name, &segments, &path))?;
-		self.follow_aliases(forwarded)
+		Some(forwarded)
 	}
 
 	fn rewrite_prefix(
@@ -228,13 +232,17 @@ impl RustForwards {
 	}
 
 	fn follow_aliases(&self, mut target: Moniker) -> Option<Moniker> {
-		let limit = self.by_rust_alias.len() + self.by_rust_local_alias.len();
+		let limit = self.by_rust_alias.len()
+			+ self.by_rust_local_alias.len()
+			+ self.by_rust_member.len()
+			+ self.by_rust_prefix.len();
 		for _ in 0..=limit {
 			let forwarded = self
 				.by_rust_alias
 				.get(&target)
 				.cloned()
-				.or_else(|| self.rewrite_local_alias(&target));
+				.or_else(|| self.rewrite_local_alias(&target))
+				.or_else(|| self.rewrite_external_member(&target));
 			let Some(forwarded) = forwarded else {
 				return Some(target);
 			};

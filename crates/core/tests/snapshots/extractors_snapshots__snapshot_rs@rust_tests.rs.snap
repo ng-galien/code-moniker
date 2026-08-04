@@ -258,7 +258,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:parses_order()",
       "kind": "annotates",
       "position": [
         58,
@@ -271,7 +271,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_without_reason()",
       "kind": "annotates",
       "position": [
         130,
@@ -284,33 +284,33 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_without_reason()",
       "kind": "annotates",
       "position": [
         139,
         145
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:rust_tests/module:tests/fn:ignore"
+      "to": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_without_reason()/fn:ignore"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_with_reason()",
       "kind": "annotates",
       "position": [
         220,
         256
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:rust_tests/module:tests/fn:ignore"
+      "to": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_with_reason()/fn:ignore"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_with_reason()",
       "kind": "annotates",
       "position": [
         261,
@@ -323,7 +323,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested/test:keeps_hierarchy()",
       "kind": "annotates",
       "position": [
         345,
@@ -336,7 +336,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style/test:top_level_module_test()",
       "kind": "annotates",
       "position": [
         446,
@@ -349,14 +349,14 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_tests.rs
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:rs/module:rust_tests",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/fn:async_runtime_test_is_not_builtin_rust_test()",
       "kind": "annotates",
       "position": [
         530,
         541
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:tokio"
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:async_runtime_test_is_not_builtin_rust_test()/fn:tokio"
     },
     {
       "alias": "",

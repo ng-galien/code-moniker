@@ -517,6 +517,19 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "kind": "uses_type",
+      "position": [
+        784,
+        792
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "unresolved",
       "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
       "kind": "method_call",

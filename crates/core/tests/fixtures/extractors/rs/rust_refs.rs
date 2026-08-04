@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use agent_macros::{rpc, wire};
 
 // cm: def normalize function
 fn normalize(values: Vec<String>) -> Vec<String> {
@@ -44,3 +45,44 @@ fn dispatcher() {
 	// cm: ref sibling module call anchors on the lexical module
 	nested::nested_sibling();
 }
+
+// cm: def mapped root
+struct MappedRoot;
+
+// cm: def source root
+enum SourceRoot {
+	// cm: ref enum variant payload uses mapped root
+	Mapped(MappedRoot),
+}
+
+// cm: def filesystem workspace
+struct FsWorkspace;
+
+// cm: def unit struct consumer
+fn unit_struct_consumer() {
+	// cm: ref bare unit struct instantiates workspace
+	let _workspace = FsWorkspace;
+}
+
+// cm: def resolver strategy
+trait ResolverStrategy {}
+
+// cm: def local resolver
+struct LocalResolver<S> {
+	strategy: S,
+}
+
+// cm: ref generic impl bound uses resolver strategy
+impl<S: ResolverStrategy> LocalResolver<S> {}
+
+// cm: def generated api
+#[rpc]
+trait GeneratedApi {}
+
+// cm: ref generated api carries rpc annotation
+
+// cm: def wire event
+#[wire]
+enum WireEvent {}
+
+// cm: ref wire event carries wire annotation

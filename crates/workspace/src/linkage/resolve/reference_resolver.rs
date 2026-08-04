@@ -120,7 +120,12 @@ impl<'a> ReferenceResolver<'a> {
 		site: ReferenceSite<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let policies = self.policies;
-		if !policies.manifests.declares_external_target(original) {
+		let authority = if external_tagged(original) {
+			original
+		} else {
+			forwarded
+		};
+		if !policies.manifests.declares_external_target(authority) {
 			return None;
 		}
 		let targets = resolve_global_scope(forwarded, policies.candidates);
@@ -129,7 +134,7 @@ impl<'a> ReferenceResolver<'a> {
 		let policy = policies.manifests.evaluate_global_targets(
 			GlobalTargetQueries {
 				candidate: forwarded,
-				authority: original,
+				authority,
 			},
 			targets,
 			policies.candidates,
@@ -191,6 +196,21 @@ fn resolve_scopes(
 	site: ReferenceSite<'_>,
 ) -> ReferenceLinkageDecision {
 	let policies = resolver.policies;
+	// Import and reexport path defs are local binding sites, not canonical
+	// targets. Follow their recorded binding before the ordinary local lookup;
+	// otherwise the synthetic alias wins merely because it shares the source
+	// file with the reference.
+	if let Some(forwarded) = policies.forwards.rewrite_rust_named(query.target) {
+		let forwarded_query = query.with_target(&forwarded);
+		let decision = if external_tagged(query) || external_tagged(&forwarded_query) {
+			resolver.resolve_forwarded_global(query, &forwarded_query, site)
+		} else {
+			resolver.resolve_global(&forwarded_query, site)
+		};
+		if let Some(decision) = decision {
+			return decision;
+		}
+	}
 	let local_targets = resolve_local_scope(query, policies.candidates);
 	if !local_targets.is_empty() {
 		let evidence = local_resolution_evidence(query, policies.candidates, &local_targets);
@@ -201,17 +221,6 @@ fn resolve_scopes(
 			site.reference_idx,
 			local_targets,
 		));
-	}
-	if let Some(forwarded) = policies.forwards.rewrite_rust_named(query.target) {
-		let forwarded_query = query.with_target(&forwarded);
-		let decision = if external_tagged(query) {
-			resolver.resolve_forwarded_global(query, &forwarded_query, site)
-		} else {
-			resolver.resolve_global(&forwarded_query, site)
-		};
-		if let Some(decision) = decision {
-			return decision;
-		}
 	}
 	if let Some(decision) = resolver.resolve_global(query, site) {
 		return decision;

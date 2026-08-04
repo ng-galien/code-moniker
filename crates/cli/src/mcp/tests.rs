@@ -440,6 +440,22 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		"{}",
 		described.text
 	);
+	let metrics = registry
+		.call(
+			&context,
+			"code_moniker_query",
+			&json!({"query": "query.describe verb:\"metrics.coupling\""}),
+		)
+		.expect("coupling metrics describe");
+	assert!(!metrics.is_error);
+	assert!(
+		metrics.text.contains("metrics.coupling"),
+		"{}",
+		metrics.text
+	);
+	assert!(metrics.text.contains("from"), "{}", metrics.text);
+	assert!(metrics.text.contains("to"), "{}", metrics.text);
+	assert!(metrics.text.contains("export"), "{}", metrics.text);
 
 	let bad_prefix = registry.call(
 		&context,

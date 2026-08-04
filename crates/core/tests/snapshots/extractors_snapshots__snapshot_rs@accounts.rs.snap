@@ -557,7 +557,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:accounts",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:User",
       "kind": "annotates",
       "position": [
         445,
@@ -570,7 +570,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:accounts",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:User",
       "kind": "annotates",
       "position": [
         445,
@@ -583,7 +583,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:accounts",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:User",
       "kind": "annotates",
       "position": [
         445,
@@ -596,7 +596,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:accounts",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:User",
       "kind": "annotates",
       "position": [
         445,
@@ -622,7 +622,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:accounts",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
       "kind": "annotates",
       "position": [
         760,
@@ -1839,6 +1839,32 @@ input_file: crates/core/tests/fixtures/extractors/rs/accounts.rs
       ],
       "receiver_hint": "snapshot",
       "to": "code+moniker://app/sdk:rs/path:std/path:vec/struct:Vec/method:into_iter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "uses_type",
+      "position": [
+        3980,
+        3994
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "uses_type",
+      "position": [
+        3998,
+        4003
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Sized"
     },
     {
       "alias": "",

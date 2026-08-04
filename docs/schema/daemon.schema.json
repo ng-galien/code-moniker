@@ -1167,6 +1167,25 @@
         }
       }
     },
+    "GitRevisionDto": {
+      "type": "object",
+      "required": [
+        "branch",
+        "commit",
+        "dirty"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      }
+    },
     "GraphPathCoverage": {
       "type": "object",
       "required": [
@@ -1728,6 +1747,114 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "MetricsCouplingCoverage": {
+      "type": "object",
+      "required": [
+        "resolved_source_references",
+        "source_references"
+      ],
+      "properties": {
+        "resolved_source_references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "source_references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MetricsCouplingResult": {
+      "type": "object",
+      "required": [
+        "by_kind",
+        "connections",
+        "coverage",
+        "export_recorded",
+        "export_requested",
+        "from",
+        "references",
+        "relation",
+        "same_symbol_references",
+        "snapshot",
+        "source_symbols",
+        "target_symbols",
+        "to",
+        "unlinked"
+      ],
+      "properties": {
+        "by_kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "connections": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "coverage": {
+          "$ref": "#/definitions/MetricsCouplingCoverage"
+        },
+        "export_recorded": {
+          "type": "boolean"
+        },
+        "export_requested": {
+          "type": "boolean"
+        },
+        "from": {
+          "type": "string"
+        },
+        "git": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GitRevisionDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "same_symbol_references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "snapshot": {
+          "type": "string"
+        },
+        "source_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "target_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "to": {
+          "type": "string"
+        },
+        "unlinked": {
+          "$ref": "#/definitions/UnlinkedRefsDto"
         }
       }
     },
@@ -2727,6 +2854,51 @@
         {
           "type": "object",
           "required": [
+            "export",
+            "from",
+            "op",
+            "relation",
+            "to"
+          ],
+          "properties": {
+            "export": {
+              "type": "boolean"
+            },
+            "from": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "metrics_coupling"
+              ]
+            },
+            "relation": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "snapshot": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "to": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "limit",
             "op",
             "prefix"
@@ -3340,6 +3512,24 @@
               "type": "string",
               "enum": [
                 "identity_graph"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/MetricsCouplingResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "metrics_coupling"
               ]
             }
           }
@@ -5664,5 +5854,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 12
+  "x-code-moniker-protocol-version": 15
 }

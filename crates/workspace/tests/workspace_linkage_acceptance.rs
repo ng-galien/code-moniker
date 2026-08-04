@@ -646,6 +646,13 @@ fn rust_cross_crate_import_resolves_public_mod_rs_reexport() {
 		"external_pkg:public_api/path:facade/path:ExternalModel",
 		"dir:inner-model/dir:src/module:lib/struct:ExternalModel",
 	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"uses_type",
+		"fn:local_facade_model",
+		"module:local_facade/path:SharedModel",
+		"dir:public-api/dir:src/module:api/module:model/struct:SharedModel",
+	);
 }
 
 #[test]
@@ -2611,7 +2618,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"reads",
 		"dir:order-service/dir:src/module:lib/module:constants/path:DEFAULT_REGION",
-		"dir:order-service/dir:src/module:lib/module:constants/path:DEFAULT_REGION",
+		"dir:common-model/dir:src/module:lib/const:DEFAULT_REGION",
 	);
 	assert_linked_to(
 		snapshot,

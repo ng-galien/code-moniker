@@ -70,6 +70,34 @@ request rate, latency, and RSS are also refreshed after every daemon request:
 - `code_moniker.daemon.requests` and `code_moniker.daemon.request.duration`;
 - `process.memory.rss` (bytes).
 
+Coupling measurements are exported only when both process telemetry and the
+individual query opt in:
+
+```text
+metrics.coupling from:"lang:java/package:com/package:acme" to:"lang:java/package:com/package:storage" relation:calls snapshot:current export:true
+```
+
+The query records these gauges:
+
+- `code_moniker.analysis.coupling.references` and
+  `code_moniker.analysis.coupling.references_by_kind`;
+- `code_moniker.analysis.coupling.connections`;
+- `code_moniker.analysis.coupling.source_symbols` and
+  `code_moniker.analysis.coupling.target_symbols`;
+- `code_moniker.analysis.coupling.same_symbol_references`;
+- `code_moniker.analysis.coupling.source_references`, split by resolution
+  state.
+
+All carry the normalized `coupling.from`, `coupling.to`, and
+`coupling.relation` attributes, the explicit `metric.snapshot` comparison
+label, and the automatically discovered `git.branch`, `git.commit`, and
+`git.dirty` source coordinates. The per-kind and coverage series additionally
+carry `reference.kind` and `reference.state`. Because the scope attributes form
+the time-series identity, exported queries should use a bounded, stable set of
+declared scopes. A successful `export_recorded` response confirms submission to
+the active OTel SDK; delivery remains fail-open and asynchronous as described
+above.
+
 Source bytes and RSS are direct measurements. Index and graph byte metrics are
 explicit estimates of the allocations visible from the immutable snapshot;
 they are intended for baselines and regression comparisons, not allocator-level
