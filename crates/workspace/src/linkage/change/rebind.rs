@@ -29,18 +29,9 @@ pub(in crate::linkage) struct EditedGraph<'a> {
 }
 
 pub(in crate::linkage) struct RebindScope {
-	stale_references: ReferenceSet,
-	target_index_references: ReferenceSet,
-	changed_files: BTreeSet<usize>,
-}
-
-#[derive(Clone, Copy)]
-enum RebindCause {
-	EditedReferences,
-	ManifestBoundary,
-	ChangedDefinitions,
-	RetargetedTargets,
-	MissingTargets,
+	pub(super) stale_references: ReferenceSet,
+	pub(super) target_index_references: ReferenceSet,
+	pub(super) changed_files: BTreeSet<usize>,
 }
 
 struct EditedSources {
@@ -55,15 +46,26 @@ impl RebindScope {
 		impact: &LinkageRefreshImpact,
 	) -> Self {
 		let edited_sources = EditedSources::from_impact(graph.material, impact);
-		let mut stale_references = ReferenceSet::new();
-		for cause in RebindCause::all() {
-			stale_references.union_with(&cause.references(
-				&bindings,
-				&graph,
-				impact,
-				&edited_sources,
-			));
-		}
+		let mut stale_references =
+			references_edited_by_change(&bindings, &graph, impact, &edited_sources);
+		stale_references.union_with(&references_crossing_changed_manifest_boundaries(
+			&bindings, &graph, impact,
+		));
+		stale_references.union_with(&references_matching_changed_definitions(
+			&bindings,
+			&graph,
+			impact,
+			&edited_sources,
+		));
+		stale_references.union_with(&references_resolved_to_retargeted_targets(
+			&bindings,
+			&graph,
+			impact,
+			&edited_sources,
+		));
+		stale_references.union_with(&references_resolved_to_missing_targets(
+			&bindings, &graph, impact,
+		));
 		let language_sources = crate::linkage::language::binding_invalidation_sources(
 			graph.references,
 			graph.material,
@@ -85,54 +87,6 @@ impl RebindScope {
 			stale_references,
 			target_index_references,
 			changed_files: edited_sources.files,
-		}
-	}
-
-	pub(in crate::linkage) fn stale_references(&self) -> &ReferenceSet {
-		&self.stale_references
-	}
-
-	pub(in crate::linkage) fn target_index_references(&self) -> &ReferenceSet {
-		&self.target_index_references
-	}
-
-	pub(in crate::linkage) fn changed_files(&self) -> &BTreeSet<usize> {
-		&self.changed_files
-	}
-}
-
-impl RebindCause {
-	fn all() -> [Self; 5] {
-		[
-			Self::EditedReferences,
-			Self::ManifestBoundary,
-			Self::ChangedDefinitions,
-			Self::RetargetedTargets,
-			Self::MissingTargets,
-		]
-	}
-
-	fn references(
-		self,
-		bindings: &BindingReadModel<'_>,
-		graph: &EditedGraph<'_>,
-		impact: &LinkageRefreshImpact,
-		edited_sources: &EditedSources,
-	) -> ReferenceSet {
-		match self {
-			Self::EditedReferences => {
-				references_edited_by_change(bindings, graph, impact, edited_sources)
-			}
-			Self::ManifestBoundary => {
-				references_crossing_changed_manifest_boundaries(bindings, graph, impact)
-			}
-			Self::ChangedDefinitions => {
-				references_matching_changed_definitions(bindings, graph, impact, edited_sources)
-			}
-			Self::RetargetedTargets => {
-				references_resolved_to_retargeted_targets(bindings, graph, impact, edited_sources)
-			}
-			Self::MissingTargets => references_resolved_to_missing_targets(bindings, graph, impact),
 		}
 	}
 }

@@ -226,7 +226,11 @@ fn refresh_incremental_linkage(
 		);
 	}
 	store.ensure_resolved_target_index(input.material, candidates.symbols());
-	let execution = RebindScope::plan(
+	let RebindScope {
+		stale_references,
+		target_index_references,
+		changed_files,
+	} = RebindScope::plan(
 		BindingReadModel {
 			store,
 			inventory: &input.index.inventory,
@@ -240,8 +244,8 @@ fn refresh_incremental_linkage(
 		&input.impact,
 	);
 	timings.plan_invalidation = plan_timer.elapsed();
-	timings.stale_refs = execution.stale_references().len() as usize;
-	let changed_reference_indexes = stale_reference_indexes(execution.stale_references());
+	timings.stale_refs = stale_references.len() as usize;
+	let changed_reference_indexes = stale_reference_indexes(&stale_references);
 	timings.changed_refs = changed_reference_indexes.len();
 	let locations = (!changed_reference_indexes.is_empty())
 		.then(|| ReferenceLocations::from_material(input.material));
@@ -265,7 +269,7 @@ fn refresh_incremental_linkage(
 	store.apply_refresh(LinkageStoreRefresh {
 		generation: input.generation,
 		index_generation: input.index.generation,
-		stale_references: execution.stale_references(),
+		stale_references: &stale_references,
 		changed_decisions: changed,
 		references: &input.index.references,
 		material: input.material,
@@ -276,14 +280,13 @@ fn refresh_incremental_linkage(
 			input.impact.definitions(),
 			SymbolDelta::Unchanged | SymbolDelta::AdditiveOnly { .. }
 		);
-		return positions_stable && symbol_ids_stable && execution.stale_references().is_empty();
+		return positions_stable && symbol_ids_stable && stale_references.is_empty();
 	}
 	let method_timer = Instant::now();
-	let methods = indexer.reindex(input.material, candidates, execution.changed_files());
+	let methods = indexer.reindex(input.material, candidates, &changed_files);
 	timings.candidate_index += method_timer.elapsed();
 	let refinement_timer = Instant::now();
-	let stale_reference_ids =
-		reference_ids_for_set(execution.stale_references(), &input.index.references);
+	let stale_reference_ids = reference_ids_for_set(&stale_references, &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
 	let Some(refresh_policies) = refresh_policies.as_ref() else {
 		unreachable!("changed references always build refresh policies");
@@ -307,7 +310,7 @@ fn refresh_incremental_linkage(
 	timings.semantic_refinement = refinement_timer.elapsed();
 	let rebuild_timer = Instant::now();
 	store.refresh_resolved_target_index(
-		execution.target_index_references(),
+		&target_index_references,
 		input.material,
 		candidates.symbols(),
 	);
