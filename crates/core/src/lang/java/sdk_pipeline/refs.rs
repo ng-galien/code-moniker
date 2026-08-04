@@ -503,12 +503,7 @@ fn local_binding_target(
 	[kinds::PARAM, kinds::LOCAL]
 		.into_iter()
 		.map(|kind| extend_segment(source, kind, name))
-		.find(|candidate| {
-			state
-				.defs
-				.iter()
-				.any(|def| def.moniker.bind_match(candidate))
-		})
+		.find(|candidate| state.defs.iter().any(|def| def.moniker == *candidate))
 }
 
 fn receiver_owner(

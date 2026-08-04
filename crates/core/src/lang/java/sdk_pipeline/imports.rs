@@ -72,7 +72,7 @@ fn import_declaration(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moni
 		position: Some(node_position(node)),
 		confidence,
 		hints: RefHints {
-			alias: wildcard.then_some(b"*".to_vec()).unwrap_or_default(),
+			alias: if wildcard { b"*".to_vec() } else { Vec::new() },
 			..RefHints::default()
 		},
 	});

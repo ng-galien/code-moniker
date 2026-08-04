@@ -194,10 +194,11 @@ fn build_local_code_index(
 		options.detailed_telemetry,
 	)?;
 	let extract_sources = extract_timer.elapsed();
-	let extraction = options
-		.detailed_telemetry
-		.then(|| extraction_measurements(&files, None))
-		.unwrap_or_default();
+	let extraction = if options.detailed_telemetry {
+		extraction_measurements(&files, None)
+	} else {
+		Default::default()
+	};
 	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let semantic_timer = Instant::now();
 	let (symbols, references, material) =
@@ -420,10 +421,11 @@ fn refresh_local_code_index(
 		});
 	}
 	let semantic_timer = Instant::now();
-	let extraction = options
-		.detailed_telemetry
-		.then(|| extraction_measurements(&files, Some(&changed_file_indexes)))
-		.unwrap_or_default();
+	let extraction = if options.detailed_telemetry {
+		extraction_measurements(&files, Some(&changed_file_indexes))
+	} else {
+		Default::default()
+	};
 	let material = material_from_files(source_catalog, files, &WorkspaceCancellation::default())?;
 	let sources = source_records(&material);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);

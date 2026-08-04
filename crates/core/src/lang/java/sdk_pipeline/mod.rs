@@ -217,4 +217,29 @@ mod tests {
 
 		assert_eq!(qualified_targets, 3);
 	}
+
+	#[test]
+	fn local_reads_keep_the_declared_binding_kind() {
+		let source = r#"
+			class Locals {
+				String read(String parameter) {
+					String local = parameter;
+					return local;
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new().project(b"app").build();
+		let graph =
+			crate::lang::java::extract("Locals.java", source, &anchor, true, &Presets::default());
+		let binding_targets = graph
+			.refs()
+			.filter(|reference| reference.kind == kinds::READS)
+			.filter_map(|reference| reference.target.as_view().segments().last())
+			.map(|segment| (segment.kind.to_vec(), segment.name.to_vec()))
+			.collect::<HashSet<_>>();
+
+		assert!(binding_targets.contains(&(kinds::PARAM.to_vec(), b"parameter".to_vec())));
+		assert!(binding_targets.contains(&(kinds::LOCAL.to_vec(), b"local".to_vec())));
+		assert!(!binding_targets.contains(&(kinds::PARAM.to_vec(), b"local".to_vec())));
+	}
 }

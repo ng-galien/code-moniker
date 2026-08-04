@@ -830,14 +830,7 @@ mod tests {
 		let references = RecordTable::from_records(vec![reference]);
 		let mut symbols = SymbolOrdinalCatalog::default();
 		let targets: SymbolSet = (0..target_count)
-			.map(|idx| {
-				symbols.push(
-					SymbolId::at(0, idx + 1),
-					Arc::from(format!(
-						"code+moniker://./lang:python/module:sample/class:Target{idx}"
-					)),
-				)
-			})
+			.map(|idx| symbols.push(SymbolId::at(0, idx + 1)))
 			.collect();
 		let decisions = vec![ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 			ResolutionScope::Global,

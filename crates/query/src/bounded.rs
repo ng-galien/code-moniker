@@ -13,14 +13,15 @@ pub fn bounded_debug<T: Debug + ?Sized>(value: &T, max_chars: usize) -> BoundedD
 
 impl<T: Debug + ?Sized> Display for BoundedDebug<'_, T> {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let mut writer = BoundedWriter {
-			inner: formatter,
-			remaining: self.max_chars,
-			truncated: false,
+		let (result, truncated) = {
+			let mut writer = BoundedWriter {
+				inner: formatter,
+				remaining: self.max_chars,
+				truncated: false,
+			};
+			let result = write!(&mut writer, "{:?}", self.value);
+			(result, writer.truncated)
 		};
-		let result = write!(&mut writer, "{:?}", self.value);
-		let truncated = writer.truncated;
-		drop(writer);
 		if truncated {
 			formatter.write_str("…")
 		} else {

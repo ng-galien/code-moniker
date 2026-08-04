@@ -229,7 +229,7 @@ fn refresh_incremental_linkage(
 	let execution = RebindScope::plan(
 		BindingReadModel {
 			store,
-			symbols: candidates.symbols(),
+			inventory: &input.index.inventory,
 			reference_indexes: &store.indexes.reference_indexes,
 		},
 		EditedGraph {

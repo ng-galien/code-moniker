@@ -10,16 +10,16 @@ use code_moniker_core::lang::{Lang, kinds};
 use crate::linkage::binding::LinkageStore;
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolOrdinalCatalog, SymbolSet};
+use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolSet};
 use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta};
 use crate::linkage::resolve::{matches_any_source, matches_any_symbol};
 use crate::path_util::normalize_path;
-use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, SourceId};
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, SourceId, SymbolInventoryIndex};
 use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct BindingReadModel<'a> {
 	pub(in crate::linkage) store: &'a LinkageStore,
-	pub(in crate::linkage) symbols: &'a SymbolOrdinalCatalog,
+	pub(in crate::linkage) inventory: &'a SymbolInventoryIndex,
 	pub(in crate::linkage) reference_indexes: &'a FxHashMap<ReferenceId, ReferenceOrdinal>,
 }
 
@@ -665,11 +665,13 @@ fn references_resolved_to_identities(
 		return references;
 	};
 	for identity in identities {
-		let Some(ordinal) = bindings.symbols.ordinal_by_identity(identity) else {
+		let Some(ordinals) = bindings.inventory.facets().symbols_by_identity(identity) else {
 			continue;
 		};
-		if let Some(symbol_references) = index.get_symbol(ordinal) {
-			references.union_with(symbol_references);
+		for ordinal in ordinals.iter() {
+			if let Some(symbol_references) = index.get_symbol(ordinal) {
+				references.union_with(symbol_references);
+			}
 		}
 	}
 	references

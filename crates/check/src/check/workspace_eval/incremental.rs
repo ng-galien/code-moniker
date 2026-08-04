@@ -130,13 +130,13 @@ fn dirty_symbol_sets(
 		}
 	}
 	for identity in &diff.modified_symbol_identities {
-		if let Some(ordinal) = previous.catalog().ordinal_by_identity(identity) {
-			previous_dirty.insert(ordinal);
+		if let Some(symbols) = previous.facets().symbols_by_identity(identity) {
+			previous_dirty.union_with(symbols);
 		}
 	}
 	for identity in &diff.modified_inventory_symbol_identities {
-		if let Some(ordinal) = previous.catalog().ordinal_by_identity(identity) {
-			previous_dirty.insert(ordinal);
+		if let Some(symbols) = previous.facets().symbols_by_identity(identity) {
+			previous_dirty.union_with(symbols);
 		}
 	}
 	for (before, after) in &diff.symbol_id_remaps {
@@ -191,10 +191,12 @@ fn preserved_symbol_violations(
 		.filter(|violation| !dirty_identities.contains(&violation.violation.moniker))
 		.filter_map(|violation| {
 			let record = current
-				.catalog()
-				.ordinal_by_identity(&violation.violation.moniker)
+				.facets()
+				.symbols_by_identity(&violation.violation.moniker)?
+				.iter()
 				.filter(|ordinal| current_universe.contains(*ordinal))
-				.and_then(|ordinal| current.record(ordinal))?;
+				.filter_map(|ordinal| current.record(ordinal))
+				.find(|record| record.source == violation.source)?;
 			let mut violation = violation.clone();
 			violation.source = record.source;
 			violation.symbol = Some(record.id);

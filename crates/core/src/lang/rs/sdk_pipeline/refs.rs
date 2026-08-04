@@ -1221,9 +1221,6 @@ fn resolve_path_call_target(
 	if let Some(target) = rust_std_associated_path(function, pieces) {
 		return (target, kinds::CONF_EXTERNAL);
 	}
-	if let Some(target) = local_qualified_path_target(function, pieces) {
-		return (target, kinds::CONF_NAME_MATCH);
-	}
 	let Some((call_name, type_pieces)) = pieces.split_last() else {
 		return (function.clone(), kinds::CONF_UNRESOLVED);
 	};

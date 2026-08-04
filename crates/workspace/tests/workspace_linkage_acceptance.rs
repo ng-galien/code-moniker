@@ -918,6 +918,52 @@ fn java_workspace_wildcard_imports_resolve_only_exported_members() {
 		"instanceOnly",
 		0,
 	);
+	assert_linked_once_to(
+		&snapshot,
+		"reads",
+		"module:WildcardCaller/class:WildcardCaller/method:localRead()/local:value",
+		"module:WildcardCaller/class:WildcardCaller/method:localRead()/local:value",
+	);
+}
+
+#[test]
+fn java_local_bindings_survive_duplicate_workspace_identities() {
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "reads"
+				&& reference.target_identity.contains(
+					"package:collision/module:DuplicateLocals/class:DuplicateLocals/method:read()/local:value",
+				)
+		})
+		.collect::<Vec<_>>();
+
+	assert_eq!(
+		references.len(),
+		4,
+		"expected two local reads per physical file"
+	);
+	for reference in references {
+		let targets = snapshot
+			.linkage
+			.resolved
+			.iter()
+			.filter(|edge| edge.reference == reference.id)
+			.collect::<Vec<_>>();
+		assert_eq!(
+			targets.len(),
+			1,
+			"each local read should resolve exactly once"
+		);
+		assert_eq!(
+			targets[0].target.file(),
+			reference.id.file(),
+			"a local read must resolve inside its physical source file"
+		);
+	}
 }
 
 #[test]

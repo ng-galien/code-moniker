@@ -15,4 +15,9 @@ public class WildcardCaller {
     String invalidStaticImport() {
         return instanceOnly();
     }
+
+    String localRead() {
+        String value = "local";
+        return value;
+    }
 }

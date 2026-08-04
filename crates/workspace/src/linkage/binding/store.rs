@@ -226,23 +226,16 @@ fn resolved_target_missing_or_retargeted(
 	candidates: &CandidateCatalog,
 	target: SymbolOrdinal,
 ) -> bool {
-	let Some(expected_identity) = candidates.symbols().identity(target) else {
+	let Some(id) = candidates.symbols().id(target) else {
 		return true;
 	};
-	if candidates
-		.symbols()
-		.ordinal_by_identity(expected_identity)
-		.is_some()
-	{
-		return false;
-	}
-	let Some(id) = candidates.symbols().id(target) else {
+	let Some(candidate) = candidates.candidate(target) else {
 		return true;
 	};
 	let Some(current_moniker) = material.symbol_moniker(id) else {
 		return true;
 	};
-	material.identity.moniker_uri(current_moniker) != expected_identity
+	current_moniker != candidate.moniker
 }
 
 pub(in crate::linkage) fn insert_reference_ordinals(
@@ -1004,8 +997,6 @@ fn reference_source_root(
 
 #[cfg(test)]
 mod tests {
-	use std::sync::Arc;
-
 	use super::*;
 	use crate::linkage::binding::ResolutionScope;
 	use crate::snapshot::{
@@ -1030,10 +1021,7 @@ mod tests {
 		let mut reference_indexes = FxHashMap::default();
 		reference_indexes.insert(reference, ReferenceOrdinal::from_index(0));
 		let mut symbols = SymbolOrdinalCatalog::default();
-		symbols.push(
-			present,
-			Arc::from("code+moniker://./lang:rs/struct:Present"),
-		);
+		symbols.push(present);
 
 		let decisions = candidate_decisions_from_snapshot(&snapshot, &reference_indexes, &symbols);
 
@@ -1070,10 +1058,7 @@ mod tests {
 		let mut reference_indexes = FxHashMap::default();
 		reference_indexes.insert(reference, ReferenceOrdinal::from_index(0));
 		let mut symbols = SymbolOrdinalCatalog::default();
-		symbols.push(
-			present,
-			Arc::from("code+moniker://./lang:python/class:Present"),
-		);
+		symbols.push(present);
 
 		let decisions = dynamic_decisions_from_snapshot(&snapshot, &reference_indexes, &symbols);
 
