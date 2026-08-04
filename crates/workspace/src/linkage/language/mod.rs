@@ -23,6 +23,7 @@ pub(in crate::linkage) use c::{
 	refine_c_include_visibility,
 };
 pub(in crate::linkage) use python::PythonBindingGraph;
+pub(in crate::linkage) use python::binding_invalidation_sources;
 
 pub(super) fn matches_candidate(
 	query: &LinkageQuery<'_>,

@@ -269,7 +269,6 @@ fn refresh_incremental_linkage(
 		changed_decisions: changed,
 		references: &input.index.references,
 		material: input.material,
-		candidates,
 	});
 	timings.apply_store = apply_timer.elapsed();
 	if changed_reference_indexes.is_empty() {
