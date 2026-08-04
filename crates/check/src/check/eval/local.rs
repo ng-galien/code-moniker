@@ -176,6 +176,7 @@ pub(super) fn domain_items<'a>(
 				})
 				.collect()
 		}
+		Domain::TargetOutRefs | Domain::TargetInRefs => Vec::new(),
 		Domain::SourceAncestorOutRefs => ancestor_ref_items(def_idx, ctx, true),
 		Domain::SourceAncestorInRefs => ancestor_ref_items(def_idx, ctx, false),
 	}

@@ -364,6 +364,8 @@ pub(in crate::check) enum Domain {
 	InRefs,
 	SourceOutRefs,
 	SourceInRefs,
+	TargetOutRefs,
+	TargetInRefs,
 	SourceAncestorOutRefs,
 	SourceAncestorInRefs,
 }

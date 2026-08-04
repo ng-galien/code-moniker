@@ -1301,6 +1301,32 @@ fn ref_domain_items<'a>(
 				})
 				.collect()
 		}
+		Domain::TargetOutRefs => {
+			let Some(target_idx) = local_def_index(&r.target, ctx) else {
+				return Vec::new();
+			};
+			ctx.out_refs_by_source
+				.get(&target_idx)
+				.into_iter()
+				.flatten()
+				.map(|idx| DomainItem::Ref {
+					record: ctx.graph.ref_at(*idx),
+				})
+				.collect()
+		}
+		Domain::TargetInRefs => {
+			if local_def_index(&r.target, ctx).is_none() {
+				return Vec::new();
+			}
+			ctx.in_refs_by_target
+				.get(r.target.as_encoded())
+				.into_iter()
+				.flatten()
+				.map(|idx| DomainItem::Ref {
+					record: ctx.graph.ref_at(*idx),
+				})
+				.collect()
+		}
 		Domain::SourceAncestorOutRefs => ancestor_ref_items(r.source, ctx, true),
 		Domain::SourceAncestorInRefs => ancestor_ref_items(r.source, ctx, false),
 		Domain::Segments => ctx
@@ -1332,6 +1358,8 @@ fn domain_debug_label(domain: &Domain) -> &'static str {
 		Domain::InRefs => "in_refs",
 		Domain::SourceOutRefs => "source.out_refs",
 		Domain::SourceInRefs => "source.in_refs",
+		Domain::TargetOutRefs => "target.out_refs",
+		Domain::TargetInRefs => "target.in_refs",
 		Domain::SourceAncestorOutRefs => "source.ancestors.out_refs",
 		Domain::SourceAncestorInRefs => "source.ancestors.in_refs",
 	}
@@ -1503,6 +1531,22 @@ fn resolve_local_def<'g>(
 	m: &code_moniker_core::core::moniker::Moniker,
 ) -> Option<&'g DefRecord> {
 	graph.defs().find(|d| d.moniker == *m)
+}
+
+fn local_def_index(
+	m: &code_moniker_core::core::moniker::Moniker,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<usize> {
+	ctx.def_index
+		.get_or_init(|| {
+			ctx.graph
+				.defs()
+				.enumerate()
+				.map(|(idx, def)| (def.moniker.as_encoded().to_vec(), idx))
+				.collect()
+		})
+		.get(m.as_encoded())
+		.copied()
 }
 
 fn describe_lhs(lhs: &LhsExpr) -> &str {
@@ -1835,6 +1879,7 @@ fn eval_count(
 		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs | Domain::SourceOutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs | Domain::SourceInRefs => count_in_refs(d, filter, ctx),
+		Domain::TargetOutRefs | Domain::TargetInRefs => 0,
 		Domain::SourceAncestorOutRefs | Domain::SourceAncestorInRefs => {
 			count_domain_items(domain, filter, def_idx, self_idx, ctx)
 		}
@@ -2177,6 +2222,7 @@ fn eval_quantifier_def(
 				}
 			}
 		}
+		Domain::TargetOutRefs | Domain::TargetInRefs => {}
 	}
 	let label = match kind {
 		QuantKind::Any => "any",

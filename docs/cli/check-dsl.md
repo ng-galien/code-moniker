@@ -288,6 +288,8 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | in_refs
   | source.out_refs
   | source.in_refs
+  | target.out_refs
+  | target.in_refs
   | source.ancestors.out_refs
   | source.ancestors.in_refs
 
@@ -403,7 +405,8 @@ to override.
   there is no project-wide extraction fallback. `segment` means moniker
   segments. `out_refs` and `in_refs` mean refs whose source or target is the
   current def. In ref scope, `source.out_refs` and `source.in_refs` inspect refs
-  attached to the current ref source def; `source.ancestors.out_refs` and
+  attached to the current ref source def; `target.out_refs` and `target.in_refs`
+  inspect refs attached to a locally resolved target def; `source.ancestors.out_refs` and
   `source.ancestors.in_refs` inspect refs attached to ancestor defs of that
   source. Aggregates, domain-value expressions, and collection projections use
   item domains; `pairs(D)` is only valid for `count`, `any`, `all`, and `none`.
@@ -520,6 +523,8 @@ Domains:
 | `in_refs`   | refs whose target is the current def            |
 | `source.out_refs` | refs whose source is the current ref source def |
 | `source.in_refs` | refs whose target is the current ref source def |
+| `target.out_refs` | refs whose source is the current ref target def, when local |
+| `target.in_refs` | refs whose target is the current ref target def, when local |
 | `source.ancestors.out_refs` | refs emitted by ancestor defs of the current ref source |
 | `source.ancestors.in_refs` | refs targeting ancestor defs of the current ref source |
 
@@ -528,6 +533,33 @@ so its projections refer to that item's attributes. For `segment`, only
 `segment.kind` and `segment.name` are available. For ref domains, the full ref
 scope (`kind`, `source.*`, `target.*`, `text`) is in scope. Use `current.*` to
 compare that iterated item to the outer item that opened the domain filter.
+
+Target-ref domains make correlated local graph checks possible without a separate
+path language. For example, this expression counts thin methods whose sole private
+free-function target has one caller and uses the method owner type:
+
+```text
+count(method,
+  lines <= 13
+  AND count(out_refs,
+    kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private'
+  ) = 1
+  AND any(out_refs,
+    kind = 'calls'
+    AND target.kind = 'fn'
+    AND target.visibility = 'private'
+    AND count(target.in_refs, kind = 'calls') = 1
+    AND any(target.out_refs,
+      kind = 'uses_type'
+      AND target = current.source.parent
+    )
+  )
+)
+```
+
+Inside `target.out_refs`, `current` remains the call reference that opened the
+nested domain. `current.source.parent` is therefore the owner of the calling
+method. A non-local target yields an empty target-ref domain.
 
 ### Numeric analytics
 

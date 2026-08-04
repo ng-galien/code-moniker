@@ -51,24 +51,58 @@ Every other type scored at most 1. `LocalCodeIndex` and `SymbolInventoryFacets`,
 both selected by the precursor rule, scored 0 because their targets are shared or
 do not consume the owner type.
 
-## Missing DSL operation
+## DSL evolution
 
-The graph already contains every required fact. The local DSL lacks a correlated
-path predicate that binds the called function and compares its `uses_type` target
-with the current method's owner, while also testing call fan-in.
+The graph already contained every required fact. No path language was needed:
+the existing nested quantifiers already preserve the outer reference as `current`.
+The minimal missing operation was the ability to traverse the current reference's
+local target through two new domains:
 
-A future expression needs semantics equivalent to:
+- `target.out_refs`;
+- `target.in_refs`.
+
+That makes the correlated score directly expressible:
 
 ```text
-count(method M,
-  lines(M) <= 13 AND
-  exists F (
-    calls(M, F) AND kind(F) = 'fn' AND
-    count(in_calls(F)) = 1 AND
-    uses_type(F, self)
+count(method,
+  lines <= 13
+  AND count(out_refs,
+    kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private'
+  ) = 1
+  AND any(out_refs,
+    kind = 'calls'
+    AND target.kind = 'fn'
+    AND target.visibility = 'private'
+    AND count(target.in_refs, kind = 'calls') = 1
+    AND any(target.out_refs,
+      kind = 'uses_type'
+      AND target = current.source.parent
+    )
   )
 )
 ```
+
+Inside `target.out_refs`, `current` is the call reference. Its
+`source.parent` is therefore the method owner `T`. A non-local target exposes no
+target refs, so this operation cannot accidentally turn into a workspace-wide
+lookup.
+
+## Dogfood result after implementation
+
+The project warning rule allows one isolated satellite and reports owners with at
+least two. On the 2026-08-04 dogfood index (745 scanned files, 1,372 evaluated
+Rust types), it reports exactly four owners:
+
+| type | score |
+|---|---:|
+| `LinkageStore` | 5 |
+| `WorkspaceLiveRefreshPlan` | 4 |
+| `CompiledRules` | 2 |
+| `TsSdkProfile` | 2 |
+
+The result reproduces the direct graph experiment without introducing a general
+graph-query abstraction. The DSL gained two local ref domains; correlation,
+fan-in and owner identity remain compositions of existing primitives.
 
 This should remain a warning/ranking metric. A high score is a precise review
 candidate for subtraction, not proof that the split is invalid.

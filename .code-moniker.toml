@@ -829,6 +829,18 @@ message = "Functions use camelCase; React-style components may use PascalCase. R
 # when needed, and promote a rule to `severity = "error"` only after the
 # targeted module is green or has justified suppressions.
 
+[[rust.shape.type.where]]
+id        = "smell-one-to-one-method-helper-satellites"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(method, lines <= 13 AND count(out_refs, kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private') = 1 AND any(out_refs, kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private' AND count(target.in_refs, kind = 'calls') = 1 AND any(target.out_refs, kind = 'uses_type' AND target = current.source.parent))) <= 1"
+message   = "Over-abstraction candidate: `{name}` has several thin methods whose private one-caller helpers only route behavior back to the same owner."
+rationale = """
+This is the inverse of the usual human-oriented decomposition checks. A repeated
+`type T -> method M -> private fn F -> uses_type T` cycle with one caller for `F`
+adds a semantic boundary without reuse or a new owner. Keep isolated adapters out
+of the warning by requiring at least two satellites under the same type.
+"""
+
 [[rust.shape.callable.where]]
 id        = "smell-long-parameter-list"
 severity  = "error"

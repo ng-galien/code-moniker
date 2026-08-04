@@ -2372,6 +2372,91 @@ fn current_projection_tracks_immediate_ref_quantifier_parent() {
 }
 
 #[test]
+fn target_ref_domains_detect_only_one_to_one_method_helpers() {
+	fn add_def(graph: &mut CodeGraph, def: &Moniker, kind: &[u8], parent: &Moniker) {
+		graph
+			.add_def(def.clone(), kind, parent, Some((0, 0)))
+			.unwrap();
+	}
+
+	fn add_ref(graph: &mut CodeGraph, source: &Moniker, target: &Moniker, kind: &[u8]) {
+		graph
+			.add_ref(source, target.clone(), kind, Some((0, 0)))
+			.unwrap();
+	}
+
+	let cfg = cfg_from(
+		r#"
+		[[shape.type.where]]
+		id = "no-one-to-one-method-helper"
+		expr = """
+		  count(method,
+		    lines <= 13
+		    AND count(out_refs, kind = 'calls' AND target.kind = 'function') = 1
+		    AND any(out_refs,
+		      kind = 'calls'
+		      AND target.kind = 'function'
+		      AND count(target.in_refs, kind = 'calls') = 1
+		      AND any(target.out_refs,
+		        kind = 'uses_type'
+		        AND target = current.source.parent
+		      )
+		    )
+		  ) = 0
+		"""
+		"#,
+	);
+	let module = build_module(b"delegation");
+	let mut graph = CodeGraph::new(module.clone(), b"module");
+
+	let satellite = child(&module, b"class", b"Satellite");
+	let satellite_method = child(&satellite, b"method", b"refresh");
+	let satellite_helper = child(&module, b"function", b"refresh_satellite");
+	add_def(&mut graph, &satellite, b"class", &module);
+	add_def(&mut graph, &satellite_method, b"method", &satellite);
+	add_def(&mut graph, &satellite_helper, b"function", &module);
+	add_ref(&mut graph, &satellite_method, &satellite_helper, b"calls");
+	add_ref(&mut graph, &satellite_helper, &satellite, b"uses_type");
+
+	let shared = child(&module, b"class", b"Shared");
+	let shared_helper = child(&module, b"function", b"refresh_shared");
+	add_def(&mut graph, &shared, b"class", &module);
+	add_def(&mut graph, &shared_helper, b"function", &module);
+	for name in [b"first".as_slice(), b"second".as_slice()] {
+		let method = child(&shared, b"method", name);
+		add_def(&mut graph, &method, b"method", &shared);
+		add_ref(&mut graph, &method, &shared_helper, b"calls");
+	}
+	add_ref(&mut graph, &shared_helper, &shared, b"uses_type");
+
+	let foreign = child(&module, b"class", b"Foreign");
+	let other = child(&module, b"class", b"Other");
+	let foreign_method = child(&foreign, b"method", b"refresh");
+	let foreign_helper = child(&module, b"function", b"refresh_other");
+	for (definition, kind, parent) in [
+		(&foreign, b"class".as_slice(), &module),
+		(&other, b"class".as_slice(), &module),
+		(&foreign_method, b"method".as_slice(), &foreign),
+		(&foreign_helper, b"function".as_slice(), &module),
+	] {
+		add_def(&mut graph, definition, kind, parent);
+	}
+	add_ref(&mut graph, &foreign_method, &foreign_helper, b"calls");
+	add_ref(&mut graph, &foreign_helper, &other, b"uses_type");
+
+	let violations = evaluate(&graph, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		violations.len(),
+		1,
+		"only the one-to-one cycle violates: {violations:?}"
+	);
+	assert!(
+		violations[0].moniker.contains("Satellite"),
+		"{violations:?}"
+	);
+}
+
+#[test]
 fn alias_expands_in_rule_expr() {
 	let cfg = cfg_from(
 		r#"

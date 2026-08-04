@@ -7,7 +7,8 @@ file's extracted code graph:
 
 - Boolean logic and implication: `AND`, `OR`, `NOT`, `=>`.
 - Domains: direct child kinds, `shape:<shape>`, `segment`, `out_refs`,
-  `in_refs`, and simple `pairs(D)` filters.
+  `in_refs`, ref-relative `source.*_refs` / `target.*_refs`, and simple
+  `pairs(D)` filters.
 - Quantifiers and counts: `count`, `any`, `all`, `none`.
 - Descriptive statistics: `sum`, `max`, `min`, `avg`, `median`,
   `percentile`, `stddev`, `var`, `cv`, `gini`, `entropy`, and `mode`.
@@ -43,6 +44,8 @@ Use warning rules for:
 - Data Clumps: `count(pairs(method), size(a.param.name intersect
   b.param.name) >= 3) = 0`.
 - Caller concentration: normalized `entropy(in_refs, source.parent)`.
+- One-to-one method/helper satellites: correlate a method call with
+  `target.in_refs`, `target.out_refs`, and `current.source.parent`.
 - Duplicate child names: `size(unique(shape:callable.name))`.
 - Comment smell: comment length or TODO/HACK patterns on
   `shape.annotation`.

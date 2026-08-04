@@ -46,12 +46,19 @@ These smells can be encoded as local warning rules today.
 | Data Clumps | `count(pairs(method), size(a.param.name intersect b.param.name) >= 3) = 0` | pair-bound collection projections compare repeated parameter groups |
 | Distribution disharmony | `cv(shape:callable, lines)` and `gini(shape:callable, fan_out(each))` | captures uneven method sizes or a hidden coupling hub |
 | Caller concentration | `entropy(in_refs, source.parent) >= 0.5` after a volume guard | low entropy means one owner dominates local use |
+| One-to-one method/helper satellites | nested `target.in_refs` / `target.out_refs` checks | detects repeated private helpers that only relay an operation back to their method owner |
 | Duplicate child names | `size(unique(shape:callable.name)) = size(shape:callable.name)` | local naming invariant |
 | Comments smell | `shape.annotation` checks over `lines` or `text` | project-specific thresholds |
 
 When a warning stabilizes and the target module is clean, promote the
 project-specific rule to an enforced project rule. Until then, keep it as a
 warning so it remains a review candidate instead of a build gate.
+
+The method/helper satellite check addresses over-abstraction rather than missing
+abstraction. It correlates `T -> M -> F -> T`: `M` is a thin method owned by `T`,
+`F` is its sole private free-function target, `F` has one caller, and a
+`uses_type` edge returns from `F` to `T`. Require a repeated cluster before
+warning; an isolated adapter is not enough evidence.
 
 ## Important current gaps
 
