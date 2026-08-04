@@ -20,6 +20,7 @@ use crate::linkage::language::{
 };
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::WorkspacePackageIndex;
+use crate::linkage::resolve::refine_python_bindings;
 use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
@@ -168,13 +169,27 @@ fn refine_decisions(
 			references,
 			&python_decisions,
 		);
-		bindings.refine(linkage, &bootstrap, decisions, references, python_selection);
+		refine_python_bindings(
+			&bindings,
+			linkage,
+			&bootstrap,
+			decisions,
+			references,
+			python_selection,
+		);
 		Some(bindings)
 	};
 	let tables = build_receiver_field_tables(linkage, decisions, references);
 	refine_receiver_fields(linkage, &tables, decisions, references, changed_references);
 	if let Some(bindings) = &bindings {
-		bindings.refine(linkage, &tables, decisions, references, python_selection);
+		refine_python_bindings(
+			bindings,
+			linkage,
+			&tables,
+			decisions,
+			references,
+			python_selection,
+		);
 	}
 	let pending = pending_receiver_chains(decisions, references, changed_references);
 	refine_receiver_chains(linkage, &tables, decisions, references, pending);

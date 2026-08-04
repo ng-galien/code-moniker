@@ -2,6 +2,7 @@ mod full;
 mod java_imports;
 mod manifest;
 mod method_indexer;
+mod python_bindings;
 mod reference_resolver;
 mod refinement;
 mod scope;
@@ -13,6 +14,7 @@ pub(in crate::linkage) use full::run_full_linkage_with_timings;
 pub(in crate::linkage) use java_imports::JavaOnDemandImports;
 pub(in crate::linkage) use manifest::ManifestPolicy;
 pub(in crate::linkage) use method_indexer::MethodIndexer;
+pub(in crate::linkage) use python_bindings::refine as refine_python_bindings;
 pub(in crate::linkage) use reference_resolver::{LinkagePolicies, ReferenceResolver};
 pub(in crate::linkage) use refinement::{
 	DecisionSelection, LinkageRefiner, MethodTable, RefinementPolicies,

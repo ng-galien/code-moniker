@@ -1,6 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics]
-// The binding graph deliberately joins extractor facts, linkage decisions, and candidate ordinals;
-// splitting those inputs would duplicate the merge invariants that keep ambiguous bindings non-unique.
 use code_moniker_core::core::kinds::REF_REEXPORTS;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
@@ -11,10 +8,6 @@ use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
 };
 use crate::linkage::catalog::{CandidateCatalog, SymbolSet};
-use crate::linkage::resolve::{
-	DecisionSelection, LinkageRefiner, MethodCallReference, ReceiverFieldTables,
-	resolve_method_through_supers,
-};
 use crate::snapshot::{
 	CandidateReason, DynamicReason, RecordTable, ReferenceRecord, ResolutionEvidence,
 };
@@ -50,18 +43,6 @@ impl PythonBindingGraph {
 		}
 		graph.propagate_bindings();
 		graph
-	}
-
-	pub(in crate::linkage) fn refine(
-		&self,
-		linkage: &LinkageRefiner<'_>,
-		tables: &ReceiverFieldTables,
-		decisions: &mut [ReferenceLinkageDecision],
-		references: &RecordTable<ReferenceRecord>,
-		selection: DecisionSelection<'_>,
-	) {
-		PythonBindingResolver { graph: self }
-			.refine(linkage, tables, decisions, references, selection);
 	}
 
 	fn record_decision(
@@ -219,8 +200,46 @@ impl PythonBindingGraph {
 		Some((target.parent()?, name))
 	}
 
-	fn alias(&self, owner: &Moniker, name: &[u8]) -> Option<&BindingTarget> {
+	pub(in crate::linkage) fn alias(&self, owner: &Moniker, name: &[u8]) -> Option<&BindingTarget> {
 		self.aliases.get(owner)?.get(name)
+	}
+
+	pub(in crate::linkage) fn has_dynamic_wildcards(&self, owner: &Moniker) -> bool {
+		self.dynamic_wildcard_owners.contains(owner)
+	}
+
+	pub(in crate::linkage) fn external_wildcards(
+		&self,
+		owner: &Moniker,
+	) -> impl Iterator<Item = (ExternalOrigin, &Moniker)> {
+		self.wildcard_imports
+			.iter()
+			.filter(move |wildcard| &wildcard.owner == owner)
+			.filter_map(|wildcard| {
+				wildcard
+					.external
+					.as_ref()
+					.map(|external| (external.origin, &external.target))
+			})
+	}
+
+	#[cfg(test)]
+	pub(in crate::linkage) fn with_external_wildcard(
+		owner: Moniker,
+		target: Moniker,
+		origin: ExternalOrigin,
+	) -> Self {
+		Self {
+			aliases: FxHashMap::default(),
+			export_policies: FxHashMap::default(),
+			wildcard_imports: vec![WildcardImport {
+				owner,
+				target: target.clone(),
+				external: Some(ExternalWildcard { origin, target }),
+			}],
+			dynamic_wildcard_owners: FxHashSet::default(),
+			pending_bindings: Vec::new(),
+		}
 	}
 
 	fn record_wildcard(
@@ -326,208 +345,9 @@ impl PythonBindingGraph {
 			return true;
 		};
 		let merged = existing.clone().merge(target);
-		let changed = !merged.equivalent(&existing);
+		let changed = merged != existing;
 		aliases.insert(name, merged);
 		changed
-	}
-}
-
-fn binding_decision(
-	binding: &BindingTarget,
-	external_present: bool,
-	reference_idx: usize,
-	reference: &ReferenceRecord,
-	requested_target: Option<&Moniker>,
-	name: &[u8],
-) -> ReferenceLinkageDecision {
-	if external_present {
-		return ReferenceLinkageDecision::dynamic(
-			DynamicReason::RuntimeImport,
-			reference_idx,
-			reference.id,
-			binding.workspace_candidates(),
-		);
-	}
-	match binding {
-		BindingTarget::External { origin, target } => ReferenceLinkageDecision::external_target(
-			*origin,
-			reference_idx,
-			reference.id,
-			external_wildcard_target(target, requested_target, name),
-		),
-		BindingTarget::Dynamic { candidates } => ReferenceLinkageDecision::dynamic(
-			DynamicReason::RuntimeImport,
-			reference_idx,
-			reference.id,
-			candidates.clone(),
-		),
-		BindingTarget::Workspace { .. } => {
-			binding.to_decision(reference_idx, reference, requested_target)
-		}
-	}
-}
-
-struct PythonBindingResolver<'a> {
-	graph: &'a PythonBindingGraph,
-}
-
-impl PythonBindingResolver<'_> {
-	fn refine(
-		&self,
-		linkage: &LinkageRefiner<'_>,
-		tables: &ReceiverFieldTables,
-		decisions: &mut [ReferenceLinkageDecision],
-		references: &RecordTable<ReferenceRecord>,
-		selection: DecisionSelection<'_>,
-	) {
-		for &decision_idx in selection.indices() {
-			let decision = &mut decisions[decision_idx];
-			let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
-				continue;
-			};
-			if !selection.includes(decision.reference()) {
-				continue;
-			}
-			let reference = &references[reference_idx];
-			if let Some(resolved) =
-				self.resolve_reference(linkage, tables, reference_idx, reference)
-			{
-				*decision = resolved;
-			}
-		}
-	}
-
-	fn resolve_reference(
-		&self,
-		linkage: &LinkageRefiner<'_>,
-		tables: &ReceiverFieldTables,
-		reference_idx: usize,
-		reference: &ReferenceRecord,
-	) -> Option<ReferenceLinkageDecision> {
-		let (raw_owner, name) = PythonBindingGraph::target_key(linkage.material, reference)?;
-		let owner = tables
-			.type_aliases
-			.get(&raw_owner)
-			.cloned()
-			.unwrap_or_else(|| raw_owner.clone());
-		let requested_target = linkage.material.reference_target(&reference.id);
-		if let Some(resolved) = self.decision(
-			&raw_owner,
-			&name,
-			reference_idx,
-			reference,
-			requested_target,
-		) {
-			return Some(resolved);
-		}
-		if owner != raw_owner
-			&& let Some(resolved) =
-				self.decision(&owner, &name, reference_idx, reference, requested_target)
-		{
-			return Some(resolved);
-		}
-		let bound_owner = self.canonical_workspace_owner(&owner, linkage.candidates)?;
-		if let Some(resolved) = self.decision(
-			&bound_owner,
-			&name,
-			reference_idx,
-			reference,
-			requested_target,
-		) {
-			return Some(resolved);
-		}
-		let method_call = MethodCallReference::new(reference_idx, reference)?;
-		resolve_method_through_supers(linkage, tables, &bound_owner, method_call)
-	}
-
-	fn decision(
-		&self,
-		owner: &Moniker,
-		name: &[u8],
-		reference_idx: usize,
-		reference: &ReferenceRecord,
-		requested_target: Option<&Moniker>,
-	) -> Option<ReferenceLinkageDecision> {
-		if self.graph.dynamic_wildcard_owners.contains(owner) {
-			let candidates = self
-				.graph
-				.alias(owner, name)
-				.map_or_else(SymbolSet::new, BindingTarget::workspace_candidates);
-			return Some(ReferenceLinkageDecision::dynamic(
-				DynamicReason::RuntimeImport,
-				reference_idx,
-				reference.id,
-				candidates,
-			));
-		}
-		let external = self
-			.graph
-			.wildcard_imports
-			.iter()
-			.filter(|wildcard| &wildcard.owner == owner)
-			.filter_map(|wildcard| wildcard.external.as_ref())
-			.collect::<Vec<_>>();
-		if let Some(target) = self.graph.alias(owner, name) {
-			return Some(binding_decision(
-				target,
-				!external.is_empty(),
-				reference_idx,
-				reference,
-				requested_target,
-				name,
-			));
-		}
-		if let Some(binding) = self.owner_binding(owner)
-			&& (!external.is_empty() || !matches!(binding, BindingTarget::Workspace { .. }))
-		{
-			return Some(binding_decision(
-				binding,
-				!external.is_empty(),
-				reference_idx,
-				reference,
-				requested_target,
-				name,
-			));
-		}
-		match external.as_slice() {
-			[target] => Some(ReferenceLinkageDecision::external_target(
-				target.origin,
-				reference_idx,
-				reference.id,
-				external_wildcard_target(&target.target, requested_target, name),
-			)),
-			[] => None,
-			_ => Some(ReferenceLinkageDecision::dynamic(
-				DynamicReason::RuntimeImport,
-				reference_idx,
-				reference.id,
-				SymbolSet::new(),
-			)),
-		}
-	}
-
-	fn owner_binding(&self, owner: &Moniker) -> Option<&BindingTarget> {
-		let segment = owner.as_view().segments().last()?;
-		self.graph
-			.alias(&owner.parent()?, bare_callable_name(segment.name))
-	}
-
-	fn canonical_workspace_owner(
-		&self,
-		owner: &Moniker,
-		candidates: &CandidateCatalog,
-	) -> Option<Moniker> {
-		let binding = self.owner_binding(owner)?;
-		let BindingTarget::Workspace {
-			targets,
-			candidate_reason: None,
-			..
-		} = binding
-		else {
-			return None;
-		};
-		let symbol = targets.single()?;
-		Some(candidates.candidate(symbol)?.moniker.clone())
 	}
 }
 
@@ -579,8 +399,8 @@ struct ExternalWildcard {
 	target: Moniker,
 }
 
-#[derive(Clone)]
-enum BindingTarget {
+#[derive(Clone, Eq, PartialEq)]
+pub(in crate::linkage) enum BindingTarget {
 	Workspace {
 		scope: ResolutionScope,
 		evidence: ResolutionEvidence,
@@ -611,49 +431,11 @@ impl BindingTarget {
 		}
 	}
 
-	fn workspace_candidates(&self) -> SymbolSet {
+	pub(in crate::linkage) fn workspace_candidates(&self) -> SymbolSet {
 		match self {
 			Self::Workspace { targets, .. } => targets.clone(),
 			Self::Dynamic { candidates } => candidates.clone(),
 			Self::External { .. } => SymbolSet::new(),
-		}
-	}
-
-	fn equivalent(&self, other: &Self) -> bool {
-		match (self, other) {
-			(
-				Self::Workspace {
-					scope,
-					evidence,
-					targets,
-					candidate_reason,
-				},
-				Self::Workspace {
-					scope: other_scope,
-					evidence: other_evidence,
-					targets: other_targets,
-					candidate_reason: other_reason,
-				},
-			) => {
-				scope == other_scope
-					&& evidence == other_evidence
-					&& candidate_reason == other_reason
-					&& targets == other_targets
-			}
-			(
-				Self::External { origin, target },
-				Self::External {
-					origin: other_origin,
-					target: other_target,
-				},
-			) => origin == other_origin && target == other_target,
-			(
-				Self::Dynamic { candidates },
-				Self::Dynamic {
-					candidates: other_candidates,
-				},
-			) => candidates == other_candidates,
-			_ => false,
 		}
 	}
 
@@ -767,7 +549,7 @@ impl BindingTarget {
 		}
 	}
 
-	fn to_decision(
+	pub(in crate::linkage) fn to_decision(
 		&self,
 		reference_idx: usize,
 		reference: &ReferenceRecord,
@@ -943,70 +725,4 @@ fn reexport_external_target(alias_target: &Moniker, requested_target: Option<&Mo
 	MonikerBuilder::from_view(owner.as_view())
 		.segment(requested_last.kind, requested_last.name)
 		.build()
-}
-
-fn external_wildcard_target(
-	module: &Moniker,
-	requested_target: Option<&Moniker>,
-	name: &[u8],
-) -> Moniker {
-	let (kind, target_name) = requested_target
-		.and_then(|target| target.as_view().segments().last())
-		.map_or((kinds::PATH, name), |segment| (segment.kind, segment.name));
-	MonikerBuilder::from_view(module.as_view())
-		.segment(kind, target_name)
-		.build()
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use crate::snapshot::{ReferenceId, SourceId, SymbolId};
-
-	#[test]
-	fn external_wildcard_keeps_its_original_provenance() {
-		let owner = MonikerBuilder::new()
-			.project(b".")
-			.segment(kinds::LANG, b"python")
-			.segment(kinds::MODULE, b"facade")
-			.build();
-		let external = MonikerBuilder::new()
-			.project(b".")
-			.segment(kinds::EXTERNAL_PKG, b"generated")
-			.build();
-		let graph = PythonBindingGraph {
-			aliases: FxHashMap::default(),
-			export_policies: FxHashMap::default(),
-			wildcard_imports: vec![WildcardImport {
-				owner: owner.clone(),
-				target: external.clone(),
-				external: Some(ExternalWildcard {
-					origin: ExternalOrigin::Injected,
-					target: external,
-				}),
-			}],
-			dynamic_wildcard_owners: FxHashSet::default(),
-			pending_bindings: Vec::new(),
-		};
-		let reference = ReferenceRecord::new(
-			ReferenceId::at(0, 0),
-			SourceId::at(0),
-			SymbolId::at(0, 0),
-			"code+moniker://./lang:python/module:facade/function:Client",
-			"calls",
-			None,
-		);
-
-		let decision = PythonBindingResolver { graph: &graph }
-			.decision(&owner, b"Client", 0, &reference, None)
-			.expect("external wildcard decision");
-
-		assert!(matches!(
-			decision,
-			ReferenceLinkageDecision::External {
-				origin: ExternalOrigin::Injected,
-				..
-			}
-		));
-	}
 }

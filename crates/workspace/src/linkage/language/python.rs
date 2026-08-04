@@ -11,10 +11,10 @@ use crate::linkage::language::generic_matches;
 use crate::snapshot::{DynamicReason, RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
-mod bindings;
+pub(in crate::linkage) mod bindings;
 mod invalidation;
 
-pub(in crate::linkage) use bindings::PythonBindingGraph;
+pub(in crate::linkage) use bindings::{BindingTarget, PythonBindingGraph};
 pub(in crate::linkage) use invalidation::binding_invalidation_sources;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
