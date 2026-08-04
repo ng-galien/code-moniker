@@ -64,7 +64,6 @@ fn resolve_full_linkage(
 	candidates: &CandidateCatalog,
 	candidate_index_elapsed: std::time::Duration,
 ) -> LinkageResolution {
-	let resolver = ReferenceResolver::new(material);
 	let mut timings = LinkageTimings {
 		candidate_index: candidate_index_elapsed,
 		..LinkageTimings::default()
@@ -84,6 +83,7 @@ fn resolve_full_linkage(
 		forwards: &forwards,
 		java_on_demand: &java_on_demand,
 	};
+	let resolver = ReferenceResolver::new(material, &policies);
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);
 	let mut decisions = (0..index.references.len())
@@ -93,7 +93,6 @@ fn resolve_full_linkage(
 				reference_idx,
 				&index.references[reference_idx],
 				locations.get(reference_idx),
-				&policies,
 			)
 		})
 		.collect::<Vec<_>>();

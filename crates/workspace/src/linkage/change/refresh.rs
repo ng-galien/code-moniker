@@ -338,7 +338,6 @@ fn resolve_reference_decisions(
 	locations: &ReferenceLocations,
 	refresh_policies: &RefreshPolicies,
 ) -> Vec<ReferenceLinkageDecision> {
-	let resolver = ReferenceResolver::new(input.material);
 	let forwards = BindingForwards::build(input.material, &refresh_policies.manifests);
 	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(input.material);
 	let policies = LinkagePolicies {
@@ -349,15 +348,11 @@ fn resolve_reference_decisions(
 		forwards: &forwards,
 		java_on_demand: &java_on_demand,
 	};
+	let resolver = ReferenceResolver::new(input.material, &policies);
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()
 		.map(|(reference_idx, reference)| {
-			resolver.resolve_reference(
-				*reference_idx,
-				reference,
-				locations.get(*reference_idx),
-				&policies,
-			)
+			resolver.resolve_reference(*reference_idx, reference, locations.get(*reference_idx))
 		})
 		.collect::<Vec<_>>()
 }
