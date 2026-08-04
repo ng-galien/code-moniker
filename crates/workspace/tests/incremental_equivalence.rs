@@ -11,7 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
-use code_moniker_workspace::linkage::{LinkageGraphDelta, LinkageRefreshImpact, LocalLinkage};
+use code_moniker_workspace::linkage::{
+	LinkageGraphDelta, LinkageMemoryMetrics, LinkageRefreshImpact, LocalLinkage,
+};
 use code_moniker_workspace::snapshot::{
 	CodeIndex, LinkageSnapshot, ReferenceId, SourceCatalog, SymbolId, WorkspaceRequest,
 };
@@ -209,6 +211,14 @@ impl IncrementalSession {
 	}
 
 	fn edit(&mut self, rel_path: &str, content: &str) -> usize {
+		self.edit_with_metrics(rel_path, content).0
+	}
+
+	fn edit_with_metrics(
+		&mut self,
+		rel_path: &str,
+		content: &str,
+	) -> (usize, LinkageMemoryMetrics) {
 		let path = self.root.join(rel_path);
 		fs::write(&path, content).expect("write edit");
 		let refreshed = self
@@ -225,10 +235,11 @@ impl IncrementalSession {
 			.refresh_linkage_with_timings(&self.snapshot, &refreshed.index, impact)
 			.expect("refresh linkage");
 		let changed_refs = refreshed_linkage.timings.changed_refs;
+		let memory = refreshed_linkage.memory;
 		self.snapshot = refreshed_linkage.snapshot;
 		self.index = refreshed.index;
 		let _ = &self.catalog;
-		changed_refs
+		(changed_refs, memory)
 	}
 
 	fn create(&mut self, rel_path: &str, content: &str) {
@@ -603,6 +614,18 @@ fn adding_a_definition_matches_full_rebuild() {
 		"src/alpha.rs",
 		"pub fn shared() {}\npub fn helper() { shared(); }\npub fn added() {}\n",
 	)]);
+}
+
+#[test]
+fn adding_an_unreferenced_definition_refreshes_the_candidate_catalog() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	let (_, memory) = session.edit_with_metrics(
+		"src/alpha.rs",
+		"pub fn shared() {}\npub fn helper() { shared(); }\npub fn added() {}\n",
+	);
+
+	assert_eq!(memory.symbol_catalog_entries, session.index.symbols.len());
 }
 
 #[test]

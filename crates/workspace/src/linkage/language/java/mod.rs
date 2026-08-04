@@ -1,24 +1,14 @@
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::{build_manifest::Manifest, kinds};
-use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 
-use crate::linkage::binding::ReferenceLinkageDecision;
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::LanguageLinkageStrategy;
-use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 
-mod lombok;
-
-pub(super) struct JavaLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for JavaLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		candidate.moniker.bind_match(query.target)
-			|| query.target.bind_match(candidate.moniker)
-			|| java_path_target_matches_type_def(query, candidate)
-	}
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	candidate.moniker.bind_match(query.target)
+		|| query.target.bind_match(candidate.moniker)
+		|| java_path_target_matches_type_def(query, candidate)
 }
 
 fn java_path_target_matches_type_def(
@@ -142,68 +132,6 @@ fn dependency_group(package: &str) -> Option<&str> {
 		.strip_prefix(Manifest::PomXml.tag())?
 		.strip_prefix('\0')?;
 	coord.split_once(':').map(|(group, _)| group)
-}
-
-pub(super) fn enhance_reference_semantics(
-	context: &super::SemanticContext<'_>,
-	extends_of: &rustc_hash::FxHashMap<Moniker, Moniker>,
-	decisions: &mut [ReferenceLinkageDecision],
-	references: &RecordTable<ReferenceRecord>,
-	changed_references: Option<&FxHashSet<ReferenceId>>,
-) {
-	let lombok = lombok::LombokSemantics::build(
-		context.material,
-		context.candidates,
-		references,
-		extends_of,
-	);
-	if lombok.is_empty() {
-		return;
-	}
-	let replacements = decisions
-		.par_iter()
-		.enumerate()
-		.filter_map(|(idx, decision)| {
-			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
-				return None;
-			}
-			lombok
-				.resolve_reference(decision, references)
-				.filter(|replacement| declared_groups_permit(context, replacement))
-				.map(|replacement| (idx, replacement))
-		})
-		.collect::<Vec<_>>();
-	for (idx, replacement) in replacements {
-		decisions[idx] = replacement;
-	}
-}
-
-// Semantic rescue must not undo declared connectivity: a Lombok accessor has
-// no structural candidate, so a cross-group call arrives here as NoCandidate
-// instead of manifest-blocked — this is the only spot where the declared
-// verdict can still be enforced for it.
-fn declared_groups_permit(
-	context: &super::SemanticContext<'_>,
-	replacement: &ReferenceLinkageDecision,
-) -> bool {
-	let Some(targets) = replacement.linkage_targets() else {
-		return true;
-	};
-	let Some(location) = context.locations.get(replacement.reference_idx()) else {
-		return true;
-	};
-	targets.iter().all(|symbol| {
-		context
-			.candidates
-			.candidate(symbol)
-			.is_none_or(|candidate| {
-				context.source_groups.link_permission(
-					context.material,
-					location.source_file,
-					candidate.source_file,
-				) != Some(crate::linkage::source_groups::LinkPermission::Blocked)
-			})
-	})
 }
 
 fn confidence(value: &[u8]) -> &str {

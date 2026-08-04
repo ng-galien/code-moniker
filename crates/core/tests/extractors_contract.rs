@@ -530,6 +530,65 @@ fn normalize(values: Vec<String>) -> bool {
 }
 
 #[test]
+fn rust_method_call_through_match_binding_targets_declared_method() {
+	let source = r#"
+struct CandidateCatalog;
+
+impl CandidateCatalog {
+	fn refresh_files(&mut self) {}
+}
+
+fn refresh(catalog: Option<&mut CandidateCatalog>) {
+	let from_option = match catalog {
+		Some(candidates) => candidates,
+		None => return,
+	};
+	from_option.refresh_files();
+	let result: Result<&mut CandidateCatalog, &mut CandidateCatalog> = Ok(from_option);
+	let from_ok = match result {
+		Ok(candidates) => candidates,
+		Err(_) => return,
+	};
+	from_ok.refresh_files();
+	let result: Result<(), &mut CandidateCatalog> = Err(from_ok);
+	let from_err = match result {
+		Ok(_) => return,
+		Err(candidates) => candidates,
+	};
+	from_err.refresh_files();
+}
+"#;
+	let graph = lang::rs::Lang::extract(
+		"src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let declared = graph
+		.defs()
+		.find(|def| {
+			render(&def.moniker).ends_with("/struct:CandidateCatalog/method:refresh_files()")
+		})
+		.expect("refresh_files declaration is extracted");
+	let calls = graph
+		.refs()
+		.filter(|reference| {
+			reference.kind == b"method_call"
+				&& (reference.receiver_hint == b"from_option"
+					|| reference.receiver_hint == b"from_ok"
+					|| reference.receiver_hint == b"from_err")
+		})
+		.collect::<Vec<_>>();
+
+	assert_eq!(calls.len(), 3, "all three method calls must be extracted");
+	assert!(
+		calls.iter().all(|call| call.target == declared.moniker),
+		"method calls through Some, Ok and Err bindings must target the method declaration: {calls:#?}"
+	);
+}
+
+#[test]
 fn rejects_unknown_expectation_fields() {
 	let spec_path = Path::new("bad.expect.toml");
 	let value = r#"

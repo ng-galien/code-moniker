@@ -81,8 +81,9 @@ fn refresh_keeps_identity_ordinal_and_retires_removed_symbols() {
 	)])]);
 	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &before);
 	let ordinal = inventory
-		.catalog()
-		.ordinal_by_identity(identity)
+		.facets()
+		.symbols_by_identity(identity)
+		.and_then(|symbols| symbols.iter().next())
 		.expect("initial ordinal");
 	let after = RecordTable::from_shards(vec![Arc::from(vec![symbol(
 		0,
@@ -96,9 +97,11 @@ fn refresh_keeps_identity_ordinal_and_retires_removed_symbols() {
 		&after,
 		&BTreeSet::from([0]),
 	);
-	assert_eq!(
-		refreshed.catalog().ordinal_by_identity(identity),
-		Some(ordinal)
+	assert!(
+		refreshed
+			.facets()
+			.symbols_by_identity(identity)
+			.is_some_and(|symbols| symbols.contains(ordinal))
 	);
 	assert_eq!(refreshed.catalog().id(ordinal), Some(&SymbolId::at(0, 1)));
 	assert_eq!(refreshed.all_symbols().len(), 1);
@@ -110,8 +113,50 @@ fn refresh_keeps_identity_ordinal_and_retires_removed_symbols() {
 		&empty,
 		&BTreeSet::from([0]),
 	);
-	assert!(removed.catalog().ordinal_by_identity(identity).is_none());
+	assert!(removed.facets().symbols_by_identity(identity).is_none());
 	assert!(removed.all_symbols().is_empty());
+}
+
+#[test]
+fn duplicate_identities_keep_each_physical_symbol_addressable() {
+	let sources = vec![
+		source(0, "java", "module-a/src/test/java/acme/Duplicate.java"),
+		source(1, "java", "module-b/src/test/java/acme/Duplicate.java"),
+	];
+	let identity = "code+moniker://./lang:java/srcset:test/package:acme/class:Duplicate";
+	let symbols = RecordTable::from_shards(vec![
+		Arc::from(vec![symbol(0, 0, identity, "Duplicate")]),
+		Arc::from(vec![symbol(1, 0, identity, "Duplicate")]),
+	]);
+
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols);
+	let matches = inventory
+		.facets()
+		.symbols_by_identity(identity)
+		.expect("identity posting");
+
+	assert_eq!(matches.len(), 2);
+	assert_eq!(inventory.catalog().ids(matches).len(), 2);
+	assert!(inventory.record_by_id(&SymbolId::at(0, 0)).is_some());
+	assert!(inventory.record_by_id(&SymbolId::at(1, 0)).is_some());
+
+	let refreshed_symbols = RecordTable::from_shards(vec![
+		Arc::from(vec![symbol(0, 1, identity, "Duplicate")]),
+		Arc::from(vec![symbol(1, 0, identity, "Duplicate")]),
+	]);
+	let refreshed = inventory.refresh(
+		ResourceGeneration::new(2),
+		&sources,
+		&refreshed_symbols,
+		&BTreeSet::from([0]),
+	);
+	let matches = refreshed
+		.facets()
+		.symbols_by_identity(identity)
+		.expect("refreshed identity posting");
+	assert_eq!(matches.len(), 2);
+	assert!(refreshed.record_by_id(&SymbolId::at(0, 1)).is_some());
+	assert!(refreshed.record_by_id(&SymbolId::at(1, 0)).is_some());
 }
 
 #[test]

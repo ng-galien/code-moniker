@@ -522,10 +522,7 @@ fn eval_exact(
 		Lhs::Shape => inventory.facets().symbols_by_shape(value).cloned(),
 		Lhs::Visibility => inventory.facets().symbols_by_visibility(value).cloned(),
 		Lhs::Srcset => inventory.facets().symbols_by_srcset(value).cloned(),
-		Lhs::Moniker => inventory
-			.catalog()
-			.ordinal_by_identity(value)
-			.map(SymbolSet::from_symbol),
+		Lhs::Moniker => inventory.facets().symbols_by_identity(value).cloned(),
 		_ => None,
 	}
 	.unwrap_or_default();

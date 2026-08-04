@@ -193,6 +193,26 @@ fn expr_refs(
 	env: &TypeEnv,
 ) {
 	match node.kind() {
+		"class_declaration" => {
+			type_refs(state, node, source, kinds::CLASS);
+			return;
+		}
+		"interface_declaration" => {
+			type_refs(state, node, source, kinds::INTERFACE);
+			return;
+		}
+		"enum_declaration" => {
+			type_refs(state, node, source, kinds::ENUM);
+			return;
+		}
+		"record_declaration" => {
+			type_refs(state, node, source, kinds::RECORD);
+			return;
+		}
+		"annotation_type_declaration" => {
+			type_refs(state, node, source, kinds::ANNOTATION_TYPE);
+			return;
+		}
 		"method_invocation" => {
 			let lambda_input = lambda_argument_input_type(state, node, owner, env);
 			method_call_ref(state, node, source, owner, env);
@@ -213,7 +233,18 @@ fn expr_refs(
 		"method_declaration" | "constructor_declaration" => {
 			return;
 		}
-		"object_creation_expression" => object_creation_ref(state, node, source),
+		"object_creation_expression" => {
+			if qualified_object_creation_refs(state, node, source, owner, env) {
+				let type_id = node.child_by_field_name("type").map(|ty| ty.id());
+				for child in named_children(node) {
+					if Some(child.id()) != type_id {
+						expr_refs(state, child, source, owner, env);
+					}
+				}
+				return;
+			}
+			object_creation_ref(state, node, source);
+		}
 		"local_variable_declaration" => {
 			if let Some(ty) = node.child_by_field_name("type") {
 				emit_type_refs(state, ty, source);
@@ -307,7 +338,7 @@ fn object_creation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Mo
 	let Some(path) = type_path(ty, state.source) else {
 		return;
 	};
-	let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
+	let (target, confidence) = resolve_type_path(state, source, &path, kinds::CLASS);
 	state.push_ref(ResolvedRef {
 		source: source.clone(),
 		target,
@@ -316,6 +347,57 @@ fn object_creation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Mo
 		confidence,
 		hints: RefHints::default(),
 	});
+}
+
+fn qualified_object_creation_refs(
+	state: &mut JavaDiscover<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> bool {
+	let Some(ty) = node.child_by_field_name("type") else {
+		return false;
+	};
+	let Some(path) = type_path(ty, state.source) else {
+		return false;
+	};
+	let Some(name) = path.last() else {
+		return false;
+	};
+	let Some(qualifier) = named_children(node).find(|child| child.end_byte() <= ty.start_byte())
+	else {
+		return false;
+	};
+	let Some(qualifier_owner) = receiver_owner(state, qualifier, owner, env) else {
+		return false;
+	};
+	let target = extend_segment(&qualifier_owner, kinds::CLASS, name);
+	let confidence = owner_confidence(state, &qualifier_owner);
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target: target.clone(),
+		kind: kinds::INSTANTIATES,
+		position: Some(node_position(node)),
+		confidence,
+		hints: RefHints::default(),
+	});
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target,
+		kind: kinds::USES_TYPE,
+		position: Some(node_position(type_anchor(ty))),
+		confidence,
+		hints: RefHints::default(),
+	});
+	if ty.kind() == "generic_type"
+		&& let Some(args) = generic_type_arguments(ty)
+	{
+		for argument in named_children(args) {
+			emit_type_refs(state, argument, source);
+		}
+	}
+	true
 }
 
 fn identifier_ref(
@@ -402,7 +484,7 @@ fn static_type_owner(state: &JavaDiscover<'_>, node: Node<'_>, owner: &Moniker) 
 			name.first()
 				.is_some_and(u8::is_ascii_uppercase)
 				.then_some(())?;
-			lookup_known_type_name(state, name)
+			lookup_known_type_name(state, owner, name)
 				.map(|(target, _)| target)
 				.or_else(|| same_package_type_target(state, name))
 		}
@@ -421,12 +503,7 @@ fn local_binding_target(
 	[kinds::PARAM, kinds::LOCAL]
 		.into_iter()
 		.map(|kind| extend_segment(source, kind, name))
-		.find(|candidate| {
-			state
-				.defs
-				.iter()
-				.any(|def| def.moniker.bind_match(candidate))
-		})
+		.find(|candidate| state.defs.iter().any(|def| def.moniker == *candidate))
 }
 
 fn receiver_owner(
@@ -455,7 +532,7 @@ fn receiver_type_expr(
 						.and_then(|cls| state.field_types.get(&(cls, name.to_vec())).cloned())
 				})
 				.or_else(|| {
-					lookup_known_type_name(state, name)
+					lookup_known_type_name(state, owner, name)
 						.map(|(target, _)| TypeExpr::resolved(target))
 				})
 				.or_else(|| same_package_type_target(state, name).map(TypeExpr::resolved))
@@ -510,7 +587,7 @@ fn expression_external_owner(
 				.and_then(TypeExpr::receiver_owner)
 				.filter(|target| java_external_target_shape(target))
 				.cloned()
-				.or_else(|| match lookup_known_type_name(state, name) {
+				.or_else(|| match lookup_known_type_name(state, owner, name) {
 					Some((target, kinds::CONF_EXTERNAL)) => Some(target),
 					_ => None,
 				})
@@ -518,7 +595,7 @@ fn expression_external_owner(
 		"string_literal" => Some(java_lang_target(&state.root, b"String")),
 		"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
 			let path = type_path(node, state.source)?;
-			let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
+			let (target, confidence) = resolve_type_path(state, owner, &path, kinds::CLASS);
 			(confidence == kinds::CONF_EXTERNAL).then_some(target)
 		}
 		"class_literal" => Some(java_lang_target(&state.root, b"Class")),
@@ -768,7 +845,7 @@ fn emit_type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker
 				{
 					return;
 				}
-				let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
+				let (target, confidence) = resolve_type_path(state, source, &path, kinds::CLASS);
 				state.push_ref(ResolvedRef {
 					source: source.clone(),
 					target,
@@ -829,7 +906,7 @@ fn annotation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker
 	if name.is_empty() {
 		return;
 	}
-	let (target, confidence) = resolve_type_target(state, &name, kinds::ANNOTATION_TYPE);
+	let (target, confidence) = resolve_type_target(state, source, &name, kinds::ANNOTATION_TYPE);
 	state.push_ref(ResolvedRef {
 		source: source.clone(),
 		target,
@@ -859,7 +936,7 @@ fn heritage_refs(
 			} else {
 				kinds::CLASS
 			};
-			let (target, confidence) = resolve_type_path(state, &path, target_kind);
+			let (target, confidence) = resolve_type_path(state, source, &path, target_kind);
 			state.push_ref(ResolvedRef {
 				source: source.clone(),
 				target,

@@ -19,6 +19,7 @@ pub(in crate::linkage) struct LinkageCandidate<'a> {
 	pub(in crate::linkage) call_name: Option<&'a [u8]>,
 	pub(in crate::linkage) call_arity: Option<usize>,
 	pub(in crate::linkage) visibility: &'a [u8],
+	pub(in crate::linkage) signature: &'a [u8],
 	pub(in crate::linkage) source_file: usize,
 }
 
@@ -120,7 +121,6 @@ impl CandidateCatalog {
 
 pub(in crate::linkage) struct CandidateIndexes {
 	by_moniker: FxHashMap<Moniker, SymbolOrdinal>,
-	by_name: NameIndex,
 	by_language_name: FxHashMap<Lang, NameIndex>,
 	by_source_name: FxHashMap<usize, NameIndex>,
 }
@@ -129,7 +129,6 @@ impl CandidateIndexes {
 	fn new() -> Self {
 		Self {
 			by_moniker: FxHashMap::default(),
-			by_name: FxHashMap::default(),
 			by_language_name: FxHashMap::default(),
 			by_source_name: FxHashMap::default(),
 		}
@@ -143,8 +142,9 @@ impl CandidateIndexes {
 	) {
 		self.by_moniker.insert(candidate.moniker.clone(), symbol);
 		for key in candidate_keys(candidate) {
-			insert_name(&mut self.by_name, &key, symbol);
-			insert_partitioned_name(&mut self.by_language_name, lang, &key, symbol);
+			if is_global_candidate(candidate) {
+				insert_partitioned_name(&mut self.by_language_name, lang, &key, symbol);
+			}
 			insert_partitioned_name(
 				&mut self.by_source_name,
 				candidate.source_file,
@@ -168,8 +168,9 @@ impl CandidateIndexes {
 			self.by_moniker.remove(entry.moniker);
 		}
 		for key in candidate_keys(entry) {
-			remove_name(&mut self.by_name, &key, ordinal);
-			remove_partitioned_name(&mut self.by_language_name, language, &key, ordinal);
+			if is_global_candidate(entry) {
+				remove_partitioned_name(&mut self.by_language_name, language, &key, ordinal);
+			}
 			remove_partitioned_name(&mut self.by_source_name, entry.source_file, &key, ordinal);
 		}
 	}
@@ -185,10 +186,6 @@ impl CandidateIndexes {
 		self.by_source_name
 			.get(&source_file)
 			.map(|keys| keys.keys().map(|key| key.as_slice()))
-	}
-
-	pub(in crate::linkage) fn symbols_by_key(&self, key: &[u8]) -> Option<&SymbolSet> {
-		self.by_name.get(key)
 	}
 
 	pub(in crate::linkage) fn symbols_by_language_key(
@@ -313,6 +310,7 @@ fn candidate(file_idx: usize, def: &DefRecord) -> LinkageCandidate<'_> {
 		call_name: (!def.call_name.is_empty()).then_some(def.call_name.as_ref()),
 		call_arity: def.call_arity,
 		visibility: def.visibility.as_ref(),
+		signature: def.signature.as_ref(),
 		source_file: file_idx,
 	}
 }
@@ -404,6 +402,12 @@ fn is_linkage_candidate_def(def: &DefRecord) -> bool {
 		return false;
 	}
 	!has_position_backed_anonymous_name(&def.moniker)
+}
+
+fn is_global_candidate(candidate: &LinkageCandidate<'_>) -> bool {
+	!candidate
+		.last_segment
+		.is_some_and(|segment| matches!(segment.kind, kinds::LOCAL | kinds::PARAM))
 }
 
 fn has_position_backed_anonymous_name(moniker: &Moniker) -> bool {

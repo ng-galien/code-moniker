@@ -4,7 +4,7 @@ use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::{Lang, ts};
 
-use crate::cbuild::CBuildContext;
+use crate::sources::CBuildContext;
 use crate::tsconfig::TsResolution;
 
 #[derive(Debug, Clone, Default)]

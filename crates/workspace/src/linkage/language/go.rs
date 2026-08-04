@@ -4,15 +4,10 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
 
-pub(super) struct GoLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for GoLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| go_package_target_matches_def(query, candidate)
-	}
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	generic_matches(query, candidate) || go_package_target_matches_def(query, candidate)
 }
 
 // Go package scope spans every file of a directory, but extraction anchors

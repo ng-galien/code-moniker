@@ -9,6 +9,7 @@ use super::{InventorySegment, InventorySymbol, SourceId, SymbolOrdinal, SymbolSe
 // code-moniker: ignore[smell-god-type-local-metrics]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SymbolInventoryFacets {
+	by_identity: FxHashMap<Arc<str>, SymbolSet>,
 	by_name: FxHashMap<Arc<str>, SymbolSet>,
 	by_kind: FxHashMap<Arc<str>, SymbolSet>,
 	by_shape: FxHashMap<Arc<str>, SymbolSet>,
@@ -23,7 +24,8 @@ pub struct SymbolInventoryFacets {
 
 impl SymbolInventoryFacets {
 	pub(super) fn estimated_heap_bytes(&self) -> usize {
-		string_postings_bytes(&self.by_name)
+		string_postings_bytes(&self.by_identity)
+			+ string_postings_bytes(&self.by_name)
 			+ string_postings_bytes(&self.by_kind)
 			+ string_postings_bytes(&self.by_shape)
 			+ string_postings_bytes(&self.by_visibility)
@@ -33,6 +35,10 @@ impl SymbolInventoryFacets {
 			+ postings_bytes(&self.by_source_root)
 			+ string_postings_bytes(&self.by_srcset)
 			+ postings_bytes(&self.by_segment)
+	}
+
+	pub fn symbols_by_identity(&self, identity: &str) -> Option<&SymbolSet> {
+		self.by_identity.get(identity)
 	}
 
 	pub fn symbols_by_name(&self, name: &str) -> Option<&SymbolSet> {
@@ -128,6 +134,11 @@ pub(super) fn insert_facets(
 	record: &InventorySymbol,
 	ordinal: SymbolOrdinal,
 ) {
+	insert_posting(
+		&mut facets.by_identity,
+		Arc::clone(&record.identity),
+		ordinal,
+	);
 	insert_posting(&mut facets.by_name, Arc::clone(&record.name), ordinal);
 	insert_posting(&mut facets.by_kind, Arc::clone(&record.kind), ordinal);
 	insert_posting(&mut facets.by_shape, Arc::clone(&record.shape), ordinal);
@@ -159,6 +170,7 @@ pub(super) fn remove_facets(
 	record: &InventorySymbol,
 	ordinal: SymbolOrdinal,
 ) {
+	remove_posting(&mut facets.by_identity, &record.identity, ordinal);
 	remove_posting(&mut facets.by_name, &record.name, ordinal);
 	remove_posting(&mut facets.by_kind, &record.kind, ordinal);
 	remove_posting(&mut facets.by_shape, &record.shape, ordinal);

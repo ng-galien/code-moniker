@@ -14,6 +14,7 @@ pub(super) type CallableTable = HashMap<(Moniker, Vec<u8>, usize), Vec<u8>>;
 pub(super) type ReturnTypeTable = HashMap<(Moniker, Vec<u8>, usize), TypeExpr>;
 pub(super) type FieldTypeTable = HashMap<(Moniker, Vec<u8>), TypeExpr>;
 pub(super) type TypeParamTable = HashMap<Moniker, Vec<Vec<u8>>>;
+pub(super) type TypeTable = HashMap<(Moniker, Vec<u8>), Moniker>;
 
 pub(super) struct DiscoveredJavaFile {
 	pub root: Moniker,
@@ -32,7 +33,7 @@ pub(super) struct JavaDiscover<'src> {
 	pub(super) callables: CallableTable,
 	pub(super) return_types: ReturnTypeTable,
 	pub(super) field_types: FieldTypeTable,
-	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
+	pub(super) type_table: TypeTable,
 	pub(super) type_params: TypeParamTable,
 }
 
@@ -60,6 +61,7 @@ impl<'src> JavaDiscover<'src> {
 		collect_imports(&mut discover, root_node, &root);
 		predeclare_types(&mut discover, root_node, &root);
 		collect_defs(&mut discover, root_node, &root);
+		super::lombok::emit_generated_members(&mut discover, root_node, &root);
 		collect_refs(&mut discover, root_node, &root);
 		DiscoveredJavaFile {
 			root,

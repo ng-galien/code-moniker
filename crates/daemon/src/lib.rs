@@ -5003,10 +5003,22 @@ mod helpers {
 		uri: &str,
 	) -> Result<&'a SymbolRecord, QueryError> {
 		let inventory = &snapshot.index.inventory;
-		if let Some(id) = SymbolId::parse(uri).or_else(|| inventory.symbol_id_by_identity(uri)) {
+		if let Some(id) = SymbolId::parse(uri) {
 			return symbol_record_by_id(snapshot, id).ok_or_else(|| {
 				QueryError::new("symbol_not_found", format!("symbol not found: {uri}"))
 			});
+		}
+		let exact = inventory.symbol_ids_by_identity(uri);
+		if let [id] = exact.as_slice() {
+			return symbol_record_by_id(snapshot, *id).ok_or_else(|| {
+				QueryError::new("symbol_not_found", format!("symbol not found: {uri}"))
+			});
+		}
+		if exact.len() > 1 {
+			return Err(QueryError::new(
+				"symbol_ambiguous",
+				format!("moniker matches multiple symbols: {uri}"),
+			));
 		}
 		let mut matches = inventory
 			.symbol_ids_by_compact_identity(uri)

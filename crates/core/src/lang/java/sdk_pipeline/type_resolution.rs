@@ -36,10 +36,15 @@ pub(super) fn is_type_param_in_scope(
 
 pub(super) fn lookup_known_type_name(
 	state: &JavaDiscover<'_>,
+	scope: &Moniker,
 	name: &[u8],
 ) -> Option<(Moniker, &'static [u8])> {
-	if let Some(target) = state.type_table.get(name) {
-		return Some((target.clone(), kinds::CONF_RESOLVED));
+	let mut visible_scope = Some(scope.clone());
+	while let Some(owner) = visible_scope {
+		if let Some(target) = state.type_table.get(&(owner.clone(), name.to_vec())) {
+			return Some((target.clone(), kinds::CONF_RESOLVED));
+		}
+		visible_scope = owner.parent();
 	}
 	if let Some(import) = state.imports.iter().find(|import| import.name == name) {
 		if import.is_static {
@@ -61,10 +66,11 @@ pub(super) fn same_package_type_target(state: &JavaDiscover<'_>, name: &[u8]) ->
 
 pub(super) fn resolve_type_target(
 	state: &JavaDiscover<'_>,
+	scope: &Moniker,
 	name: &[u8],
 	fallback_kind: &'static [u8],
 ) -> (Moniker, &'static [u8]) {
-	if let Some(found) = lookup_known_type_name(state, name) {
+	if let Some(found) = lookup_known_type_name(state, scope, name) {
 		return found;
 	}
 	if builtins::is_primitive_type(name) || builtins::is_inferred_local_type(name) {
@@ -80,6 +86,7 @@ pub(super) fn resolve_type_target(
 
 pub(super) fn resolve_type_path(
 	state: &JavaDiscover<'_>,
+	scope: &Moniker,
 	pieces: &[Vec<u8>],
 	fallback_kind: &'static [u8],
 ) -> (Moniker, &'static [u8]) {
@@ -87,9 +94,9 @@ pub(super) fn resolve_type_path(
 		return (state.root.clone(), kinds::CONF_NAME_MATCH);
 	};
 	if tail.is_empty() {
-		return resolve_type_target(state, head, fallback_kind);
+		return resolve_type_target(state, scope, head, fallback_kind);
 	}
-	if let Some((base, confidence)) = lookup_known_type_name(state, head) {
+	if let Some((base, confidence)) = lookup_known_type_name(state, scope, head) {
 		return (append_path_segments(&base, tail), confidence);
 	}
 	if head.first().is_some_and(u8::is_ascii_uppercase) {
@@ -131,7 +138,7 @@ pub(super) fn type_expr(
 		return Some(TypeExpr::TypeParam(name.clone()));
 	}
 	Some(TypeExpr::resolved(
-		resolve_type_path(state, &path, kinds::CLASS).0,
+		resolve_type_path(state, scope, &path, kinds::CLASS).0,
 	))
 }
 

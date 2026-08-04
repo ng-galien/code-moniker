@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use code_moniker_core::lang::build_manifest::Manifest;
-
 use crate::source::CodeIndexMaterial;
 
 use crate::code::CodeIndexGraphDiff;
@@ -15,23 +13,11 @@ pub struct LinkageGraphDelta {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LinkageRefreshImpact {
-	scope: RefreshScope,
-	references: ReferenceDelta,
-	symbols: SymbolDelta,
-	precision: LinkageDiffPrecision,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-enum LinkageDiffPrecision {
-	#[default]
-	SourceLevel,
-	Precise,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::linkage) struct RefreshScope {
 	changed_sources: Vec<SourceId>,
 	changed_paths: Vec<PathBuf>,
+	references: ReferenceDelta,
+	symbols: SymbolDelta,
+	precise: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -65,23 +51,14 @@ pub(in crate::linkage) enum SymbolDelta {
 	},
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::linkage) enum LinkageRefreshShape<'a> {
-	Empty,
-	SourceLevel,
-	ManifestPolicy,
-	AdditiveSymbolsOnly(&'a [SymbolId]),
-	RemovedSymbolsOnly(&'a [SymbolId]),
-	LinkageRelevant,
-}
-
 impl LinkageRefreshImpact {
 	pub fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
 		Self {
-			scope: RefreshScope::new(changed_sources, changed_paths),
+			changed_sources,
+			changed_paths,
 			references: ReferenceDelta::Unchanged,
 			symbols: SymbolDelta::Unchanged,
-			precision: LinkageDiffPrecision::SourceLevel,
+			precise: false,
 		}
 	}
 
@@ -91,33 +68,31 @@ impl LinkageRefreshImpact {
 		graph_delta: LinkageGraphDelta,
 	) -> Self {
 		Self {
-			scope: RefreshScope::new(changed_sources, changed_paths),
+			changed_sources,
+			changed_paths,
 			references: graph_delta.references,
 			symbols: graph_delta.symbols,
-			precision: LinkageDiffPrecision::Precise,
+			precise: true,
 		}
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.scope.is_empty()
+		self.changed_sources.is_empty()
+			&& self.changed_paths.is_empty()
 			&& self.references.is_empty()
-			&& symbol_delta_is_unchanged(&self.symbols)
-	}
-
-	pub(in crate::linkage) fn shape(&self) -> LinkageRefreshShape<'_> {
-		classify_refresh_shape(self)
+			&& matches!(self.symbols, SymbolDelta::Unchanged)
 	}
 
 	pub(in crate::linkage) fn changed_sources(&self) -> &[SourceId] {
-		self.scope.changed_sources()
+		&self.changed_sources
 	}
 
 	pub(in crate::linkage) fn changed_paths(&self) -> &[PathBuf] {
-		self.scope.changed_paths()
+		&self.changed_paths
 	}
 
 	pub(in crate::linkage) fn has_precise_graph_diff(&self) -> bool {
-		self.precision == LinkageDiffPrecision::Precise
+		self.precise
 	}
 
 	pub(in crate::linkage) fn references(&self) -> &ReferenceDelta {
@@ -134,7 +109,6 @@ pub(in crate::linkage) fn changes_c_include_topology(
 	material: &CodeIndexMaterial,
 ) -> bool {
 	let changed_c_path = impact
-		.scope
 		.changed_paths
 		.iter()
 		.any(|path| is_c_family_path(path));
@@ -185,55 +159,6 @@ impl LinkageGraphDelta {
 impl From<CodeIndexGraphDiff> for LinkageGraphDelta {
 	fn from(graph_diff: CodeIndexGraphDiff) -> Self {
 		Self::from_code_index(graph_diff)
-	}
-}
-
-fn classify_refresh_shape(impact: &LinkageRefreshImpact) -> LinkageRefreshShape<'_> {
-	if impact.is_empty() {
-		return LinkageRefreshShape::Empty;
-	}
-	if !impact.has_precise_graph_diff() {
-		return LinkageRefreshShape::SourceLevel;
-	}
-	if impact.scope.has_manifest_path_change() {
-		return LinkageRefreshShape::ManifestPolicy;
-	}
-	if !impact.references.is_empty() {
-		return LinkageRefreshShape::LinkageRelevant;
-	}
-	match &impact.symbols {
-		SymbolDelta::AdditiveOnly { added } => LinkageRefreshShape::AdditiveSymbolsOnly(added),
-		SymbolDelta::RemovedOnly { removed, .. } => {
-			LinkageRefreshShape::RemovedSymbolsOnly(removed)
-		}
-		SymbolDelta::Unchanged | SymbolDelta::Mixed { .. } => LinkageRefreshShape::LinkageRelevant,
-	}
-}
-
-impl RefreshScope {
-	fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
-		Self {
-			changed_sources,
-			changed_paths,
-		}
-	}
-
-	fn is_empty(&self) -> bool {
-		self.changed_sources.is_empty() && self.changed_paths.is_empty()
-	}
-
-	fn changed_sources(&self) -> &[SourceId] {
-		&self.changed_sources
-	}
-
-	fn changed_paths(&self) -> &[PathBuf] {
-		&self.changed_paths
-	}
-
-	fn has_manifest_path_change(&self) -> bool {
-		self.changed_paths
-			.iter()
-			.any(|path| Manifest::for_filename(path).is_some())
 	}
 }
 
@@ -368,10 +293,6 @@ impl SymbolDelta {
 			Self::Unchanged | Self::AdditiveOnly { .. } => &[],
 		}
 	}
-}
-
-fn symbol_delta_is_unchanged(symbols: &SymbolDelta) -> bool {
-	matches!(symbols, SymbolDelta::Unchanged)
 }
 
 fn symbol_delta_is_empty(graph_diff: &CodeIndexGraphDiff) -> bool {

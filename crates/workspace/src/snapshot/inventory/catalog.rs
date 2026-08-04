@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use rustc_hash::FxHashMap;
 
 use super::{SymbolId, SymbolOrdinal, SymbolSet};
@@ -11,26 +9,19 @@ use super::{SymbolId, SymbolOrdinal, SymbolSet};
 pub struct SymbolOrdinalCatalog {
 	next_ordinal: u32,
 	ids: FxHashMap<SymbolOrdinal, SymbolId>,
-	identities: FxHashMap<SymbolOrdinal, Arc<str>>,
 	ordinals_by_id: FxHashMap<SymbolId, SymbolOrdinal>,
-	ordinals_by_identity: FxHashMap<Arc<str>, SymbolOrdinal>,
 }
 
 impl SymbolOrdinalCatalog {
 	pub(super) fn estimated_heap_bytes(&self) -> usize {
 		self.ids.capacity()
 			* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<SymbolId>())
-			+ self.identities.capacity()
-				* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<Arc<str>>())
 			+ self.ordinals_by_id.capacity()
 				* (std::mem::size_of::<SymbolId>() + std::mem::size_of::<SymbolOrdinal>())
-			+ self.ordinals_by_identity.capacity()
-				* (std::mem::size_of::<Arc<str>>() + std::mem::size_of::<SymbolOrdinal>())
 	}
 
-	pub fn push(&mut self, id: SymbolId, identity: Arc<str>) -> SymbolOrdinal {
-		if let Some(ordinal) = self.ordinals_by_identity.get(&identity).copied() {
-			self.rebind_id(ordinal, id);
+	pub fn push(&mut self, id: SymbolId) -> SymbolOrdinal {
+		if let Some(ordinal) = self.ordinals_by_id.get(&id).copied() {
 			return ordinal;
 		}
 		let ordinal = SymbolOrdinal::from_index(self.next_ordinal as usize);
@@ -39,31 +30,22 @@ impl SymbolOrdinalCatalog {
 			"symbol ordinal space exhausted"
 		);
 		self.next_ordinal += 1;
-		self.ordinals_by_id.insert(id, ordinal);
-		self.ordinals_by_identity
-			.insert(Arc::clone(&identity), ordinal);
-		self.ids.insert(ordinal, id);
-		self.identities.insert(ordinal, identity);
+		self.bind_id(ordinal, id);
 		ordinal
-	}
-
-	fn rebind_id(&mut self, ordinal: SymbolOrdinal, id: SymbolId) {
-		if let Some(previous_id) = self.ids.get(&ordinal) {
-			if previous_id == &id {
-				return;
-			}
-			if self.ordinals_by_id.get(previous_id) == Some(&ordinal) {
-				self.ordinals_by_id.remove(previous_id);
-			}
-		}
-		self.ordinals_by_id.insert(id, ordinal);
-		self.ids.insert(ordinal, id);
 	}
 
 	pub fn retire(&mut self, ordinal: SymbolOrdinal) {
 		self.unbind_id(ordinal);
-		if let Some(identity) = self.identities.remove(&ordinal) {
-			self.ordinals_by_identity.remove(&identity);
+	}
+
+	pub(super) fn bind_id(&mut self, ordinal: SymbolOrdinal, id: SymbolId) {
+		if let Some(previous) = self.ids.insert(ordinal, id) {
+			self.ordinals_by_id.remove(&previous);
+		}
+		if let Some(previous_ordinal) = self.ordinals_by_id.insert(id, ordinal)
+			&& previous_ordinal != ordinal
+		{
+			self.ids.remove(&previous_ordinal);
 		}
 	}
 
@@ -73,10 +55,6 @@ impl SymbolOrdinalCatalog {
 		{
 			self.ordinals_by_id.remove(&previous_id);
 		}
-	}
-
-	pub fn identity(&self, ordinal: SymbolOrdinal) -> Option<&str> {
-		self.identities.get(&ordinal).map(AsRef::as_ref)
 	}
 
 	pub fn len(&self) -> usize {
@@ -93,10 +71,6 @@ impl SymbolOrdinalCatalog {
 
 	pub fn ordinal(&self, id: &SymbolId) -> Option<SymbolOrdinal> {
 		self.ordinals_by_id.get(id).copied()
-	}
-
-	pub fn ordinal_by_identity(&self, identity: &str) -> Option<SymbolOrdinal> {
-		self.ordinals_by_identity.get(identity).copied()
 	}
 
 	pub fn ids(&self, symbols: &SymbolSet) -> Vec<SymbolId> {

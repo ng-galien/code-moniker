@@ -8,6 +8,7 @@
 #define FIELD_VALUE(field) (record.field)
 #define TYPE_MACRO(name, c_name) int
 #define VARIADIC(first, ...) (first)
+#define DECLARE_LOCAL() int injected_value = 7
 #define API_IMPORT
 
 extern API_IMPORT int imported_value;

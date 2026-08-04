@@ -146,7 +146,7 @@ impl SymbolInventoryIndex {
 		for symbol in symbols.iter() {
 			let fallback = missing_source(symbol.source);
 			let source = sources.get(symbol.source.file()).unwrap_or(&fallback);
-			index_record(&mut inventory, symbol, source);
+			index_record(&mut inventory, symbol, source, None);
 		}
 		inventory
 	}
@@ -183,11 +183,13 @@ impl SymbolInventoryIndex {
 			.and_then(|ordinal| self.record(ordinal))
 	}
 
-	pub fn symbol_id_by_identity(&self, identity: &str) -> Option<SymbolId> {
-		self.catalog
-			.ordinal_by_identity(identity)
-			.and_then(|ordinal| self.catalog.id(ordinal))
-			.copied()
+	pub fn symbol_ids_by_identity(&self, identity: &str) -> Vec<SymbolId> {
+		self.facets
+			.symbols_by_identity(identity)
+			.into_iter()
+			.flat_map(SymbolSet::iter)
+			.filter_map(|ordinal| self.catalog.id(ordinal).copied())
+			.collect()
 	}
 
 	pub fn symbol_ids_by_compact_identity(&self, compact: &str) -> Vec<SymbolId> {
@@ -218,9 +220,16 @@ fn index_record(
 	inventory: &mut SymbolInventoryIndex,
 	symbol: &SymbolRecord,
 	source: &SourceFileRecord,
+	preferred_ordinal: Option<SymbolOrdinal>,
 ) {
-	let ordinal =
-		Arc::make_mut(&mut inventory.catalog).push(symbol.id, Arc::clone(&symbol.identity));
+	let catalog = Arc::make_mut(&mut inventory.catalog);
+	let ordinal = match preferred_ordinal {
+		Some(ordinal) => {
+			catalog.bind_id(ordinal, symbol.id);
+			ordinal
+		}
+		None => catalog.push(symbol.id),
+	};
 	if inventory.records.contains_key(&ordinal) {
 		unindex_record(inventory, ordinal);
 	}
@@ -351,6 +360,15 @@ fn refresh_inventory(
 	let mut inventory = previous.clone();
 	inventory.generation = generation;
 	let pending_retire = changed_ordinals(&inventory, changed_files);
+	let mut reusable_ordinals = FxHashMap::<(SourceId, Arc<str>), Vec<SymbolOrdinal>>::default();
+	for ordinal in &pending_retire {
+		if let Some(record) = inventory.record(*ordinal) {
+			reusable_ordinals
+				.entry((record.source, Arc::clone(&record.identity)))
+				.or_default()
+				.push(*ordinal);
+		}
+	}
 	for ordinal in &pending_retire {
 		unindex_record(&mut inventory, *ordinal);
 		Arc::make_mut(&mut inventory.catalog).unbind_id(*ordinal);
@@ -359,7 +377,9 @@ fn refresh_inventory(
 		for symbol in symbols.file_records(*file) {
 			let fallback = missing_source(symbol.source);
 			let source = sources.get(*file).unwrap_or(&fallback);
-			index_record(&mut inventory, symbol, source);
+			let key = (symbol.source, Arc::clone(&symbol.identity));
+			let preferred = reusable_ordinals.get_mut(&key).and_then(Vec::pop);
+			index_record(&mut inventory, symbol, source, preferred);
 		}
 	}
 	for ordinal in pending_retire {

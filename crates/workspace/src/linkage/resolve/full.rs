@@ -5,12 +5,12 @@ use rayon::prelude::*;
 use crate::linkage::binding::LinkageStore;
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
-use crate::linkage::resolve::CrateForwards;
+use crate::linkage::resolve::BindingForwards;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
 use crate::linkage::resolve::{
-	MethodTable, SemanticLinkage, SemanticPolicies, WorkspacePackageIndex,
+	LinkageRefiner, MethodTable, RefinementPolicies, WorkspacePackageIndex,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
@@ -64,7 +64,6 @@ fn resolve_full_linkage(
 	candidates: &CandidateCatalog,
 	candidate_index_elapsed: std::time::Duration,
 ) -> LinkageResolution {
-	let resolver = ReferenceResolver::new(material);
 	let mut timings = LinkageTimings {
 		candidate_index: candidate_index_elapsed,
 		..LinkageTimings::default()
@@ -73,7 +72,8 @@ fn resolve_full_linkage(
 	let manifests = ManifestPolicy::build(material);
 	let source_groups = SourceGroupPolicy::build(material);
 	let packages = WorkspacePackageIndex::build(material);
-	let forwards = CrateForwards::build(material, &manifests);
+	let forwards = BindingForwards::build(material, &manifests);
+	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
 	let policies = LinkagePolicies {
 		candidates,
@@ -81,7 +81,9 @@ fn resolve_full_linkage(
 		source_groups: &source_groups,
 		packages: &packages,
 		forwards: &forwards,
+		java_on_demand: &java_on_demand,
 	};
+	let resolver = ReferenceResolver::new(material, &policies);
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);
 	let mut decisions = (0..index.references.len())
@@ -91,21 +93,20 @@ fn resolve_full_linkage(
 				reference_idx,
 				&index.references[reference_idx],
 				locations.get(reference_idx),
-				&policies,
 			)
 		})
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
-	let semantic_timer = Instant::now();
-	SemanticLinkage::new(
+	let refinement_timer = Instant::now();
+	LinkageRefiner::new(
 		material,
 		methods,
 		candidates,
 		&locations,
-		SemanticPolicies::new(&source_groups, &packages, &manifests),
+		RefinementPolicies::new(&source_groups, &packages, &manifests),
 	)
-	.enhance(&mut decisions, &index.references);
-	timings.semantic_enhance = semantic_timer.elapsed();
+	.refine(&mut decisions, &index.references);
+	timings.semantic_refinement = refinement_timer.elapsed();
 	let store_timer = Instant::now();
 	let store = LinkageStore::new(
 		generation,

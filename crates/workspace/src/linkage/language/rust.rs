@@ -6,23 +6,20 @@ use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::language::LanguageLinkageStrategy;
-
-pub(super) struct RustLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for RustLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		if query
-			.target_first
-			.is_some_and(|segment| segment.kind == kinds::SDK)
-		{
-			return false;
-		}
-		candidate.moniker.bind_match(query.target)
-			|| query.target.bind_match(candidate.moniker)
-			|| rust_path_target_matches_def(query, candidate)
-			|| rust_contextual_name_matches_def(query, candidate)
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	if query
+		.target_first
+		.is_some_and(|segment| segment.kind == kinds::SDK)
+	{
+		return false;
 	}
+	if !rust_reference_namespace_accepts(query, candidate) {
+		return false;
+	}
+	candidate.moniker.bind_match(query.target)
+		|| query.target.bind_match(candidate.moniker)
+		|| rust_path_target_matches_def(query, candidate)
+		|| rust_contextual_name_matches_def(query, candidate)
 }
 
 pub(super) fn external_crate_target_matches_def(
@@ -349,8 +346,35 @@ fn is_rust_callable_kind(kind: &[u8]) -> bool {
 	kind == kinds::FN || kind == kinds::METHOD
 }
 
+fn is_rust_call_candidate_kind(kind: &[u8]) -> bool {
+	is_rust_callable_kind(kind) || kind == b"macro"
+}
+
 fn is_rust_call_ref(kind: &[u8]) -> bool {
 	kind == kinds::CALLS || kind == kinds::METHOD_CALL
+}
+
+fn rust_reference_namespace_accepts(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	if is_rust_call_ref(query.reference_kind.as_bytes()) {
+		return candidate
+			.last_segment
+			.is_some_and(|segment| is_rust_call_candidate_kind(segment.kind));
+	}
+	if !matches!(
+		query.reference_kind.as_bytes(),
+		kinds::USES_TYPE | kinds::EXTENDS | kinds::IMPLEMENTS
+	) {
+		return true;
+	}
+	candidate.last_segment.is_some_and(|segment| {
+		matches!(
+			segment.kind,
+			kinds::PATH | kinds::STRUCT | kinds::ENUM | kinds::TRAIT | kinds::TYPE
+		)
+	})
 }
 
 fn is_rust_path_target_kind(kind: &[u8]) -> bool {

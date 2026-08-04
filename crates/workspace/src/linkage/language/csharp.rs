@@ -2,15 +2,12 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
 
 use crate::linkage::catalog::{LinkageCandidate, LinkageQuery};
-use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
+use crate::linkage::language::generic_matches;
+use crate::snapshot::{DynamicReason, ReferenceRecord};
+use crate::source::CodeIndexMaterial;
 
-pub(super) struct CsharpLanguageLinkageStrategy;
-
-impl LanguageLinkageStrategy for CsharpLanguageLinkageStrategy {
-	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-		GenericLanguageLinkageStrategy.matches(query, candidate)
-			|| csharp_name_target_matches_def(query, candidate)
-	}
+pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	generic_matches(query, candidate) || csharp_name_target_matches_def(query, candidate)
 }
 
 fn csharp_name_target_matches_def(
@@ -64,4 +61,42 @@ fn is_target_callable_kind(kind: &[u8]) -> bool {
 
 fn is_def_callable_kind(kind: &[u8]) -> bool {
 	matches!(kind, kinds::METHOD | kinds::CONSTRUCTOR)
+}
+
+pub(super) fn classify_open_reference(
+	material: &CodeIndexMaterial,
+	decision: &mut crate::linkage::binding::ReferenceLinkageDecision,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) {
+	let imported_external = reference.confidence.as_deref() == Some("imported")
+		&& material
+			.reference_target(&reference.id)
+			.is_some_and(super::external_target_shape);
+	let reason = if imported_external {
+		Some(DynamicReason::ExternalDependencyUnindexed)
+	} else if reference.confidence.as_deref() == Some("name_match")
+		&& matches!(
+			reference.kind.as_str(),
+			"method_call"
+				| "calls" | "uses_type"
+				| "typed_as" | "annotates"
+				| "instantiates"
+				| "extends"
+		) {
+		Some(DynamicReason::InsufficientLocalFacts)
+	} else {
+		None
+	};
+	let Some(reason) = reason else { return };
+	let candidates = decision
+		.linkage_targets()
+		.cloned()
+		.unwrap_or_else(crate::linkage::catalog::SymbolSet::new);
+	*decision = crate::linkage::binding::ReferenceLinkageDecision::dynamic(
+		reason,
+		reference_idx,
+		reference.id,
+		candidates,
+	);
 }

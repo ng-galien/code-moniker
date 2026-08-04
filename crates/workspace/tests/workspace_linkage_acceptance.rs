@@ -98,6 +98,18 @@ fn rust_bin_lib_linkage_is_anchored_to_the_manifest_not_a_src_segment() {
 }
 
 #[test]
+fn rust_type_references_ignore_value_namespace_homonyms() {
+	let snapshot = load_workspace("projects/rust/type-value-homonym");
+
+	assert_linked_once_to(
+		&snapshot,
+		"uses_type",
+		"module:config/path:Config",
+		"module:config/struct:Config",
+	);
+}
+
+#[test]
 fn global_name_matches_do_not_cross_language_boundaries() {
 	let snapshot = load_workspace("projects/mixed-language");
 	let source_identity = "module:caller/struct:Caller/method:call_language_homonyms()";
@@ -270,6 +282,11 @@ fn c_sdk_links_program_wide_functions_and_local_headers() {
 }
 
 fn assert_c_preprocessor_linkage(snapshot: &WorkspaceSnapshot) {
+	let injected = find_reference(snapshot, "reads", "module:fragment/var:injected_value")
+		.expect("macro-introduced local read");
+	assert!(snapshot.linkage.dynamic.iter().any(|dynamic| {
+		dynamic.reference == injected.id && dynamic.reason == DynamicReason::PreprocessorExpansion
+	}));
 	assert_linked_once_from_symbol(
 		snapshot,
 		"reads",
@@ -753,6 +770,30 @@ fn rust_facade_reexport_does_not_rival_the_canonical_definition() {
 		"CheckRun",
 		"module:command/struct:CheckRun",
 	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/fn:build(_run:&CheckRun)",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/module:nested/fn:execute_from_parent()",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:consumer/module:nested/fn:execute_from_wildcard()",
+		"calls",
+		"execute",
+		0,
+		"module:command/fn:execute()",
+	);
 }
 
 #[test]
@@ -765,7 +806,7 @@ fn rust_qualified_calls_resolve_through_module_reexports() {
 		"calls",
 		"version",
 		0,
-		"module:store/path:version",
+		"module:store/module:engine/fn:version()",
 	);
 	assert_external_reference_from_symbol(
 		&snapshot,
@@ -824,14 +865,14 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 		"package:com/package:acme/package:nomanifest/package:caller/module:MainCaller/class:MainCaller/method:readLabel(SharedRecord)",
 		"getLabel",
 		0,
-		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:getLabel()",
 	);
 	assert_call_linked_to(
 		&snapshot,
 		"package:com/package:acme/package:nomanifest/package:caller/module:TestCaller/class:TestCaller/method:readLabel(SharedRecord)",
 		"getLabel",
 		0,
-		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:getLabel()",
 	);
 	assert_call_linked_to(
 		&snapshot,
@@ -850,10 +891,86 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 }
 
 #[test]
+fn java_workspace_wildcard_imports_resolve_only_exported_members() {
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
+
+	assert_linked_once_to(
+		&snapshot,
+		"uses_type",
+		"package:caller/module:Widget/path:Widget",
+		"package:exports/module:Widget/class:Widget",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"instantiates",
+		"package:caller/module:Widget/path:Widget",
+		"package:exports/module:Widget/class:Widget",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"module:WildcardCaller/class:WildcardCaller/method:decorate()",
+		"package:exports/module:Tools/class:Tools/method:decorate()",
+	);
+	assert_named_call_unresolved(
+		&snapshot,
+		"package:caller/module:WildcardCaller/class:WildcardCaller/method:invalidStaticImport()",
+		"instanceOnly",
+		0,
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"reads",
+		"module:WildcardCaller/class:WildcardCaller/method:localRead()/local:value",
+		"module:WildcardCaller/class:WildcardCaller/method:localRead()/local:value",
+	);
+}
+
+#[test]
+fn java_local_bindings_survive_duplicate_workspace_identities() {
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "reads"
+				&& reference.target_identity.contains(
+					"package:collision/module:DuplicateLocals/class:DuplicateLocals/method:read()/local:value",
+				)
+		})
+		.collect::<Vec<_>>();
+
+	assert_eq!(
+		references.len(),
+		4,
+		"expected two local reads per physical file"
+	);
+	for reference in references {
+		let targets = snapshot
+			.linkage
+			.resolved
+			.iter()
+			.filter(|edge| edge.reference == reference.id)
+			.collect::<Vec<_>>();
+		assert_eq!(
+			targets.len(),
+			1,
+			"each local read should resolve exactly once"
+		);
+		assert_eq!(
+			targets[0].target.file(),
+			reference.id.file(),
+			"a local read must resolve inside its physical source file"
+		);
+	}
+}
+
+#[test]
 fn java_declared_source_groups_block_cross_group_calls() {
 	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
-	assert_call_unresolved(
+	assert_call_blocked(
 		&snapshot,
 		"package:com/package:acme/package:nomanifest/package:outsider/module:OutsiderCaller/class:OutsiderCaller/method:readLabel(SharedRecord)",
 		"getLabel",
@@ -968,11 +1085,11 @@ fn java_inherited_fields_type_receivers_across_files() {
 		"class:HolderChild/method:useHelper()",
 		"module:Helper",
 	);
-	assert_external_reference_from_symbol(
+	assert_call_unresolved(
 		&snapshot,
-		"method_call",
-		"class:LoggedChild/method:run()",
-		"Logger",
+		"package:com/package:acme/package:nomanifest/module:LoggedChild/class:LoggedChild/method:run()",
+		"info",
+		1,
 	);
 }
 
@@ -2330,13 +2447,13 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		2,
 		"external_pkg:org/path:slf4j/path:Logger/method:info",
 	);
-	for (call, arity, field) in [
-		("setStatus", 1, "field:status"),
-		("setPriority", 1, "field:priority"),
-		("getReviewed", 0, "field:reviewed"),
-		("getImmutableCode", 0, "field:immutableCode"),
-		("getStatus", 0, "field:status"),
-		("isPriority", 0, "field:priority"),
+	for (call, arity, method) in [
+		("setStatus", 1, "method:setStatus(_)"),
+		("setPriority", 1, "method:setPriority(_)"),
+		("getReviewed", 0, "method:getReviewed()"),
+		("getImmutableCode", 0, "method:getImmutableCode()"),
+		("getStatus", 0, "method:getStatus()"),
+		("isPriority", 0, "method:isPriority()"),
 	] {
 		assert_call_linked_to(
 			snapshot,
@@ -2344,7 +2461,7 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 			call,
 			arity,
 			&format!(
-				"package:com/package:acme/package:order/module:LombokOrderState/class:LombokOrderState/{field}"
+				"package:com/package:acme/package:order/module:LombokOrderState/class:LombokOrderState/{method}"
 			),
 		);
 	}
@@ -2352,7 +2469,7 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"calls",
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
-		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/field:fieldOnly",
+		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
 	);
 	for call in ["builder", "build"] {
 		assert_call_linked_to(
@@ -2360,17 +2477,19 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
 			call,
 			0,
-			"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder",
+			&format!(
+				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/method:{call}()"
+			),
 		);
 	}
-	for (call, field) in [("reference", "field:reference"), ("status", "field:status")] {
+	for call in ["reference", "status"] {
 		assert_call_linked_to(
 			snapshot,
 			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
 			call,
 			1,
 			&format!(
-				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/{field}"
+				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/method:{call}(_)"
 			),
 		);
 	}

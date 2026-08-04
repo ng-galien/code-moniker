@@ -8,6 +8,7 @@ mod builtins;
 mod defs;
 mod discover;
 mod imports;
+mod lombok;
 mod refs;
 mod symbols;
 mod syntax;
@@ -103,6 +104,8 @@ fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'src str {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashSet;
+
 	use super::*;
 
 	#[test]
@@ -124,5 +127,119 @@ mod tests {
 
 		assert_eq!(windows, posix);
 		assert_eq!(&windows, graph.root());
+	}
+
+	#[test]
+	fn local_types_are_defined_and_resolved_in_their_callable_scope() {
+		let source = r#"
+			package com.acme;
+			class Records {
+				void first() {
+					record Local(int value) {}
+					Local local = new Local(1);
+				}
+				void second() {
+					record Local(String value) {}
+					Local local = new Local("two");
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.build();
+		let graph = crate::lang::java::extract(
+			"src/main/java/com/acme/Records.java",
+			source,
+			&anchor,
+			true,
+			&Presets::default(),
+		);
+		let local_records = graph
+			.defs()
+			.filter(|def| {
+				def.kind == kinds::RECORD
+					&& def
+						.moniker
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|segment| segment.name == b"Local")
+			})
+			.map(|def| def.moniker.clone())
+			.collect::<HashSet<_>>();
+
+		assert_eq!(local_records.len(), 2, "{local_records:#?}");
+		let local_type_targets = graph
+			.refs()
+			.filter(|reference| reference.kind == kinds::USES_TYPE)
+			.filter(|reference| local_records.contains(&reference.target))
+			.map(|reference| reference.target.clone())
+			.collect::<HashSet<_>>();
+		assert_eq!(local_type_targets, local_records);
+	}
+
+	#[test]
+	fn qualified_inner_class_creation_keeps_its_outer_type_owner() {
+		let source = r#"
+			package com.acme;
+			class Container {
+				class Outer { class Inner {} }
+				void create(Outer outer) {
+					Outer.Inner inner = outer.new Inner();
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.build();
+		let graph = crate::lang::java::extract(
+			"src/main/java/com/acme/Nesting.java",
+			source,
+			&anchor,
+			true,
+			&Presets::default(),
+		);
+		let inner = MonikerBuilder::from_view(graph.root().as_view())
+			.segment(kinds::CLASS, b"Container")
+			.segment(kinds::CLASS, b"Outer")
+			.segment(kinds::CLASS, b"Inner")
+			.build();
+		assert!(graph.contains(&inner));
+		let qualified_targets = graph
+			.refs()
+			.filter(|reference| {
+				(reference.kind == kinds::USES_TYPE || reference.kind == kinds::INSTANTIATES)
+					&& reference.target.bind_match(&inner)
+			})
+			.count();
+
+		assert_eq!(qualified_targets, 3);
+	}
+
+	#[test]
+	fn local_reads_keep_the_declared_binding_kind() {
+		let source = r#"
+			class Locals {
+				String read(String parameter) {
+					String local = parameter;
+					return local;
+				}
+			}
+		"#;
+		let anchor = MonikerBuilder::new().project(b"app").build();
+		let graph =
+			crate::lang::java::extract("Locals.java", source, &anchor, true, &Presets::default());
+		let binding_targets = graph
+			.refs()
+			.filter(|reference| reference.kind == kinds::READS)
+			.filter_map(|reference| reference.target.as_view().segments().last())
+			.map(|segment| (segment.kind.to_vec(), segment.name.to_vec()))
+			.collect::<HashSet<_>>();
+
+		assert!(binding_targets.contains(&(kinds::PARAM.to_vec(), b"parameter".to_vec())));
+		assert!(binding_targets.contains(&(kinds::LOCAL.to_vec(), b"local".to_vec())));
+		assert!(!binding_targets.contains(&(kinds::PARAM.to_vec(), b"local".to_vec())));
 	}
 }

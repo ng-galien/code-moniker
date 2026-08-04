@@ -809,6 +809,7 @@ fn type_node_expr(
 				.filter_map(|child| type_node_expr(env, child, source, type_env))
 				.collect(),
 		)),
+		"unit_type" => Some(TypeExpr::Tuple(Vec::new())),
 		"type_binding" => node
 			.child_by_field_name("type")
 			.and_then(|ty| type_node_expr(env, ty, source, type_env)),
@@ -853,6 +854,7 @@ fn infer_value_type_expr(
 ) -> Option<TypeExpr> {
 	match value.kind() {
 		"call_expression" => infer_call_type_expr(env, type_env, value, function),
+		"match_expression" => infer_match_type_expr(env, type_env, value, function),
 		"struct_expression" => {
 			let name = value.child_by_field_name("name")?;
 			Some(TypeExpr::resolved(
@@ -862,6 +864,68 @@ fn infer_value_type_expr(
 		"identifier" => type_env
 			.resolve_local(node_slice(value, env.source))
 			.cloned(),
+		_ => None,
+	}
+}
+
+fn infer_match_type_expr(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
+	match_expression: Node<'_>,
+	function: &Moniker,
+) -> Option<TypeExpr> {
+	let matched = match_expression
+		.child_by_field_name("value")
+		.and_then(|value| infer_value_type_expr(env, type_env, value, function))?;
+	let body = match_expression.child_by_field_name("body")?;
+
+	for arm in named_children(body).filter(|child| child.kind() == "match_arm") {
+		let Some((variant, binding)) = arm
+			.child_by_field_name("pattern")
+			.and_then(|pattern| match_variant_binding(pattern, env.source))
+		else {
+			continue;
+		};
+		let Some(item) = variant_payload_type(&matched, variant) else {
+			continue;
+		};
+		let Some(value) = arm.child_by_field_name("value") else {
+			continue;
+		};
+		let mut arm_env = type_env.clone();
+		arm_env.bind_local(binding, item);
+		if let Some(ty) = infer_value_type_expr(env, &arm_env, value, function) {
+			return Some(ty);
+		}
+	}
+	None
+}
+
+fn match_variant_binding<'a>(pattern: Node<'a>, source: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+	let pattern = if pattern.kind() == "match_pattern" {
+		named_children(pattern).next()?
+	} else {
+		pattern
+	};
+	(pattern.kind() == "tuple_struct_pattern").then_some(())?;
+	let constructor = pattern.child_by_field_name("type")?;
+	let binding = named_children(pattern)
+		.find(|child| child.kind() == "identifier" && child.id() != constructor.id())
+		.map(|binding| node_slice(binding, source))?;
+	Some((node_slice(constructor, source), binding))
+}
+
+fn variant_payload_type(matched: &TypeExpr, variant: &[u8]) -> Option<TypeExpr> {
+	match matched {
+		TypeExpr::Ref(inner) | TypeExpr::Pointer(inner) => variant_payload_type(inner, variant),
+		TypeExpr::Generic { args, .. } => {
+			let index = match variant {
+				b"Some" | b"Ok" => 0,
+				b"Err" => 1,
+				_ => return None,
+			};
+			args.get(index).cloned()
+		}
 		_ => None,
 	}
 }
@@ -976,28 +1040,8 @@ fn resolve_type_path(
 	let Some((head, rest)) = pieces.split_first() else {
 		return (source.clone(), kinds::CONF_UNRESOLVED);
 	};
-	match head.as_slice() {
-		b"crate" => {
-			return (
-				local_crate_path_target(source, rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		b"self" => {
-			return (
-				local_relative_path_target(&enclosing_module(source), rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		b"super" => {
-			let module = rust_parent_module(&enclosing_module(source))
-				.unwrap_or_else(|| enclosing_module(source));
-			return (
-				local_relative_path_target(&module, rest),
-				kinds::CONF_NAME_MATCH,
-			);
-		}
-		_ => {}
+	if let Some(target) = local_qualified_path_target(source, pieces) {
+		return (target, kinds::CONF_NAME_MATCH);
 	}
 	if let Some(import) = direct_imported_symbol(env, source, head) {
 		return (
@@ -1065,6 +1109,9 @@ fn imported_path_target(
 	pieces: &[Vec<u8>],
 ) -> Option<(Moniker, &'static [u8])> {
 	let (head, rest) = pieces.split_first()?;
+	if let Some(target) = local_qualified_path_target(source, pieces) {
+		return Some((target, kinds::CONF_NAME_MATCH));
+	}
 	if let Some(target) = rust_std_associated_path(source, pieces) {
 		return Some((target, kinds::CONF_EXTERNAL));
 	}
@@ -1364,10 +1411,14 @@ fn resolve_callable(
 
 fn resolve_callable_parent(env: &RefEnv<'_>, function: &Moniker, name: &[u8]) -> Option<Moniker> {
 	let module = enclosing_module(function);
-	env.defs
+	if env
+		.defs
 		.iter()
 		.any(|def| def.parent == module && def.kind == kinds::FN && def.call_name == name)
-		.then_some(module)
+	{
+		return Some(module);
+	}
+	wildcard_module(env, function)
 }
 
 fn unresolved_method(function: &Moniker, name: &[u8]) -> (Moniker, &'static [u8]) {
@@ -2159,6 +2210,24 @@ fn local_crate_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	builder.build()
 }
 
+fn local_qualified_path_target(source: &Moniker, path: &[Vec<u8>]) -> Option<Moniker> {
+	let (head, mut rest) = path.split_first()?;
+	let mut base = match head.as_slice() {
+		b"crate" => project_source_root(source),
+		b"self" => enclosing_module(source),
+		b"super" => {
+			let module = enclosing_module(source);
+			rust_parent_module(&module).unwrap_or_else(|| project_source_root(&module))
+		}
+		_ => return None,
+	};
+	while rest.first().is_some_and(|piece| piece == b"super") {
+		base = rust_parent_module(&base).unwrap_or_else(|| project_source_root(&base));
+		rest = &rest[1..];
+	}
+	Some(local_relative_path_target(&base, rest))
+}
+
 fn local_relative_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	let mut builder = MonikerBuilder::from_view(scope.as_view());
 	append_symbol_path(&mut builder, path);
@@ -2223,10 +2292,18 @@ fn local_import_base<'a>(scope: &Moniker, path: &'a [Vec<u8>]) -> (Moniker, &'a 
 	match path.first().map(Vec::as_slice) {
 		Some(b"crate") => (project_source_root(scope), &path[1..]),
 		Some(b"self") => (scope.clone(), &path[1..]),
-		Some(b"super") => (
-			rust_parent_module(scope).unwrap_or_else(|| scope.clone()),
-			&path[1..],
-		),
+		Some(b"super") => {
+			let mut base = scope.clone();
+			let mut consumed = 0;
+			while path
+				.get(consumed)
+				.is_some_and(|piece| piece.as_slice() == b"super")
+			{
+				base = rust_parent_module(&base).unwrap_or_else(|| project_source_root(&base));
+				consumed += 1;
+			}
+			(base, &path[consumed..])
+		}
 		_ => (unqualified_import_base(scope), path),
 	}
 }

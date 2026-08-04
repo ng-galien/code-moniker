@@ -280,7 +280,7 @@ fn function_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, t
 }
 
 fn use_declaration(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	if !has_public_visibility(node, state.source) {
+	if !has_explicit_visibility(node) {
 		return;
 	}
 	let Some(argument) = node.child_by_field_name("argument") else {
@@ -660,7 +660,7 @@ fn collect_use_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monike
 		return;
 	};
 	let mut expansion = expand_import(state.ref_env(), argument, scope);
-	if has_public_visibility(node, state.source) {
+	if has_explicit_visibility(node) {
 		for reference in &mut expansion.refs {
 			let wildcard_module = reference.kind == kinds::IMPORTS_MODULE
 				&& expansion
@@ -932,6 +932,12 @@ fn has_public_visibility(node: Node<'_>, source: &[u8]) -> bool {
 	let mut cursor = node.walk();
 	node.children(&mut cursor)
 		.any(|child| child.kind() == "visibility_modifier" && node_slice(child, source) == b"pub")
+}
+
+fn has_explicit_visibility(node: Node<'_>) -> bool {
+	let mut cursor = node.walk();
+	node.children(&mut cursor)
+		.any(|child| child.kind() == "visibility_modifier")
 }
 
 fn local_defs(state: &mut RustDiscover<'_>, node: Node<'_>, function: &Moniker) {

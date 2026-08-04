@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
 
-use crate::cbuild::CBuildContext;
 use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
@@ -13,6 +12,10 @@ use crate::snapshot::WorkspaceCancellation;
 use crate::source_group::DeclaredSourceGroups;
 use crate::tsconfig::{self, TsResolution};
 use crate::walk::{self, WalkedFile};
+
+mod c;
+
+pub use c::CBuildContext;
 
 #[derive(Clone, Debug)]
 pub struct SourceSet {

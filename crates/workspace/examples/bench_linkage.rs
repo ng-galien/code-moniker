@@ -68,8 +68,8 @@ fn main() -> anyhow::Result<()> {
 		millis(timed_linkage.timings.resolve_references)
 	);
 	println!(
-		"semantic_enhance\t{:.3}",
-		millis(timed_linkage.timings.semantic_enhance)
+		"semantic_refinement\t{:.3}",
+		millis(timed_linkage.timings.semantic_refinement)
 	);
 	println!(
 		"store_index\t{:.3}",
@@ -402,8 +402,8 @@ fn print_incremental_refresh(
 		millis(timed_refresh.timings.apply_store)
 	);
 	println!(
-		"semantic_enhance\t{:.3}",
-		millis(timed_refresh.timings.semantic_enhance)
+		"semantic_refinement\t{:.3}",
+		millis(timed_refresh.timings.semantic_refinement)
 	);
 	println!(
 		"rebuild_indexes\t{:.3}",

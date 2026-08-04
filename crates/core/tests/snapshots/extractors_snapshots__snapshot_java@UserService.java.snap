@@ -613,7 +613,7 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
         3685,
         3841
       ],
-      "signature": "String",
+      "signature": "static String",
       "visibility": "private"
     }
   ],

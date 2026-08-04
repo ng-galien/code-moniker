@@ -313,17 +313,20 @@ fn attribute_uncertain_incoming(
 	incoming: &mut FxHashMap<SymbolId, ReferenceMetric>,
 	class: ReferenceClass,
 ) {
-	let Some(target) = index
+	let Some(targets) = index
 		.inventory
-		.catalog()
-		.ordinal_by_identity(reference.target_identity.as_ref())
-		.and_then(|ordinal| index.inventory.record(ordinal))
-		.map(|record| record.id)
+		.facets()
+		.symbols_by_identity(reference.target_identity.as_ref())
 	else {
 		return;
 	};
-	let metric = incoming.entry(target).or_default();
-	metric.record(class);
+	for target in targets
+		.iter()
+		.filter_map(|ordinal| index.inventory.record(ordinal))
+		.map(|record| record.id)
+	{
+		incoming.entry(target).or_default().record(class);
+	}
 }
 
 #[derive(Clone, Default)]

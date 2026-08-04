@@ -251,7 +251,7 @@ symbols = [
   "module:resolve/module:scope/struct:LocalScopeResolver",
   "module:resolve/module:scope/struct:GlobalScopeResolver",
   "module:resolve/module:manifest/struct:ManifestPolicy",
-  "module:resolve/module:semantic/struct:SemanticLinkage",
+  "module:resolve/module:refinement/struct:LinkageRefiner",
 ]
 rules = [
   "workspace-linkage-decision-passes-do-not-own-store",
@@ -295,10 +295,10 @@ reexport refs. Package-specific behavior belongs in manifests or language domain
 generic post-pass.
 """
 symbols = [
-  "module:resolve/module:semantic/struct:SemanticLinkage",
-  "module:resolve/module:semantic/struct:MethodTable",
-  "module:resolve/module:semantic/fn:enhance_reexport_aliases",
-  "module:resolve/module:semantic/fn:enhance_receiver_chains",
+  "module:resolve/module:refinement/struct:LinkageRefiner",
+  "module:resolve/module:refinement/struct:MethodTable",
+  "module:resolve/module:refinement/fn:enhance_reexport_aliases",
+  "module:resolve/module:refinement/fn:refine_receiver_chains",
 ]
 rules = [
   "workspace-linkage-language-domains-are-private",

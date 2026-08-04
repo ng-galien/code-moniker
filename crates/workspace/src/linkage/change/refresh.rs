@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-use code_moniker_core::core::moniker::query::bare_callable_name;
 use rayon::prelude::*;
 
 use crate::linkage::binding::LinkageMemoryMetrics;
@@ -12,15 +11,13 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
-use crate::linkage::change::{
-	LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta, changes_c_include_topology,
-};
-use crate::linkage::resolve::CrateForwards;
+use crate::linkage::change::{LinkageRefreshImpact, SymbolDelta, changes_c_include_topology};
+use crate::linkage::resolve::BindingForwards;
 use crate::linkage::resolve::LinkagePolicies;
+use crate::linkage::resolve::LinkageRefiner;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
-use crate::linkage::resolve::SemanticLinkage;
 use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::resolve::run_full_linkage_with_timings;
 use crate::linkage::source_groups::SourceGroupPolicy;
@@ -57,7 +54,7 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 				candidate_index: full.timings.candidate_index,
 				plan_invalidation: full.timings.manifest_policy,
 				resolve_references: full.timings.resolve_references,
-				semantic_enhance: full.timings.semantic_enhance,
+				semantic_refinement: full.timings.semantic_refinement,
 				rebuild_indexes: full.timings.store_index,
 				project_snapshot: full.timings.project_snapshot,
 				total: full.timings.total,
@@ -67,20 +64,6 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 			},
 			memory: full.memory,
 		});
-	}
-	if let Some(refresh) = refresh_symbol_only_without_linkage_work(
-		FastRefreshInput {
-			store: &mut linkage.store,
-			previous,
-			code_index,
-			material: &material,
-			impact: &refresh_impact,
-			memory: linkage.memory,
-			total_timer,
-		},
-		linkage.candidates.as_ref(),
-	) {
-		return Ok(refresh);
 	}
 	let generation = linkage.cache.next_generation();
 	let candidate_timer = Instant::now();
@@ -160,129 +143,6 @@ fn refresh_empty_linkage(
 		},
 		memory,
 	}
-}
-
-struct FastRefreshInput<'a> {
-	store: &'a mut Option<LinkageStore>,
-	previous: &'a LinkageSnapshot,
-	code_index: &'a CodeIndex,
-	material: &'a CodeIndexMaterial,
-	impact: &'a LinkageRefreshImpact,
-	memory: LinkageMemoryMetrics,
-	total_timer: Instant,
-}
-
-fn refresh_symbol_only_without_linkage_work(
-	input: FastRefreshInput<'_>,
-	candidates: Option<&CandidateCatalog>,
-) -> Option<TimedLinkageRefresh> {
-	let store = input.store.as_mut()?;
-	let can_skip = match input.impact.shape() {
-		LinkageRefreshShape::AdditiveSymbolsOnly(symbols) => {
-			let added_keys = symbol_query_keys(input.material, symbols);
-			!added_keys.is_empty() && !references_contain_any_key(store, &added_keys)
-		}
-		LinkageRefreshShape::RemovedSymbolsOnly(symbols) => candidates.is_some_and(|candidates| {
-			!resolved_references_contain_any_symbol(store, candidates.symbols(), symbols)
-		}),
-		_ => false,
-	};
-	can_skip.then(|| {
-		refresh_without_linkage_work(
-			store,
-			input.previous,
-			input.code_index,
-			input.memory,
-			input.total_timer,
-		)
-	})
-}
-
-fn refresh_without_linkage_work(
-	store: &mut LinkageStore,
-	previous: &LinkageSnapshot,
-	code_index: &CodeIndex,
-	memory: LinkageMemoryMetrics,
-	total_timer: Instant,
-) -> TimedLinkageRefresh {
-	store.advance_index_generation(code_index.generation);
-	let mut snapshot = previous.clone();
-	snapshot.index_generation = code_index.generation;
-	TimedLinkageRefresh {
-		snapshot,
-		timings: LinkageRefreshTimings {
-			total: total_timer.elapsed(),
-			..LinkageRefreshTimings::default()
-		},
-		memory,
-	}
-}
-
-fn resolved_references_contain_any_symbol(
-	store: &LinkageStore,
-	catalog: &crate::linkage::catalog::SymbolOrdinalCatalog,
-	symbols: &[crate::snapshot::SymbolId],
-) -> bool {
-	let Some(index) = &store.indexes.resolved_by_target_source else {
-		return true;
-	};
-	symbols.iter().any(|symbol| {
-		catalog
-			.ordinal(symbol)
-			.and_then(|ordinal| index.get_symbol(ordinal))
-			.is_some_and(|references| !references.is_empty())
-	})
-}
-
-fn references_contain_any_key(store: &LinkageStore, keys: &[Vec<u8>]) -> bool {
-	keys.iter()
-		.any(|key| store.indexes.references_by_name.contains_key(key))
-}
-
-fn symbol_query_keys(
-	material: &CodeIndexMaterial,
-	symbols: &[crate::snapshot::SymbolId],
-) -> Vec<Vec<u8>> {
-	let mut keys = Vec::new();
-	for symbol in symbols {
-		push_symbol_query_keys(material, symbol, &mut keys);
-	}
-	keys
-}
-
-fn push_symbol_query_keys(
-	material: &CodeIndexMaterial,
-	symbol: &crate::snapshot::SymbolId,
-	keys: &mut Vec<Vec<u8>>,
-) {
-	let Some((file_idx, def_idx)) = material.identity.symbol_location(symbol) else {
-		return;
-	};
-	let Some(file) = material.files.get(file_idx) else {
-		return;
-	};
-	if def_idx >= file.graph.def_count() {
-		return;
-	}
-	let def = file.graph.def_at(def_idx);
-	if !def.call_name.is_empty() {
-		push_unique_query_key(keys, def.call_name.to_vec());
-	}
-	if let Some(segment) = def.moniker.as_view().segments().last() {
-		push_unique_query_key(keys, bare_callable_name(segment.name).to_vec());
-		if segment.kind == code_moniker_core::lang::kinds::CLASS
-			&& let Some(short_name) = segment.name.strip_suffix(b"Attribute")
-		{
-			push_unique_query_key(keys, short_name.to_vec());
-		}
-	}
-}
-
-fn push_unique_query_key(keys: &mut Vec<Vec<u8>>, key: Vec<u8>) {
-	if key.is_empty() || keys.iter().any(|existing| existing == &key) {
-		return;
-	}
-	keys.push(key);
 }
 
 struct IncrementalLinkageInput<'a> {
@@ -366,10 +226,14 @@ fn refresh_incremental_linkage(
 		);
 	}
 	store.ensure_resolved_target_index(input.material, candidates.symbols());
-	let execution = RebindScope::plan(
+	let RebindScope {
+		stale_references,
+		target_index_references,
+		changed_files,
+	} = RebindScope::plan(
 		BindingReadModel {
 			store,
-			symbols: candidates.symbols(),
+			inventory: &input.index.inventory,
 			reference_indexes: &store.indexes.reference_indexes,
 		},
 		EditedGraph {
@@ -380,8 +244,8 @@ fn refresh_incremental_linkage(
 		&input.impact,
 	);
 	timings.plan_invalidation = plan_timer.elapsed();
-	timings.stale_refs = execution.stale_references().len() as usize;
-	let changed_reference_indexes = stale_reference_indexes(execution.stale_references());
+	timings.stale_refs = stale_references.len() as usize;
+	let changed_reference_indexes = stale_reference_indexes(&stale_references);
 	timings.changed_refs = changed_reference_indexes.len();
 	let locations = (!changed_reference_indexes.is_empty())
 		.then(|| ReferenceLocations::from_material(input.material));
@@ -405,11 +269,10 @@ fn refresh_incremental_linkage(
 	store.apply_refresh(LinkageStoreRefresh {
 		generation: input.generation,
 		index_generation: input.index.generation,
-		stale_references: execution.stale_references(),
+		stale_references: &stale_references,
 		changed_decisions: changed,
 		references: &input.index.references,
 		material: input.material,
-		candidates,
 	});
 	timings.apply_store = apply_timer.elapsed();
 	if changed_reference_indexes.is_empty() {
@@ -417,38 +280,37 @@ fn refresh_incremental_linkage(
 			input.impact.definitions(),
 			SymbolDelta::Unchanged | SymbolDelta::AdditiveOnly { .. }
 		);
-		return positions_stable && symbol_ids_stable && execution.stale_references().is_empty();
+		return positions_stable && symbol_ids_stable && stale_references.is_empty();
 	}
 	let method_timer = Instant::now();
-	let methods = indexer.reindex(input.material, candidates, execution.changed_files());
+	let methods = indexer.reindex(input.material, candidates, &changed_files);
 	timings.candidate_index += method_timer.elapsed();
-	let semantic_timer = Instant::now();
-	let stale_reference_ids =
-		reference_ids_for_set(execution.stale_references(), &input.index.references);
+	let refinement_timer = Instant::now();
+	let stale_reference_ids = reference_ids_for_set(&stale_references, &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
 	let Some(refresh_policies) = refresh_policies.as_ref() else {
 		unreachable!("changed references always build refresh policies");
 	};
-	SemanticLinkage::new(
+	LinkageRefiner::new(
 		input.material,
 		methods,
 		candidates,
 		&locations,
-		crate::linkage::resolve::SemanticPolicies::new(
+		crate::linkage::resolve::RefinementPolicies::new(
 			&refresh_policies.source_groups,
 			&refresh_policies.packages,
 			&refresh_policies.manifests,
 		),
 	)
-	.enhance_changed(
+	.refine_changed(
 		store.decisions_mut(),
 		&input.index.references,
 		&stale_reference_ids,
 	);
-	timings.semantic_enhance = semantic_timer.elapsed();
+	timings.semantic_refinement = refinement_timer.elapsed();
 	let rebuild_timer = Instant::now();
 	store.refresh_resolved_target_index(
-		execution.target_index_references(),
+		&target_index_references,
 		input.material,
 		candidates.symbols(),
 	);
@@ -479,24 +341,21 @@ fn resolve_reference_decisions(
 	locations: &ReferenceLocations,
 	refresh_policies: &RefreshPolicies,
 ) -> Vec<ReferenceLinkageDecision> {
-	let resolver = ReferenceResolver::new(input.material);
-	let forwards = CrateForwards::build(input.material, &refresh_policies.manifests);
+	let forwards = BindingForwards::build(input.material, &refresh_policies.manifests);
+	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(input.material);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &refresh_policies.manifests,
 		source_groups: &refresh_policies.source_groups,
 		packages: &refresh_policies.packages,
 		forwards: &forwards,
+		java_on_demand: &java_on_demand,
 	};
+	let resolver = ReferenceResolver::new(input.material, &policies);
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()
 		.map(|(reference_idx, reference)| {
-			resolver.resolve_reference(
-				*reference_idx,
-				reference,
-				locations.get(*reference_idx),
-				&policies,
-			)
+			resolver.resolve_reference(*reference_idx, reference, locations.get(*reference_idx))
 		})
 		.collect::<Vec<_>>()
 }

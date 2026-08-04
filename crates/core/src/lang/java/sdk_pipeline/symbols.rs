@@ -1,16 +1,24 @@
 use tree_sitter::Node;
 
 use crate::core::moniker::Moniker;
-use crate::lang::callable::extend_segment;
+use crate::lang::callable::{extend_callable_slots, extend_segment};
 use crate::lang::tree_util::node_slice;
 
 use super::super::kinds;
+use super::defs::formal_parameter_slots;
 use super::discover::JavaDiscover;
 use super::syntax::named_children;
 
 pub(super) fn predeclare_types(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	match type_kind(node.kind()) {
 		Some(kind) => predeclare_type(state, node, scope, kind),
+		None if matches!(
+			node.kind(),
+			"method_declaration" | "constructor_declaration"
+		) =>
+		{
+			predeclare_callable_types(state, node, scope)
+		}
 		None => {
 			for child in named_children(node) {
 				predeclare_types(state, child, scope);
@@ -32,11 +40,33 @@ fn predeclare_type(
 	let type_scope = extend_segment(scope, kind, name);
 	state
 		.type_table
-		.entry(name.to_vec())
+		.entry((scope.clone(), name.to_vec()))
 		.or_insert_with(|| type_scope.clone());
 	if let Some(body) = node.child_by_field_name("body") {
 		for child in named_children(body) {
 			predeclare_types(state, child, &type_scope);
+		}
+	}
+}
+
+fn predeclare_callable_types(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	let Some(name_node) = node.child_by_field_name("name") else {
+		return;
+	};
+	let kind = if node.kind() == "constructor_declaration" {
+		kinds::CONSTRUCTOR
+	} else {
+		kinds::METHOD
+	};
+	let callable = extend_callable_slots(
+		scope,
+		kind,
+		node_slice(name_node, state.source),
+		&formal_parameter_slots(node, state.source),
+	);
+	if let Some(body) = node.child_by_field_name("body") {
+		for child in named_children(body) {
+			predeclare_types(state, child, &callable);
 		}
 	}
 }
