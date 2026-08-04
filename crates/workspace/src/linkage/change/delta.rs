@@ -13,23 +13,11 @@ pub struct LinkageGraphDelta {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LinkageRefreshImpact {
-	scope: RefreshScope,
-	references: ReferenceDelta,
-	symbols: SymbolDelta,
-	precision: LinkageDiffPrecision,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-enum LinkageDiffPrecision {
-	#[default]
-	SourceLevel,
-	Precise,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::linkage) struct RefreshScope {
 	changed_sources: Vec<SourceId>,
 	changed_paths: Vec<PathBuf>,
+	references: ReferenceDelta,
+	symbols: SymbolDelta,
+	precise: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -66,10 +54,11 @@ pub(in crate::linkage) enum SymbolDelta {
 impl LinkageRefreshImpact {
 	pub fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
 		Self {
-			scope: RefreshScope::new(changed_sources, changed_paths),
+			changed_sources,
+			changed_paths,
 			references: ReferenceDelta::Unchanged,
 			symbols: SymbolDelta::Unchanged,
-			precision: LinkageDiffPrecision::SourceLevel,
+			precise: false,
 		}
 	}
 
@@ -79,29 +68,31 @@ impl LinkageRefreshImpact {
 		graph_delta: LinkageGraphDelta,
 	) -> Self {
 		Self {
-			scope: RefreshScope::new(changed_sources, changed_paths),
+			changed_sources,
+			changed_paths,
 			references: graph_delta.references,
 			symbols: graph_delta.symbols,
-			precision: LinkageDiffPrecision::Precise,
+			precise: true,
 		}
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.scope.is_empty()
+		self.changed_sources.is_empty()
+			&& self.changed_paths.is_empty()
 			&& self.references.is_empty()
-			&& symbol_delta_is_unchanged(&self.symbols)
+			&& matches!(self.symbols, SymbolDelta::Unchanged)
 	}
 
 	pub(in crate::linkage) fn changed_sources(&self) -> &[SourceId] {
-		self.scope.changed_sources()
+		&self.changed_sources
 	}
 
 	pub(in crate::linkage) fn changed_paths(&self) -> &[PathBuf] {
-		self.scope.changed_paths()
+		&self.changed_paths
 	}
 
 	pub(in crate::linkage) fn has_precise_graph_diff(&self) -> bool {
-		self.precision == LinkageDiffPrecision::Precise
+		self.precise
 	}
 
 	pub(in crate::linkage) fn references(&self) -> &ReferenceDelta {
@@ -118,7 +109,6 @@ pub(in crate::linkage) fn changes_c_include_topology(
 	material: &CodeIndexMaterial,
 ) -> bool {
 	let changed_c_path = impact
-		.scope
 		.changed_paths
 		.iter()
 		.any(|path| is_c_family_path(path));
@@ -169,27 +159,6 @@ impl LinkageGraphDelta {
 impl From<CodeIndexGraphDiff> for LinkageGraphDelta {
 	fn from(graph_diff: CodeIndexGraphDiff) -> Self {
 		Self::from_code_index(graph_diff)
-	}
-}
-
-impl RefreshScope {
-	fn new(changed_sources: Vec<SourceId>, changed_paths: Vec<PathBuf>) -> Self {
-		Self {
-			changed_sources,
-			changed_paths,
-		}
-	}
-
-	fn is_empty(&self) -> bool {
-		self.changed_sources.is_empty() && self.changed_paths.is_empty()
-	}
-
-	fn changed_sources(&self) -> &[SourceId] {
-		&self.changed_sources
-	}
-
-	fn changed_paths(&self) -> &[PathBuf] {
-		&self.changed_paths
 	}
 }
 
@@ -324,10 +293,6 @@ impl SymbolDelta {
 			Self::Unchanged | Self::AdditiveOnly { .. } => &[],
 		}
 	}
-}
-
-fn symbol_delta_is_unchanged(symbols: &SymbolDelta) -> bool {
-	matches!(symbols, SymbolDelta::Unchanged)
 }
 
 fn symbol_delta_is_empty(graph_diff: &CodeIndexGraphDiff) -> bool {
