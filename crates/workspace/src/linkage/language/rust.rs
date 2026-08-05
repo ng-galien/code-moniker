@@ -99,19 +99,28 @@ pub(super) fn external_crate_target_matches_def(
 		.all(|(target, candidate)| rust_path_segment_matches(*target, *candidate))
 }
 
-pub(super) fn sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
+pub(super) fn sdk_callable_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
 	if query
 		.material
 		.files
 		.get(query.source_file)
 		.is_none_or(|file| file.lang != code_moniker_core::lang::Lang::Rs)
-		|| query.reference_kind.as_bytes() != kinds::METHOD_CALL
-		|| query.confidence != Some(confidence(kinds::CONF_NAME_MATCH))
 	{
 		return None;
 	}
 	let name = query.call_name?;
-	if !code_moniker_core::lang::rs::is_common_std_method(name) {
+	let instance_method = query.reference_kind.as_bytes() == kinds::METHOD_CALL
+		&& query.confidence == Some(confidence(kinds::CONF_NAME_MATCH))
+		&& code_moniker_core::lang::rs::is_common_std_method(name);
+	let associated_default = query.reference_kind.as_bytes() == kinds::CALLS
+		&& name == "default"
+		&& query
+			.target_first
+			.is_some_and(|segment| !matches!(segment.kind, kinds::EXTERNAL_PKG | kinds::SDK))
+		&& query
+			.target_last
+			.is_some_and(|segment| segment.kind == kinds::METHOD);
+	if !instance_method && !associated_default {
 		return None;
 	}
 	let mut builder = MonikerBuilder::new();
@@ -359,9 +368,10 @@ fn rust_reference_namespace_accepts(
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
 	if is_rust_call_ref(query.reference_kind.as_bytes()) {
-		return candidate
-			.last_segment
-			.is_some_and(|segment| is_rust_call_candidate_kind(segment.kind));
+		return candidate.last_segment.is_some_and(|segment| {
+			is_rust_call_candidate_kind(segment.kind)
+				|| is_exact_local_callable_binding(query, segment.kind)
+		});
 	}
 	if !matches!(
 		query.reference_kind.as_bytes(),
@@ -375,6 +385,14 @@ fn rust_reference_namespace_accepts(
 			kinds::PATH | kinds::STRUCT | kinds::ENUM | kinds::TRAIT | kinds::TYPE
 		)
 	})
+}
+
+fn is_exact_local_callable_binding(query: &LinkageQuery<'_>, candidate_kind: &[u8]) -> bool {
+	query.reference_kind.as_bytes() == kinds::CALLS
+		&& query.confidence == Some(confidence(kinds::CONF_LOCAL))
+		&& query.target_last.is_some_and(|target| {
+			matches!(target.kind, kinds::LOCAL | kinds::PARAM) && candidate_kind == target.kind
+		})
 }
 
 fn is_rust_path_target_kind(kind: &[u8]) -> bool {

@@ -110,6 +110,55 @@ fn rust_type_references_ignore_value_namespace_homonyms() {
 }
 
 #[test]
+fn rust_local_callable_bindings_resolve_inside_their_lexical_scope() {
+	let snapshot = load_workspace("projects/rust/local-callables");
+
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"fn:run()/fn:nested()",
+		"fn:run()/fn:nested()",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"fn:run()/local:callback",
+		"fn:run()/local:callback",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"calls",
+		"fn:invoke(action:implFnOnce())/param:action",
+		"fn:invoke(action:implFnOnce())/param:action",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"fn:shadowing_initializer()",
+		"calls",
+		"generation",
+		0,
+		"module:lib/fn:generation()",
+	);
+}
+
+#[test]
+fn rust_derived_default_retains_sdk_provenance_without_a_fake_local_member() {
+	let snapshot = load_workspace("projects/rust/derived-members");
+	let reference = find_reference(&snapshot, "calls", "struct:Settings/method:default")
+		.expect("Settings::default reference");
+	assert!(
+		linked_symbol_identities(&snapshot, reference).is_empty(),
+		"derived Default must not create a fake source declaration"
+	);
+	assert!(
+		snapshot.linkage.external.iter().any(|external| {
+			external.reference == reference.id && external.origin == ExternalReferenceOrigin::Sdk
+		}),
+		"derived Default should retain SDK provenance"
+	);
+}
+
+#[test]
 fn global_name_matches_do_not_cross_language_boundaries() {
 	let snapshot = load_workspace("projects/mixed-language");
 	let source_identity = "module:caller/struct:Caller/method:call_language_homonyms()";

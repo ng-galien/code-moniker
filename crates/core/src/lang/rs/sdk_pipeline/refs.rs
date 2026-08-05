@@ -383,7 +383,7 @@ fn identifier_read(
 ) {
 	let name = node_slice(node, env.source);
 	let (target, kind, confidence) =
-		if let Some(target) = resolve_local_binding(env.defs, function, name) {
+		if let Some(target) = resolve_local_binding(env, function, node, name) {
 			(target, kinds::READS, kinds::CONF_LOCAL)
 		} else if let Some(target) = resolve_type(env.defs, function, name).filter(|target| {
 			target
@@ -584,18 +584,21 @@ fn free_fn_call_ref(
 		));
 		return;
 	}
-	let (target, confidence) = if let Some(import) = direct_imported_symbol(env, function, name) {
-		(import.target.clone(), import.confidence)
-	} else {
-		resolve_callable_parent(env, function, name)
-			.map(|parent| resolve_callable(env, &parent, kinds::FN, name))
-			.unwrap_or_else(|| {
-				(
-					extend_segment(&enclosing_module(function), kinds::FN, name),
-					kinds::CONF_UNRESOLVED,
-				)
-			})
-	};
+	let (target, confidence) =
+		if let Some(target) = resolve_local_binding(env, function, func, name) {
+			(target, kinds::CONF_LOCAL)
+		} else if let Some(import) = direct_imported_symbol(env, function, name) {
+			(import.target.clone(), import.confidence)
+		} else {
+			resolve_callable_parent(env, function, name)
+				.map(|parent| resolve_callable(env, &parent, kinds::FN, name))
+				.unwrap_or_else(|| {
+					(
+						extend_segment(&enclosing_module(function), kinds::FN, name),
+						kinds::CONF_UNRESOLVED,
+					)
+				})
+		};
 	out.push(call_ref(
 		function,
 		target,
@@ -1028,20 +1031,48 @@ fn receiver_type_target(
 }
 
 fn resolve_local_binding(
-	defs: &[DiscoveredDef],
+	env: &RefEnv<'_>,
 	function: &Moniker,
+	reference: Node<'_>,
 	name: &[u8],
 ) -> Option<Moniker> {
-	let local = extend_segment(function, kinds::LOCAL, name);
-	if defs.iter().any(|def| {
-		def.parent == *function
-			&& (def.kind == kinds::LOCAL || def.kind == kinds::PARAM)
-			&& def.name == name
-	}) {
-		Some(local)
-	} else {
-		None
+	env.defs
+		.iter()
+		.rev()
+		.find(|def| {
+			def.parent == *function
+				&& matches!(def.kind, kinds::LOCAL | kinds::PARAM)
+				&& def.name == name
+				&& !binding_is_not_yet_in_scope(reference, name, env.source)
+		})
+		.map(|def| def.moniker.clone())
+}
+
+fn binding_is_not_yet_in_scope(mut reference: Node<'_>, name: &[u8], source: &[u8]) -> bool {
+	while let Some(parent) = reference.parent() {
+		if matches!(parent.kind(), "let_declaration" | "for_expression") {
+			let in_initializer = parent.child_by_field_name("value").is_some_and(|value| {
+				value.start_byte() <= reference.start_byte()
+					&& reference.end_byte() <= value.end_byte()
+			});
+			if in_initializer
+				&& parent
+					.child_by_field_name("pattern")
+					.is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+			{
+				return true;
+			}
+		}
+		reference = parent;
 	}
+	false
+}
+
+fn pattern_binds_name(pattern: Node<'_>, name: &[u8], source: &[u8]) -> bool {
+	if matches!(pattern.kind(), "identifier" | "shorthand_field_identifier") {
+		return node_slice(pattern, source) == name;
+	}
+	named_children(pattern).any(|child| pattern_binds_name(child, name, source))
 }
 
 fn resolve_type(defs: &[DiscoveredDef], source: &Moniker, name: &[u8]) -> Option<Moniker> {
@@ -1448,13 +1479,16 @@ fn resolve_callable(
 }
 
 fn resolve_callable_parent(env: &RefEnv<'_>, function: &Moniker, name: &[u8]) -> Option<Moniker> {
-	let module = enclosing_module(function);
-	if env
-		.defs
-		.iter()
-		.any(|def| def.parent == module && def.kind == kinds::FN && def.call_name == name)
-	{
-		return Some(module);
+	let mut current = Some(function.clone());
+	while let Some(scope) = current {
+		if env
+			.defs
+			.iter()
+			.any(|def| def.parent == scope && def.kind == kinds::FN && def.call_name == name)
+		{
+			return Some(scope);
+		}
+		current = scope.parent();
 	}
 	wildcard_module(env, function)
 }

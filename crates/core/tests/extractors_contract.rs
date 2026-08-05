@@ -472,6 +472,48 @@ fn rust_declared_module_call_targets_local_module() {
 }
 
 #[test]
+fn rust_free_calls_resolve_lexical_functions_and_closures() {
+	let source = r#"
+fn outer() {
+	fn helper() {}
+	let callback = || {};
+	helper();
+	callback();
+}
+"#;
+	let graph = lang::rs::Lang::extract(
+		"src/lib.rs",
+		source,
+		&anchor(),
+		true,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let calls = graph
+		.refs()
+		.filter(|reference| reference.kind == b"calls")
+		.map(|reference| {
+			(
+				render(&reference.target),
+				String::from_utf8_lossy(&reference.confidence).to_string(),
+			)
+		})
+		.collect::<Vec<_>>();
+
+	assert!(
+		calls.iter().any(|(target, confidence)| {
+			target.ends_with("/fn:outer()/fn:helper()") && confidence == "resolved"
+		}),
+		"nested functions must resolve in their lexical scope: {calls:#?}"
+	);
+	assert!(
+		calls.iter().any(|(target, confidence)| {
+			target.ends_with("/fn:outer()/local:callback") && confidence == "local"
+		}),
+		"called closures must resolve to their local binding: {calls:#?}"
+	);
+}
+
+#[test]
 fn rust_pub_crate_type_is_not_public_visibility() {
 	let source = "pub(crate) struct Internal;\npub struct Boundary;\n";
 	let graph = lang::rs::Lang::extract(

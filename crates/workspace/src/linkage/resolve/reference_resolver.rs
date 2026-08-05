@@ -234,7 +234,7 @@ fn resolve_scopes(
 			return decision;
 		}
 	}
-	if let Some(target) = crate::linkage::language::rust_sdk_method_fallback(query) {
+	if let Some(target) = crate::linkage::language::rust_sdk_callable_fallback(query) {
 		return ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Sdk,
 			site.reference_idx,
