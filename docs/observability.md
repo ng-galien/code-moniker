@@ -20,10 +20,16 @@ Grafana selectors. `OTEL_SERVICE_NAME` and a `service.name` entry in
 `OTEL_RESOURCE_ATTRIBUTES` remain explicit operational overrides. Without any
 of these settings, Code Moniker derives a service name from the command.
 
-`CODE_MONIKER_TELEMETRY=true|false` is an explicit operational override of the
-project switch. When the project does not set an endpoint or metric interval,
-the standard OpenTelemetry variables remain available, including
-`OTEL_EXPORTER_OTLP_ENDPOINT`, signal-specific endpoint variables,
+The project switch automatically instruments the persistent daemon and MCP
+server processes. One-shot clients such as `query`, `daemon status`, `daemon
+stop`, and `daemon list` do not start their own exporters: the daemon owns the
+server-side telemetry for those operations.
+
+`CODE_MONIKER_TELEMETRY=true|false` is an explicit operational override of this
+process selection and the project switch. Set it to `true` to instrument a
+specific one-shot CLI command. When the project does not set an endpoint or
+metric interval, the standard OpenTelemetry variables remain available,
+including `OTEL_EXPORTER_OTLP_ENDPOINT`, signal-specific endpoint variables,
 `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_SERVICE_NAME`, and
 `OTEL_RESOURCE_ATTRIBUTES`. Package version is exported as `service.version`;
 service names distinguish daemon, MCP, and one-shot CLI processes.
@@ -110,13 +116,13 @@ explicit estimates of the allocations visible from the immutable snapshot;
 they are intended for baselines and regression comparisons, not allocator-level
 accounting.
 
-Telemetry is initialized once when each process starts. A long-running daemon
-or MCP server keeps one provider and exports all subsequent operations. A
-one-shot CLI command necessarily owns one short-lived provider. With MCP over
-standard I/O, the reloadable worker owns the provider and the stable supervisor
-does not export duplicate telemetry. Enabling or changing project telemetry
-requires restarting the daemon or reloading the MCP worker once, never once per
-request.
+Telemetry is initialized once when each selected process starts. A long-running
+daemon or MCP server keeps one provider and exports all subsequent operations.
+A one-shot CLI command owns a short-lived provider only when explicitly enabled
+with `CODE_MONIKER_TELEMETRY=true`. With MCP over standard I/O, the reloadable
+worker owns the provider and the stable supervisor does not export duplicate
+telemetry. Enabling or changing project telemetry requires restarting the daemon
+or reloading the MCP worker once, never once per request.
 
 Build without the exporter when a minimal binary is required:
 

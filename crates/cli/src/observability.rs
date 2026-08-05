@@ -193,7 +193,7 @@ pub(super) fn init(_cli: &Cli) -> TelemetryGuard {
 	#[cfg(feature = "telemetry")]
 	match telemetry_requested(
 		std::env::var("CODE_MONIKER_TELEMETRY").ok().as_deref(),
-		telemetry.enabled,
+		telemetry.enabled && project_telemetry_owner(_cli),
 	) {
 		Ok(true) => match init_otlp(_cli, &telemetry) {
 			Ok(guard) => {
@@ -526,6 +526,16 @@ fn project_config_path(cli: &Cli) -> PathBuf {
 }
 
 #[cfg(feature = "telemetry")]
+fn project_telemetry_owner(cli: &Cli) -> bool {
+	match &cli.command {
+		Command::Daemon(args) => matches!(args.command, DaemonCommand::Start(_)),
+		#[cfg(feature = "mcp")]
+		Command::Mcp(_) => true,
+		_ => false,
+	}
+}
+
+#[cfg(feature = "telemetry")]
 fn project_root(path: &Path) -> &Path {
 	if path.is_file() {
 		path.parent()
@@ -547,7 +557,13 @@ fn is_stdio_supervisor(_cli: &Cli) -> bool {
 
 #[cfg(all(test, feature = "telemetry"))]
 mod tests {
-	use super::{resource_attributes_define_service_name, signal_endpoint, telemetry_requested};
+	use clap::Parser as _;
+	use code_moniker_cli::Cli;
+
+	use super::{
+		project_telemetry_owner, resource_attributes_define_service_name, signal_endpoint,
+		telemetry_requested,
+	};
 
 	#[test]
 	fn telemetry_requires_explicit_valid_opt_in() {
@@ -558,6 +574,28 @@ mod tests {
 		assert_eq!(telemetry_requested(Some("TRUE"), false), Ok(true));
 		assert_eq!(telemetry_requested(Some("1"), false), Ok(true));
 		assert!(telemetry_requested(Some("sometimes"), true).is_err());
+	}
+
+	#[test]
+	fn project_telemetry_is_owned_by_persistent_servers() {
+		let daemon =
+			Cli::try_parse_from(["code-moniker", "daemon", "start", "."]).expect("daemon start");
+		assert!(project_telemetry_owner(&daemon));
+
+		#[cfg(feature = "mcp")]
+		{
+			let mcp = Cli::try_parse_from(["code-moniker", "mcp", "."]).expect("mcp");
+			assert!(project_telemetry_owner(&mcp));
+		}
+
+		let list = Cli::try_parse_from(["code-moniker", "daemon", "list"]).expect("daemon list");
+		assert!(!project_telemetry_owner(&list));
+		let status =
+			Cli::try_parse_from(["code-moniker", "daemon", "status"]).expect("daemon status");
+		assert!(!project_telemetry_owner(&status));
+		let query =
+			Cli::try_parse_from(["code-moniker", "query", "resolution.audit"]).expect("query");
+		assert!(!project_telemetry_owner(&query));
 	}
 
 	#[test]
