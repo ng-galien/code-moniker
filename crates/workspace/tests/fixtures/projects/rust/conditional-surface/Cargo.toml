@@ -1,0 +1,12 @@
+[package]
+name = "conditional-surface"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+fast = []
+
+[target.'cfg(feature = "fast")'.dependencies]
+fast-backend = { path = "fast-backend" }
+
+[workspace]

@@ -70,11 +70,16 @@ fn resolve_full_linkage(
 	};
 	let manifest_timer = Instant::now();
 	let manifests = ManifestPolicy::build(material);
+	trace_pass("manifest_policy", manifest_timer.elapsed());
 	let source_groups = SourceGroupPolicy::build(material);
+	trace_pass("source_groups", manifest_timer.elapsed());
 	let packages = WorkspacePackageIndex::build(material);
+	trace_pass("workspace_packages", manifest_timer.elapsed());
 	let forwards = BindingForwards::build(material, &manifests);
+	trace_pass("binding_forwards", manifest_timer.elapsed());
 	let java_on_demand = crate::linkage::resolve::JavaOnDemandImports::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
+	trace_pass("linkage_policies", timings.manifest_policy);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &manifests,
@@ -97,6 +102,7 @@ fn resolve_full_linkage(
 		})
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
+	trace_pass("resolve_references", timings.resolve_references);
 	let refinement_timer = Instant::now();
 	LinkageRefiner::new(
 		material,
@@ -118,6 +124,15 @@ fn resolve_full_linkage(
 	);
 	timings.store_index = store_timer.elapsed();
 	LinkageResolution { store, timings }
+}
+
+fn trace_pass(name: &str, elapsed: std::time::Duration) {
+	if std::env::var_os("CODE_MONIKER_BENCH_TRACE").is_some() {
+		eprintln!(
+			"bench_linkage: {name} reached after {:.3} ms",
+			elapsed.as_secs_f64() * 1_000.0
+		);
+	}
 }
 
 struct LinkageResolution {

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::moniker::Moniker;
 
@@ -81,6 +81,7 @@ impl TypeExpr {
 pub struct TypeEnv {
 	locals: Vec<LocalType>,
 	type_params: BTreeSet<Vec<u8>>,
+	type_param_bounds: BTreeMap<Vec<u8>, Vec<Moniker>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,8 +102,19 @@ impl TypeEnv {
 		self.type_params.insert(name.into());
 	}
 
+	pub fn bind_type_param_bound(&mut self, name: impl Into<Vec<u8>>, bound: Moniker) {
+		let bounds = self.type_param_bounds.entry(name.into()).or_default();
+		if !bounds.contains(&bound) {
+			bounds.push(bound);
+		}
+	}
+
 	pub fn is_type_param(&self, name: &[u8]) -> bool {
 		self.type_params.contains(name)
+	}
+
+	pub fn type_param_bounds(&self, name: &[u8]) -> Option<&[Moniker]> {
+		self.type_param_bounds.get(name).map(Vec::as_slice)
 	}
 
 	pub fn resolve_local(&self, name: &[u8]) -> Option<&TypeExpr> {

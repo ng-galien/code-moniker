@@ -79,6 +79,8 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 		("source.ancestors.in_refs", Domain::SourceAncestorInRefs),
 		("source.out_refs", Domain::SourceOutRefs),
 		("source.in_refs", Domain::SourceInRefs),
+		("target.out_refs", Domain::TargetOutRefs),
+		("target.in_refs", Domain::TargetInRefs),
 	] {
 		if cursor::starts_with(&state, name) {
 			return Ok((domain, cursor::advance(state, name.len())));
@@ -98,6 +100,8 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 		"in_refs" => Domain::InRefs,
 		"source.out_refs" => Domain::SourceOutRefs,
 		"source.in_refs" => Domain::SourceInRefs,
+		"target.out_refs" => Domain::TargetOutRefs,
+		"target.in_refs" => Domain::TargetInRefs,
 		"source.ancestors.out_refs" => Domain::SourceAncestorOutRefs,
 		"source.ancestors.in_refs" => Domain::SourceAncestorInRefs,
 		shape if shape.starts_with("shape:") => {
@@ -118,7 +122,7 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 				return Err(ParseError::BadExpr {
 					expr: cursor::raw(&state).to_string(),
 					msg: format!(
-						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, source.out_refs, source.in_refs, source.ancestors.out_refs, source.ancestors.in_refs, or one of {})",
+						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, source.out_refs, source.in_refs, target.out_refs, target.in_refs, source.ancestors.out_refs, source.ancestors.in_refs, or one of {})",
 						cursor::allowed_kinds(&state).join(", ")
 					),
 				});
@@ -182,6 +186,8 @@ fn contains_pair_domain(domain: &Domain) -> bool {
 		| Domain::InRefs
 		| Domain::SourceOutRefs
 		| Domain::SourceInRefs
+		| Domain::TargetOutRefs
+		| Domain::TargetInRefs
 		| Domain::SourceAncestorOutRefs
 		| Domain::SourceAncestorInRefs => false,
 	}

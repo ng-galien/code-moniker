@@ -22,6 +22,31 @@ pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>
 		|| rust_contextual_name_matches_def(query, candidate)
 }
 
+pub(super) fn sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
+	if query
+		.material
+		.files
+		.get(query.source_file)
+		.is_none_or(|file| file.lang != code_moniker_core::lang::Lang::Rs)
+	{
+		return None;
+	}
+	let name = query.call_name?;
+	if query.reference_kind.as_bytes() != kinds::METHOD_CALL
+		|| query.confidence != Some(confidence(kinds::CONF_NAME_MATCH))
+		|| !code_moniker_core::lang::rs::is_common_std_method(name)
+	{
+		return None;
+	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(query.target.as_view().project());
+	builder.segment(kinds::SDK, b"rs");
+	builder.segment(kinds::PATH, b"std");
+	builder.segment(kinds::PATH, b"prelude");
+	builder.segment(kinds::METHOD, name.as_bytes());
+	Some(builder.build())
+}
+
 pub(super) fn external_crate_target_matches_def(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
@@ -99,30 +124,6 @@ pub(super) fn external_crate_target_matches_def(
 		.all(|(target, candidate)| rust_path_segment_matches(*target, *candidate))
 }
 
-pub(super) fn sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
-	if query
-		.material
-		.files
-		.get(query.source_file)
-		.is_none_or(|file| file.lang != code_moniker_core::lang::Lang::Rs)
-		|| query.reference_kind.as_bytes() != kinds::METHOD_CALL
-		|| query.confidence != Some(confidence(kinds::CONF_NAME_MATCH))
-	{
-		return None;
-	}
-	let name = query.call_name?;
-	if !code_moniker_core::lang::rs::is_common_std_method(name) {
-		return None;
-	}
-	let mut builder = MonikerBuilder::new();
-	builder.project(query.target.as_view().project());
-	builder.segment(kinds::SDK, b"rs");
-	builder.segment(kinds::PATH, b"std");
-	builder.segment(kinds::PATH, b"prelude");
-	builder.segment(kinds::METHOD, name.as_bytes());
-	Some(builder.build())
-}
-
 fn absolute_path(path: &Path) -> std::path::PathBuf {
 	let path = if path.is_absolute() {
 		path.to_path_buf()
@@ -148,8 +149,13 @@ fn rust_path_target_matches_def(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
+	let forwarded_external = query.confidence == Some(confidence(kinds::CONF_EXTERNAL))
+		&& query
+			.target_first
+			.is_some_and(|segment| !matches!(segment.kind, kinds::EXTERNAL_PKG | kinds::SDK));
 	if query.confidence != Some(confidence(kinds::CONF_NAME_MATCH))
 		&& query.confidence != Some(confidence(kinds::CONF_IMPORTED))
+		&& !forwarded_external
 	{
 		return false;
 	}
@@ -359,13 +365,18 @@ fn rust_reference_namespace_accepts(
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
 	if is_rust_call_ref(query.reference_kind.as_bytes()) {
-		return candidate
-			.last_segment
-			.is_some_and(|segment| is_rust_call_candidate_kind(segment.kind));
+		return candidate.last_segment.is_some_and(|segment| {
+			is_rust_call_candidate_kind(segment.kind)
+				|| is_exact_local_callable_binding(query, segment.kind)
+		});
 	}
 	if !matches!(
 		query.reference_kind.as_bytes(),
-		kinds::USES_TYPE | kinds::EXTENDS | kinds::IMPLEMENTS
+		kinds::TYPED_AS
+			| kinds::RETURNS_TYPE
+			| kinds::USES_TYPE
+			| kinds::EXTENDS
+			| kinds::IMPLEMENTS
 	) {
 		return true;
 	}
@@ -375,6 +386,14 @@ fn rust_reference_namespace_accepts(
 			kinds::PATH | kinds::STRUCT | kinds::ENUM | kinds::TRAIT | kinds::TYPE
 		)
 	})
+}
+
+fn is_exact_local_callable_binding(query: &LinkageQuery<'_>, candidate_kind: &[u8]) -> bool {
+	query.reference_kind.as_bytes() == kinds::CALLS
+		&& query.confidence == Some(confidence(kinds::CONF_LOCAL))
+		&& query.target_last.is_some_and(|target| {
+			matches!(target.kind, kinds::LOCAL | kinds::PARAM) && candidate_kind == target.kind
+		})
 }
 
 fn is_rust_path_target_kind(kind: &[u8]) -> bool {

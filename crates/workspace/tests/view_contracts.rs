@@ -64,7 +64,8 @@ fn symbol_view_all_is_ordered_with_child_counts() {
 		vec![
 			("drive()".to_string(), "fn".to_string(), 0),
 			("widget_probe()".to_string(), "fn".to_string(), 0),
-			("WidgetProbe".to_string(), "struct".to_string(), 2),
+			("WidgetProbe".to_string(), "struct".to_string(), 3),
+			("value".to_string(), "field".to_string(), 0),
 			("compute()".to_string(), "method".to_string(), 0),
 			("reset()".to_string(), "method".to_string(), 0),
 		],
@@ -85,7 +86,7 @@ fn symbol_view_children_lists_struct_methods() {
 		.map(|summary| summary.name)
 		.collect();
 	children.sort();
-	assert_eq!(children, vec!["compute()", "reset()"]);
+	assert_eq!(children, vec!["compute()", "reset()", "value"]);
 }
 
 #[test]
@@ -123,7 +124,8 @@ fn reference_view_reports_incoming_and_outgoing_for_hot_symbol() {
 			"method_call",
 			"method_call",
 			"reads",
-			"reads"
+			"reads",
+			"returns_type"
 		],
 		"drive() outgoing reference kinds drifted"
 	);
@@ -151,7 +153,13 @@ fn multiword_search_finds_camelcase_and_snake_case_symbols() {
 	names.sort();
 	assert_eq!(
 		names,
-		vec!["WidgetProbe", "compute()", "reset()", "widget_probe()"],
+		vec![
+			"WidgetProbe",
+			"compute()",
+			"reset()",
+			"value",
+			"widget_probe()"
+		],
 		"multiword search results drifted"
 	);
 }

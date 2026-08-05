@@ -176,6 +176,15 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      export: boolean;
+      from: string;
+      op: "metrics_coupling";
+      relation: string[];
+      snapshot?: string | null;
+      to: string;
+      workspace?: string | null;
+    }
+  | {
       cluster?: string | null;
       limit: number;
       op: "resolution_audit";
@@ -271,6 +280,10 @@ export type QueryResult =
   | {
       data: IdentityGraphResult;
       kind: "identity_graph";
+    }
+  | {
+      data: MetricsCouplingResult;
+      kind: "metrics_coupling";
     }
   | {
       data: ResolutionAuditResult;
@@ -1080,6 +1093,37 @@ export interface IdentityGraphPort {
   count: number;
   identity: string;
   kinds: string[];
+}
+export interface MetricsCouplingResult {
+  by_kind: CountDto[];
+  by_target: MetricsCouplingTargetUsage[];
+  connections: number;
+  coverage: MetricsCouplingCoverage;
+  export_recorded: boolean;
+  export_requested: boolean;
+  from: string;
+  git?: GitRevisionDto | null;
+  references: number;
+  relation: string[];
+  same_symbol_references: number;
+  snapshot: string;
+  source_symbols: number;
+  target_symbols: number;
+  to: string;
+  unlinked: UnlinkedRefsDto;
+}
+export interface MetricsCouplingTargetUsage {
+  moniker: string;
+  references: number;
+}
+export interface MetricsCouplingCoverage {
+  resolved_source_references: number;
+  source_references: number;
+}
+export interface GitRevisionDto {
+  branch: string;
+  commit: string;
+  dirty: boolean;
 }
 export interface ResolutionAuditResult {
   clusters: AuditClusterDto[];

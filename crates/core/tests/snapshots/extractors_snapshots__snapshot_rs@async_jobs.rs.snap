@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
 ---
@@ -97,6 +98,32 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       "visibility": "public"
     },
     {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:Job/field:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:Job",
+      "position": [
+        137,
+        151
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:Job/field:status",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:Job",
+      "position": [
+        154,
+        175
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:180",
@@ -186,6 +213,32 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/field:queue",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        376,
+        396
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/field:done",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        399,
+        416
+      ],
+      "signature": "",
+      "visibility": "private"
     },
     {
       "binding": "none",
@@ -308,10 +361,10 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
     },
     {
       "alias": "",
-      "binding": "local",
+      "binding": "none",
       "confidence": "resolved",
-      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:Job",
-      "kind": "uses_type",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:Job/field:status",
+      "kind": "typed_as",
       "position": [
         166,
         175
@@ -324,7 +377,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()",
-      "kind": "uses_type",
+      "kind": "returns_type",
       "position": [
         276,
         282
@@ -347,10 +400,10 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
     },
     {
       "alias": "",
-      "binding": "local",
+      "binding": "none",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
-      "kind": "uses_type",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/field:queue",
+      "kind": "typed_as",
       "position": [
         383,
         391
@@ -362,7 +415,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       "alias": "",
       "binding": "local",
       "confidence": "resolved",
-      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/field:queue",
       "kind": "uses_type",
       "position": [
         392,
@@ -373,10 +426,10 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
     },
     {
       "alias": "",
-      "binding": "local",
+      "binding": "none",
       "confidence": "external",
-      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
-      "kind": "uses_type",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/field:done",
+      "kind": "typed_as",
       "position": [
         405,
         408
@@ -409,6 +462,19 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "kind": "returns_type",
+      "position": [
+        505,
+        509
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore"
     },
     {
       "alias": "",
@@ -454,7 +520,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
-      "kind": "uses_type",
+      "kind": "returns_type",
       "position": [
         620,
         626
@@ -485,7 +551,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         636,
         658
       ],
-      "receiver_hint": "member",
+      "receiver_hint": "queue",
       "to": "code+moniker://app/lang:rs/module:async_jobs/method:pop_front"
     },
     {
@@ -498,7 +564,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         701,
         731
       ],
-      "receiver_hint": "member",
+      "receiver_hint": "done",
       "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:push"
     },
     {
@@ -512,12 +578,38 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         730
       ],
       "receiver_hint": "id",
-      "to": "code+moniker://app/sdk:rs/path:std/path:prelude/method:to_string"
+      "to": "code+moniker://app/sdk:rs/path:std/path:primitive/path:str/method:to_string"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "kind": "uses_type",
+      "position": [
+        784,
+        792
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "kind": "returns_type",
+      "position": [
+        812,
+        816
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/sdk:rs/path:std/path:primitive/path:bool"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
       "kind": "method_call",
       "position": [
@@ -525,12 +617,12 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         886
       ],
       "receiver_hint": "store",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/method:reserve"
+      "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
       "kind": "method_call",
       "position": [
@@ -538,7 +630,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
         938
       ],
       "receiver_hint": "store",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/method:complete"
+      "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:complete"
     }
   ],
   "root": "code+moniker://app/lang:rs/module:async_jobs"

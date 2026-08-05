@@ -1658,6 +1658,8 @@ fn lazy_domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 		| Domain::InRefs
 		| Domain::SourceOutRefs
 		| Domain::SourceInRefs
+		| Domain::TargetOutRefs
+		| Domain::TargetInRefs
 		| Domain::SourceAncestorOutRefs
 		| Domain::SourceAncestorInRefs => false,
 	}

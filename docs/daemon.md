@@ -132,7 +132,7 @@ verbs; the daemon package version string is informational.
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
 `symbol.insights`, `symbol.detail`, `syntax.tree`, `syntax.parse`, `symbol.usages`, `symbol.graph`,
-`identity.children`, `identity.graph`, `view.read`, `rules.list`,
+`identity.children`, `identity.graph`, `metrics.coupling`, `view.read`, `rules.list`,
 `rules.check`, `rules.applicable`, `change.review`, `change.context`,
 `resolution.audit`, `notes`. Command verbs: `workspace.refresh`,
 `workspace.source_set.replace`, `workspace.source_set.remove`.
@@ -250,6 +250,38 @@ and test files sharing the same logical package can be inspected separately.
 Edges and ports below `min_count` remain represented in pre-filter coverage.
 Nodes, matching edges, incoming ports and outgoing ports form one deterministic
 generation-aware paginated row sequence controlled by `limit` and `cursor`.
+
+`metrics.coupling from:"<identity prefix>" to:"<identity prefix>"`
+measures directed coupling between two declared identity scopes. Both prefixes
+include all descendant symbols; using the same prefix for `from` and `to`
+measures coupling inside that scope. `relation:` is repeatable and limits the
+measurement to selected reference kinds; without it, every resolved reference
+kind participates. The result reports reference occurrences, distinct
+source-target connections, participating source and target symbols, and counts
+by relation kind. When `from` and `to` are different, it also groups
+occurrences by target moniker so a boundary review can distinguish repeated
+use of an existing public symbol from use of a different symbol on the target
+surface. Same-scope measurements deliberately omit this drill-down. References
+whose source and target roll up to the same navigable symbol are reported
+separately and excluded from coupling so local implementation activity does
+not inflate a package metric. Coverage includes all considered outgoing
+references from the source scope, their resolved subset, and the existing
+external/candidate/dynamic/unresolved classification.
+The verb is available through the CLI `query` command and the generic
+`code_moniker_query` MCP tool; it is the dynamic contract that declarative
+project metric entries can reuse without a second graph evaluator.
+
+Adding `export:true` records the result in the process's OpenTelemetry meter.
+This is deliberately a second opt-in: `[telemetry].enabled` (or its environment
+override) must also have enabled the process exporter. The response exposes
+`export_requested` and `export_recorded`; the latter means that the active OTel
+SDK accepted the measurements, not that a remote collector acknowledged
+delivery. Without `export:true`, the query only returns its result and emits no
+analysis metric. `snapshot:` supplies the comparison label (for example
+`branch_start` or `current`). Every exported series also carries the current Git
+branch, commit, and dirty state discovered from the selected workspace; the
+same metadata is returned by the query so a measurement is never detached from
+the source state that produced it.
 
 ## Discovery
 

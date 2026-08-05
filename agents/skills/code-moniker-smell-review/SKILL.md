@@ -58,8 +58,13 @@ Use shape scopes for broad polyglot checks:
 [[shape.callable.where]]
 id       = "smell-long-callable"
 severity = "warn"
-expr     = "lines <= 120"
+expr     = "lines <= 240"
 ```
+
+Treat this as an emergency bound, not a refactoring target. Do not extract a
+helper from size alone; require a concrete ownership, coupling, or control-flow
+seam. Lower thresholds encourage artificial indirection, especially in
+agent-written code.
 
 Use type scopes for local OO distribution checks:
 

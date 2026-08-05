@@ -134,6 +134,8 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 			Domain::InRefs => "count(in_refs)".to_string(),
 			Domain::SourceOutRefs => "count(source.out_refs)".to_string(),
 			Domain::SourceInRefs => "count(source.in_refs)".to_string(),
+			Domain::TargetOutRefs => "count(target.out_refs)".to_string(),
+			Domain::TargetInRefs => "count(target.in_refs)".to_string(),
 			Domain::SourceAncestorOutRefs => "count(source.ancestors.out_refs)".to_string(),
 			Domain::SourceAncestorInRefs => "count(source.ancestors.in_refs)".to_string(),
 		},
@@ -186,6 +188,8 @@ fn domain_label(domain: &Domain) -> String {
 		Domain::InRefs => "in_refs".to_string(),
 		Domain::SourceOutRefs => "source.out_refs".to_string(),
 		Domain::SourceInRefs => "source.in_refs".to_string(),
+		Domain::TargetOutRefs => "target.out_refs".to_string(),
+		Domain::TargetInRefs => "target.in_refs".to_string(),
 		Domain::SourceAncestorOutRefs => "source.ancestors.out_refs".to_string(),
 		Domain::SourceAncestorInRefs => "source.ancestors.in_refs".to_string(),
 	}

@@ -56,6 +56,7 @@ tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
 rust_production_source = "moniker ~ '**/dir:crates/dir:/^(check|cli|core|workspace|query|daemon|daemon-client)$/dir:src/**'"
+workspace_rust_production_source = "uri ~ '**/dir:crates/dir:/^(check|cli|core|workspace|query|daemon|daemon-client)$/dir:src/**'"
 rust_test_support = """
   moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/module:acceptance/**'
   OR moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:expr/module:/^(snapshots|fuzz)$/**'
@@ -132,6 +133,12 @@ enable = [".*"]
 
 [profiles.smells]
 enable = ["\\.smell-"]
+
+[profiles.agentic]
+enable = [
+	"\\.agent-",
+	"\\.smell-one-to-one-method-helper-satellites$",
+]
 
 # ─── Agent output boundary ──────────────────────────────────────────────
 
@@ -789,12 +796,12 @@ presentation behavior must either live in daemon-owned code or move to a neutral
 
 [[rust.shape.callable.where]]
 id      = "max-lines"
-expr    = "lines <= 120"
+expr    = "lines <= 240"
 message = "{kind} `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
 rationale = """
-Long callable bodies are hard for agents and reviewers to localize. Keep the symbol-level
-budget lower than the file-level budget so extraction, review, and follow-up edits stay
-focused.
+This is an emergency bound, not an extraction target. Size alone does not justify helpers:
+keep behavior direct until coupling, ownership, or control flow provides a concrete seam.
+The cap only stops one callable from consuming a substantial part of the 600-line file budget.
 """
 
 [[rust.fn.where]]
@@ -815,6 +822,47 @@ id      = "name-camelcase"
 expr    = "$tests OR $camel OR name =~ ^[A-Z][A-Za-z0-9]*$ OR name =~ ^__cb_[0-9_]+$"
 message = "Functions use camelCase; React-style components may use PascalCase. Rename `{name}`."
 
+# ─── Agent-oriented simplification experiments ───────────────────────
+# These rules are warning-only probes. Their job is to identify code whose
+# contribution may not justify its surface or indirection, not to prescribe a
+# refactoring. Keep only signals whose candidates survive source inspection.
+
+[[workspace.symbol.where]]
+id        = "agent-private-type-single-consumer"
+severity  = "warn"
+expr      = "NOT (shape = 'type' AND visibility != 'public' AND $workspace_rust_production_source) OR count(in_refs) >= 2"
+message   = "Low-yield abstraction candidate: non-public type `{name}` has fewer than two linked consumers."
+rationale = """
+This deliberately broad probe asks whether a private abstraction has enough actual demand to
+justify a separate owner. Project-wide incoming-reference counts avoid the file-local blind
+spot, but do not yet distinguish tests, generated consumers, or reference kinds. Coverage and
+source inspection therefore decide whether each warning is useful; the rule is not a dead-code
+claim.
+"""
+
+[[workspace.symbol.where]]
+id        = "agent-public-type-without-consumer"
+severity  = "warn"
+expr      = "NOT (shape = 'type' AND visibility = 'public' AND $workspace_rust_production_source) OR count(in_refs) >= 1"
+message   = "Surface-without-use candidate: public type `{name}` has no linked consumer in this workspace."
+rationale = """
+An exported type with no internal consumer may be unused surface, or it may be a legitimate
+library boundary. The warning is intentionally falsifiable and must be classified against the
+crate's external contract. It measures internal evidence of demand, not API validity.
+"""
+
+[[rust.shape.type.where]]
+id        = "agent-concentrated-responsibility"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(method) < 8 OR count(method) > 20 OR count(shape:value) > 4 OR rfc(self) <= 50 OR lcom4(self) <= 2"
+message   = "Responsibility concentration candidate: `{name}` carries many disconnected methods over little state."
+rationale = """
+High RFC plus disconnected method groups is restricted to medium-sized owners with at most four
+fields. This excludes broad canonical containers and focuses review on wrappers whose semantic
+surface may exceed their state and contribution. A warning should lead to removal or reassignment
+of a responsibility, not automatic method extraction.
+"""
+
 # ─── Code smell adoption ───────────────────────────────────────────────
 # Smell rules are project-local review signals, not a generic rule pack.
 # During adoption, keep a new smell rule at `severity = "warn"` and exclude it
@@ -828,6 +876,18 @@ message = "Functions use camelCase; React-style components may use PascalCase. R
 # Adopt them one by one: measure the volume, tune scope, thresholds, and exclusions
 # when needed, and promote a rule to `severity = "error"` only after the
 # targeted module is green or has justified suppressions.
+
+[[rust.shape.type.where]]
+id        = "smell-one-to-one-method-helper-satellites"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(method, lines <= 13 AND count(out_refs, kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private') = 1 AND any(out_refs, kind = 'calls' AND target.kind = 'fn' AND target.visibility = 'private' AND count(target.in_refs, kind = 'calls') = 1 AND any(target.out_refs, kind = 'uses_type' AND target = current.source.parent))) <= 2"
+message   = "Over-abstraction candidate: `{name}` has several thin methods whose private one-caller helpers only route behavior back to the same owner."
+rationale = """
+This is the inverse of the usual human-oriented decomposition checks. A repeated
+`type T -> method M -> private fn F -> uses_type T` cycle with one caller for `F`
+adds a semantic boundary without reuse or a new owner. Keep isolated adapters out
+of the warning by requiring at least three satellites under the same type.
+"""
 
 [[rust.shape.callable.where]]
 id        = "smell-long-parameter-list"
@@ -917,14 +977,15 @@ should become explicit types. Four shared names avoids flagging the common tree-
 [[rust.shape.callable.where]]
 id        = "smell-brain-method"
 severity  = "warn"
-expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR lines <= 65 OR fan_out(self) <= 7"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR lines <= 120 OR fan_out(self) <= 7"
 message   = "Brain Method candidate: `{name}` is large and couples to many targets."
 rationale = """
 A method that concentrates both length and outward reach tends to own the central decision
-of its type. Splitting it isolates the dispatching table from the per-case logic, which is
-what review and downstream agent edits need. Free functions are exempted because the Brain
-Method smell is defined against a host class. CYCLO/MAXNESTING/NOAV are not available in the
-local graph, so the detection uses lines + fan_out as a coarser proxy.
+of its type. The 120-line floor keeps ordinary cohesive methods out of the signal: splitting
+is justified only when substantial size coincides with outward coupling. Free functions are
+exempted because the Brain Method smell is defined against a host class.
+CYCLO/MAXNESTING/NOAV are not available in the local graph, so the detection uses lines +
+fan_out as a coarser proxy.
 """
 
 [[rust.shape.callable.where]]

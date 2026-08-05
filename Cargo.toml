@@ -86,16 +86,18 @@ notify        = { version = "8.2", default-features = false, features = ["macos_
 debug         = false
 debug-assertions = false
 overflow-checks = false
-incremental   = true
-codegen-units = 256
+# Keep the workspace target directory bounded. Incremental rustc caches grow
+# into tens of GiB here because tests and tools compile many target variants.
+incremental   = false
+codegen-units = 16
 
 [profile.dev.package."*"]
 debug         = false
 
 [profile.dev.build-override]
 debug         = false
-incremental   = true
-codegen-units = 256
+incremental   = false
+codegen-units = 16
 
 [profile.dev-debug]
 inherits = "dev"

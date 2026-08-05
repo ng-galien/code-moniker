@@ -2,7 +2,7 @@ use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::catalog::CandidateCatalog;
-use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
+use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::language::{
 	confirm_name_match_targets, global_resolution_evidence, local_resolution_evidence,
 	prefer_concrete_definitions,
@@ -13,7 +13,7 @@ use crate::linkage::resolve::{
 	resolve_local_scope,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
-use crate::snapshot::{ReferenceRecord, ResolutionEvidence};
+use crate::snapshot::{DynamicReason, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 use code_moniker_core::lang::Lang;
 
@@ -120,7 +120,12 @@ impl<'a> ReferenceResolver<'a> {
 		site: ReferenceSite<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let policies = self.policies;
-		if !policies.manifests.declares_external_target(original) {
+		let authority = if external_tagged(original) {
+			original
+		} else {
+			forwarded
+		};
+		if !policies.manifests.authorizes_forwarded_target(authority) {
 			return None;
 		}
 		let targets = resolve_global_scope(forwarded, policies.candidates);
@@ -129,7 +134,7 @@ impl<'a> ReferenceResolver<'a> {
 		let policy = policies.manifests.evaluate_global_targets(
 			GlobalTargetQueries {
 				candidate: forwarded,
-				authority: original,
+				authority,
 			},
 			targets,
 			policies.candidates,
@@ -147,6 +152,19 @@ impl<'a> ReferenceResolver<'a> {
 			site.reference,
 			global_resolution_evidence(forwarded),
 		)
+	}
+
+	fn resolve_forwarded(
+		&self,
+		original: &LinkageQuery<'_>,
+		forwarded: &LinkageQuery<'_>,
+		site: ReferenceSite<'_>,
+	) -> Option<ReferenceLinkageDecision> {
+		if external_tagged(original) || external_tagged(forwarded) {
+			self.resolve_forwarded_global(original, forwarded, site)
+		} else {
+			self.resolve_global(forwarded, site)
+		}
 	}
 
 	fn resolve_java_on_demand(
@@ -191,6 +209,13 @@ fn resolve_scopes(
 	site: ReferenceSite<'_>,
 ) -> ReferenceLinkageDecision {
 	let policies = resolver.policies;
+	// Import and reexport path defs are local binding sites, not canonical
+	// targets. Follow their recorded binding before the ordinary local lookup;
+	// otherwise the synthetic alias wins merely because it shares the source
+	// file with the reference.
+	if let Some(decision) = resolve_rust_forwards(resolver, query, site) {
+		return decision;
+	}
 	let local_targets = resolve_local_scope(query, policies.candidates);
 	if !local_targets.is_empty() {
 		let evidence = local_resolution_evidence(query, policies.candidates, &local_targets);
@@ -201,17 +226,6 @@ fn resolve_scopes(
 			site.reference_idx,
 			local_targets,
 		));
-	}
-	if let Some(forwarded) = policies.forwards.rewrite_rust_named(query.target) {
-		let forwarded_query = query.with_target(&forwarded);
-		let decision = if external_tagged(query) {
-			resolver.resolve_forwarded_global(query, &forwarded_query, site)
-		} else {
-			resolver.resolve_global(&forwarded_query, site)
-		};
-		if let Some(decision) = decision {
-			return decision;
-		}
 	}
 	if let Some(decision) = resolver.resolve_global(query, site) {
 		return decision;
@@ -259,6 +273,51 @@ fn resolve_scopes(
 		);
 	}
 	site.unknown(UnknownReason::NoCandidate)
+}
+
+fn resolve_rust_forwards(
+	resolver: &ReferenceResolver<'_>,
+	query: &LinkageQuery<'_>,
+	site: ReferenceSite<'_>,
+) -> Option<ReferenceLinkageDecision> {
+	let forwarded = resolver.policies.forwards.rewrite_rust_named(query.target);
+	if forwarded.is_empty() {
+		return None;
+	}
+	if forwarded.len() == 1 {
+		let forwarded_query = query.with_target(&forwarded[0]);
+		return resolver.resolve_forwarded(query, &forwarded_query, site);
+	}
+
+	let mut candidates = SymbolSet::new();
+	let mut all_resolved = true;
+	for target in &forwarded {
+		let forwarded_query = query.with_target(target);
+		match resolver.resolve_forwarded(query, &forwarded_query, site) {
+			Some(ReferenceLinkageDecision::Unique { resolution })
+			| Some(ReferenceLinkageDecision::Candidate { resolution, .. }) => {
+				for target in resolution.targets.iter() {
+					candidates.insert(target);
+				}
+			}
+			Some(_) | None => all_resolved = false,
+		}
+	}
+	if all_resolved && candidates.len() == 1 {
+		return Some(ReferenceLinkageDecision::resolved(ResolutionDecision::new(
+			ResolutionScope::Global,
+			ResolutionEvidence::GlobalBinding,
+			site.reference.id,
+			site.reference_idx,
+			candidates,
+		)));
+	}
+	Some(ReferenceLinkageDecision::dynamic(
+		DynamicReason::ConditionalCompilation,
+		site.reference_idx,
+		site.reference.id,
+		candidates,
+	))
 }
 
 fn external_fallthrough(query: &LinkageQuery<'_>, policies: &LinkagePolicies<'_>) -> bool {

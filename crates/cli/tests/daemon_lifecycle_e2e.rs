@@ -214,6 +214,30 @@ fn unavailable_telemetry_collector_does_not_stop_the_daemon() {
 	supervisor.wait().expect("reap supervisor");
 }
 
+#[cfg(feature = "telemetry")]
+#[test]
+fn project_telemetry_opt_in_does_not_instrument_one_shot_daemon_clients() {
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(
+		workspace.path().join(".code-moniker.toml"),
+		"[telemetry]\nenabled = true\nendpoint = \"http://127.0.0.1:9\"\n",
+	)
+	.expect("project telemetry config");
+	let output = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.args(["daemon", "list"])
+		.current_dir(workspace.path())
+		.env_remove("CODE_MONIKER_TELEMETRY")
+		.output()
+		.expect("run one-shot daemon client");
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "daemon list failed: {stderr}");
+	assert!(
+		!stderr.contains("OpenTelemetry"),
+		"project telemetry must be owned by the daemon, not one-shot clients:\n{stderr}"
+	);
+}
+
 #[test]
 fn daemon_identity_control_uses_the_ambient_cache_directory() {
 	let _lifecycle = lifecycle_test_lock();

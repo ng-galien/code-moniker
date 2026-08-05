@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
+use code_moniker_query::MetricsCouplingResult;
 use code_moniker_workspace::memory::{RetainedMaterialMemoryEstimate, SnapshotMemoryEstimate};
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use code_moniker_workspace::source::CodeIndexMaterial;
@@ -187,6 +188,91 @@ pub(crate) fn record_daemon_request(
 	}
 	#[cfg(not(feature = "telemetry"))]
 	let _ = (kind, operation, result, elapsed);
+}
+
+pub(crate) fn record_coupling_metrics(result: &MetricsCouplingResult) -> bool {
+	#[cfg(feature = "telemetry")]
+	{
+		if !export_enabled() {
+			return false;
+		}
+		use opentelemetry::KeyValue;
+
+		let mut relations = result.relation.clone();
+		relations.sort_unstable();
+		relations.dedup();
+		let relation = if relations.is_empty() {
+			"all".to_string()
+		} else {
+			relations.join(",")
+		};
+		let (git_branch, git_commit, git_dirty) = result
+			.git
+			.as_ref()
+			.map_or(("unavailable", "unavailable", false), |git| {
+				(git.branch.as_str(), git.commit.as_str(), git.dirty)
+			});
+		let attributes = vec![
+			KeyValue::new("coupling.from", result.from.clone()),
+			KeyValue::new("coupling.to", result.to.clone()),
+			KeyValue::new("coupling.relation", relation),
+			KeyValue::new("metric.snapshot", result.snapshot.clone()),
+			KeyValue::new("git.branch", git_branch.to_string()),
+			KeyValue::new("git.commit", git_commit.to_string()),
+			KeyValue::new("git.dirty", git_dirty),
+		];
+		let metrics = metrics();
+		metrics
+			.coupling_references
+			.record(to_u64(result.references), &attributes);
+		metrics
+			.coupling_connections
+			.record(to_u64(result.connections), &attributes);
+		metrics
+			.coupling_source_symbols
+			.record(to_u64(result.source_symbols), &attributes);
+		metrics
+			.coupling_target_symbols
+			.record(to_u64(result.target_symbols), &attributes);
+		metrics
+			.coupling_same_symbol_references
+			.record(to_u64(result.same_symbol_references), &attributes);
+		for (state, count) in [
+			("all", result.coverage.source_references),
+			("resolved", result.coverage.resolved_source_references),
+			("external", result.unlinked.external),
+			("candidate", result.unlinked.candidate),
+			("dynamic", result.unlinked.dynamic),
+			("manifest_blocked", result.unlinked.manifest_blocked),
+			("unresolved", result.unlinked.unresolved),
+		] {
+			let mut state_attributes = attributes.to_vec();
+			state_attributes.push(KeyValue::new("reference.state", state));
+			metrics
+				.coupling_source_references
+				.record(to_u64(count), &state_attributes);
+		}
+		for kind in &result.by_kind {
+			let mut kind_attributes = attributes.to_vec();
+			kind_attributes.push(KeyValue::new("reference.kind", kind.name.clone()));
+			metrics
+				.coupling_references_by_kind
+				.record(to_u64(kind.count), &kind_attributes);
+		}
+		for target in &result.by_target {
+			let mut target_attributes = attributes.to_vec();
+			target_attributes.push(KeyValue::new("target.moniker", target.moniker.clone()));
+			metrics
+				.coupling_references_by_target
+				.record(to_u64(target.references), &target_attributes);
+		}
+		true
+	}
+	#[cfg(not(feature = "telemetry"))]
+	{
+		let _ = result;
+		false
+	}
 }
 
 #[derive(Clone, Copy)]
@@ -385,6 +471,14 @@ struct WorkspaceMetrics {
 	index_phase_duration: opentelemetry::metrics::Histogram<f64>,
 	daemon_requests: opentelemetry::metrics::Counter<u64>,
 	daemon_request_duration: opentelemetry::metrics::Histogram<f64>,
+	coupling_references: opentelemetry::metrics::Gauge<u64>,
+	coupling_references_by_kind: opentelemetry::metrics::Gauge<u64>,
+	coupling_references_by_target: opentelemetry::metrics::Gauge<u64>,
+	coupling_connections: opentelemetry::metrics::Gauge<u64>,
+	coupling_source_symbols: opentelemetry::metrics::Gauge<u64>,
+	coupling_target_symbols: opentelemetry::metrics::Gauge<u64>,
+	coupling_same_symbol_references: opentelemetry::metrics::Gauge<u64>,
+	coupling_source_references: opentelemetry::metrics::Gauge<u64>,
 }
 
 #[cfg(feature = "telemetry")]
@@ -459,6 +553,30 @@ fn metrics() -> &'static WorkspaceMetrics {
 			daemon_request_duration: meter
 				.f64_histogram("code_moniker.daemon.request.duration")
 				.with_unit("ms")
+				.build(),
+			coupling_references: meter
+				.u64_gauge("code_moniker.analysis.coupling.references")
+				.build(),
+			coupling_references_by_kind: meter
+				.u64_gauge("code_moniker.analysis.coupling.references_by_kind")
+				.build(),
+			coupling_references_by_target: meter
+				.u64_gauge("code_moniker.analysis.coupling.references_by_target")
+				.build(),
+			coupling_connections: meter
+				.u64_gauge("code_moniker.analysis.coupling.connections")
+				.build(),
+			coupling_source_symbols: meter
+				.u64_gauge("code_moniker.analysis.coupling.source_symbols")
+				.build(),
+			coupling_target_symbols: meter
+				.u64_gauge("code_moniker.analysis.coupling.target_symbols")
+				.build(),
+			coupling_same_symbol_references: meter
+				.u64_gauge("code_moniker.analysis.coupling.same_symbol_references")
+				.build(),
+			coupling_source_references: meter
+				.u64_gauge("code_moniker.analysis.coupling.source_references")
 				.build(),
 		}
 	})

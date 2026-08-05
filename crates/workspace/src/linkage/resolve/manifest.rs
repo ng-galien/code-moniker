@@ -63,7 +63,9 @@ impl GlobalTargetAuthority {
 		let declared = policy.can_classify_as_declared_external(authority_query);
 		match self {
 			Self::Direct => Some(declared),
-			Self::Forwarded => declared.then_some(false),
+			Self::Forwarded => policy
+				.authorizes_forwarded_target(authority_query)
+				.then_some(false),
 		}
 	}
 
@@ -143,6 +145,65 @@ impl ManifestPolicy {
 
 	pub(in crate::linkage) fn declares_external_target(&self, query: &LinkageQuery<'_>) -> bool {
 		self.can_classify_as_declared_external(query)
+	}
+
+	pub(in crate::linkage) fn authorizes_forwarded_target(&self, query: &LinkageQuery<'_>) -> bool {
+		if self.can_classify_as_declared_external(query) {
+			return true;
+		}
+		let Some(import_root) = external_import_root(query) else {
+			return false;
+		};
+		let Some(source_lang) = query
+			.material
+			.files
+			.get(query.source_file)
+			.map(|file| file.lang)
+		else {
+			return false;
+		};
+		let Some(source_manifest) = language::manifest_for_lang(source_lang) else {
+			return false;
+		};
+		self.entry_for_file(query.source_file).is_some_and(|entry| {
+			entry
+				.packages
+				.contains(&package_id(source_manifest, import_root))
+		})
+	}
+
+	pub(in crate::linkage) fn authorizes_reexport_target(
+		&self,
+		source_file: usize,
+		target: &code_moniker_core::core::moniker::Moniker,
+	) -> bool {
+		let Some(import_root) = target
+			.as_view()
+			.segments()
+			.next()
+			.and_then(|segment| {
+				(segment.kind == code_moniker_core::lang::kinds::EXTERNAL_PKG)
+					.then(|| std::str::from_utf8(segment.name).ok())
+			})
+			.flatten()
+		else {
+			return true;
+		};
+		self.entry_for_file(source_file).is_some_and(|entry| {
+			entry
+				.deps
+				.contains(&package_id(entry.manifest, import_root))
+		})
+	}
+
+	pub(in crate::linkage) fn rust_library_import_root_for_file(
+		&self,
+		file_idx: usize,
+		file_path: &Path,
+	) -> Option<&str> {
+		let library = self.entry_for_file(file_idx)?.rust_lib.as_ref()?;
+		(absolute_path(file_path) == absolute_path(&library.path))
+			.then_some(library.import_root.as_str())
 	}
 
 	fn source_declares_dependencies(&self, query: &LinkageQuery<'_>) -> bool {

@@ -62,6 +62,7 @@ const DEF_KINDS: &[&str] = &[
 	"test",
 	"const",
 	"static",
+	"field",
 	"path",
 	"type",
 ];
@@ -79,7 +80,8 @@ const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("enum_constant", Shape::Value, 60, "enum_constant"),
 	KindSpec::new("const", Shape::Value, 61, "const"),
 	KindSpec::new("static", Shape::Value, 62, "static"),
-	KindSpec::new("path", Shape::Value, 63, "path"),
+	KindSpec::new("field", Shape::Value, 63, "field"),
+	KindSpec::new("path", Shape::Value, 64, "path"),
 ];
 
 impl crate::lang::LangExtractor for Lang {

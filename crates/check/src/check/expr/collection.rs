@@ -222,6 +222,8 @@ fn validate_collection_projection_path(
 		| Domain::InRefs
 		| Domain::SourceOutRefs
 		| Domain::SourceInRefs
+		| Domain::TargetOutRefs
+		| Domain::TargetInRefs
 		| Domain::SourceAncestorOutRefs
 		| Domain::SourceAncestorInRefs => valid_ref_collection_path(path),
 		Domain::Segments => valid_segment_collection_path(path),

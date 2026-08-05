@@ -313,6 +313,12 @@ fn snapshot_domain(domain: &Domain) -> Value {
 		Domain::SourceInRefs => json!({
 			"type": "source_in_refs",
 		}),
+		Domain::TargetOutRefs => json!({
+			"type": "target_out_refs",
+		}),
+		Domain::TargetInRefs => json!({
+			"type": "target_in_refs",
+		}),
 		Domain::SourceAncestorOutRefs => json!({
 			"type": "source_ancestor_out_refs",
 		}),
