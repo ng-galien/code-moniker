@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 124
 expression: body
 input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
 ---
@@ -461,6 +462,19 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "visibility": "private"
     },
     {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/struct:LocalResolver/field:strategy",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/struct:LocalResolver",
+      "position": [
+        1640,
+        1651
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:rs/module:rust_refs/comment:1656",
@@ -636,7 +650,7 @@ input_file: crates/core/tests/fixtures/extractors/rs/rust_refs.rs
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
-      "kind": "uses_type",
+      "kind": "returns_type",
       "position": [
         130,
         133

@@ -17,13 +17,14 @@ use super::defs::{
 };
 use super::imports::import_tree;
 use super::refs::{
-	ImportedSymbol, RefEnv, attribute_refs, expand_import, item_attribute_refs, macro_call_ref,
-	read_refs, trait_refs_from_node, type_parameters, type_refs_from_generic_bounds,
-	type_refs_from_signature, type_refs_from_type_node,
+	ImportedSymbol, RefEnv, attribute_refs, expand_import, impl_target_ref, item_attribute_refs,
+	macro_call_ref, promote_typed_carrier, read_refs, trait_refs_from_node, type_parameters,
+	type_refs_from_generic_bounds, type_refs_from_signature, type_refs_from_type_node,
+	typed_field_ref,
 };
 use super::syntax::{
 	children, is_test_function, language_macro_variants, named_children, path_pieces,
-	should_skip_binding, token_tree_body,
+	previous_attributes, should_skip_binding, token_tree_body,
 };
 
 pub(super) struct DiscoveredRustFile {
@@ -43,6 +44,7 @@ pub(super) struct RustDiscover<'src> {
 	imported_symbols: Vec<ImportedSymbol>,
 	wildcard_imports: Vec<(Moniker, Moniker)>,
 	macro_wildcard_imports: Vec<(Moniker, Moniker)>,
+	inferred_impl_types: Vec<Moniker>,
 }
 
 impl<'src> RustDiscover<'src> {
@@ -63,6 +65,7 @@ impl<'src> RustDiscover<'src> {
 			imported_symbols: Vec::new(),
 			wildcard_imports: Vec::new(),
 			macro_wildcard_imports: Vec::new(),
+			inferred_impl_types: Vec::new(),
 		};
 		walk_items(&mut discover, root_node, &root, false);
 		collect_refs(&mut discover, root_node, &root, false);
@@ -183,6 +186,9 @@ fn is_comment(kind: &str) -> bool {
 fn visit_item(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, trait_impl: bool) {
 	match item_kind(node.kind()) {
 		ItemKind::Ignore => {}
+		ItemKind::Simple(kind, namespace) if kind == kinds::STRUCT => {
+			struct_def(state, node, scope, namespace);
+		}
 		ItemKind::Simple(kind, namespace) => {
 			push_simple_def(state, node, scope, kind, namespace);
 		}
@@ -224,6 +230,36 @@ fn push_simple_def(
 	let moniker = def.moniker.clone();
 	state.push_def(def);
 	Some(moniker)
+}
+
+fn struct_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, namespace: Namespace) {
+	let Some(struct_moniker) = push_simple_def(state, node, scope, kinds::STRUCT, namespace) else {
+		return;
+	};
+	collect_struct_field_defs(state, node, &struct_moniker);
+}
+
+fn collect_struct_field_defs(
+	state: &mut RustDiscover<'_>,
+	node: Node<'_>,
+	struct_moniker: &Moniker,
+) {
+	for child in named_children(node) {
+		if child.kind() == "field_declaration" {
+			if let Some(def) = simple_def(
+				state.def_env(),
+				child,
+				struct_moniker,
+				kinds::FIELD,
+				Namespace::Value,
+				false,
+			) {
+				state.push_def(def);
+			}
+			continue;
+		}
+		collect_struct_field_defs(state, child, struct_moniker);
+	}
 }
 
 fn enum_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -332,6 +368,7 @@ fn impl_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 			&target,
 			type_name,
 		));
+		state.inferred_impl_types.push(target.clone());
 	}
 	if let Some(body) = node.child_by_field_name("body") {
 		walk_items(
@@ -551,7 +588,14 @@ fn token_tree_delimiter(node: Node<'_>) -> Option<&'static str> {
 
 fn collect_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, trait_impl: bool) {
 	for child in named_children(node) {
-		collect_item_refs(state, child, scope, trait_impl);
+		if matches!(item_kind(child.kind()), ItemKind::Use) {
+			collect_use_refs(state, child, scope);
+		}
+	}
+	for child in named_children(node) {
+		if !matches!(item_kind(child.kind()), ItemKind::Use) {
+			collect_item_refs(state, child, scope, trait_impl);
+		}
 	}
 }
 
@@ -564,7 +608,7 @@ fn collect_item_refs(
 	match item_kind(node.kind()) {
 		ItemKind::Ignore => {}
 		ItemKind::Function => collect_function_refs(state, node, scope, trait_impl),
-		ItemKind::Use => collect_use_refs(state, node, scope),
+		ItemKind::Use => {}
 		ItemKind::Attribute => {}
 		ItemKind::Impl => collect_impl_refs(state, node, scope),
 		ItemKind::Module => collect_module_refs(state, node, scope),
@@ -607,12 +651,19 @@ fn collect_field_type_refs_with_params(
 		if child.kind() == "field_declaration"
 			&& let Some(ty) = child.child_by_field_name("type")
 		{
-			state.extend_refs(type_refs_from_type_node(
-				state.ref_env(),
-				ty,
+			let Some(name) = child.child_by_field_name("name") else {
+				continue;
+			};
+			let field = crate::lang::callable::extend_segment(
 				source,
-				type_params,
-			));
+				kinds::FIELD,
+				node_slice(name, state.source),
+			);
+			let mut refs = type_refs_from_type_node(state.ref_env(), ty, &field, type_params);
+			if let Some(reference) = typed_field_ref(state.ref_env(), ty, &field, type_params) {
+				promote_typed_carrier(&mut refs, reference);
+			}
+			state.extend_refs(refs);
 			continue;
 		}
 		collect_field_type_refs_with_params(state, child, source, type_params);
@@ -740,6 +791,20 @@ fn collect_impl_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monik
 	};
 	let target = find_local_type(&state.defs, scope, type_name.as_bytes())
 		.unwrap_or_else(|| extend_segment(&state.root, kinds::STRUCT, type_name.as_bytes()));
+	if state.inferred_impl_types.contains(&target)
+		&& matches!(
+			type_node.kind(),
+			"reference_type" | "array_type" | "generic_type" | "primitive_type" | "slice_type"
+		) {
+		let type_params = type_parameters(node, state.source);
+		if let Some(reference) = impl_target_ref(state.ref_env(), type_node, &target, &type_params)
+			&& matches!(
+				reference.confidence,
+				kinds::CONF_EXTERNAL | kinds::CONF_IMPORTED
+			) {
+			state.push_ref(reference);
+		}
+	}
 	state.extend_refs(type_refs_from_generic_bounds(
 		state.ref_env(),
 		node,
@@ -770,7 +835,19 @@ fn collect_module_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Mon
 	if let Some(body) = node.child_by_field_name("body") {
 		collect_refs(state, body, &module, false);
 	} else {
-		state.push_ref(module_declaration_ref(node, state.source, scope, module));
+		let macro_use = previous_attributes(node)
+			.into_iter()
+			.any(|attribute| path_pieces(attribute, state.source) == [b"macro_use".to_vec()]);
+		if macro_use {
+			state
+				.macro_wildcard_imports
+				.push((scope.clone(), module.clone()));
+		}
+		let mut reference = module_declaration_ref(node, state.source, scope, module);
+		if macro_use {
+			reference.hints.receiver_hint = b"rust_macro_use".to_vec();
+		}
+		state.push_ref(reference);
 	}
 }
 
@@ -1052,13 +1129,12 @@ fn nested_type_def_for(
 	kind: &'static [u8],
 ) {
 	if let Some(name_node) = node.child_by_field_name("name") {
-		state.push_def(nested_type_def(
-			state.def_env(),
-			node,
-			function,
-			kind,
-			name_node,
-		));
+		let def = nested_type_def(state.def_env(), node, function, kind, name_node);
+		let moniker = def.moniker.clone();
+		state.push_def(def);
+		if kind == kinds::STRUCT {
+			collect_struct_field_defs(state, node, &moniker);
+		}
 	}
 }
 

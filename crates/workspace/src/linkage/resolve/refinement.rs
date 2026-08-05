@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::linkage::binding::{
-	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
+	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;

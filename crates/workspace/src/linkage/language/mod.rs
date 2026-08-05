@@ -122,8 +122,8 @@ pub(super) fn rust_external_crate_target_matches_def(
 	rust::external_crate_target_matches_def(query, candidate, lib_path)
 }
 
-pub(super) fn rust_sdk_callable_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
-	rust::sdk_callable_fallback(query)
+pub(super) fn rust_sdk_method_fallback(query: &LinkageQuery<'_>) -> Option<Moniker> {
+	rust::sdk_method_fallback(query)
 }
 
 pub(super) fn classify_open_references(

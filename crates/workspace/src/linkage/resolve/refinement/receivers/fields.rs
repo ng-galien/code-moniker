@@ -6,6 +6,7 @@ pub(in crate::linkage) struct ReceiverFieldTables {
 	supers: FxHashMap<Moniker, Vec<Moniker>>,
 	pub(in crate::linkage) type_aliases: FxHashMap<Moniker, Moniker>,
 	value_types: FxHashMap<Moniker, MonikerTypeSet>,
+	derived_owners: FxHashSet<Moniker>,
 	pub(super) invariant_external_origins: FxHashMap<Moniker, ExternalOrigin>,
 }
 
@@ -56,6 +57,7 @@ pub(in crate::linkage) fn build_receiver_field_tables(
 		supers: FxHashMap::default(),
 		type_aliases: FxHashMap::default(),
 		value_types: FxHashMap::default(),
+		derived_owners: FxHashSet::default(),
 		invariant_external_origins: FxHashMap::default(),
 	};
 	for decision in decisions {
@@ -63,6 +65,20 @@ pub(in crate::linkage) fn build_receiver_field_tables(
 		let table_kind = reference.kind.as_bytes();
 		if !is_type_level_kind(table_kind) {
 			continue;
+		}
+		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
+			continue;
+		};
+		if matches!(
+			decision,
+			ReferenceLinkageDecision::Unknown {
+				reason: UnknownReason::NoCandidate | UnknownReason::IncompleteExtractorMetadata,
+				..
+			}
+		) && table_kind == kinds::IMPLEMENTS
+			&& reference.receiver.as_deref() == Some("rust_derive")
+		{
+			tables.derived_owners.insert(source.clone());
 		}
 		let Some(target) =
 			decision_target(linkage.material, linkage.candidates, decision, references)
@@ -80,9 +96,6 @@ pub(in crate::linkage) fn build_receiver_field_tables(
 		{
 			tables.record_alias(raw, &target, external_origin);
 		}
-		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
-			continue;
-		};
 		insert_type_fact(&mut tables, reference, source.clone(), target);
 	}
 	tables
@@ -103,6 +116,10 @@ fn insert_type_fact(
 			tables.supers.entry(source).or_default().push(target);
 		}
 		kinds::TYPED_AS => {
+			if reference.receiver.as_deref() == Some("rust_impl_target") {
+				tables.type_aliases.insert(source, target);
+				return;
+			}
 			if let Some(name) = reference.alias.as_deref().filter(|name| !name.is_empty()) {
 				let value = MonikerBuilder::from_view(source.as_view())
 					.segment(kinds::PATH, name.as_bytes())
@@ -179,12 +196,33 @@ pub(in crate::linkage) fn refine_receiver_fields(
 				.or_else(|| {
 					resolve_typed_value_annotation(linkage, tables, reference_idx, reference)
 				})
+				.or_else(|| {
+					classify_generated_method_call(linkage, tables, reference_idx, reference)
+				})
 				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
 	for (idx, replacement) in replacements {
 		decisions[idx] = replacement;
 	}
+}
+
+fn classify_generated_method_call(
+	linkage: &LinkageRefiner<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	MethodCallReference::new(reference_idx, reference)?;
+	let target = linkage.material.reference_target(&reference.id)?;
+	let owner = canonical_type_owner(tables, &target.parent()?);
+	tables.derived_owners.contains(&owner).then(|| {
+		ReferenceLinkageDecision::unknown(
+			UnknownReason::IncompleteExtractorMetadata,
+			reference_idx,
+			reference.id,
+		)
+	})
 }
 
 fn resolve_receiver_field_call(
@@ -409,7 +447,12 @@ fn resolve_self_method_call(
 	}
 	let source = linkage.material.symbol_moniker(&reference.source_symbol)?;
 	let owner = enclosing_class(source)?;
-	resolve_method_through_supers(linkage, tables, &owner, method_call)
+	resolve_method_through_supers(linkage, tables, &owner, method_call).or_else(|| {
+		let target_owner = canonical_type_owner(tables, &owner);
+		(target_owner != owner)
+			.then(|| resolve_method_through_supers(linkage, tables, &target_owner, method_call))
+			.flatten()
+	})
 }
 
 fn enclosing_class(source: &Moniker) -> Option<Moniker> {

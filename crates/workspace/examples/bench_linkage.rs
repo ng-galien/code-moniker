@@ -32,12 +32,14 @@ fn main() -> anyhow::Result<()> {
 		.load_catalog(&request)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let catalog_elapsed = catalog_timer.elapsed();
+	trace_phase("catalog", catalog_elapsed);
 
 	let index_timer = Instant::now();
 	let index = index_port
 		.build_index(&catalog)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let index_elapsed = index_timer.elapsed();
+	trace_phase("index", index_elapsed);
 
 	let linkage_timer = Instant::now();
 	let timed_linkage = linkage_port
@@ -45,6 +47,7 @@ fn main() -> anyhow::Result<()> {
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let linkage = timed_linkage.snapshot;
 	let linkage_elapsed = linkage_timer.elapsed();
+	trace_phase("linkage", linkage_elapsed);
 
 	println!("phase\tms");
 	println!("catalog\t{:.3}", millis(catalog_elapsed));
@@ -118,6 +121,15 @@ fn main() -> anyhow::Result<()> {
 		)?;
 	}
 	Ok(())
+}
+
+fn trace_phase(name: &str, elapsed: Duration) {
+	if std::env::var_os("CODE_MONIKER_BENCH_TRACE").is_some() {
+		eprintln!(
+			"bench_linkage: {name} completed in {:.3} ms",
+			millis(elapsed)
+		);
+	}
 }
 
 #[derive(Debug)]

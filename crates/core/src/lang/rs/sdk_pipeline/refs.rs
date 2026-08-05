@@ -65,7 +65,7 @@ pub(super) fn type_refs_from_signature(
 	source: &Moniker,
 ) -> Vec<ResolvedRef> {
 	let mut refs = Vec::new();
-	let type_params = type_parameters(node, env.source);
+	let type_params = type_parameters_in_scope(node, env.source);
 	if let Some(params) = node.child_by_field_name("type_parameters") {
 		type_refs_from_node(&env, params, source, &type_params, &mut refs);
 	}
@@ -77,7 +77,14 @@ pub(super) fn type_refs_from_signature(
 		}
 	}
 	if let Some(return_type) = node.child_by_field_name("return_type") {
-		type_refs_from_node(&env, return_type, source, &type_params, &mut refs);
+		let mut return_refs = Vec::new();
+		type_refs_from_node(&env, return_type, source, &type_params, &mut return_refs);
+		if let Some(reference) =
+			typed_carrier_ref(&env, return_type, source, &type_params, kinds::RETURNS_TYPE)
+		{
+			promote_typed_carrier(&mut return_refs, reference);
+		}
+		refs.extend(return_refs);
 	}
 	refs
 }
@@ -103,6 +110,126 @@ pub(super) fn type_refs_from_type_node(
 	let mut refs = Vec::new();
 	type_refs_from_node(&env, node, source, type_params, &mut refs);
 	refs
+}
+
+pub(super) fn typed_field_ref(
+	env: RefEnv<'_>,
+	node: Node<'_>,
+	field: &Moniker,
+	type_params: &[Vec<u8>],
+) -> Option<ResolvedRef> {
+	typed_carrier_ref(&env, node, field, type_params, kinds::TYPED_AS)
+}
+
+pub(super) fn promote_typed_carrier(refs: &mut Vec<ResolvedRef>, reference: ResolvedRef) {
+	if let Some(existing) = refs.iter_mut().find(|existing| {
+		existing.target == reference.target && existing.position == reference.position
+	}) {
+		existing.kind = reference.kind;
+		existing.confidence = reference.confidence;
+		existing.hints = reference.hints;
+	} else {
+		refs.push(reference);
+	}
+}
+
+pub(super) fn impl_target_ref(
+	env: RefEnv<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	type_params: &[Vec<u8>],
+) -> Option<ResolvedRef> {
+	let (mut target, mut confidence, position) =
+		type_carrier_target(&env, node, source, type_params)?;
+	if target == *source
+		&& let Some(name) = named_carrier_type(node, env.source)
+		&& let Some((imported, imported_confidence)) = resolve_imported_type(&env, source, name)
+	{
+		target = imported;
+		confidence = imported_confidence;
+	}
+	let mut reference = typed_ref(source, target, position, confidence, kinds::TYPED_AS);
+	reference.hints.receiver_hint = b"rust_impl_target".to_vec();
+	Some(reference)
+}
+
+fn named_carrier_type<'a>(node: Node<'a>, source: &'a [u8]) -> Option<&'a [u8]> {
+	match node.kind() {
+		"type_identifier" => Some(node_slice(node, source)),
+		"reference_type" | "mutable_reference_type" | "pointer_type" | "generic_type" => {
+			named_carrier_type(carrier_type_node(node)?, source)
+		}
+		_ => None,
+	}
+}
+
+fn typed_carrier_ref(
+	env: &RefEnv<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	type_params: &[Vec<u8>],
+	kind: &'static [u8],
+) -> Option<ResolvedRef> {
+	let (target, confidence, position) = type_carrier_target(env, node, source, type_params)?;
+	Some(typed_ref(source, target, position, confidence, kind))
+}
+
+fn type_carrier_target(
+	env: &RefEnv<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	type_params: &[Vec<u8>],
+) -> Option<(Moniker, &'static [u8], Position)> {
+	match node.kind() {
+		"reference_type" | "mutable_reference_type" | "generic_type" => {
+			type_carrier_target(env, carrier_type_node(node)?, source, type_params)
+		}
+		"pointer_type" => Some((
+			rust_primitive_type(source, b"pointer"),
+			kinds::CONF_EXTERNAL,
+			node_position(node),
+		)),
+		"type_identifier" => {
+			let name = node_slice(node, env.source);
+			if name == b"Self" {
+				return enclosing_type(source)
+					.map(|target| (target, kinds::CONF_RESOLVED, node_position(node)));
+			}
+			if should_skip_type_ref(name, type_params) {
+				return None;
+			}
+			let (target, confidence) = resolve_type_name(env, source, name);
+			Some((target, confidence, node_position(node)))
+		}
+		"primitive_type" => Some((
+			rust_primitive_type(source, node_slice(node, env.source)),
+			kinds::CONF_EXTERNAL,
+			node_position(node),
+		)),
+		"array_type" => Some((
+			rust_primitive_type(
+				source,
+				if node.child_by_field_name("length").is_some() {
+					b"array"
+				} else {
+					b"slice"
+				},
+			),
+			kinds::CONF_EXTERNAL,
+			node_position(node),
+		)),
+		"scoped_type_identifier" => {
+			let pieces = path_pieces(node, env.source);
+			let name = pieces.last()?;
+			if should_skip_type_ref(name, type_params) {
+				return None;
+			}
+			let (target, confidence) = resolve_type_path(env, source, &pieces);
+			Some((target, confidence, node_position(node)))
+		}
+		_ => named_children(node)
+			.find_map(|child| type_carrier_target(env, child, source, type_params)),
+	}
 }
 
 pub(super) fn trait_refs_from_node(
@@ -191,24 +318,22 @@ fn derive_refs(
 			&& let Some(item) = pieces.get(index + 1)
 		{
 			let target = external_target(scope, &[name, item]);
-			refs.push(import_ref(
+			let mut reference = import_ref(
 				scope,
 				target,
-				kinds::ANNOTATES,
+				kinds::IMPLEMENTS,
 				kinds::CONF_EXTERNAL,
 				attribute,
-			));
+			);
+			reference.hints.receiver_hint = b"rust_derive".to_vec();
+			refs.push(reference);
 			index += 2;
 			continue;
 		}
 		let (target, confidence) = resolve_derive_target(env, scope, name);
-		refs.push(import_ref(
-			scope,
-			target,
-			kinds::ANNOTATES,
-			confidence,
-			attribute,
-		));
+		let mut reference = import_ref(scope, target, kinds::IMPLEMENTS, confidence, attribute);
+		reference.hints.receiver_hint = b"rust_derive".to_vec();
+		refs.push(reference);
 		index += 1;
 	}
 	refs
@@ -310,6 +435,25 @@ pub(super) fn type_parameters(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 		.filter_map(|child| child.child_by_field_name("name"))
 		.map(|name| node_slice(name, source).to_vec())
 		.collect()
+}
+
+fn type_parameters_in_scope(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+	let mut parameters = type_parameters(node, source);
+	let mut ancestor = node.parent();
+	while let Some(item) = ancestor {
+		if matches!(
+			item.kind(),
+			"impl_item" | "trait_item" | "struct_item" | "enum_item"
+		) {
+			for parameter in type_parameters(item, source) {
+				if !parameters.contains(&parameter) {
+					parameters.push(parameter);
+				}
+			}
+		}
+		ancestor = item.parent();
+	}
+	parameters
 }
 
 fn should_skip_type_ref(name: &[u8], type_params: &[Vec<u8>]) -> bool {
@@ -435,7 +579,7 @@ fn call_expression_ref(
 	match func.kind() {
 		"field_expression" => method_call_ref(env, type_env, call, func, function, out),
 		"identifier" => free_fn_call_ref(env, call, func, function, out),
-		"scoped_identifier" => path_call_ref(env, call, func, function, out),
+		"scoped_identifier" => path_call_ref(env, type_env, call, func, function, out),
 		_ => {}
 	}
 	if let Some(args) = call.child_by_field_name("arguments") {
@@ -524,6 +668,10 @@ fn method_call_ref(
 		enclosing_type(function)
 			.map(|target| resolve_callable(env, &target, kinds::METHOD, name))
 			.unwrap_or_else(|| unresolved_method(function, name))
+	} else if let Some(type_param) = receiver_type_param(type_env, receiver, env.source)
+		&& let Some(target) = resolve_type_param_method_target(env, type_env, type_param, name)
+	{
+		target
 	} else if let Some(receiver_type) = receiver_type_target(env, type_env, receiver, function) {
 		resolve_receiver_method_target(env, &receiver_type, name)
 	} else if is_common_std_method(name) {
@@ -547,6 +695,20 @@ fn method_call_ref(
 		}),
 	));
 	collect_expr_refs(env, type_env, receiver, function, out);
+}
+
+fn receiver_type_param<'a>(
+	type_env: &'a TypeEnv,
+	receiver: Node<'_>,
+	source: &[u8],
+) -> Option<&'a [u8]> {
+	(receiver.kind() == "identifier")
+		.then(|| type_env.resolve_local(node_slice(receiver, source)))
+		.flatten()
+		.and_then(|ty| match ty.carrier() {
+			TypeExpr::TypeParam(name) => Some(name.as_slice()),
+			_ => None,
+		})
 }
 
 fn external_method_call_target(
@@ -593,10 +755,12 @@ fn free_fn_call_ref(
 			resolve_callable_parent(env, function, name)
 				.map(|parent| resolve_callable(env, &parent, kinds::FN, name))
 				.unwrap_or_else(|| {
-					(
-						extend_segment(&enclosing_module(function), kinds::FN, name),
-						kinds::CONF_UNRESOLVED,
-					)
+					rust_prelude_function(function, name).unwrap_or_else(|| {
+						(
+							extend_segment(&enclosing_module(function), kinds::FN, name),
+							kinds::CONF_UNRESOLVED,
+						)
+					})
 				})
 		};
 	out.push(call_ref(
@@ -615,6 +779,7 @@ fn free_fn_call_ref(
 
 fn path_call_ref(
 	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
 	call: Node<'_>,
 	func: Node<'_>,
 	function: &Moniker,
@@ -636,7 +801,7 @@ fn path_call_ref(
 		));
 		return;
 	}
-	let (target, confidence) = resolve_path_call_target(env, function, &pieces);
+	let (target, confidence) = resolve_path_call_target(env, type_env, function, &pieces);
 	out.push(call_ref(
 		function,
 		target,
@@ -720,9 +885,7 @@ fn local_type_bindings(
 	function: &Moniker,
 ) -> TypeEnv {
 	let mut type_env = TypeEnv::default();
-	for param in type_parameters(function_node, env.source) {
-		type_env.bind_type_param(param);
-	}
+	bind_type_parameters_in_scope(env, function_node, function, &mut type_env);
 	if let Some(params) = function_node.child_by_field_name("parameters") {
 		for param in named_children(params).filter(|child| child.kind() == "parameter") {
 			let Some(pattern) = param.child_by_field_name("pattern") else {
@@ -741,6 +904,79 @@ fn local_type_bindings(
 	}
 	collect_local_type_bindings(env, body, function, &mut type_env);
 	type_env
+}
+
+fn bind_type_parameters_in_scope(
+	env: &RefEnv<'_>,
+	node: Node<'_>,
+	function: &Moniker,
+	type_env: &mut TypeEnv,
+) {
+	bind_item_type_parameters(env, node, function, type_env);
+	let mut ancestor = node.parent();
+	while let Some(item) = ancestor {
+		if matches!(
+			item.kind(),
+			"impl_item" | "trait_item" | "struct_item" | "enum_item"
+		) {
+			bind_item_type_parameters(env, item, function, type_env);
+		}
+		ancestor = item.parent();
+	}
+}
+
+fn bind_item_type_parameters(
+	env: &RefEnv<'_>,
+	item: Node<'_>,
+	function: &Moniker,
+	type_env: &mut TypeEnv,
+) {
+	if let Some(parameters) = item.child_by_field_name("type_parameters") {
+		for parameter in named_children(parameters).filter(|node| node.kind() == "type_parameter") {
+			let Some(name_node) = parameter.child_by_field_name("name") else {
+				continue;
+			};
+			let name = node_slice(name_node, env.source);
+			type_env.bind_type_param(name);
+			if let Some(bounds) = parameter.child_by_field_name("bounds") {
+				bind_trait_bounds(env, bounds, function, name, type_env);
+			}
+		}
+	}
+	for where_clause in named_children(item).filter(|node| node.kind() == "where_clause") {
+		for predicate in
+			named_children(where_clause).filter(|node| node.kind() == "where_predicate")
+		{
+			let Some(left) = predicate.child_by_field_name("left") else {
+				continue;
+			};
+			if left.kind() != "type_identifier" {
+				continue;
+			}
+			let name = node_slice(left, env.source);
+			if !type_env.is_type_param(name) {
+				continue;
+			}
+			if let Some(bounds) = predicate.child_by_field_name("bounds") {
+				bind_trait_bounds(env, bounds, function, name, type_env);
+			}
+		}
+	}
+}
+
+fn bind_trait_bounds(
+	env: &RefEnv<'_>,
+	bounds: Node<'_>,
+	function: &Moniker,
+	type_param: &[u8],
+	type_env: &mut TypeEnv,
+) {
+	for bound in named_children(bounds) {
+		let Some((target, _, _)) = type_carrier_target(env, bound, function, &[]) else {
+			continue;
+		};
+		type_env.bind_type_param_bound(type_param, target);
+	}
 }
 
 fn collect_local_type_bindings(
@@ -816,9 +1052,7 @@ fn type_node_expr(
 		"reference_type" | "mutable_reference_type" => carrier_type_node(node)
 			.and_then(|inner| type_node_expr(env, inner, source, type_env))
 			.map(|ty| TypeExpr::Ref(Box::new(ty))),
-		"pointer_type" => carrier_type_node(node)
-			.and_then(|inner| type_node_expr(env, inner, source, type_env))
-			.map(|ty| TypeExpr::Pointer(Box::new(ty))),
+		"pointer_type" => Some(TypeExpr::resolved(rust_primitive_type(source, b"pointer"))),
 		"array_type" => node
 			.child_by_field_name("element")
 			.and_then(|inner| type_node_expr(env, inner, source, type_env))
@@ -839,6 +1073,10 @@ fn type_node_expr(
 				Some(TypeExpr::resolved(resolve_type_name(env, source, name).0))
 			}
 		}
+		"primitive_type" => Some(TypeExpr::resolved(rust_primitive_type(
+			source,
+			node_slice(node, env.source),
+		))),
 		"scoped_type_identifier" => {
 			let pieces = path_pieces(node, env.source);
 			Some(TypeExpr::resolved(
@@ -1246,6 +1484,9 @@ fn resolve_macro_target(
 	if let Some(import) = direct_imported_symbol(env, scope, name) {
 		return (import.target.clone(), import.confidence);
 	}
+	if let Some(target) = lexical_macro_target(env, scope, name) {
+		return (target, kinds::CONF_RESOLVED);
+	}
 	if let Some(module) = macro_wildcard_module(env, scope) {
 		return (
 			extend_segment(&module, kinds::MACRO, name),
@@ -1256,6 +1497,21 @@ fn resolve_macro_target(
 		extend_segment(&enclosing_module(scope), kinds::MACRO, name),
 		kinds::CONF_UNRESOLVED,
 	)
+}
+
+fn lexical_macro_target(env: &RefEnv<'_>, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+	let mut current = Some(scope.clone());
+	while let Some(parent) = current {
+		if let Some(definition) = env
+			.defs
+			.iter()
+			.find(|def| def.parent == parent && def.kind == kinds::MACRO && def.name == name)
+		{
+			return Some(definition.moniker.clone());
+		}
+		current = parent.parent();
+	}
+	None
 }
 
 fn constructor_call_target(
@@ -1284,6 +1540,7 @@ fn constructor_call_target(
 
 fn resolve_path_call_target(
 	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
 	function: &Moniker,
 	pieces: &[Vec<u8>],
 ) -> (Moniker, &'static [u8]) {
@@ -1296,6 +1553,11 @@ fn resolve_path_call_target(
 	let Some(head) = pieces.first() else {
 		return (function.clone(), kinds::CONF_UNRESOLVED);
 	};
+	if type_pieces.len() == 1
+		&& let Some(target) = resolve_type_param_method_target(env, type_env, head, call_name)
+	{
+		return target;
+	}
 	if type_pieces.len() == 1 {
 		if let Some(module) = crate_relative_module(function, head) {
 			return (
@@ -1340,6 +1602,36 @@ fn resolve_path_call_target(
 		extend_segment(&enclosing_module(function), kinds::FN, call_name),
 		kinds::CONF_UNRESOLVED,
 	)
+}
+
+fn resolve_type_param_method_target(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
+	type_param: &[u8],
+	method: &[u8],
+) -> Option<(Moniker, &'static [u8])> {
+	let bounds = type_env.type_param_bounds(type_param)?;
+	let matching = bounds
+		.iter()
+		.filter(|bound| {
+			env.defs.iter().any(|definition| {
+				definition.parent == **bound
+					&& definition.kind == kinds::METHOD
+					&& definition.name == method
+			})
+		})
+		.collect::<Vec<_>>();
+	let owner = match matching.as_slice() {
+		[owner] => *owner,
+		[] if bounds.len() == 1 => &bounds[0],
+		_ => return None,
+	};
+	let confidence = if external_root(owner).is_some() {
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_RESOLVED
+	};
+	Some((extend_segment(owner, kinds::METHOD, method), confidence))
 }
 
 fn local_module_call_base(env: &RefEnv<'_>, function: &Moniker, head: &[u8]) -> Option<Moniker> {
@@ -1510,11 +1802,18 @@ fn expand_import_leaf(
 	if leaf.path.is_empty() {
 		return;
 	}
-	let refs = if import_leaf_is_external(env, scope, &leaf) {
+	let mut refs = if import_leaf_is_external(env, scope, &leaf) {
 		external_import_refs(scope, node, &leaf)
 	} else {
 		local_import_refs(env, scope, node, &leaf)
 	};
+	if leaf.kind == ImportLeafKind::Wildcard {
+		for reference in &mut refs {
+			if reference.kind == kinds::IMPORTS_MODULE {
+				reference.hints.receiver_hint = b"rust_wildcard".to_vec();
+			}
+		}
+	}
 	if let Some(symbol) = import_symbol_binding(scope, &leaf, &refs) {
 		expansion.symbols.push(symbol);
 	}
@@ -1798,6 +2097,16 @@ fn receiver_hint<'a>(receiver: Node<'a>, source: &'a [u8]) -> &'a [u8] {
 	match receiver.kind() {
 		"self" => HINT_SELF,
 		"identifier" => node_slice(receiver, source),
+		"field_expression"
+			if receiver
+				.child_by_field_name("value")
+				.is_some_and(|value| value.kind() == "self") =>
+		{
+			receiver
+				.child_by_field_name("field")
+				.map(|field| node_slice(field, source))
+				.unwrap_or(HINT_MEMBER)
+		}
 		"field_expression" => HINT_MEMBER,
 		"call_expression" => HINT_CALL,
 		_ => b"",
@@ -1846,7 +2155,12 @@ fn rust_prelude_type(scope: &Moniker, name: &[u8]) -> Option<(Moniker, &'static 
 	let (module, kind) = match name {
 		b"Box" => (b"boxed".as_slice(), kinds::STRUCT),
 		b"Fn" | b"FnMut" | b"FnOnce" => (b"ops".as_slice(), kinds::TRAIT),
-		b"Iterator" | b"IntoIterator" => (b"iter".as_slice(), kinds::TRAIT),
+		b"Iterator"
+		| b"IntoIterator"
+		| b"DoubleEndedIterator"
+		| b"ExactSizeIterator"
+		| b"Extend"
+		| b"FromIterator" => (b"iter".as_slice(), kinds::TRAIT),
 		b"AsMut" | b"AsRef" | b"From" | b"Into" | b"TryFrom" | b"TryInto" => {
 			(b"convert".as_slice(), kinds::TRAIT)
 		}
@@ -1856,10 +2170,12 @@ fn rust_prelude_type(scope: &Moniker, name: &[u8]) -> Option<(Moniker, &'static 
 		b"Display" => (b"fmt".as_slice(), kinds::TRAIT),
 		b"Eq" | b"Ord" | b"PartialEq" | b"PartialOrd" => (b"cmp".as_slice(), kinds::TRAIT),
 		b"Hash" => (b"hash".as_slice(), kinds::TRAIT),
-		b"Send" | b"Sync" => (b"marker".as_slice(), kinds::TRAIT),
+		b"Send" | b"Sized" | b"Sync" => (b"marker".as_slice(), kinds::TRAIT),
+		b"Drop" => (b"ops".as_slice(), kinds::TRAIT),
 		b"Option" => (b"option".as_slice(), kinds::ENUM),
 		b"Result" => (b"result".as_slice(), kinds::ENUM),
 		b"String" => (b"string".as_slice(), kinds::STRUCT),
+		b"ToString" => (b"string".as_slice(), kinds::TRAIT),
 		b"Vec" => (b"vec".as_slice(), kinds::STRUCT),
 		_ => return None,
 	};
@@ -1867,6 +2183,16 @@ fn rust_prelude_type(scope: &Moniker, name: &[u8]) -> Option<(Moniker, &'static 
 	builder.segment(kinds::PATH, module);
 	builder.segment(kind, name);
 	Some((builder.build(), kinds::CONF_EXTERNAL))
+}
+
+fn rust_prelude_function(scope: &Moniker, name: &[u8]) -> Option<(Moniker, &'static [u8])> {
+	match name {
+		b"drop" => Some((
+			external_std_item(scope, &[(kinds::PATH, b"mem"), (kinds::FN, b"drop")]),
+			kinds::CONF_EXTERNAL,
+		)),
+		_ => None,
+	}
 }
 
 fn enclosing_module(scope: &Moniker) -> Moniker {
@@ -1972,6 +2298,14 @@ fn external_std_trait(scope: &Moniker, module: &[u8], name: &[u8]) -> Moniker {
 	let mut builder = external_root_builder(scope, b"std");
 	builder.segment(kinds::PATH, module);
 	builder.segment(kinds::TRAIT, name);
+	builder.build()
+}
+
+fn rust_primitive_type(scope: &Moniker, name: &[u8]) -> Moniker {
+	let mut builder = crate::lang::sdk::sdk_target_builder(scope.as_view().project(), b"rs");
+	builder.segment(kinds::PATH, b"std");
+	builder.segment(kinds::PATH, b"primitive");
+	builder.segment(kinds::PATH, name);
 	builder.build()
 }
 

@@ -85,6 +85,20 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 		parse_dep_table(table, kind_label, &mut out);
 	}
 
+	if let Some(targets) = value.get("target").and_then(|value| value.as_table()) {
+		for target in targets.values().filter_map(|value| value.as_table()) {
+			for (kind_table, kind_label) in [
+				("dependencies", "normal"),
+				("dev-dependencies", "dev"),
+				("build-dependencies", "build"),
+			] {
+				if let Some(table) = target.get(kind_table).and_then(|value| value.as_table()) {
+					parse_dep_table(table, kind_label, &mut out);
+				}
+			}
+		}
+	}
+
 	Ok(out)
 }
 
@@ -357,6 +371,38 @@ mod tests {
 				.any(|d| d.name == "criterion" && d.dep_kind == "dev")
 		);
 		assert!(deps.iter().any(|d| d.name == "cc" && d.dep_kind == "build"));
+	}
+
+	#[test]
+	fn parse_target_cfg_dependencies() {
+		let deps = parse(
+			r#"
+            [package]
+            name = "demo"
+            version = "1.0.0"
+
+            [target.'cfg(feature = "fast")'.dependencies]
+            fast-backend = { path = "fast-backend" }
+
+            [target.'cfg(unix)'.dev-dependencies]
+            test-support = "1"
+        "#,
+		)
+		.unwrap();
+		assert!(deps.contains(&Dep {
+			name: "fast-backend".into(),
+			version: None,
+			dep_kind: "path".into(),
+			import_root: "fast_backend".into(),
+			path: Some("fast-backend".into()),
+		}));
+		assert!(deps.contains(&Dep {
+			name: "test-support".into(),
+			version: Some("1".into()),
+			dep_kind: "dev".into(),
+			import_root: "test_support".into(),
+			path: None,
+		}));
 	}
 
 	#[test]

@@ -103,7 +103,7 @@ fn rust_type_references_ignore_value_namespace_homonyms() {
 
 	assert_linked_once_to(
 		&snapshot,
-		"uses_type",
+		"typed_as",
 		"module:config/path:Config",
 		"module:config/struct:Config",
 	);
@@ -849,6 +849,275 @@ fn rust_facade_reexport_does_not_rival_the_canonical_definition() {
 		"execute",
 		0,
 		"module:command/fn:execute()",
+	);
+}
+
+#[test]
+fn rust_same_crate_public_surface_forwards_reexported_type_members() {
+	let snapshot = load_workspace("projects/rust/crate-surface");
+
+	assert_linked_once_to(
+		&snapshot,
+		"imports_module",
+		"external_pkg:crate_surface",
+		"module:lib",
+	);
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:crate_surface/path:Bytes",
+		"module:bytes/struct:Bytes",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:public_api/fn:call_named_reexport()",
+		"calls",
+		"from_static",
+		1,
+		"module:bytes/struct:Bytes/method:from_static",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:public_api/fn:call_wildcard_reexport()",
+		"calls",
+		"from_static",
+		1,
+		"module:bytes/struct:Bytes/method:from_static",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:public_api/fn:call_same_name_reexport()",
+		"calls",
+		"same_name",
+		0,
+		"module:same_name/fn:same_name()",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reads",
+		"module:public_api/fn:read_nested_public_module()",
+		"path:Bash",
+		"module:aot/module:shells/struct:Bash",
+	);
+}
+
+#[test]
+fn rust_conditional_public_surface_preserves_all_cfg_targets() {
+	let snapshot = load_workspace("projects/rust/conditional-surface");
+
+	assert_call_is_dynamic_with_targets(
+		&snapshot,
+		"module:public_api/fn:call_selected_backend()",
+		"run",
+		0,
+		&[
+			"dir:fast-backend/dir:src/module:lib/struct:Backend/method:run()",
+			"module:safe/struct:Backend/method:run()",
+		],
+	);
+	assert_dynamic_reason(
+		&snapshot,
+		"module:public_api/fn:call_selected_backend()",
+		"calls",
+		Some("run"),
+		DynamicReason::ConditionalCompilation,
+	);
+}
+
+#[test]
+fn rust_typed_struct_field_resolves_its_method_calls() {
+	let snapshot = load_workspace("projects/rust/typed-receivers");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/struct:Command/method:enabled()",
+		"method_call",
+		"is_enabled",
+		0,
+		"module:lib/struct:Settings/method:is_enabled()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_chain(start:Start)",
+		"method_call",
+		"finish",
+		0,
+		"module:lib/struct:Intermediate/method:finish()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_self_returning_builder()",
+		"method_call",
+		"option",
+		0,
+		"module:lib/struct:Builder/method:option()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_self_returning_builder()",
+		"method_call",
+		"finish",
+		0,
+		"module:lib/struct:Builder/method:finish()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_derived_trait_method()",
+		"calls",
+		"parse",
+		0,
+		"module:lib/module:contract/trait:Parser/method:parse()",
+	);
+	assert_no_reference_containing(&snapshot, "returns_type", "struct:T");
+}
+
+#[test]
+fn rust_typed_flow_uses_fields_returns_and_primitive_receivers() {
+	let snapshot = load_workspace("projects/rust/typed-flow");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/struct:Command/method:enabled()",
+		"method_call",
+		"is_enabled",
+		0,
+		"module:lib/struct:Settings/method:is_enabled()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_chain(start:Start)",
+		"method_call",
+		"finish",
+		0,
+		"module:lib/struct:Intermediate/method:finish()",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"module:lib/fn:clone_primitive(value:&str)",
+		"to_owned",
+		0,
+		"sdk:rs/path:std/path:primitive/path:str/method:to_owned",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"module:lib/fn:vec_len(values:&Vec<u8>)",
+		"len",
+		0,
+		"sdk:rs/path:std/path:vec/struct:Vec/method:len",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"module:lib/fn:load_pointer(pointer:&AtomicPtr<u8>)",
+		"load",
+		1,
+		"sdk:rs/path:std/path:sync/path:atomic/path:AtomicPtr/method:load",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"module:lib/fn:cast_pointer(pointer:*constu8)",
+		"cast",
+		0,
+		"sdk:rs/path:std/path:primitive/path:pointer/method:cast",
+	);
+	assert_external_reference(&snapshot, "calls", "sdk:rs/path:std/path:mem/fn:drop");
+}
+
+#[test]
+fn rust_trait_contracts_resolve_generic_bounds_and_derive_methods() {
+	let snapshot = load_workspace("projects/rust/trait-contracts");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_generic_contract()",
+		"calls",
+		"value_variants",
+		0,
+		"module:lib/trait:ValueEnum/method:value_variants()",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:lib/fn:call_derived_contract()",
+		"calls",
+		"parse",
+		0,
+		"module:lib/module:contract/trait:Parser/method:parse()",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"struct:&[u8]/method:remaining()",
+		"len",
+		0,
+		"sdk:rs/path:std/path:primitive/path:slice/method:len",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"struct:Vec/method:remaining()",
+		"len",
+		0,
+		"sdk:rs/path:std/path:vec/struct:Vec/method:len",
+	);
+	assert_external_call_target(
+		&snapshot,
+		"module:lib/fn:stringify(value:T)",
+		"to_string",
+		0,
+		"sdk:rs/path:std/path:string/trait:ToString/method:to_string",
+	);
+}
+
+#[test]
+fn rust_generated_topology_is_distinct_from_a_true_missing_candidate() {
+	let snapshot = load_workspace("projects/rust/generated-topology");
+
+	assert_call_unresolved_reason(
+		&snapshot,
+		"module:lib/fn:call_generated_api()",
+		"calls",
+		"generated",
+		0,
+		UnresolvedReason::IncompleteExtractorMetadata,
+	);
+	assert_call_unresolved_reason(
+		&snapshot,
+		"module:lib/fn:call_missing_api()",
+		"calls",
+		"missing",
+		0,
+		UnresolvedReason::NoCandidate,
+	);
+}
+
+#[test]
+fn rust_macro_scope_resolves_lexical_and_macro_use_definitions() {
+	let snapshot = load_workspace("projects/rust/macro-scope");
+
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"calls",
+		"module:lib/fn:call_root_macro()",
+		"macro:root_macro",
+		"module:lib/macro:root_macro",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"calls",
+		"module:lib/fn:call_module_macro()",
+		"macro:module_macro",
+		"module:macros/macro:module_macro",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"calls",
+		"module:consumer/fn:call_crate_macro()",
+		"macro:module_macro",
+		"module:macros/macro:module_macro",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"calls",
+		"module:lib/module:nested/fn:call_parent_macro()",
+		"macro:root_macro",
+		"module:lib/macro:root_macro",
 	);
 }
 
@@ -2641,7 +2910,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	);
 	assert_linked_to(
 		snapshot,
-		"uses_type",
+		"returns_type",
 		"dir:order-service/dir:src/module:feature/path:Region",
 		"dir:common-model/dir:src/module:lib/enum:Region",
 	);
@@ -2653,7 +2922,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	);
 	assert_linked_to(
 		snapshot,
-		"uses_type",
+		"returns_type",
 		"dir:order-service/dir:src/module:feature/path:Lang",
 		"dir:common-model/dir:src/module:lib/enum:Lang",
 	);
@@ -2710,7 +2979,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	);
 	assert_linked_to(
 		snapshot,
-		"uses_type",
+		"typed_as",
 		"dir:order-service/dir:src/module:lib/fn:local_report_shape()/struct:Summary",
 		"dir:order-service/dir:src/module:lib/fn:local_report_shape()/struct:Summary",
 	);
@@ -2945,6 +3214,57 @@ fn assert_call_resolves_only_to(
 		target_identities[0],
 		symbol_identity
 	);
+}
+
+fn assert_call_unresolved_reason(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	kind: &str,
+	call_name: &str,
+	call_arity: usize,
+	expected_reason: UnresolvedReason,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert_eq!(
+		references.len(),
+		1,
+		"expected exactly one `{call_name}`/{call_arity} {kind} reference from `{}`",
+		source.identity
+	);
+	let reference = references[0];
+	assert!(
+		linked_symbol_identities(snapshot, reference).is_empty(),
+		"reference `{}` must not bind to a homonym",
+		reference.target_identity
+	);
+	let unresolved = snapshot
+		.linkage
+		.unresolved
+		.iter()
+		.find(|item| item.reference == reference.id)
+		.unwrap_or_else(|| {
+			panic!(
+				"reference `{}` is not unresolved",
+				reference.target_identity
+			)
+		});
+	assert_eq!(unresolved.reason, expected_reason);
 }
 
 fn assert_call_is_dynamic_with_targets(

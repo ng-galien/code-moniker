@@ -546,6 +546,7 @@ impl CandidateReference {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DynamicReason {
+	ConditionalCompilation,
 	DynamicAttribute,
 	DescriptorOrFrameworkInjected,
 	DuckTypedCandidateSet,
@@ -560,6 +561,7 @@ pub enum DynamicReason {
 impl DynamicReason {
 	pub fn as_str(self) -> &'static str {
 		match self {
+			Self::ConditionalCompilation => "conditional_compilation",
 			Self::DynamicAttribute => "dynamic_attribute",
 			Self::DescriptorOrFrameworkInjected => "descriptor_or_framework_injected",
 			Self::DuckTypedCandidateSet => "duck_typed_candidate_set",
