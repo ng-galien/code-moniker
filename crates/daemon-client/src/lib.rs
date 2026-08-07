@@ -307,10 +307,29 @@ fn validate_workspace(
 fn connect_registered_daemon(
 	config: &DaemonWorkspaceConfig,
 ) -> anyhow::Result<Option<DaemonClient>> {
+	connect_registered_daemon_with_limits(
+		config,
+		DAEMON_SERVING_ATTEMPTS,
+		DAEMON_SERVING_CONNECT_ATTEMPTS,
+		DAEMON_SERVING_POLL,
+	)
+}
+
+fn connect_registered_daemon_with_limits(
+	config: &DaemonWorkspaceConfig,
+	serving_attempts: usize,
+	serving_connect_attempts: usize,
+	poll: Duration,
+) -> anyhow::Result<Option<DaemonClient>> {
 	let Some(registered) = registry_entry_for(config)? else {
 		return Ok(None);
 	};
-	let client = match wait_for_daemon(config.clone()) {
+	let client = match wait_for_daemon_with_limits(
+		config.clone(),
+		serving_attempts,
+		serving_connect_attempts,
+		poll,
+	) {
 		Ok(client) => client,
 		Err(error) => {
 			let current = read_registry_entry(config)?;
@@ -760,7 +779,7 @@ mod tests {
 		};
 		write_registry_entry(&config, &entry).expect("registry fixture");
 
-		let error = match connect_registered_daemon(&config) {
+		let error = match connect_registered_daemon_with_limits(&config, 1, 1, Duration::ZERO) {
 			Err(error) => error,
 			Ok(_) => panic!("a live but unreachable daemon must not be replaced"),
 		};
