@@ -545,7 +545,10 @@ function rootSetsMatch(
 function canonicalPath(candidate: string): string {
 	let canonical: string;
 	try {
-		canonical = realpathSync(candidate);
+		canonical =
+			process.platform === "win32"
+				? realpathSync.native(candidate)
+				: realpathSync(candidate);
 	} catch {
 		canonical = resolve(candidate);
 	}

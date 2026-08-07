@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -66,6 +67,25 @@ test("Windows verbatim workspace paths match their regular form", {
 			pid: 202,
 			token: "verbatim",
 			workspaceRoots: [`\\\\?\\${fixture.root}`],
+		});
+		assert.equal(runtime.entryMatchesRoots(entry, [fixture.root]), true);
+	} finally {
+		fixture.cleanup();
+	}
+});
+
+test("Windows short paths match their native canonical form", {
+	skip: process.platform !== "win32",
+}, () => {
+	const fixture = registryFixture();
+	try {
+		const runtime = new NodeDaemonRuntime({
+			registryDirectory: fixture.registry,
+		});
+		const entry = daemonEntry({
+			pid: 202,
+			token: "native-canonical",
+			workspaceRoots: [realpathSync.native(fixture.root)],
 		});
 		assert.equal(runtime.entryMatchesRoots(entry, [fixture.root]), true);
 	} finally {
