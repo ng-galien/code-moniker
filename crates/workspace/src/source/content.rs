@@ -299,10 +299,11 @@ impl SourceCatalogMaterial {
 				.flatten()
 			{
 				Some(srcset) => {
+					let rel_path = crate::path_util::portable_path(rel_path);
 					let moniker = MonikerBuilder::new()
 						.project(b".")
 						.segment(b"srcset", srcset.as_bytes())
-						.segment(b"file", rel_path.display().to_string().as_bytes())
+						.segment(b"file", rel_path.as_bytes())
 						.build();
 					self.identity.moniker_uri(&moniker)
 				}

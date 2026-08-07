@@ -76,6 +76,7 @@ const extensionConfig = {
 			"packages/client/src/index.ts",
 		),
 	},
+	define: { __CODE_MONIKER_MODULE_URL__: "__filename" },
 	external: ["vscode", "bufferutil", "utf-8-validate"],
 	loader: { ".md": "text" },
 	plugins: [samplePackPlugin()],

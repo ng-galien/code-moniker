@@ -111,7 +111,7 @@ impl NormalizedSource {
 	}
 
 	fn display_path(&self) -> String {
-		self.rel_path.display().to_string()
+		crate::path_util::portable_path(&self.rel_path)
 	}
 }
 

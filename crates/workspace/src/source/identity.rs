@@ -3,6 +3,7 @@ use std::path::Path;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::core::uri::{UriConfig, to_uri};
 
+use crate::path_util::portable_path;
 use crate::snapshot::{ReferenceId, SourceId, SymbolId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,9 +32,10 @@ impl LocalIdentityResolver {
 	}
 
 	pub fn source_uri(&self, rel_path: &Path) -> String {
+		let rel_path = portable_path(rel_path);
 		let moniker = MonikerBuilder::new()
 			.project(b".")
-			.segment(b"file", rel_path.display().to_string().as_bytes())
+			.segment(b"file", rel_path.as_bytes())
 			.build();
 		self.moniker_uri(&moniker)
 	}

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
+use crate::path_util::portable_path_buf;
 use crate::snapshot::WorkspaceCancellation;
 use crate::source_group::DeclaredSourceGroups;
 use crate::tsconfig::{self, TsResolution};
@@ -301,18 +302,18 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		return None;
 	}
 	let rel = abs.strip_prefix(&root_path).ok()?.to_path_buf();
-	let rel_path = if sources.multi {
+	let rel_path = portable_path_buf(&if sources.multi {
 		PathBuf::from(&root.label).join(&rel)
 	} else {
 		rel.clone()
-	};
-	let anchor = if sources.multi {
+	});
+	let anchor = portable_path_buf(&if sources.multi {
 		rel_path.clone()
 	} else if root_path.is_dir() {
 		anchor_with_source_context(&root_path, &rel)
 	} else {
 		abs.clone()
-	};
+	});
 	let (source_group, srcset) = configured_source_membership(root, &abs);
 	let ctx = extraction_context_with_srcset(&root.ctx, srcset.as_deref());
 	let root_moniker = extract::source_root(lang, &anchor, &ctx);
@@ -355,18 +356,18 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 	let root = normalize_absolute(&scope.root.path).unwrap_or_else(|_| scope.root.path.clone());
 	let path = normalize_absolute(&walked.path).unwrap_or_else(|_| walked.path.clone());
 	let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
-	let rel_path = if multi {
+	let rel_path = portable_path_buf(&if multi {
 		PathBuf::from(&scope.root.label).join(&rel)
 	} else {
 		rel.clone()
-	};
-	let anchor = if multi {
+	});
+	let anchor = portable_path_buf(&if multi {
 		rel_path.clone()
 	} else if scope.root_is_dir {
 		anchor_with_source_context(&root, &rel)
 	} else {
 		walked.path.clone()
-	};
+	});
 	let (source_group, srcset) = configured_source_membership(&scope.root, &path);
 	let ctx = extraction_context_with_srcset(&scope.root.ctx, srcset.as_deref());
 	let root_moniker = extract::source_root(walked.lang, &anchor, &ctx);

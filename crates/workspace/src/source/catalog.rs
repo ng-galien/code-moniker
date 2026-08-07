@@ -336,7 +336,7 @@ fn catalog_units(material: &SourceCatalogMaterial) -> Vec<SourceUnit> {
 		.map(|(file_idx, file)| {
 			SourceUnit::with_language(
 				material.identity.source_id(file_idx, &file.rel_path),
-				file.rel_path.display().to_string(),
+				crate::path_util::portable_path(&file.rel_path),
 				file.lang.tag(),
 			)
 		})

@@ -273,7 +273,7 @@ fn build_local_code_index_from_extracted(
 		.map(|(file_idx, file)| {
 			SourceUnit::with_language(
 				identity.source_id(file_idx, &file.rel_path),
-				file.rel_path.display().to_string(),
+				crate::path_util::portable_path(&file.rel_path),
 				file.lang.tag(),
 			)
 		})
@@ -1074,8 +1074,8 @@ fn source_records(material: &CodeIndexMaterial) -> Vec<SourceFileRecord> {
 			uri: file.source_uri.clone(),
 			source_root: file.source_root,
 			path: file.path.display().to_string(),
-			rel_path: file.rel_path.display().to_string(),
-			anchor: file.anchor.display().to_string(),
+			rel_path: crate::path_util::portable_path(&file.rel_path),
+			anchor: crate::path_util::portable_path(&file.anchor),
 			language: file.lang.tag().to_string(),
 			text: if material.source_catalog.is_memory_slot(&file.path) {
 				file.source.to_owned()
