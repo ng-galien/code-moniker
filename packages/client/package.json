@@ -1,6 +1,6 @@
 {
 	"name": "@code-moniker/client",
-	"version": "0.6.0-rc.1",
+	"version": "0.6.0",
 	"description": "Typed JavaScript and TypeScript client for the Code Moniker workspace daemon.",
 	"license": "MIT",
 	"repository": {
@@ -57,9 +57,9 @@
 		"ws": "^8.18.0"
 	},
 	"optionalDependencies": {
-		"@code-moniker/cli-darwin-arm64": "0.6.0-rc.1",
-		"@code-moniker/cli-darwin-x64": "0.6.0-rc.1",
-		"@code-moniker/cli-linux-x64": "0.6.0-rc.1",
-		"@code-moniker/cli-win32-x64": "0.6.0-rc.1"
+		"@code-moniker/cli-darwin-arm64": "0.6.0",
+		"@code-moniker/cli-darwin-x64": "0.6.0",
+		"@code-moniker/cli-linux-x64": "0.6.0",
+		"@code-moniker/cli-win32-x64": "0.6.0"
 	}
 }

@@ -11,81 +11,12 @@ in `0.y.z`.
 
 ## [Unreleased]
 
-### Removed
+## [0.6.0] - 2026-08-07
 
-- **Terminal UI.** The `code-moniker ui` command, `tui` Cargo feature,
-  Ratatui/Crossterm dependencies, acceptance suite, and dedicated documentation
-  have been removed. CLI, daemon, MCP, agent, and VS Code surfaces remain.
-
-### Added
-
-- **Architecture review workflow for agents.** The bundled Code Moniker skill
-  now separates indexed facts, architectural interpretation and optional
-  heuristics, loads project-defined views before drawing conclusions, and
-  documents graph coverage, scoped identity maps and exact-versus-descendant
-  usage analysis.
-- **Owner-level usage roll-up and trustworthy graph coverage.** `symbol.usages`
-  accepts `include_descendants:true` to aggregate navigable member activity
-  while removing internal relations and deduplicating references. Symbol and
-  identity graph results expose total, matching and returned/emitted counts so
-  filtered or paginated zeroes cannot be mistaken for absent coupling.
-
-### Changed
-
-- **Daemon protocol 11 → 12.** Process discovery no longer carries workspace
-  readiness. `workspace.status` is the canonical typed `loading`, `ready`,
-  `refreshing`, or `failed` lifecycle with an optional failure cause; clients
-  return transient loading immediately while the same daemon keeps indexing.
-  Connect-or-start restarts an older daemon once, preserves a newer daemon for
-  newer clients, and no longer binds shared daemon lifetime to the first Rust
-  client that launched it.
-- **Daemon protocol 9 → 10.** `workspace.status` now exposes catalog,
-  extraction, semantic-index, linkage, change-overlay and total build timings.
-  Full builds run linkage and change-overlay construction concurrently.
-- **Daemon protocol 10 → 11.** `identity.graph` now has a dedicated typed
-  query with pre-aggregation `path` scoping, `min_count` filtering and stable
-  generation-aware pagination. MCP graph and usage follow-ups preserve those
-  filters, and the daemon schema publishes the new coverage DTOs. The generated
-  TypeScript client exposes the same protocol version, request fields, coverage
-  types and paginated graph response; its build regenerates these artifacts
-  before type-checking so schema drift fails compilation.
-- **Installed agent skills distinguish updates from drift.** `agent status`
-  reports `outdated` when the current binary embeds a newer managed skill and
-  reserves `stale` for local content drift; `agent doctor` reports the embedded
-  update as an actionable skill update.
-
-### Fixed
-
-- **Daemon lifecycle failures remain coherent and observable.** Stdio MCP now
-  projects the same typed preload lifecycle to `workspace.status` and data
-  queries, including the initial failure cause. Registry claim read,
-  decode, replacement, and heartbeat failures terminate with an explicit diagnostic,
-  detached Rust launch captures stderr in a per-workspace diagnostic file, and
-  the owned Node launch preserves the same stream.
-- **Source-group configuration has one structural owner.**
-  `workspace.source_group` is accepted only from the canonical project
-  `.code-moniker.toml`; rule fragments, standalone rule files, and inline
-  overlays reject it. Checks bind this owner to the exact analyzed root, so an
-  external `--rules .../.code-moniker.toml` cannot produce a structural mapping
-  ignored by scanning and linkage.
-
-- **Concurrent daemon reads remain usable during refresh.** Stateless
-  `syntax.parse` bypasses the workspace lock; `stale-ok` queries use the last
-  immutable published snapshot while the next generation builds; exclusive
-  operations queue instead of turning lock contention into a false
-  `workspace_loading` response.
-- **MCP follow-ups stay compact and executable.** With `compact=true`, `next`
-  calls now use reusable compact monikers (including `workspace` and
-  `workspace/views`) and can be replayed directly. Paginated generic queries
-  retain their original expression and expose a generation-aware cursor,
-  including `identity.graph` filters. Missing-symbol diagnostics no longer
-  repeat the error label and requested URI.
-
-## [0.6.0-rc.1] - 2026-08-07
-
-First release candidate for the cross-platform CLI and reusable Node.js client
-distribution. It exercises the new cargo-dist release path without publishing
-prerelease crates or npm packages automatically.
+First stable cross-platform release of the CLI, autonomous workspace daemon,
+MCP server, agent integration, and reusable Node.js client. One release tag now
+publishes the Rust crates, five-platform GitHub binaries, and platform-specific
+npm packages from the same source revision.
 
 ### Added
 
@@ -93,7 +24,7 @@ prerelease crates or npm packages automatically.
   macOS, Windows MSVC x64, Linux GNU x64, and static Linux musl x64 archives
   with MCP support, checksums, attestations, a shell installer, and bundled
   third-party notices.
-- **Autonomous Node.js distribution.** `@code-moniker/client` exposes typed ESM
+- **Autonomous Node.js distribution.** `@code-moniker/client` provides typed ESM
   and CommonJS entry points plus an opt-in Node daemon runtime. Four exact-version
   optional native packages provide the matching CLI for macOS, Linux, and
   Windows without requiring Rust or a separate PATH installation.
@@ -101,13 +32,24 @@ prerelease crates or npm packages automatically.
   paths, owner-level usage roll-ups, indexed workspace checks, in-memory source
   sets, and compact MCP follow-ups expose trustworthy scope and pagination
   information to reusable clients and agents.
+- **Architecture review workflow for agents.** The bundled skill separates
+  indexed facts, architectural interpretation, and optional heuristics while
+  documenting graph coverage, scoped identity maps, and exact-versus-descendant
+  usage analysis.
 
 ### Changed
 
 - **Daemon protocol 16.** Rust, Node.js, MCP, and VS Code clients share the same
-  generated protocol contract and reject incompatible resident daemons. The
-  daemon now reports explicit loading, ready, refreshing, and failed states and
-  keeps serving the last published snapshot while rebuilding.
+  generated protocol contract and reject incompatible resident daemons. Typed
+  workspace status covers loading, ready, refreshing, and failed states with
+  build timings while preserving the last published snapshot during refresh.
+- **Resolution accuracy.** Rust module anchors, façade aliases, TypeScript
+  barrels, runtime import declarations, missing bindings, identity graph scope,
+  and source-set linkage now produce explicit coverage instead of silent or
+  misleading empty results.
+- **Installed agent skills distinguish updates from drift.** `agent status`
+  reports a newer embedded managed skill as `outdated` and reserves `stale` for
+  local content drift.
 - **Terminal UI removed.** The release focuses on the CLI, daemon, MCP, agent,
   reusable Node.js client, and VS Code surfaces.
 
@@ -115,74 +57,17 @@ prerelease crates or npm packages automatically.
 
 - **Portable daemon lifecycle.** Windows now has real process supervision, PID
   liveness, registry locking, path normalization, and packaged-client smoke
-  coverage; Unix lifecycle and registry failures also remain explicit.
+  coverage; Unix lifecycle and registry failures remain explicit and observable.
+- **Concurrent daemon reads remain usable during refresh.** Stateless parsing
+  bypasses the workspace lock, stale-ok queries use the last immutable snapshot,
+  and exclusive operations queue instead of returning false loading states.
+- **Agent and MCP surfaces fail loudly and replay safely.** Compact follow-ups
+  retain filters and generation-aware cursors, partial query results preserve
+  inline errors, and zero-result diagnostics provide routing guidance.
+- **Source-group configuration has one structural owner.** Only the canonical
+  project `.code-moniker.toml` may define workspace source groups.
 - **PL/pgSQL extraction.** Quoted identifiers and routine bodies are parsed by
   the maintained grammar embedded directly in `code-moniker-core`.
-
-## [0.6.0] - 2026-07-26
-
-Resolution and agent-contract hardening driven by a full agent
-dogfood audit replayed as a counter-audit: rust explained coverage
-becomes a trustworthy 98.4% (phantom external crates eliminated,
-façade aliases no longer rival definitions, dangling bindings
-surfaced), the vscode extension's TypeScript climbs from 75.7% to
-83.0% explained, and every silent-empty agent surface now fails
-loudly with routing guidance. Daemon protocol 3 → 5.
-
-### Added
-
-- **Reusable TypeScript client.** The portable `@code-moniker/client` package
-  connects to an explicit workspace-daemon WebSocket endpoint, validates the
-  protocol and workspace identity fail-closed, publishes in-memory source sets,
-  and exposes typed symbol, usage, graph, pagination, and event APIs. The
-  opt-in `@code-moniker/client/node` entry adds registered-daemon discovery and
-  ownership-safe process lifecycle. Its wire types and protocol version are
-  generated from the daemon schema, both ESM and CommonJS consumers are
-  supported, and the VS Code extension consumes the same package instead of
-  maintaining a second transport and model.
-- **Precompiled CLI distribution.** GitHub Releases now ship full-featured
-  (`tui,mcp`) macOS arm64, macOS x64, and Linux x64 archives with SHA-256
-  checksums and attestations. A universal `curl | sh` installer and
-  `cargo binstall code-moniker` both use those official artifacts, while
-  source installation remains available for custom feature sets.
-
-### Changed
-
-- **Daemon protocol 3 → 4.** Two existing verbs changed observable
-  behavior: `identity.graph` / `identity.children` now fail with
-  `prefix_not_found` (listing the valid root heads) instead of
-  answering an unknown prefix with a silent empty scope, and
-  `symbol.graph` reports a directory focus as `focus_is_directory`
-  with routing guidance instead of a bare `focus_not_found`. The wire
-  shape is unchanged; the bump makes every client recycle
-  protocol-mismatched resident daemons once, so stale daemons built
-  from older binaries stop serving outdated resolution semantics
-  silently.
-- **Daemon protocol 4 → 5.** Clients can atomically replace or remove named,
-  revisioned source sets held entirely in memory. These documents reuse the
-  normal extraction, linkage, `srcset`, query, rule, and MCP pipeline without
-  creating synthetic files or rescanning the filesystem.
-- **Resolution accuracy (agent audit follow-up,
-  `evolutions/agent-dogfood-audit-2026-07-26.md`).** Rust: sibling
-  modules are no longer classified as external crates,
-  `super::`/`self::`/`crate::` calls anchor on their real module, and
-  `pub use` façade aliases stop rivaling the definitions they
-  re-export (candidate ambiguity −37% on this repository). TypeScript:
-  `export *` barrels forward references and `@types/X` declares the
-  runtime import root (vscode-extension explained 75.7% → 83.0%). The
-  resolution audit counts bindings to missing symbols as
-  `unresolved/dangling_binding` instead of unique.
-
-### Fixed
-
-- **Agent surfaces fail loudly and read truthfully.** MCP graph omits
-  direction-filtered sections instead of rendering `callers: 0` as a
-  fact; zero-hit search explains name scoring; the query batch keeps
-  partial results with inline errors; the in-process MCP runtime waits
-  bounded for the initial index instead of failing the first calls;
-  usages classify inline `#[cfg(test)]` callers as test; change.context
-  joins internal edges to member names; diff symbol facts carry the
-  side identity so same-name facts stay distinguishable.
 
 ## [0.5.0] - 2026-07-25
 
