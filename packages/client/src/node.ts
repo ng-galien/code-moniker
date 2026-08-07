@@ -521,11 +521,21 @@ function rootSetsMatch(
 }
 
 function canonicalPath(candidate: string): string {
+	let canonical: string;
 	try {
-		return realpathSync(candidate);
+		canonical = realpathSync(candidate);
 	} catch {
-		return resolve(candidate);
+		canonical = resolve(candidate);
 	}
+	if (process.platform !== "win32") {
+		return canonical;
+	}
+	if (canonical.startsWith("\\\\?\\UNC\\")) {
+		canonical = `\\\\${canonical.slice(8)}`;
+	} else if (canonical.startsWith("\\\\?\\")) {
+		canonical = canonical.slice(4);
+	}
+	return canonical.toLowerCase();
 }
 
 function nonEmptyRoots(

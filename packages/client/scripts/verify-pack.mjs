@@ -19,7 +19,8 @@ for (const [entryPoint, conditions] of Object.entries(
 const cache = mkdtempSync(join(tmpdir(), "code-moniker-client-pack-"));
 let output;
 try {
-	output = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+	output = execFileSync(npm, ["pack", "--dry-run", "--json"], {
 		encoding: "utf8",
 		env: {
 			...process.env,

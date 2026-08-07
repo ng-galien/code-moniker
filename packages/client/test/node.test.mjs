@@ -60,6 +60,25 @@ test("the Node runtime discovers and targets exact registered workspaces", () =>
 	}
 });
 
+test("Windows verbatim workspace paths match their regular form", {
+	skip: process.platform !== "win32",
+}, () => {
+	const fixture = registryFixture();
+	try {
+		const runtime = new NodeDaemonRuntime({
+			registryDirectory: fixture.registry,
+		});
+		const entry = daemonEntry({
+			pid: 202,
+			token: "verbatim",
+			workspaceRoots: [`\\\\?\\${fixture.root}`],
+		});
+		assert.equal(runtime.entryMatchesRoots(entry, [fixture.root]), true);
+	} finally {
+		fixture.cleanup();
+	}
+});
+
 test("forgetting a daemon claim is guarded by pid and token", () => {
 	const fixture = registryFixture();
 	try {
