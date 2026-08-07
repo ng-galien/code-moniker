@@ -74,13 +74,39 @@ before release announcement.
 
 ### One-time npm registry bootstrap
 
-npm has the same package-name bootstrap constraint. Before the first automated
-npm release, publish the four native packages and then the client manually from
-the exact validated tag. Then configure each package's npm Trusted Publisher for
-repository `ng-galien/code-moniker`, calling workflow `v-release.yml`, and
-environment `release`. The generated cargo-dist workflow is the caller of the
-reusable npm workflow, so npm validates that caller filename. The workflow uses
-Node.js 24, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
+npm requires every package to exist before a Trusted Publisher can be attached.
+Bootstrap the namespace with a release candidate rather than the first stable
+release:
+
+1. Publish `v0.6.0-rc.1` as a GitHub prerelease. Registry publication is skipped
+   for prerelease tags, but cargo-dist still builds and announces the exact
+   five-platform artifact set. Run the packaged smoke checks before the manual
+   npm bootstrap.
+2. Sign in to npm with an account that can publish under `@code-moniker`, then
+   publish the four native packages manually from those exact cargo-dist
+   artifacts using dist-tag `next`. Publish `@code-moniker/client` last, also
+   with dist-tag `next`. The initial scoped publishes must use `--access public`.
+3. Configure each package's npm Trusted Publisher for repository
+   `ng-galien/code-moniker`, workflow `v-release.yml`, environment `release`, and
+   permission `npm publish`.
+4. The stable `v0.6.0` workflow then publishes through OIDC and assigns npm's
+   default `latest` dist-tag without any long-lived npm token.
+
+With npm 11.15 or newer, step 3 can be performed for each of the five packages
+from an authenticated, 2FA-enabled npm session:
+
+```sh
+npm trust github <package> \
+  --repo ng-galien/code-moniker \
+  --file v-release.yml \
+  --env release \
+  --allow-publish \
+  --yes
+```
+
+The generated cargo-dist workflow is the caller of the reusable npm workflow,
+so npm validates `v-release.yml`, not `publish-npm.yml`. The workflow uses Node.js
+24, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
 
 The dist workflow follows five gates:
 

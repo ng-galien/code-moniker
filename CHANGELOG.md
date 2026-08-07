@@ -81,6 +81,44 @@ in `0.y.z`.
   including `identity.graph` filters. Missing-symbol diagnostics no longer
   repeat the error label and requested URI.
 
+## [0.6.0-rc.1] - 2026-08-07
+
+First release candidate for the cross-platform CLI and reusable Node.js client
+distribution. It exercises the new cargo-dist release path without publishing
+prerelease crates or npm packages automatically.
+
+### Added
+
+- **Five-platform CLI distribution.** cargo-dist builds Apple Silicon and Intel
+  macOS, Windows MSVC x64, Linux GNU x64, and static Linux musl x64 archives
+  with MCP support, checksums, attestations, a shell installer, and bundled
+  third-party notices.
+- **Autonomous Node.js distribution.** `@code-moniker/client` exposes typed ESM
+  and CommonJS entry points plus an opt-in Node daemon runtime. Four exact-version
+  optional native packages provide the matching CLI for macOS, Linux, and
+  Windows without requiring Rust or a separate PATH installation.
+- **Workspace architecture and rule queries.** Typed graph coverage, bounded
+  paths, owner-level usage roll-ups, indexed workspace checks, in-memory source
+  sets, and compact MCP follow-ups expose trustworthy scope and pagination
+  information to reusable clients and agents.
+
+### Changed
+
+- **Daemon protocol 16.** Rust, Node.js, MCP, and VS Code clients share the same
+  generated protocol contract and reject incompatible resident daemons. The
+  daemon now reports explicit loading, ready, refreshing, and failed states and
+  keeps serving the last published snapshot while rebuilding.
+- **Terminal UI removed.** The release focuses on the CLI, daemon, MCP, agent,
+  reusable Node.js client, and VS Code surfaces.
+
+### Fixed
+
+- **Portable daemon lifecycle.** Windows now has real process supervision, PID
+  liveness, registry locking, path normalization, and packaged-client smoke
+  coverage; Unix lifecycle and registry failures also remain explicit.
+- **PL/pgSQL extraction.** Quoted identifiers and routine bodies are parsed by
+  the maintained grammar embedded directly in `code-moniker-core`.
+
 ## [0.6.0] - 2026-07-26
 
 Resolution and agent-contract hardening driven by a full agent
