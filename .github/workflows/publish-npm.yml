@@ -65,15 +65,15 @@ jobs:
           - package: darwin-arm64
             target: aarch64-apple-darwin
             archive: code-moniker-aarch64-apple-darwin.tar.xz
-            binary: code-moniker
+            binary: code-moniker-aarch64-apple-darwin/code-moniker
           - package: darwin-x64
             target: x86_64-apple-darwin
             archive: code-moniker-x86_64-apple-darwin.tar.xz
-            binary: code-moniker
+            binary: code-moniker-x86_64-apple-darwin/code-moniker
           - package: linux-x64
             target: x86_64-unknown-linux-musl
             archive: code-moniker-x86_64-unknown-linux-musl.tar.xz
-            binary: code-moniker
+            binary: code-moniker-x86_64-unknown-linux-musl/code-moniker
           - package: win32-x64
             target: x86_64-pc-windows-msvc
             archive: code-moniker-x86_64-pc-windows-msvc.zip
