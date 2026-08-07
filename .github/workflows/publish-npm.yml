@@ -40,7 +40,7 @@ jobs:
           $archive = Join-Path $env:GITHUB_WORKSPACE "target/distrib/code-moniker-x86_64-pc-windows-msvc.zip"
           $destination = Join-Path $env:RUNNER_TEMP "code-moniker-windows-release"
           Expand-Archive -LiteralPath $archive -DestinationPath $destination
-          $binary = Join-Path $destination "code-moniker-x86_64-pc-windows-msvc/code-moniker.exe"
+          $binary = Join-Path $destination "code-moniker.exe"
           & $binary --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CODE_MONIKER_WINDOWS_BINARY=$binary" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -65,19 +65,19 @@ jobs:
           - package: darwin-arm64
             target: aarch64-apple-darwin
             archive: code-moniker-aarch64-apple-darwin.tar.xz
-            binary: code-moniker-aarch64-apple-darwin/code-moniker
+            binary: code-moniker
           - package: darwin-x64
             target: x86_64-apple-darwin
             archive: code-moniker-x86_64-apple-darwin.tar.xz
-            binary: code-moniker-x86_64-apple-darwin/code-moniker
+            binary: code-moniker
           - package: linux-x64
             target: x86_64-unknown-linux-musl
             archive: code-moniker-x86_64-unknown-linux-musl.tar.xz
-            binary: code-moniker-x86_64-unknown-linux-musl/code-moniker
+            binary: code-moniker
           - package: win32-x64
             target: x86_64-pc-windows-msvc
             archive: code-moniker-x86_64-pc-windows-msvc.zip
-            binary: code-moniker-x86_64-pc-windows-msvc/code-moniker.exe
+            binary: code-moniker.exe
     steps:
       - uses: actions/checkout@v6
         with:

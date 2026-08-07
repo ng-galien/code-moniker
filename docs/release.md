@@ -108,6 +108,13 @@ The generated cargo-dist workflow is the caller of the reusable npm workflow,
 so npm validates `v-release.yml`, not `publish-npm.yml`. The workflow uses Node.js
 24, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
 
+### One-time crates.io Trusted Publisher setup
+
+Configure each of the seven crates with repository `ng-galien/code-moniker`,
+workflow `v-release.yml`, and environment `release`. The generated cargo-dist
+workflow is also the caller of the reusable crates workflow, so the crates.io
+JWT contains `v-release.yml`, not `publish-crates.yml` or `release.yml`.
+
 The dist workflow follows five gates:
 
 1. `plan` validates the tag, package, targets, features, and artifacts.
