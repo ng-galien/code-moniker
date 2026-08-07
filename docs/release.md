@@ -61,8 +61,11 @@ avoids raising Linux's glibc floor through a second build on a newer runner.
 The npm Linux package deliberately uses the statically linked musl artifact;
 the GNU artifact remains available for the shell installer and `cargo-binstall`.
 The publish job rejects a Linux npm executable with a dynamic interpreter and
-runs it before publication. The client is published only after all native
-packages succeed, before release announcement.
+runs it before publication. Before any native npm package is published, a
+Windows runner also extracts the exact cargo-dist ZIP, runs the executable, and
+launches it through a packed client install while checking the daemon's binary
+fingerprint. The client is published only after all native packages succeed,
+before release announcement.
 
 ### One-time registry bootstrap
 
@@ -110,7 +113,9 @@ Windows containers use operating-system features on a Windows host. The CI
 release builder, and validates three
 levels: Rust daemon tests, an explicit `.exe` owned-daemon smoke test, and a
 clean consumer that installs the packed client plus native package and launches
-the resolved executable.
+the resolved executable. The npm publication workflow independently repeats the
+packaged smoke against the exact Windows cargo-dist release artifact before it
+publishes any native package.
 
 For faster local feedback on macOS, `cargo-xwin` can cross-compile the MSVC
 target and can optionally execute tests through Wine. That is useful as a

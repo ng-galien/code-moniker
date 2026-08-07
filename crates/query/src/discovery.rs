@@ -92,7 +92,9 @@ pub fn daemon_registry_heartbeat_expired(entry: &DaemonRegistryEntry) -> bool {
 }
 
 pub fn registry_dir() -> PathBuf {
-	std::env::temp_dir().join("code-moniker-daemons")
+	std::env::var_os("CODE_MONIKER_REGISTRY_DIR")
+		.map(PathBuf::from)
+		.unwrap_or_else(|| std::env::temp_dir().join("code-moniker-daemons"))
 }
 
 pub fn canonical_workspace_root(root: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
@@ -725,6 +727,34 @@ mod tests {
 	#[test]
 	fn current_windows_process_is_alive() {
 		assert!(pid_is_alive(std::process::id()));
+	}
+
+	#[test]
+	fn registry_directory_honors_the_environment_override() {
+		let expected = tempfile::tempdir()
+			.expect("registry tempdir")
+			.path()
+			.join("custom-registry");
+		let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
+			.args([
+				"--exact",
+				"discovery::tests::registry_directory_environment_child",
+				"--ignored",
+			])
+			.env("CODE_MONIKER_REGISTRY_DIR", &expected)
+			.env("CODE_MONIKER_REGISTRY_TEST_EXPECTED", &expected)
+			.status()
+			.expect("run registry environment child");
+		assert!(status.success());
+	}
+
+	#[test]
+	#[ignore = "subprocess fixture"]
+	fn registry_directory_environment_child() {
+		let Some(expected) = std::env::var_os("CODE_MONIKER_REGISTRY_TEST_EXPECTED") else {
+			return;
+		};
+		assert_eq!(registry_dir(), PathBuf::from(expected));
 	}
 
 	#[test]

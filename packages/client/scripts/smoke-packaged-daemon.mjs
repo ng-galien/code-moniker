@@ -2,14 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-	NodeDaemonRuntime,
-	bundledBinaryPath,
-} from "@code-moniker/client/node";
+import { NodeDaemonRuntime } from "@code-moniker/client/node";
 
-const packagedBinary = bundledBinaryPath();
-if (!packagedBinary) {
-	throw new Error("the native Code Moniker package is not installed");
+const expectedFingerprint =
+	process.env.CODE_MONIKER_EXPECTED_BINARY_FINGERPRINT;
+if (!expectedFingerprint) {
+	throw new Error("the packaged daemon smoke requires an expected binary fingerprint");
 }
 
 const workspaceRoot = mkdtempSync(
@@ -21,12 +19,17 @@ let client;
 
 try {
 	owned = await runtime.launch({ workspaceRoots: [workspaceRoot] });
+	if (owned.entry.build.fingerprint !== expectedFingerprint) {
+		throw new Error(
+			`packaged daemon fingerprint ${owned.entry.build.fingerprint} does not match staged binary ${expectedFingerprint}`,
+		);
+	}
 	client = await runtime.connect(owned.entry, {
 		clientName: "@code-moniker/client-packaged-smoke",
 	});
 	await waitForReady(client);
 	console.log(
-		`packaged daemon smoke passed: ${packagedBinary}, pid ${owned.entry.pid}`,
+		`packaged daemon smoke passed: pid ${owned.entry.pid}`,
 	);
 } finally {
 	client?.close();

@@ -8,23 +8,17 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 
 import { PROTOCOL_VERSION } from "../dist/index.js";
-import {
-	NodeDaemonRuntime,
-	bundledBinaryPath,
-	defaultBinaryCandidates,
-} from "../dist/node.js";
+import { NodeDaemonRuntime } from "../dist/node.js";
 
-test("the Node runtime provides portable default binary candidates", () => {
-	const candidates = defaultBinaryCandidates();
-	assert.equal(candidates.at(-1), "code-moniker");
-	const bundled = bundledBinaryPath();
-	if (bundled !== undefined) {
-		assert.equal(candidates[0], bundled);
-	}
+test("the Node runtime freezes a relative registry directory as an absolute path", () => {
+	const relative = join("relative", "registry");
+	const runtime = new NodeDaemonRuntime({ registryDirectory: relative });
+	assert.equal(runtime.registryDirectory, resolve(relative));
+	assert.equal(isAbsolute(runtime.registryDirectory), true);
 });
 
 test("the Node runtime discovers and targets exact registered workspaces", () => {
@@ -74,6 +68,27 @@ test("Windows verbatim workspace paths match their regular form", {
 			workspaceRoots: [`\\\\?\\${fixture.root}`],
 		});
 		assert.equal(runtime.entryMatchesRoots(entry, [fixture.root]), true);
+	} finally {
+		fixture.cleanup();
+	}
+});
+
+test("unresolved Windows workspace paths are not folded to lowercase", {
+	skip: process.platform !== "win32",
+}, () => {
+	const fixture = registryFixture();
+	try {
+		const runtime = new NodeDaemonRuntime({
+			registryDirectory: fixture.registry,
+		});
+		const upper = join(fixture.base, "CaseSensitiveRoot");
+		const lower = join(fixture.base, "casesensitiveroot");
+		const entry = daemonEntry({
+			pid: 202,
+			token: "case-sensitive",
+			workspaceRoots: [upper],
+		});
+		assert.equal(runtime.entryMatchesRoots(entry, [lower]), false);
 	} finally {
 		fixture.cleanup();
 	}
@@ -143,10 +158,6 @@ test("launch uses runtime-level candidates and returns its registered ownership 
 	try {
 		owned = await runtime.launch({
 			workspaceRoots: [fixture.root],
-			environment: {
-				...process.env,
-				CODE_MONIKER_TEST_REGISTRY: fixture.registry,
-			},
 			registrationTimeoutMs: 2_000,
 			pollIntervalMs: 10,
 		});
@@ -306,7 +317,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const roots = process.argv.slice(4, process.argv.indexOf("--supervisor-pid"));
-const registry = process.env.CODE_MONIKER_TEST_REGISTRY;
+const registry = process.env.CODE_MONIKER_REGISTRY_DIR;
 mkdirSync(registry, { recursive: true });
 writeFileSync(join(registry, "owned.json"), JSON.stringify({
 	workspace_root: roots[0],

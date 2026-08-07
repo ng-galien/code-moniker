@@ -350,6 +350,7 @@ fn validate_supervisor_pid(supervisor_pid: Option<u32>) -> anyhow::Result<()> {
 		supervisor_pid != 0,
 		"supervisor PID must be greater than zero"
 	);
+	#[cfg(not(windows))]
 	anyhow::ensure!(
 		pid_is_alive(supervisor_pid),
 		"supervisor process {supervisor_pid} is not running"
@@ -368,9 +369,12 @@ async fn stop_server(
 }
 
 struct SupervisorWatch {
+	#[cfg(not(windows))]
 	pid: Option<u32>,
 	#[cfg(unix)]
 	channel: Option<tokio::net::UnixStream>,
+	#[cfg(windows)]
+	process: Option<WindowsSupervisorProcess>,
 }
 
 impl SupervisorWatch {
@@ -392,7 +396,12 @@ impl SupervisorWatch {
 		{
 			Ok(Self { pid, channel })
 		}
-		#[cfg(not(unix))]
+		#[cfg(windows)]
+		{
+			let process = pid.map(WindowsSupervisorProcess::open).transpose()?;
+			Ok(Self { process })
+		}
+		#[cfg(all(not(unix), not(windows)))]
 		{
 			Ok(Self { pid })
 		}
@@ -411,12 +420,87 @@ impl SupervisorWatch {
 				(None, None) => std::future::pending::<()>().await,
 			}
 		}
-		#[cfg(not(unix))]
+		#[cfg(windows)]
+		{
+			match &self.process {
+				Some(process) => wait_for_windows_supervisor(process).await,
+				None => std::future::pending::<()>().await,
+			}
+		}
+		#[cfg(all(not(unix), not(windows)))]
 		{
 			match self.pid {
 				Some(pid) => wait_for_supervisor_pid(pid).await,
 				None => std::future::pending::<()>().await,
 			}
+		}
+	}
+}
+
+#[cfg(windows)]
+struct WindowsSupervisorProcess {
+	handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsSupervisorProcess {
+	fn open(pid: u32) -> anyhow::Result<Self> {
+		use windows_sys::Win32::Foundation::{
+			CloseHandle, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+		};
+		use windows_sys::Win32::System::Threading::{
+			OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+		};
+
+		let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+		if handle.is_null() {
+			return Err(anyhow::anyhow!(
+				"cannot open supervisor process {pid}: {}",
+				std::io::Error::last_os_error()
+			));
+		}
+		match unsafe { WaitForSingleObject(handle, 0) } {
+			WAIT_TIMEOUT => Ok(Self { handle }),
+			WAIT_OBJECT_0 => {
+				unsafe {
+					CloseHandle(handle);
+				}
+				anyhow::bail!("supervisor process {pid} is not running")
+			}
+			WAIT_FAILED => {
+				let error = std::io::Error::last_os_error();
+				unsafe {
+					CloseHandle(handle);
+				}
+				Err(anyhow::anyhow!(
+					"cannot inspect supervisor process {pid}: {error}"
+				))
+			}
+			state => {
+				unsafe {
+					CloseHandle(handle);
+				}
+				anyhow::bail!(
+					"cannot inspect supervisor process {pid}: unexpected wait state {state}"
+				)
+			}
+		}
+	}
+
+	fn is_running(&self) -> bool {
+		use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+		use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+		let state = unsafe { WaitForSingleObject(self.handle, 0) };
+		state == WAIT_TIMEOUT
+	}
+}
+
+#[cfg(windows)]
+impl Drop for WindowsSupervisorProcess {
+	fn drop(&mut self) {
+		unsafe {
+			windows_sys::Win32::Foundation::CloseHandle(self.handle);
 		}
 	}
 }
@@ -437,6 +521,18 @@ async fn wait_for_supervisor_channel(channel: &tokio::net::UnixStream) {
 	}
 }
 
+#[cfg(windows)]
+async fn wait_for_windows_supervisor(process: &WindowsSupervisorProcess) {
+	let mut checks = tokio::time::interval(std::time::Duration::from_secs(1));
+	loop {
+		checks.tick().await;
+		if !process.is_running() {
+			return;
+		}
+	}
+}
+
+#[cfg(not(windows))]
 async fn wait_for_supervisor_pid(supervisor_pid: u32) {
 	let mut checks = tokio::time::interval(std::time::Duration::from_secs(1));
 	loop {
@@ -5900,6 +5996,31 @@ mod tests {
 	};
 
 	use super::*;
+
+	#[cfg(windows)]
+	#[test]
+	fn windows_supervisor_handle_observes_the_original_process_exit() {
+		let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+			.args([
+				"--exact",
+				"tests::windows_supervisor_handle_child",
+				"--ignored",
+			])
+			.spawn()
+			.expect("spawn supervisor child");
+		let supervisor =
+			WindowsSupervisorProcess::open(child.id()).expect("open supervisor handle");
+		assert!(supervisor.is_running());
+		assert!(child.wait().expect("wait for supervisor child").success());
+		assert!(!supervisor.is_running());
+	}
+
+	#[cfg(windows)]
+	#[test]
+	#[ignore = "subprocess fixture"]
+	fn windows_supervisor_handle_child() {
+		std::thread::sleep(std::time::Duration::from_millis(250));
+	}
 
 	fn test_rpc_service(
 		daemon: WorkspaceDaemon,

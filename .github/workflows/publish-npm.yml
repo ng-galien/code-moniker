@@ -13,8 +13,49 @@ permissions:
   id-token: write
 
 jobs:
+  windows-smoke:
+    name: verify exact Windows cargo-dist artifact
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download exact Windows cargo-dist artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-x86_64-pc-windows-msvc
+          path: target/distrib
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Extract the Windows release binary
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:GITHUB_WORKSPACE "target/distrib/code-moniker-x86_64-pc-windows-msvc.zip"
+          $destination = Join-Path $env:RUNNER_TEMP "code-moniker-windows-release"
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $binary = Join-Path $destination "code-moniker-x86_64-pc-windows-msvc/code-moniker.exe"
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CODE_MONIKER_WINDOWS_BINARY=$binary" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install reusable client dependencies
+        run: npm ci --omit=optional
+        working-directory: packages/client
+
+      - name: Install tarballs and launch the exact packaged Windows daemon
+        run: npm run test:daemon:packaged -- win32-x64 "$env:CODE_MONIKER_WINDOWS_BINARY"
+        working-directory: packages/client
+
   native:
     name: publish ${{ matrix.package }}
+    needs: windows-smoke
     runs-on: ubuntu-22.04
     environment: release
     strategy:

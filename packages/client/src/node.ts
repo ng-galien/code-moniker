@@ -24,6 +24,7 @@ const HEARTBEAT_TIMEOUT_MS = 15_000;
 const DEFAULT_REGISTRATION_TIMEOUT_MS = 5_000;
 const DEFAULT_EXIT_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
+const REGISTRY_DIRECTORY_ENV = "CODE_MONIKER_REGISTRY_DIR";
 declare const __CODE_MONIKER_MODULE_URL__: string;
 const requireFromPackage = createRequire(__CODE_MONIKER_MODULE_URL__);
 
@@ -94,8 +95,9 @@ export class NodeDaemonRuntime {
 	private readonly binaryCandidates?: readonly [string, ...string[]];
 
 	constructor(options: NodeDaemonRuntimeOptions = {}) {
-		this.registryDirectory =
-			options.registryDirectory ?? defaultRegistryDirectory();
+		this.registryDirectory = resolve(
+			options.registryDirectory ?? defaultRegistryDirectory(),
+		);
 		this.webSocketFactory =
 			options.webSocketFactory ?? nodeWebSocketFactory;
 		this.timeoutMs = options.timeoutMs;
@@ -197,7 +199,7 @@ export class NodeDaemonRuntime {
 		const processHandle = await launchDetached(
 			binaryCandidates,
 			daemonArguments(options.workspaceRoots, options.supervisorPid),
-			options.environment,
+			daemonEnvironment(options.environment, this.registryDirectory),
 		);
 		try {
 			const entry = await this.waitForEntry(
@@ -302,8 +304,18 @@ export class NodeDaemonRuntime {
 			await delay(pollIntervalMs);
 		}
 		throw new Error(
-			`daemon pid ${pid} did not register for [${workspaceRoots.join(", ")}] within ${timeoutMs}ms`,
+			`daemon pid ${pid} did not register for [${workspaceRoots.join(", ")}] within ${timeoutMs}ms; ${this.registryDiagnostic()}`,
 		);
+	}
+
+	private registryDiagnostic(): string {
+		const entries = this.listDaemons();
+		if (entries.length === 0) {
+			return `registry ${this.registryDirectory} contains no daemon entries`;
+		}
+		return `registry ${this.registryDirectory} contains ${entries
+			.map((entry) => `${entry.pid}=[${entry.workspace_roots.join(", ")}]`)
+			.join("; ")}`;
 	}
 
 	private readRegistry(): RegistryFile[] {
@@ -342,7 +354,7 @@ export function nodeWebSocketFactory(url: string): WebSocketLike {
 	return new WebSocket(url) as unknown as WebSocketLike;
 }
 
-export function bundledBinaryPath(
+function bundledBinaryPath(
 	platform: string = process.platform,
 	architecture: string = process.arch,
 ): string | undefined {
@@ -359,7 +371,7 @@ export function bundledBinaryPath(
 	}
 }
 
-export function defaultBinaryCandidates(): readonly [string, ...string[]] {
+function defaultBinaryCandidates(): readonly [string, ...string[]] {
 	const bundled = bundledBinaryPath();
 	return bundled === undefined
 		? ["code-moniker"]
@@ -386,6 +398,16 @@ function daemonArguments(
 		args.push("--supervisor-fd", "3");
 	}
 	return args;
+}
+
+function daemonEnvironment(
+	environment: NodeJS.ProcessEnv | undefined,
+	registryDirectory: string,
+): NodeJS.ProcessEnv {
+	return {
+		...(environment ?? process.env),
+		[REGISTRY_DIRECTORY_ENV]: registryDirectory,
+	};
 }
 
 function launchDetached(
@@ -420,7 +442,7 @@ function tryLaunchDetached(
 			env: environment,
 			stdio:
 				process.platform === "win32"
-					? ["ignore", "ignore", "ignore"]
+					? ["ignore", "ignore", "inherit"]
 					: ["ignore", "ignore", "inherit", "pipe"],
 			windowsHide: process.platform === "win32",
 		});
@@ -535,7 +557,7 @@ function canonicalPath(candidate: string): string {
 	} else if (canonical.startsWith("\\\\?\\")) {
 		canonical = canonical.slice(4);
 	}
-	return canonical.toLowerCase();
+	return canonical;
 }
 
 function nonEmptyRoots(

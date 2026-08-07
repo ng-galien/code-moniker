@@ -502,6 +502,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tree-sitter",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -16,7 +16,8 @@ const binary = resolve(binaryArgument);
 const workspaceRoot = mkdtempSync(
 	join(tmpdir(), "code-moniker-client-consumer-"),
 );
-const runtime = new NodeDaemonRuntime();
+const registryDirectory = join(workspaceRoot, "custom-registry");
+const runtime = new NodeDaemonRuntime({ registryDirectory });
 let owned;
 let client;
 
@@ -78,7 +79,7 @@ SELECT id FROM owned_client_account;
 	}
 
 	console.log(
-		`owned daemon smoke passed: pid ${owned.entry.pid}, graph focus ${view.uri}`,
+		`owned daemon smoke passed: pid ${owned.entry.pid}, registry ${runtime.registryDirectory}, graph focus ${view.uri}`,
 	);
 } finally {
 	client?.close();

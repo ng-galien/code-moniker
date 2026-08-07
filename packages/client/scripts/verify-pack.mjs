@@ -19,14 +19,21 @@ for (const [entryPoint, conditions] of Object.entries(
 const cache = mkdtempSync(join(tmpdir(), "code-moniker-client-pack-"));
 let output;
 try {
-	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-	output = execFileSync(npm, ["pack", "--dry-run", "--json"], {
-		encoding: "utf8",
-		env: {
-			...process.env,
-			npm_config_cache: cache,
+	const npmCli = process.env.npm_execpath;
+	if (!npmCli) {
+		throw new Error("npm_execpath is unavailable outside an npm script");
+	}
+	output = execFileSync(
+		process.execPath,
+		[npmCli, "pack", "--dry-run", "--json"],
+		{
+			encoding: "utf8",
+			env: {
+				...process.env,
+				npm_config_cache: cache,
+			},
 		},
-	});
+	);
 } finally {
 	rmSync(cache, { recursive: true, force: true });
 }

@@ -3,6 +3,7 @@ import {
 	copyFileSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -28,6 +29,7 @@ const packDirectory = join(temporaryRoot, "packs");
 const consumer = join(temporaryRoot, "consumer");
 const npmEnvironment = {
 	...process.env,
+	CODE_MONIKER_EXPECTED_BINARY_FINGERPRINT: binaryFingerprint(binary),
 	npm_config_cache: join(temporaryRoot, "npm-cache"),
 };
 const npmCli = process.env.npm_execpath;
@@ -109,4 +111,13 @@ function run(command, args, cwd) {
 		env: npmEnvironment,
 		stdio: "inherit",
 	});
+}
+
+function binaryFingerprint(path) {
+	let hash = 0xcbf29ce484222325n;
+	for (const byte of readFileSync(path)) {
+		hash ^= BigInt(byte);
+		hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+	}
+	return `fnv1a64:${hash.toString(16).padStart(16, "0")}`;
 }
