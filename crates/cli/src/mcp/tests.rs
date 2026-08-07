@@ -682,8 +682,16 @@ fn read_tool_renders_embedded_plpgsql_from_the_language_sdk_document() {
 }
 
 #[test]
-fn context_tool_returns_bounded_pre_change_facts_and_canonical_checks() {
+fn context_tool_accepts_canonical_source_groups_and_returns_bounded_pre_change_facts() {
 	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+[[workspace.source_group]]
+roots = [{ path = "src/main/java", srcset = "main" }]
+"#,
+	)
+	.expect("source-group config");
 	write_java_app_fixture(
 		temp.path(),
 		"class App {\n  void run() { helper(); }\n  void helper() {}\n}\n",

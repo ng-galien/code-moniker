@@ -4240,6 +4240,7 @@ fn rules_list_response(
 			workspace_langs(snapshot, response.roots, root, &request.filters.langs);
 		let rules_path = resolve_rules_path(response.config_root, request.rules.as_deref());
 		let specs = RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
+			.with_project_root(response.config_root)
 			.with_profile(request.profile.clone())
 			.compiled_specs_for_langs(requested_langs)
 			.map_err(|err| QueryError::new("rules_compile_failed", err.to_string()))?;
@@ -6762,7 +6763,7 @@ END;"#;
 	}
 
 	#[test]
-	fn applicable_rules_and_change_context_are_symbol_scoped() {
+	fn applicable_rules_and_change_context_are_symbol_scoped_with_canonical_source_groups() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let src = temp.path().join("src");
 		fs::create_dir_all(&src).expect("src dir");
@@ -6770,6 +6771,9 @@ END;"#;
 			temp.path().join(".code-moniker.toml"),
 			concat!(
 				"default_rules = false\n\n",
+				"[[workspace.source_group]]\n",
+				"roots = [\"src\"]\n",
+				"\n",
 				"[[rust.fn.where]]\n",
 				"id = \"function-snake-case\"\n",
 				"expr = \"name =~ ^[a-z][a-z0-9_]*$\"\n",
