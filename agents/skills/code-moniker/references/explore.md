@@ -67,6 +67,17 @@ For an owner whose behavior is exposed through members, add
 `include_descendants:true`; label the result as owner roll-up, not exact symbol
 usage, and preserve it in pagination calls.
 
+## Compare plausible mechanisms
+
+When exploration reveals materially different owners or flows for the same
+domain concept, do not stop at the first plausible mechanism. Keep a short
+candidate set and follow at least one bounded `graph`, `usages`, or `read` call
+for each alternative that could change the answer. Compare the identity, state
+or behavior each mechanism owns, its existing consumers, and its fit to the
+requested behavior. Conclude only after stating why the selected mechanism fits
+and why the alternatives do not; this evidence threshold takes precedence over
+minimizing calls when competing mechanisms remain plausible.
+
 ## Prepare a modification
 
 After selecting a target, call `code_moniker_context focus:"<returned moniker>"`
