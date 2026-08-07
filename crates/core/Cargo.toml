@@ -34,7 +34,7 @@ tree-sitter-go         = { workspace = true }
 tree-sitter-c          = { workspace = true }
 tree-sitter-c-sharp    = { workspace = true }
 tree-sitter-postgres   = { workspace = true }
-code-moniker-tree-sitter-plpgsql = { workspace = true }
+tree-sitter-language   = { workspace = true }
 
 # Manifest parsers for the build/* primitives.
 toml       = { workspace = true }
@@ -46,6 +46,9 @@ serde_cbor = { workspace = true }
 proptest   = { workspace = true }
 tempfile   = { workspace = true }
 insta      = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
 
 [[example]]
 name = "bench_codegraph"

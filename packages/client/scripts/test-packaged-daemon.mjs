@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
 	copyFileSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -52,6 +53,9 @@ try {
 		],
 		packageRoot,
 	);
+	const nativeManifest = JSON.parse(
+		readFileSync(join(nativeStage, "package.json"), "utf8"),
+	);
 	const nativePack = pack(nativeStage);
 	const clientPack = pack(packageRoot);
 
@@ -73,6 +77,15 @@ try {
 		],
 		consumer,
 	);
+	const installedNotice = join(
+		consumer,
+		"node_modules",
+		...nativeManifest.name.split("/"),
+		"THIRD_PARTY_NOTICES",
+	);
+	if (!existsSync(installedNotice)) {
+		throw new Error(`${nativeManifest.name} is missing THIRD_PARTY_NOTICES`);
+	}
 	run(process.execPath, ["smoke-packaged-daemon.mjs"], consumer);
 } finally {
 	rmSync(temporaryRoot, { recursive: true, force: true });

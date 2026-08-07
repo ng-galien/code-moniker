@@ -25,6 +25,7 @@ if (!target || !binaryArgument || !outputArgument || !(target in targets)) {
 }
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const repositoryRoot = resolve(packageRoot, "../..");
 const binary = resolve(binaryArgument);
 const output = resolve(outputArgument);
 if (!existsSync(binary)) {
@@ -48,6 +49,10 @@ if (target !== "win32-x64") {
 	chmodSync(join(output, "bin", executable), 0o755);
 }
 copyFileSync(join(packageRoot, "LICENSE"), join(output, "LICENSE"));
+copyFileSync(
+	join(repositoryRoot, "THIRD_PARTY_NOTICES"),
+	join(output, "THIRD_PARTY_NOTICES"),
+);
 writeFileSync(
 	join(output, "README.md"),
 	`# \`${manifest.name}\`\n\nPrecompiled ${basename(executable)} binary used internally by \`@code-moniker/client/node\`.\n`,

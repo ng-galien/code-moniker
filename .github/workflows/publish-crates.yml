@@ -39,8 +39,7 @@ jobs:
           packages=$(cargo metadata --no-deps --format-version 1 \
                     | jq -r '.packages[]
                       | select(
-                          .name == "code-moniker-tree-sitter-plpgsql"
-                          or .name == "code-moniker-core"
+                          .name == "code-moniker-core"
                           or .name == "code-moniker-query"
                           or .name == "code-moniker-workspace"
                           or .name == "code-moniker-daemon-client"
@@ -51,8 +50,8 @@ jobs:
                       | "\(.name)=\(.version)"' \
                     | sort)
           package_count=$(printf '%s\n' "$packages" | sed '/^$/d' | wc -l | tr -d ' ')
-          if [ "$package_count" != "8" ]; then
-            echo "::error::expected eight crates.io packages, found $package_count: $packages"
+          if [ "$package_count" != "7" ]; then
+            echo "::error::expected seven crates.io packages, found $package_count: $packages"
             exit 1
           fi
           versions=$(printf '%s\n' "$packages" | cut -d= -f2 | sort -u)
@@ -66,13 +65,6 @@ jobs:
             echo "::error::tag v$tag does not match crates.io package version $version"
             exit 1
           fi
-          if ! curl --user-agent "code-moniker-release-workflow/${tag}" \
-            --fail --silent --show-error \
-            "https://crates.io/api/v1/crates/code-moniker-tree-sitter-plpgsql" >/dev/null; then
-            echo "::error::code-moniker-tree-sitter-plpgsql must be bootstrapped manually and configured for Trusted Publishing before the release tag; see docs/release.md"
-            exit 1
-          fi
-
       - name: Authenticate to crates.io via OIDC
         id: auth
         uses: rust-lang/crates-io-auth-action@v1.0.4
@@ -97,7 +89,6 @@ jobs:
             done
             return 1
           }
-          publish_crate code-moniker-tree-sitter-plpgsql
           publish_crate code-moniker-core
           publish_crate code-moniker-query
           publish_crate code-moniker-workspace

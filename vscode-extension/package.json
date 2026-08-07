@@ -561,7 +561,7 @@
 		"test:unit": "node --test test/unit/shutdown.test.mjs",
 		"test:integration": "npm run compile && node test/run-integration.js",
 		"test": "npm run typecheck && npm run validate && npm run test:unit",
-		"package": "vsce package --no-dependencies",
+		"package": "node scripts/stage-third-party-notices.mjs && vsce package --no-dependencies",
 		"vscode:prepublish": "npm run compile"
 	},
 	"devDependencies": {

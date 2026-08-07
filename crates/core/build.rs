@@ -1,5 +1,5 @@
 fn main() {
-	let source_dir = std::path::Path::new("src");
+	let source_dir = std::path::Path::new("vendor/tree-sitter-plpgsql/src");
 	let parser = source_dir.join("parser.c");
 	let scanner = source_dir.join("scanner.c");
 

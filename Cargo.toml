@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
 	"crates/core",
-	"crates/tree-sitter-plpgsql",
 	"crates/workspace",
 	"crates/check",
 	"crates/query",
@@ -26,8 +25,6 @@ code-moniker-check = { path = "crates/check", version = "0.6.0" }
 code-moniker-query = { path = "crates/query", version = "0.6.0" }
 code-moniker-daemon = { path = "crates/daemon", version = "0.6.0" }
 code-moniker-daemon-client = { path = "crates/daemon-client", version = "0.6.0" }
-code-moniker-tree-sitter-plpgsql = { path = "crates/tree-sitter-plpgsql", version = "0.6.0" }
-
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }
 anyhow    = "1"

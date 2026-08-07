@@ -36,6 +36,11 @@ The generated release contains one archive and SHA-256 checksum per target, the
 universal `code-moniker-installer.sh`, the dist manifest, and source metadata.
 GitHub artifact attestations remain enabled.
 
+Every artifact that embeds the CLI binary carries `THIRD_PARTY_NOTICES`: the
+cargo-dist archives, the four native npm packages, and each platform-specific
+VSIX. Packaging checks reject native npm packages and VSIX files that omit the
+notice.
+
 `cargo-binstall` discovers the target-triple archives through the repository
 metadata published with the `code-moniker` crate. Its crate metadata disables
 third-party QuickInstall artifacts and implicit source compilation: an
@@ -67,23 +72,7 @@ launches it through a packed client install while checking the daemon's binary
 fingerprint. The client is published only after all native packages succeed,
 before release announcement.
 
-### One-time registry bootstrap
-
-Trusted Publishing cannot allocate a new crates.io package name. Before the
-first release containing `code-moniker-tree-sitter-plpgsql`:
-
-1. From the exact validated `main` commit, publish
-   `code-moniker-tree-sitter-plpgsql` manually with a crates.io account token.
-2. On crates.io, configure its Trusted Publisher for repository
-   `ng-galien/code-moniker`, workflow `publish-crates.yml`, and environment
-   `release`.
-3. Confirm that the published package version matches the intended release,
-   then push the release tag.
-
-The release workflow fails early with bootstrap guidance while the package name
-does not exist. For the bootstrap release, it detects the manually published
-version and skips it; subsequent versions use the same OIDC path as the other
-workspace crates.
+### One-time npm registry bootstrap
 
 npm has the same package-name bootstrap constraint. Before the first automated
 npm release, publish the four native packages and then the client manually from
@@ -101,7 +90,7 @@ The dist workflow follows five gates:
 4. `host` consolidates the release artifacts without making the GitHub release
    public yet.
 5. `publish` calls `.github/workflows/publish-crates.yml` and
-   `.github/workflows/publish-npm.yml`. They publish the eight crates and five
+   `.github/workflows/publish-npm.yml`. They publish the seven crates and five
    npm packages through OIDC. `announce` creates the GitHub release only after
    both jobs succeed.
 
@@ -126,8 +115,6 @@ acceptance environment for process supervision, file locking and path behavior.
 
 - [ ] `main` is clean, CI is green, and no `v0.6.0` tag exists.
 - [ ] All workspace crates that are published share version `0.6.0`.
-- [ ] `code-moniker-tree-sitter-plpgsql@0.6.0` has completed the one-time
-      manual bootstrap and its Trusted Publisher is configured before tagging.
 - [ ] `dist plan --tag=v0.6.0` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
@@ -143,7 +130,7 @@ acceptance environment for process supervision, file locking and path behavior.
 - [ ] Push `v0.6.0` only after the preceding gates pass.
 - [ ] Confirm the Windows CI job installs the two npm tarballs in a clean
       consumer and completes the packaged owned-daemon smoke test.
-- [ ] Confirm the Release workflow completes through `announce`, all eight
+- [ ] Confirm the Release workflow completes through `announce`, all seven
       crates exist on crates.io, and all five packages exist on npm at `0.6.0`.
 - [ ] On clean macOS, Linux and Windows environments, exercise the direct
       installer and `cargo binstall code-moniker --version 0.6.0`.
@@ -152,3 +139,5 @@ acceptance environment for process supervision, file locking and path behavior.
 - [ ] Confirm clean ESM and CommonJS consumers install
       `@code-moniker/client@0.6.0` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.
+- [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive,
+      native npm package, and platform-specific VSIX.

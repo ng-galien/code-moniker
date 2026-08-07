@@ -35,6 +35,9 @@ for (const [target, [name, os, cpu]] of Object.entries(expected)) {
 	if (target === "linux-x64" && manifest.libc !== undefined) {
 		throw new Error(`${name} must remain installable on every Linux libc`);
 	}
+	if (!manifest.files?.includes("THIRD_PARTY_NOTICES")) {
+		throw new Error(`${name} must publish the bundled binary's third-party notices`);
+	}
 }
 
 console.log(`native package metadata verified: ${Object.keys(expected).length} targets`);

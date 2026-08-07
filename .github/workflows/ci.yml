@@ -119,6 +119,7 @@ jobs:
           cd vscode-extension
           npm run package -- --target linux-x64 --out /tmp/code-moniker-linux-x64.vsix
           unzip -Z1 /tmp/code-moniker-linux-x64.vsix | grep -Fx extension/bin/code-moniker
+          unzip -Z1 /tmp/code-moniker-linux-x64.vsix | grep -Fx extension/THIRD_PARTY_NOTICES
 
   windows-runtime:
     name: Windows daemon + packaged Node client

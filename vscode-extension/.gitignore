@@ -3,3 +3,4 @@ bin/
 dist/
 .vscode-test/
 *.vsix
+THIRD_PARTY_NOTICES

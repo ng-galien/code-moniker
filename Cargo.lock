@@ -457,7 +457,7 @@ dependencies = [
 name = "code-moniker-core"
 version = "0.6.0"
 dependencies = [
- "code-moniker-tree-sitter-plpgsql",
+ "cc",
  "insta",
  "proptest",
  "roaring",
@@ -473,6 +473,7 @@ dependencies = [
  "tree-sitter-c-sharp",
  "tree-sitter-go",
  "tree-sitter-java",
+ "tree-sitter-language",
  "tree-sitter-postgres",
  "tree-sitter-python",
  "tree-sitter-rust",
@@ -533,15 +534,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "code-moniker-tree-sitter-plpgsql"
-version = "0.6.0"
-dependencies = [
- "cc",
- "tree-sitter",
- "tree-sitter-language",
 ]
 
 [[package]]

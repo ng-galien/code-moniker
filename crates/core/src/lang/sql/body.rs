@@ -37,7 +37,7 @@ fn collect_routine_injections(node: Node<'_>, source: &str, injections: &mut Vec
 
 fn parse_embedded(language: &[u8], source: &str) -> Option<Tree> {
 	let grammar = if language.eq_ignore_ascii_case(b"plpgsql") {
-		code_moniker_tree_sitter_plpgsql::LANGUAGE
+		super::plpgsql_grammar::LANGUAGE
 	} else if language.eq_ignore_ascii_case(b"sql") {
 		tree_sitter_postgres::LANGUAGE
 	} else {

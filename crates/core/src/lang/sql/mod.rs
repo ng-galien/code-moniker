@@ -1,6 +1,7 @@
 mod body;
 mod canonicalize;
 mod kinds;
+mod plpgsql_grammar;
 mod sdk_pipeline;
 
 use tree_sitter::Tree;

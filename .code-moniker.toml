@@ -121,9 +121,9 @@ daemon_lifecycle_consumer = """
 [exclude]
 uris = [
   "**/crates/core/tests/fixtures/**",
-  "**/crates/tree-sitter-plpgsql/src/parser.c",
-  "**/crates/tree-sitter-plpgsql/src/scanner.c",
-  "**/crates/tree-sitter-plpgsql/src/tree_sitter/**",
+  "**/crates/core/vendor/tree-sitter-plpgsql/src/parser.c",
+  "**/crates/core/vendor/tree-sitter-plpgsql/src/scanner.c",
+  "**/crates/core/vendor/tree-sitter-plpgsql/src/tree_sitter/**",
   "**/vscode-extension/dist/**",
   "**/vscode-extension/media/**",
 ]
