@@ -1,0 +1,146 @@
+name: Publish npm packages
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: cargo-dist release plan
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  native:
+    name: publish ${{ matrix.package }}
+    runs-on: ubuntu-22.04
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: darwin-arm64
+            target: aarch64-apple-darwin
+            archive: code-moniker-aarch64-apple-darwin.tar.xz
+            binary: code-moniker-aarch64-apple-darwin/code-moniker
+          - package: darwin-x64
+            target: x86_64-apple-darwin
+            archive: code-moniker-x86_64-apple-darwin.tar.xz
+            binary: code-moniker-x86_64-apple-darwin/code-moniker
+          - package: linux-x64
+            target: x86_64-unknown-linux-musl
+            archive: code-moniker-x86_64-unknown-linux-musl.tar.xz
+            binary: code-moniker-x86_64-unknown-linux-musl/code-moniker
+          - package: win32-x64
+            target: x86_64-pc-windows-msvc
+            archive: code-moniker-x86_64-pc-windows-msvc.zip
+            binary: code-moniker-x86_64-pc-windows-msvc/code-moniker.exe
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download cargo-dist binary artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ matrix.target }}
+          path: target/distrib
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify tag matches npm package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          NATIVE_PACKAGE: ${{ matrix.package }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          manifest_version=$(node -p "require('./packages/client/native-packages/${NATIVE_PACKAGE}/package.json').version")
+          if [ "$version" != "$manifest_version" ]; then
+            echo "::error::tag v$version does not match npm package version $manifest_version"
+            exit 1
+          fi
+
+      - name: Extract and stage the exact cargo-dist binary
+        shell: bash
+        env:
+          NATIVE_PACKAGE: ${{ matrix.package }}
+          ARCHIVE_NAME: ${{ matrix.archive }}
+          BINARY_PATH: ${{ matrix.binary }}
+        run: |
+          archive="$GITHUB_WORKSPACE/target/distrib/$ARCHIVE_NAME"
+          extracted="$RUNNER_TEMP/cargo-dist-artifact"
+          mkdir -p "$extracted"
+          case "$ARCHIVE_NAME" in
+            *.zip) unzip -q "$archive" -d "$extracted" ;;
+            *.tar.xz) tar -xJf "$archive" -C "$extracted" ;;
+            *) echo "::error::unsupported cargo-dist archive $ARCHIVE_NAME"; exit 1 ;;
+          esac
+          node packages/client/scripts/stage-native-package.mjs \
+            "$NATIVE_PACKAGE" "$extracted/$BINARY_PATH" "$RUNNER_TEMP/native-package"
+
+      - name: Verify the Linux npm binary is static and runnable
+        if: matrix.package == 'linux-x64'
+        shell: bash
+        run: |
+          binary="$RUNNER_TEMP/native-package/bin/code-moniker"
+          if readelf --program-headers "$binary" | grep -q 'Requesting program interpreter'; then
+            echo "::error::the Linux npm binary is dynamically linked"
+            exit 1
+          fi
+          "$binary" --version
+
+      - name: Publish native package
+        shell: bash
+        run: |
+          package=$(cd "$RUNNER_TEMP/native-package" && node -p "require('./package.json').name")
+          version=$(cd "$RUNNER_TEMP/native-package" && node -p "require('./package.json').version")
+          if npm view "$package@$version" version >/dev/null 2>&1; then
+            echo "$package@$version is already published"
+          else
+            npm publish "$RUNNER_TEMP/native-package"
+          fi
+
+  client:
+    name: publish @code-moniker/client
+    needs: native
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify, build and publish client
+        working-directory: packages/client
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          manifest_version=$(node -p "require('./package.json').version")
+          if [ "$version" != "$manifest_version" ]; then
+            echo "::error::tag v$version does not match npm client version $manifest_version"
+            exit 1
+          fi
+          npm ci --omit=optional
+          npm test
+          package=$(node -p "require('./package.json').name")
+          if npm view "$package@$version" version >/dev/null 2>&1; then
+            echo "$package@$version is already published"
+          else
+            npm publish
+          fi

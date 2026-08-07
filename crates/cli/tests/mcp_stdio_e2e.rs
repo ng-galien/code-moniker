@@ -1,4 +1,5 @@
 #![cfg(feature = "mcp")]
+#![cfg(unix)]
 
 use std::ffi::CString;
 use std::io::{BufRead, BufReader, Write};

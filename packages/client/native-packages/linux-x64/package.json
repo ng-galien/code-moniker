@@ -1,0 +1,25 @@
+{
+	"name": "@code-moniker/cli-linux-x64",
+	"version": "0.6.0",
+	"description": "Statically linked Code Moniker CLI for Linux x64.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ng-galien/code-moniker.git",
+		"directory": "packages/client"
+	},
+	"os": [
+		"linux"
+	],
+	"cpu": [
+		"x64"
+	],
+	"preferUnplugged": true,
+	"files": [
+		"bin",
+		"README.md"
+	],
+	"publishConfig": {
+		"access": "public"
+	}
+}

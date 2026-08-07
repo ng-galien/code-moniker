@@ -28,19 +28,43 @@ The release contains binaries with MCP support for:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`
+- `x86_64-pc-windows-msvc`
 - `x86_64-unknown-linux-gnu`
+- `x86_64-unknown-linux-musl`
 
-Windows stays excluded while the workspace daemon is Unix-only. The generated
-release contains one archive and SHA-256 checksum per target, the universal
-`code-moniker-installer.sh`, the dist manifest, and source metadata. GitHub
-artifact attestations remain enabled.
+The generated release contains one archive and SHA-256 checksum per target, the
+universal `code-moniker-installer.sh`, the dist manifest, and source metadata.
+GitHub artifact attestations remain enabled.
 
 `cargo-binstall` discovers the target-triple archives through the repository
 metadata published with the `code-moniker` crate. Its crate metadata disables
 third-party QuickInstall artifacts and implicit source compilation: an
 unsupported platform fails explicitly.
 
-### One-time grammar crate bootstrap
+## npm client and native binaries
+
+Installing `@code-moniker/client` installs one matching optional native package
+and lets `@code-moniker/client/node` launch Code Moniker without a separate CLI
+installation:
+
+- `@code-moniker/cli-darwin-arm64`
+- `@code-moniker/cli-darwin-x64`
+- `@code-moniker/cli-linux-x64`
+- `@code-moniker/cli-win32-x64`
+
+The client resolves the packaged executable first and falls back to
+`code-moniker` on `PATH`. All five npm package versions must exactly match the
+release tag. `.github/workflows/publish-npm.yml` downloads each already-built,
+attested cargo-dist archive and stages that exact executable in its native npm
+package. This keeps the npm and GitHub Release binaries byte-identical and
+avoids raising Linux's glibc floor through a second build on a newer runner.
+The npm Linux package deliberately uses the statically linked musl artifact;
+the GNU artifact remains available for the shell installer and `cargo-binstall`.
+The publish job rejects a Linux npm executable with a dynamic interpreter and
+runs it before publication. The client is published only after all native
+packages succeed, before release announcement.
+
+### One-time registry bootstrap
 
 Trusted Publishing cannot allocate a new crates.io package name. Before the
 first release containing `code-moniker-tree-sitter-plpgsql`:
@@ -58,6 +82,14 @@ does not exist. For the bootstrap release, it detects the manually published
 version and skips it; subsequent versions use the same OIDC path as the other
 workspace crates.
 
+npm has the same package-name bootstrap constraint. Before the first automated
+npm release, publish the four native packages and then the client manually from
+the exact validated tag. Then configure each package's npm Trusted Publisher for
+repository `ng-galien/code-moniker`, calling workflow `v-release.yml`, and
+environment `release`. The generated cargo-dist workflow is the caller of the
+reusable npm workflow, so npm validates that caller filename. The workflow uses
+Node.js 24, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
+
 The dist workflow follows five gates:
 
 1. `plan` validates the tag, package, targets, features, and artifacts.
@@ -65,9 +97,25 @@ The dist workflow follows five gates:
 3. `build-global` creates checksums, manifests, and the shell installer.
 4. `host` consolidates the release artifacts without making the GitHub release
    public yet.
-5. `publish` calls `.github/workflows/publish-crates.yml`, which verifies the
-   tag and publishes the eight crates in dependency order through crates.io
-   OIDC. `announce` creates the GitHub release only after that job succeeds.
+5. `publish` calls `.github/workflows/publish-crates.yml` and
+   `.github/workflows/publish-npm.yml`. They publish the eight crates and five
+   npm packages through OIDC. `announce` creates the GitHub release only after
+   both jobs succeed.
+
+## Windows validation
+
+Docker Desktop on macOS cannot provide a Windows-kernel acceptance test.
+Windows containers use operating-system features on a Windows host. The CI
+`windows-runtime` job therefore runs on `windows-2022`, matching cargo-dist's
+release builder, and validates three
+levels: Rust daemon tests, an explicit `.exe` owned-daemon smoke test, and a
+clean consumer that installs the packed client plus native package and launches
+the resolved executable.
+
+For faster local feedback on macOS, `cargo-xwin` can cross-compile the MSVC
+target and can optionally execute tests through Wine. That is useful as a
+compile/smoke gate, but the GitHub-hosted Windows VM remains the release
+acceptance environment for process supervision, file locking and path behavior.
 
 ## `0.6.0` acceptance checklist
 
@@ -75,24 +123,27 @@ The dist workflow follows five gates:
 - [ ] All workspace crates that are published share version `0.6.0`.
 - [ ] `code-moniker-tree-sitter-plpgsql@0.6.0` has completed the one-time
       manual bootstrap and its Trusted Publisher is configured before tagging.
-- [ ] `dist plan --tag=v0.6.0` lists exactly the three supported targets,
+- [ ] `dist plan --tag=v0.6.0` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo test --workspace --quiet`
 - [ ] `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - [ ] `cargo test -p code-moniker --features mcp --no-default-features --lib`
-- [ ] From `packages/client/`: `npm ci --ignore-scripts`, `npm test`, then
+- [ ] From `packages/client/`: `npm ci --ignore-scripts --omit=optional`,
+      `npm test`, then
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and
       `npm run test:daemon:owned -- <code-moniker-binary>`.
 - [ ] From `vscode-extension/`: `npm test`, `npm run compile`, then
       `npm run test:integration`.
 - [ ] Push `v0.6.0` only after the preceding gates pass.
-- [ ] Confirm the Release workflow completes through `announce` and that all
-      eight crates exist on crates.io at `0.6.0`.
-- [ ] On clean macOS and Linux environments, exercise the direct installer and
-      `cargo binstall code-moniker --version 0.6.0`.
+- [ ] Confirm the Windows CI job installs the two npm tarballs in a clean
+      consumer and completes the packaged owned-daemon smoke test.
+- [ ] Confirm the Release workflow completes through `announce`, all eight
+      crates exist on crates.io, and all five packages exist on npm at `0.6.0`.
+- [ ] On clean macOS, Linux and Windows environments, exercise the direct
+      installer and `cargo binstall code-moniker --version 0.6.0`.
 - [ ] Run `code-moniker --version`, `code-moniker mcp --help`, and an agent
       skill/MCP install smoke test.
-- [ ] Publish `@code-moniker/client@0.6.0` from the verified package and confirm
-      that a clean ESM and CommonJS consumer can install it from npm.
+- [ ] Confirm clean ESM and CommonJS consumers install
+      `@code-moniker/client@0.6.0` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.

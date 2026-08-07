@@ -84,7 +84,6 @@ const owned =
 	entry === undefined
 		? await runtime.launch({
 				workspaceRoots: ["/workspace/project"],
-				binaryCandidates: ["/usr/local/bin/code-moniker"],
 			})
 		: undefined;
 const daemon = entry ?? owned!.entry;
@@ -95,6 +94,16 @@ if (owned) {
 	await runtime.stopOwned(owned);
 }
 ```
+
+The Node entry point resolves the matching precompiled Code Moniker binary from
+the package's platform-specific optional dependency on macOS, Linux, and
+Windows x64. The Linux package contains the statically linked musl release
+binary, so the same npm package works on glibc distributions and Alpine without
+a libc-specific install script. An explicit `binaryCandidates` list on the
+runtime or an individual launch remains available for development builds and
+custom installations. If optional dependencies were omitted during
+installation, the runtime falls back to `code-moniker` on `PATH` and reports
+every attempted candidate on failure.
 
 `stopOwned` verifies both the registered PID and claim token before requesting
 shutdown, so a replaced registry claim cannot stop another consumer's daemon.

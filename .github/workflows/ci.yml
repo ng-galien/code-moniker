@@ -52,7 +52,7 @@ jobs:
           cache-dependency-path: packages/client/package-lock.json
 
       - name: Install client dependencies
-        run: npm ci
+        run: npm ci --omit=optional
         working-directory: packages/client
 
       - name: Test the public API and package
@@ -93,7 +93,7 @@ jobs:
         working-directory: vscode-extension
 
       - name: Install reusable client dependencies
-        run: npm ci
+        run: npm ci --omit=optional
         working-directory: packages/client
 
       - name: Test and compile the extension
@@ -119,6 +119,90 @@ jobs:
           cd vscode-extension
           npm run package -- --target linux-x64 --out /tmp/code-moniker-linux-x64.vsix
           unzip -Z1 /tmp/code-moniker-linux-x64.vsix | grep -Fx extension/bin/code-moniker
+
+  windows-runtime:
+    name: Windows daemon + packaged Node client
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2.9.1
+        with:
+          shared-key: windows-runtime
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Test Windows daemon primitives
+        run: cargo test -p code-moniker-query -p code-moniker-daemon -p code-moniker-daemon-client
+
+      - name: Build the Windows CLI with daemon support
+        run: cargo build -p code-moniker --features mcp
+
+      - name: Install and test the reusable client
+        run: |
+          npm ci --omit=optional
+          npm test
+          npm run test:daemon:owned -- ../../target/debug/code-moniker.exe
+        working-directory: packages/client
+
+      - name: Install tarballs and launch the packaged Windows daemon
+        working-directory: packages/client
+        run: npm run test:daemon:packaged -- win32-x64 ../../target/debug/code-moniker.exe
+
+  linux-static-runtime:
+    name: Static Linux npm runtime
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install Rust toolchain and musl target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2.9.1
+        with:
+          shared-key: linux-static-runtime
+
+      - name: Build the static Linux CLI with daemon support
+        run: cargo build -p code-moniker --features mcp --target x86_64-unknown-linux-musl
+
+      - name: Reject a dynamic interpreter and run the binary
+        run: |
+          binary=target/x86_64-unknown-linux-musl/debug/code-moniker
+          if readelf --program-headers "$binary" | grep -q 'Requesting program interpreter'; then
+            echo "::error::the Linux npm binary is dynamically linked"
+            exit 1
+          fi
+          "$binary" --version
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Install tarballs and launch the static packaged daemon
+        working-directory: packages/client
+        run: |
+          npm ci --omit=optional
+          npm run test:daemon:packaged -- linux-x64 ../../target/x86_64-unknown-linux-musl/debug/code-moniker
 
   bench-smoke:
     name: criterion benches compile and run once

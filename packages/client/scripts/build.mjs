@@ -27,6 +27,7 @@ await Promise.all([
 		platform: "node",
 		packages: "external",
 		format: "esm",
+		define: { __CODE_MONIKER_MODULE_URL__: "import.meta.url" },
 		outfile: "dist/node.js",
 	}),
 	build({
@@ -35,6 +36,7 @@ await Promise.all([
 		platform: "node",
 		packages: "external",
 		format: "cjs",
+		define: { __CODE_MONIKER_MODULE_URL__: "__filename" },
 		outfile: "dist/node.cjs",
 	}),
 ]);

@@ -190,11 +190,11 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
-Code Moniker 0.6 supports macOS and Linux. Its workspace daemon is currently
-Unix-only, so Windows packages are not published yet. Release binaries include
-the MCP server; no Rust toolchain or local compilation is required.
+Code Moniker 0.6 supports macOS, Linux x64, and Windows x64. Release binaries
+include the workspace daemon and MCP server; no Rust toolchain or local
+compilation is required.
 
-Install the latest release directly:
+Install the latest release directly on macOS or Linux:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
@@ -212,8 +212,12 @@ Rust users can install the same official prebuilt release with
 cargo binstall code-moniker
 ```
 
-Every binary includes the embedded agent skill. Install the agent integration
-for a client:
+On Windows, `cargo binstall` selects the official MSVC archive. Node.js
+consumers can instead install `@code-moniker/client`; its Node entry point
+receives and launches the matching optional native package automatically.
+
+Every binary includes the embedded agent skill. On macOS and Linux, install the
+physical agent integration for a client:
 
 ```sh
 code-moniker agent install --client codex
@@ -284,7 +288,7 @@ bar. The extension evolves independently from the CLI; use the platform-specific
 VSIX that embeds a compatible `code-moniker` binary. Its beta releases use
 separate `extension-v<version>` GitHub tags; the CLI `v<version>` releases only
 contain the standalone binary archives. The current beta is available for
-macOS and Linux; Windows support depends on porting the workspace daemon.
+macOS and Linux; a Windows VSIX is not yet published.
 
 For source development, build the CLI, package the extension, and install the
 generated `.vsix`:

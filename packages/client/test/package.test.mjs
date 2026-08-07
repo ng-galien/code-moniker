@@ -22,5 +22,7 @@ test("the Node entry point exposes lifecycle APIs to ESM and CommonJS consumers"
 	for (const client of [esmNodeClient, commonJsNodeClient]) {
 		assert.equal(typeof client.NodeDaemonRuntime, "function");
 		assert.equal(typeof client.nodeWebSocketFactory, "function");
+		assert.equal(typeof client.bundledBinaryPath, "function");
+		assert.equal(typeof client.defaultBinaryCandidates, "function");
 	}
 });

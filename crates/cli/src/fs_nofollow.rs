@@ -1543,6 +1543,7 @@ mod imp {
 	}
 
 	#[cfg(test)]
+	#[allow(dead_code)]
 	pub(super) fn write(
 		_root: &Path,
 		_path: &Path,
@@ -1573,6 +1574,7 @@ mod imp {
 	}
 
 	#[cfg(test)]
+	#[allow(dead_code)]
 	pub(super) fn remove(_root: &Path, _path: &Path) -> anyhow::Result<bool> {
 		unsupported()
 	}

@@ -1,11 +1,11 @@
 // code-moniker: ignore-file[smell-low-cohesion-module, smell-clone-reflex]
 // Daemon bootstrap clones config and handles into independently owned runtime services.
-#![cfg(unix)]
-
 mod telemetry;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::os::fd::{FromRawFd, RawFd};
+#[cfg(unix)]
+use std::os::fd::FromRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, TryLockError, mpsc};
@@ -124,7 +124,7 @@ pub fn serve_foreground_config(config: DaemonWorkspaceConfig) -> anyhow::Result<
 pub fn serve_foreground_config_supervised(
 	config: DaemonWorkspaceConfig,
 	supervisor_pid: Option<u32>,
-	supervisor_fd: Option<RawFd>,
+	supervisor_fd: Option<i32>,
 ) -> anyhow::Result<()> {
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
@@ -138,7 +138,7 @@ pub fn serve_foreground_config_supervised(
 async fn serve_async(
 	config: DaemonWorkspaceConfig,
 	supervisor_pid: Option<u32>,
-	supervisor_fd: Option<RawFd>,
+	supervisor_fd: Option<i32>,
 ) -> anyhow::Result<()> {
 	validate_supervisor_pid(supervisor_pid)?;
 	let config = canonical_workspace_config(config)?;
@@ -369,11 +369,13 @@ async fn stop_server(
 
 struct SupervisorWatch {
 	pid: Option<u32>,
+	#[cfg(unix)]
 	channel: Option<tokio::net::UnixStream>,
 }
 
 impl SupervisorWatch {
-	fn new(pid: Option<u32>, fd: Option<RawFd>) -> anyhow::Result<Self> {
+	fn new(pid: Option<u32>, fd: Option<i32>) -> anyhow::Result<Self> {
+		#[cfg(unix)]
 		let channel = fd
 			.map(|fd| {
 				anyhow::ensure!(fd > 2, "supervisor FD must be greater than 2");
@@ -384,22 +386,42 @@ impl SupervisorWatch {
 				tokio::net::UnixStream::from_std(stream).map_err(anyhow::Error::from)
 			})
 			.transpose()?;
-		Ok(Self { pid, channel })
+		#[cfg(not(unix))]
+		anyhow::ensure!(fd.is_none(), "--supervisor-fd is only supported on Unix");
+		#[cfg(unix)]
+		{
+			Ok(Self { pid, channel })
+		}
+		#[cfg(not(unix))]
+		{
+			Ok(Self { pid })
+		}
 	}
 
 	async fn wait(&mut self) {
-		match (&self.channel, self.pid) {
-			(Some(channel), Some(pid)) => tokio::select! {
-				_ = wait_for_supervisor_channel(channel) => {}
-				_ = wait_for_supervisor_pid(pid) => {}
-			},
-			(Some(channel), None) => wait_for_supervisor_channel(channel).await,
-			(None, Some(pid)) => wait_for_supervisor_pid(pid).await,
-			(None, None) => std::future::pending::<()>().await,
+		#[cfg(unix)]
+		{
+			match (&self.channel, self.pid) {
+				(Some(channel), Some(pid)) => tokio::select! {
+					_ = wait_for_supervisor_channel(channel) => {}
+					_ = wait_for_supervisor_pid(pid) => {}
+				},
+				(Some(channel), None) => wait_for_supervisor_channel(channel).await,
+				(None, Some(pid)) => wait_for_supervisor_pid(pid).await,
+				(None, None) => std::future::pending::<()>().await,
+			}
+		}
+		#[cfg(not(unix))]
+		{
+			match self.pid {
+				Some(pid) => wait_for_supervisor_pid(pid).await,
+				None => std::future::pending::<()>().await,
+			}
 		}
 	}
 }
 
+#[cfg(unix)]
 async fn wait_for_supervisor_channel(channel: &tokio::net::UnixStream) {
 	loop {
 		if channel.readable().await.is_err() {

@@ -8,7 +8,9 @@ packages = ["code-moniker"]
 targets = [
 	"aarch64-apple-darwin",
 	"x86_64-apple-darwin",
+	"x86_64-pc-windows-msvc",
 	"x86_64-unknown-linux-gnu",
+	"x86_64-unknown-linux-musl",
 ]
 features = ["mcp"]
 installers = ["shell"]
@@ -18,5 +20,5 @@ pr-run-mode = "plan"
 tag-namespace = "v"
 github-attestations = true
 github-release = "announce"
-publish-jobs = ["./publish-crates"]
-github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write" } }
+publish-jobs = ["./publish-crates", "./publish-npm"]
+github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write" }, "publish-npm" = { contents = "read", "id-token" = "write" } }

@@ -1,0 +1,25 @@
+{
+	"name": "@code-moniker/cli-darwin-x64",
+	"version": "0.6.0",
+	"description": "Code Moniker CLI for macOS x64.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ng-galien/code-moniker.git",
+		"directory": "packages/client"
+	},
+	"os": [
+		"darwin"
+	],
+	"cpu": [
+		"x64"
+	],
+	"preferUnplugged": true,
+	"files": [
+		"bin",
+		"README.md"
+	],
+	"publishConfig": {
+		"access": "public"
+	}
+}

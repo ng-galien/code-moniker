@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use std::future::Future;
 use std::io::{Read, Seek, SeekFrom};
 use std::ops::Deref;

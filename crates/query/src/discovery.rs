@@ -4,6 +4,10 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+#[cfg(windows)]
+use std::os::windows::prelude::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -278,7 +282,42 @@ fn atomic_write_registry_entry(path: &Path, entry: &DaemonRegistryEntry) -> anyh
 		file.write_all(&text)?;
 		file.sync_all()?;
 	}
-	fs::rename(temp, path)?;
+	replace_registry_file(&temp, path)?;
+	Ok(())
+}
+
+#[cfg(windows)]
+fn replace_registry_file(source: &Path, destination: &Path) -> anyhow::Result<()> {
+	use windows_sys::Win32::Storage::FileSystem::{
+		MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+	};
+
+	let source = source
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect::<Vec<_>>();
+	let destination = destination
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect::<Vec<_>>();
+	if unsafe {
+		MoveFileExW(
+			source.as_ptr(),
+			destination.as_ptr(),
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+		)
+	} == 0
+	{
+		return Err(std::io::Error::last_os_error().into());
+	}
+	Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_registry_file(source: &Path, destination: &Path) -> anyhow::Result<()> {
+	fs::rename(source, destination)?;
 	Ok(())
 }
 
@@ -322,10 +361,50 @@ fn with_registry_lock<T>(
 
 #[cfg(not(unix))]
 fn with_registry_lock<T>(
-	_path: &Path,
+	path: &Path,
 	action: impl FnOnce() -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-	action()
+	#[cfg(windows)]
+	{
+		use windows_sys::Win32::Storage::FileSystem::{
+			LOCKFILE_EXCLUSIVE_LOCK, LockFileEx, UnlockFileEx,
+		};
+		use windows_sys::Win32::System::IO::OVERLAPPED;
+
+		let lock_path = path.with_extension("lock");
+		let lock = OpenOptions::new()
+			.read(true)
+			.write(true)
+			.create(true)
+			.truncate(false)
+			.open(lock_path)?;
+		let mut overlapped = unsafe { std::mem::zeroed::<OVERLAPPED>() };
+		let handle = lock.as_raw_handle();
+		if unsafe {
+			LockFileEx(
+				handle,
+				LOCKFILE_EXCLUSIVE_LOCK,
+				0,
+				u32::MAX,
+				u32::MAX,
+				&mut overlapped,
+			)
+		} == 0
+		{
+			return Err(std::io::Error::last_os_error().into());
+		}
+		let result = action();
+		let unlock = unsafe { UnlockFileEx(handle, 0, u32::MAX, u32::MAX, &mut overlapped) };
+		if unlock == 0 && result.is_ok() {
+			return Err(std::io::Error::last_os_error().into());
+		}
+		result
+	}
+	#[cfg(not(windows))]
+	{
+		let _ = path;
+		action()
+	}
 }
 
 pub fn list_registry_files() -> anyhow::Result<Vec<(PathBuf, DaemonRegistryEntry)>> {
@@ -361,14 +440,47 @@ pub fn pid_is_alive(pid: u32) -> bool {
 	}
 	#[cfg(not(unix))]
 	{
-		let _ = pid;
-		true
+		#[cfg(windows)]
+		{
+			windows_pid_is_alive(pid)
+		}
+		#[cfg(not(windows))]
+		{
+			let _ = pid;
+			false
+		}
 	}
 }
 
 #[cfg(unix)]
 fn kill_result_means_alive(result: i32, errno: Option<i32>) -> bool {
 	result == 0 || errno != Some(libc::ESRCH)
+}
+
+#[cfg(windows)]
+fn windows_pid_is_alive(pid: u32) -> bool {
+	use windows_sys::Win32::Foundation::{
+		CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_TIMEOUT,
+	};
+	use windows_sys::Win32::System::Threading::{
+		OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+	};
+
+	let handle = unsafe {
+		OpenProcess(
+			PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+			0,
+			pid,
+		)
+	};
+	if handle.is_null() {
+		return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+	}
+	let state = unsafe { WaitForSingleObject(handle, 0) };
+	unsafe {
+		CloseHandle(handle);
+	}
+	state == WAIT_TIMEOUT
 }
 
 pub fn list_registry_entries() -> anyhow::Result<Vec<DaemonRegistryEntry>> {
@@ -607,5 +719,71 @@ mod tests {
 		assert!(kill_result_means_alive(-1, Some(libc::EPERM)));
 		assert!(!kill_result_means_alive(-1, Some(libc::ESRCH)));
 		assert!(kill_result_means_alive(0, None));
+	}
+
+	#[cfg(windows)]
+	#[test]
+	fn current_windows_process_is_alive() {
+		assert!(pid_is_alive(std::process::id()));
+	}
+
+	#[test]
+	fn registry_lock_serializes_processes() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let target = dir.path().join("workspace.json");
+		let started = dir.path().join("child-started");
+		let acquired = dir.path().join("child-acquired");
+		let mut child = None;
+
+		with_registry_lock(&target, || {
+			child = Some(
+				std::process::Command::new(std::env::current_exe()?)
+					.args([
+						"--exact",
+						"discovery::tests::registry_lock_child",
+						"--nocapture",
+					])
+					.env("CODE_MONIKER_LOCK_TEST_TARGET", &target)
+					.env("CODE_MONIKER_LOCK_TEST_STARTED", &started)
+					.env("CODE_MONIKER_LOCK_TEST_ACQUIRED", &acquired)
+					.spawn()?,
+			);
+			let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+			while !started.exists() && std::time::Instant::now() < deadline {
+				std::thread::sleep(std::time::Duration::from_millis(10));
+			}
+			assert!(started.exists(), "child process did not reach the lock");
+			std::thread::sleep(std::time::Duration::from_millis(200));
+			assert!(
+				!acquired.exists(),
+				"child acquired the registry lock before its owner released it"
+			);
+			Ok(())
+		})
+		.expect("hold parent lock");
+
+		let status = child
+			.expect("child process")
+			.wait()
+			.expect("wait for child");
+		assert!(status.success(), "child lock process failed: {status}");
+		assert!(acquired.exists(), "child never acquired the released lock");
+	}
+
+	#[test]
+	fn registry_lock_child() {
+		let (Some(target), Some(started), Some(acquired)) = (
+			std::env::var_os("CODE_MONIKER_LOCK_TEST_TARGET"),
+			std::env::var_os("CODE_MONIKER_LOCK_TEST_STARTED"),
+			std::env::var_os("CODE_MONIKER_LOCK_TEST_ACQUIRED"),
+		) else {
+			return;
+		};
+		fs::write(&started, b"started").expect("announce child");
+		with_registry_lock(Path::new(&target), || {
+			fs::write(&acquired, b"acquired")?;
+			Ok(())
+		})
+		.expect("acquire child lock");
 	}
 }

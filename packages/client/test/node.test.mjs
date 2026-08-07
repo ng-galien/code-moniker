@@ -12,7 +12,20 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { PROTOCOL_VERSION } from "../dist/index.js";
-import { NodeDaemonRuntime } from "../dist/node.js";
+import {
+	NodeDaemonRuntime,
+	bundledBinaryPath,
+	defaultBinaryCandidates,
+} from "../dist/node.js";
+
+test("the Node runtime provides portable default binary candidates", () => {
+	const candidates = defaultBinaryCandidates();
+	assert.equal(candidates.at(-1), "code-moniker");
+	const bundled = bundledBinaryPath();
+	if (bundled !== undefined) {
+		assert.equal(candidates[0], bundled);
+	}
+});
 
 test("the Node runtime discovers and targets exact registered workspaces", () => {
 	const fixture = registryFixture();
@@ -95,20 +108,22 @@ test("the Node runtime connects with the portable handshake and can stop an expl
 	assert.equal(daemon.requests.at(-1).method, "moniker_shutdown");
 });
 
-test("launch starts the first available binary and returns its registered ownership claim", async () => {
+test("launch uses runtime-level candidates and returns its registered ownership claim", {
+	skip: process.platform === "win32",
+}, async () => {
 	const fixture = registryFixture();
 	const binary = join(fixture.base, "fake-code-moniker.mjs");
 	writeFileSync(binary, fakeDaemonScript());
 	chmodSync(binary, 0o755);
 	const runtime = new NodeDaemonRuntime({
 		registryDirectory: fixture.registry,
+		binaryCandidates: [join(fixture.base, "missing-code-moniker"), binary],
 	});
 
 	let owned;
 	try {
 		owned = await runtime.launch({
 			workspaceRoots: [fixture.root],
-			binaryCandidates: [join(fixture.base, "missing-code-moniker"), binary],
 			environment: {
 				...process.env,
 				CODE_MONIKER_TEST_REGISTRY: fixture.registry,

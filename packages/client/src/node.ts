@@ -5,6 +5,7 @@ import {
 	realpathSync,
 	unlinkSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -23,11 +24,35 @@ const HEARTBEAT_TIMEOUT_MS = 15_000;
 const DEFAULT_REGISTRATION_TIMEOUT_MS = 5_000;
 const DEFAULT_EXIT_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
+declare const __CODE_MONIKER_MODULE_URL__: string;
+const requireFromPackage = createRequire(__CODE_MONIKER_MODULE_URL__);
+
+const BINARY_PACKAGES: Readonly<
+	Record<string, { packageName: string; executable: string }>
+> = {
+	"darwin-arm64": {
+		packageName: "@code-moniker/cli-darwin-arm64",
+		executable: "code-moniker",
+	},
+	"darwin-x64": {
+		packageName: "@code-moniker/cli-darwin-x64",
+		executable: "code-moniker",
+	},
+	"linux-x64": {
+		packageName: "@code-moniker/cli-linux-x64",
+		executable: "code-moniker",
+	},
+	"win32-x64": {
+		packageName: "@code-moniker/cli-win32-x64",
+		executable: "code-moniker.exe",
+	},
+};
 
 export interface NodeDaemonRuntimeOptions {
 	registryDirectory?: string;
 	webSocketFactory?: WebSocketFactory;
 	timeoutMs?: number;
+	binaryCandidates?: readonly [string, ...string[]];
 }
 
 export interface NodeDaemonConnectOptions {
@@ -38,7 +63,7 @@ export interface NodeDaemonConnectOptions {
 
 export interface LaunchDaemonOptions {
 	workspaceRoots: readonly [string, ...string[]];
-	binaryCandidates: readonly [string, ...string[]];
+	binaryCandidates?: readonly [string, ...string[]];
 	supervisorPid?: number;
 	environment?: Record<string, string | undefined>;
 	registrationTimeoutMs?: number;
@@ -66,6 +91,7 @@ export class NodeDaemonRuntime {
 	readonly registryDirectory: string;
 	private readonly webSocketFactory: WebSocketFactory;
 	private readonly timeoutMs?: number;
+	private readonly binaryCandidates?: readonly [string, ...string[]];
 
 	constructor(options: NodeDaemonRuntimeOptions = {}) {
 		this.registryDirectory =
@@ -73,6 +99,7 @@ export class NodeDaemonRuntime {
 		this.webSocketFactory =
 			options.webSocketFactory ?? nodeWebSocketFactory;
 		this.timeoutMs = options.timeoutMs;
+		this.binaryCandidates = options.binaryCandidates;
 	}
 
 	listDaemons(): DaemonRegistryEntry[] {
@@ -163,8 +190,12 @@ export class NodeDaemonRuntime {
 	}
 
 	async launch(options: LaunchDaemonOptions): Promise<OwnedDaemon> {
+		const binaryCandidates =
+			options.binaryCandidates ??
+			this.binaryCandidates ??
+			defaultBinaryCandidates();
 		const processHandle = await launchDetached(
-			options.binaryCandidates,
+			binaryCandidates,
 			daemonArguments(options.workspaceRoots, options.supervisorPid),
 			options.environment,
 		);
@@ -311,6 +342,30 @@ export function nodeWebSocketFactory(url: string): WebSocketLike {
 	return new WebSocket(url) as unknown as WebSocketLike;
 }
 
+export function bundledBinaryPath(
+	platform: string = process.platform,
+	architecture: string = process.arch,
+): string | undefined {
+	const binaryPackage = BINARY_PACKAGES[`${platform}-${architecture}`];
+	if (!binaryPackage) {
+		return undefined;
+	}
+	try {
+		return requireFromPackage.resolve(
+			`${binaryPackage.packageName}/bin/${binaryPackage.executable}`,
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+export function defaultBinaryCandidates(): readonly [string, ...string[]] {
+	const bundled = bundledBinaryPath();
+	return bundled === undefined
+		? ["code-moniker"]
+		: [bundled, "code-moniker"];
+}
+
 interface RegistryFile {
 	file: string;
 	entry: DaemonRegistryEntry;
@@ -320,15 +375,17 @@ function daemonArguments(
 	workspaceRoots: readonly string[],
 	supervisorPid = process.pid,
 ): string[] {
-	return [
+	const args = [
 		"daemon",
 		"start",
 		...workspaceRoots,
 		"--supervisor-pid",
 		String(supervisorPid),
-		"--supervisor-fd",
-		"3",
 	];
+	if (process.platform !== "win32") {
+		args.push("--supervisor-fd", "3");
+	}
+	return args;
 }
 
 function launchDetached(
@@ -361,7 +418,11 @@ function tryLaunchDetached(
 		const child = spawn(binaryCandidates[index], args, {
 			detached: true,
 			env: environment,
-			stdio: ["ignore", "ignore", "inherit", "pipe"],
+			stdio:
+				process.platform === "win32"
+					? ["ignore", "ignore", "ignore"]
+					: ["ignore", "ignore", "inherit", "pipe"],
+			windowsHide: process.platform === "win32",
 		});
 		let settled = false;
 		child.once("spawn", onSpawn);
@@ -373,9 +434,12 @@ function tryLaunchDetached(
 			}
 			settled = true;
 			const pid = child.pid;
-			const supervisorPipe = child.stdio[3] as
-				| (NodeJS.ReadableStream & { unref?: () => void })
-				| null;
+			const supervisorPipe =
+				process.platform === "win32"
+					? null
+					: (child.stdio[3] as
+							| (NodeJS.ReadableStream & { unref?: () => void })
+							| null);
 			supervisorPipe?.unref?.();
 			child.unref();
 			if (pid === undefined) {
@@ -412,7 +476,7 @@ function tryLaunchDetached(
 
 		function terminate(): void {
 			if (isRunning()) {
-				child.kill("SIGTERM");
+				child.kill();
 			}
 		}
 	}
