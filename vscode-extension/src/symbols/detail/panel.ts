@@ -46,7 +46,7 @@ export interface DetailRow {
 	value: string;
 }
 
-// A single reactive webview that mirrors the TUI's right-hand panel: it re-renders
+// A single reactive webview for symbol details: it re-renders
 // from the selected symbol without ever opening a file. Opening source is an
 // explicit message from the view.
 export class DetailWebview implements vscode.Disposable {

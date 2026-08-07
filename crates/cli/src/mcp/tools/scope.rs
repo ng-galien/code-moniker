@@ -99,10 +99,6 @@ impl SymbolScopeFilter {
 		self.matches_symbol_base(symbol) && self.matches_kind_and_shape(symbol.kind)
 	}
 
-	pub(super) fn matches_tui_search_symbol(&self, symbol: SymbolMatch<'_>) -> bool {
-		self.matches_symbol_base(symbol) && self.matches_kind_or_shape(symbol.kind)
-	}
-
 	fn matches_symbol_base(&self, symbol: SymbolMatch<'_>) -> bool {
 		(self.include_non_navigable || symbol.navigable)
 			&& self

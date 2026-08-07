@@ -23,11 +23,11 @@ impl SearchTool {
 	pub(super) const NAME: &'static str = "code_moniker_search";
 
 	const DESCRIPTION: &'static str = concat!(
-		"When to use: search symbols using the same workspace search index as the TUI header search. ",
+		"When to use: fuzzy-search symbols through the workspace search index. ",
 		"Use code_moniker_symbols when you need exact regex filtering over symbol names instead.\n",
 		"\n",
 		"Search from code-moniker.\n",
-		"  query — fuzzy symbol search text, scored like the TUI search\n",
+		"  query — fuzzy symbol search text\n",
 		"  path/lang/kind/shape — same filters as code_moniker_symbols\n",
 		"  include_code/context_lines — opt into source lines around each symbol range\n",
 		"Use limit and cursor for paging; compact output keeps only the cursor follow-up by default."
@@ -39,7 +39,7 @@ impl SearchTool {
 			"properties": {
 				"query": {
 					"type": "string",
-					"description": "Fuzzy symbol search text, scored like the TUI search."
+					"description": "Fuzzy symbol search text."
 				},
 				"path": {
 					"oneOf": [
@@ -71,7 +71,7 @@ impl SearchTool {
 				},
 				"name": {
 					"type": "string",
-					"description": "Rust regex matched against symbol name after TUI-style search scoring."
+					"description": "Rust regex matched against symbol name after fuzzy-search scoring."
 				},
 				"include_code": {
 					"type": "boolean",
@@ -131,7 +131,7 @@ struct SearchRequest {
 impl SearchRequest {
 	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
 		if arguments.get("include_non_navigable").is_some() {
-			anyhow::bail!("`include_non_navigable` is unsupported by TUI-style search");
+			anyhow::bail!("`include_non_navigable` is unsupported by fuzzy search");
 		}
 		let compact = compact_argument(arguments)?;
 		Ok(Self {

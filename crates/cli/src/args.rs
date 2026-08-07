@@ -33,9 +33,6 @@ pub enum Command {
 	Diff(DiffArgs),
 	#[command(about = "Create and toggle the project rules file.")]
 	Rules(RulesArgs),
-	#[cfg(feature = "tui")]
-	#[command(about = "Open a read-only terminal architecture explorer.")]
-	Ui(UiArgs),
 	#[cfg(feature = "mcp")]
 	#[command(about = "Start a local MCP server over HTTP or stdio.")]
 	Mcp(McpArgs),
@@ -712,61 +709,6 @@ impl LiveRefresh {
 	}
 }
 
-#[cfg(feature = "tui")]
-#[derive(Debug, ClapArgs)]
-pub struct UiArgs {
-	#[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
-	pub paths: Vec<PathBuf>,
-
-	#[arg(
-		long,
-		value_name = "SCHEME",
-		help = "URI scheme; defaults to code+moniker://"
-	)]
-	pub scheme: Option<String>,
-
-	#[arg(
-		long,
-		value_name = "NAME",
-		help = "project component of the anchor moniker; defaults to '.'"
-	)]
-	pub project: Option<String>,
-
-	#[arg(
-		long,
-		value_name = "DIR",
-		env = "CODE_MONIKER_CACHE_DIR",
-		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
-	)]
-	pub cache: Option<PathBuf>,
-
-	#[arg(
-		long,
-		value_name = "PATH",
-		default_value = ".code-moniker.toml",
-		help = "user TOML overlay for the check view"
-	)]
-	pub rules: PathBuf,
-
-	#[arg(
-		long,
-		value_name = "NAME",
-		help = "filter check rules through a named profile from .code-moniker.toml"
-	)]
-	pub profile: Option<String>,
-
-	#[arg(long, help = "show TUI component debug markers")]
-	pub debug: bool,
-
-	#[arg(
-		long,
-		value_enum,
-		default_value_t = LiveRefresh::OnDemand,
-		help = "live index policy: on-demand marks changes stale until a manual refresh; auto refreshes on every change"
-	)]
-	pub live_refresh: LiveRefresh,
-}
-
 #[cfg(feature = "mcp")]
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub(crate) enum McpTransport {
@@ -1243,17 +1185,6 @@ mod tests {
 		}
 	}
 
-	#[cfg(feature = "tui")]
-	fn ui(argv: &[&str]) -> UiArgs {
-		let mut full = vec!["ui"];
-		full.extend_from_slice(argv);
-		let cli = parse(&full).unwrap();
-		match cli.command {
-			Command::Ui(a) => a,
-			other => panic!("expected Ui, got {other:?}"),
-		}
-	}
-
 	#[test]
 	fn no_args_requires_subcommand() {
 		assert!(
@@ -1263,9 +1194,14 @@ mod tests {
 	}
 
 	#[test]
-	fn removed_legacy_subcommand_is_rejected() {
-		let error = parse(&[concat!("har", "ness"), "codex"]).unwrap_err();
-		assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+	fn removed_subcommands_are_rejected() {
+		for argv in [
+			vec![concat!("har", "ness"), "codex"],
+			vec![concat!("u", "i")],
+		] {
+			let error = parse(&argv).unwrap_err();
+			assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+		}
 	}
 
 	#[test]
@@ -1338,17 +1274,6 @@ mod tests {
 			a.paths,
 			vec![PathBuf::from("svc-a"), PathBuf::from("svc-b")]
 		);
-	}
-
-	#[cfg(feature = "tui")]
-	#[test]
-	fn ui_defaults_to_current_dir_and_accepts_multiple_paths() {
-		assert_eq!(ui(&[]).paths, vec![PathBuf::from(".")]);
-		assert_eq!(
-			ui(&["svc-a", "svc-b"]).paths,
-			vec![PathBuf::from("svc-a"), PathBuf::from("svc-b")]
-		);
-		assert!(ui(&["--debug"]).debug);
 	}
 
 	#[test]

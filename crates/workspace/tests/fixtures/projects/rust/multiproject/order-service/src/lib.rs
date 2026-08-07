@@ -328,16 +328,6 @@ pub fn external_language_constant() {
 	let _language = tree_sitter_rust::LANGUAGE;
 }
 
-pub fn external_builder_chain() {
-	let _block = ratatui::widgets::Block::default()
-		.borders(ratatui::widgets::Borders::ALL)
-		.title("order");
-}
-
-pub fn external_qualified_frame(frame: &mut ratatui::Frame<'_>) {
-	frame.render_widget("order", ratatui::layout::Rect::default());
-}
-
 pub fn standard_method_surface(
 	mut labels: Vec<String>,
 	maybe: Option<String>,

@@ -33,7 +33,7 @@ impl ReadTool {
 	pub(super) const NAME: &'static str = "code_moniker_read";
 
 	const DESCRIPTION: &'static str = concat!(
-		"When to use: default entry point to explore the current code-moniker UI workspace. ",
+		"When to use: default entry point to explore the current code-moniker workspace. ",
 		"The same verb starts at the workspace root, expands an explorer tree, or reads code from a returned symbol moniker.\n",
 		"\n",
 		"Read from code-moniker.\n",

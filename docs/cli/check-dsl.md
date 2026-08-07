@@ -896,22 +896,22 @@ root `.code-moniker.toml` directory. A differently named `--rules` file is
 standalone and does not discover sibling fragments:
 
 ```toml
-fragment = "ui"                             # required
+fragment = "domain"                         # required
 enabled = true                              # optional, default true
 
 [aliases]                                  # optional, local to this fragment
-panels = "uri ~ '**/dir:ui/dir:panels/**'"
+domain = "source ~ '**/dir:domain/**'"
 
 [[refs.where]]
-id      = "panels-ratatui-free"            # required in fragments
-expr    = "$panels => NOT target ~ '**/external_pkg:ratatui/**'"
-message = "`ui::panels` should stay renderer-free."
+id      = "domain-is-infrastructure-free"  # required in fragments
+expr    = "$domain => NOT target ~ '**/dir:infrastructure/**'"
+message = "Domain code should stay independent from infrastructure."
 ```
 
 Fragments are merged after `.code-moniker.toml`. They do not support
 overrides: a rule collision is an error. A fragment rule id is local and
 gets the fragment id injected before it enters the effective config, so
-the example rule id is `refs.ui.panels-ratatui-free`. Disabled fragments
+the example rule id is `refs.domain.domain-is-infrastructure-free`. Disabled fragments
 remain visible in `rules show` but contribute no active rules or aliases.
 
 `message` is rendered as the optional violation explanation. `severity`

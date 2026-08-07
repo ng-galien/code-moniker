@@ -155,7 +155,7 @@ fn install<W: Write>(
 	let components = resolved_install_components(&args.components);
 	if components.contains(&AgentComponent::Mcp) && !cfg!(feature = "mcp") {
 		bail!(
-			"this code-moniker binary has no MCP support; reinstall it with `cargo install code-moniker --features tui,mcp`"
+			"this code-moniker binary has no MCP support; reinstall it with `cargo install code-moniker --features mcp`"
 		);
 	}
 

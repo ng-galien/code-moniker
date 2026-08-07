@@ -11,6 +11,12 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Removed
+
+- **Terminal UI.** The `code-moniker ui` command, `tui` Cargo feature,
+  Ratatui/Crossterm dependencies, acceptance suite, and dedicated documentation
+  have been removed. CLI, daemon, MCP, agent, and VS Code surfaces remain.
+
 ### Added
 
 - **Architecture review workflow for agents.** The bundled Code Moniker skill

@@ -1,4 +1,4 @@
-# Map — Rust Workspace (engine, daemon, CLI/TUI/MCP)
+# Map — Rust Workspace (engine, daemon, CLI/MCP)
 
 Operational map for agents working on the Rust side. The bootstrap
 (`AGENTS.md`) holds the everyday commands and gates; this map holds the
@@ -12,7 +12,7 @@ detail you only need when acting on a specific surface.
 - `crates/query`: query/verb layer — `Query`/`QueryResult` DTOs, text parser, formatters, JSON schema source.
 - `crates/daemon`: workspace daemon — handlers, incremental refresh, registry (`$TMPDIR/code-moniker-daemons/*.json`).
 - `crates/daemon-client`: client for CLI/extension-side daemon access.
-- `crates/cli`: `code-moniker` binary — check rendering, formatting, TUI (`src/ui/`), MCP (`src/mcp/`).
+- `crates/cli`: `code-moniker` binary — check rendering, formatting and MCP (`src/mcp/`).
 - Schema flow: `crates/query` → `docs/schema/daemon.schema.json` → `vscode-extension/src/daemon/generated.ts` (`npm run generate:daemon-types`).
 
 ## Build Latency
@@ -33,7 +33,6 @@ from project/index checks.
 
 After rebuilding or restarting `cm-mcp`, validate the surface:
 
-- TUI capture: file tree, then symbol/linkage completion.
 - MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`; partial
   pages expose an optional `next` cursor call.
 - Compact contract: default responses and generated calls render canonical
@@ -72,44 +71,6 @@ and pass the other as the hidden `--supervisor-fd` argument. EOF is the primary
 crash signal; `--supervisor-pid` is only the fallback. Never detach an owned IDE
 or Node daemon from both mechanisms. The shared Rust `connect_or_start` path is
 different by contract: it launches a persistent daemon without a supervisor.
-
-## TUI Verification
-
-```sh
-cargo install --path crates/cli --features tui,mcp --no-default-features
-tmux kill-session -t cm-tui-debug
-tmux new-session -d -s cm-tui-debug 'code-moniker ui <source-root>'
-tmux resize-window -t cm-tui-debug -x 160 -y 45
-tmux capture-pane -t cm-tui-debug -p
-```
-
-- Navigate with keys, capture after each step:
-  - `tmux send-keys -t cm-tui-debug Enter`
-  - `tmux send-keys -t cm-tui-debug Down Down Enter`
-  - `tmux send-keys -t cm-tui-debug s R i s k P o l i c y`
-  - `tmux send-keys -t cm-tui-debug Escape`
-- Visible contract: header `code-moniker [ui.header]`, navigator `[ui.navigator]`,
-  active panel `[ui.panel.<name>]`, workspace counts `files`/`defs`/`refs`,
-  row markers `>` (selected), `▾` (expanded), `▸` (collapsed).
-- File tree before symbols: catalog-only acceptance load shows files with `defs 0`, `refs 0`.
-- Symbols after index: navigator title has nonzero `defs`; expanded file rows show kind, visibility, path/name.
-- Module-only Rust files: `code-moniker extract <source-root> --path <mod-file> --format json --max-symbols 20`; expected TUI row `0 defs <N> reexports`.
-- Search: `tmux send-keys -t cm-tui-debug s <query>` → mode `search`, navigator `filtered`, panel `outline`.
-- Views: `v` → panel `[ui.panel.views]`, tree markers `[vN]`; `v` again → back to `overview`.
-- Truncation: always resize to `160x45` before the final capture; if still truncated, center the target row and recapture.
-- Kill the debug TUI afterwards: `tmux kill-session -t cm-tui-debug`.
-
-## TUI Architecture
-
-- Shell owns: terminal loop, layout, routing, navigation registry, effects.
-- Features own: navigation entries, commands, routes, screens, panel VMs.
-- Input path: `ui::events` → `Msg` → `AppState::reduce_ui_msg`; reducer output is a typed outcome.
-- Runtime path: `Effect::RunCommand(AppCommand)` → `App` → shared dispatch helper.
-- Contracts: render contracts only. Workspace boundary: `workspace::WorkspaceStore`.
-- UI data: workspace read models only. Shell state: `AppState`.
-- Async catalog: `ProjectLoad`, `FileCatalog`, `GraphIndex`, `SearchIndex`, `GitOverlay`, `ImpactIndex`, `PanelData`, `CoverageIndex`.
-- Long work: typed effects and task specs. Component markers: collaboration vocabulary only.
-- Tests: state transitions, route/effect behavior, store boundaries.
 
 ## Boundaries & Tests
 

@@ -24,30 +24,20 @@ pub(crate) mod mcp_command;
 pub(crate) mod page;
 pub(crate) mod query;
 pub(crate) mod rules;
-#[cfg(any(feature = "tui", feature = "mcp"))]
+#[cfg(feature = "mcp")]
 pub(crate) mod session;
 pub(crate) mod shapes;
 pub(crate) mod stats;
 #[cfg(feature = "pretty")]
 pub(crate) mod tree;
-#[cfg(feature = "tui")]
-pub(crate) mod ui;
-#[cfg(feature = "tui")]
-pub(crate) mod ui_command;
-#[cfg(any(feature = "tui", feature = "mcp"))]
+#[cfg(feature = "mcp")]
 pub(crate) mod views;
-#[cfg(any(feature = "tui", feature = "mcp"))]
-pub(crate) mod workspace_index;
 
 use std::io::Write;
 use std::process::ExitCode;
 
-#[cfg(any(feature = "tui", feature = "mcp"))]
-pub use args::LiveRefresh;
 #[cfg(feature = "mcp")]
 pub use args::McpArgs;
-#[cfg(feature = "tui")]
-pub use args::UiArgs;
 pub use args::{
 	AgentArgs, AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
 	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, ColorChoice, Command, DaemonArgs,
@@ -88,8 +78,6 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
 		Command::Query(args) => query::run(args, stdout, stderr),
 		Command::Agent(args) => agent::run(args, stdout, stderr),
-		#[cfg(feature = "tui")]
-		Command::Ui(args) => ui_command::run(args, stdout, stderr),
 		#[cfg(feature = "mcp")]
 		Command::Mcp(args) => mcp_command::run(args, stdout, stderr),
 		Command::Langs(args) => langs::run(args, stdout, stderr),

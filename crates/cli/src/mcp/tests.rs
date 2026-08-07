@@ -1584,7 +1584,7 @@ fn workspace_read_reports_roots_and_rejects_a_mismatched_expectation() {
 }
 
 #[test]
-fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
+fn search_tool_uses_fuzzy_symbol_search_with_existing_scope_filters() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir java");
 	std::fs::create_dir_all(temp.path().join("src/test/java")).expect("mkdir test");

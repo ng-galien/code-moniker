@@ -29,7 +29,6 @@ path = "src/main.rs"
 [features]
 default = ["pretty", "telemetry"]
 pretty  = ["dep:anstyle"]
-tui     = ["pretty", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
 telemetry = ["code-moniker-daemon/telemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-appender-tracing", "dep:tracing", "dep:tracing-opentelemetry", "dep:tracing-subscriber"]
 
@@ -65,9 +64,6 @@ opentelemetry-appender-tracing = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 
 anstyle       = { workspace = true, optional = true }
-ratatui       = { workspace = true, optional = true }
-ratatui-textarea = { workspace = true, optional = true }
-crossterm     = { workspace = true, optional = true }
 tempfile      = { workspace = true }
 
 [dev-dependencies]

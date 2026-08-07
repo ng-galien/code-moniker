@@ -1,5 +1,3 @@
-#[cfg(feature = "tui")]
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -7,69 +5,4 @@ pub(crate) struct SessionOptions {
 	pub paths: Vec<PathBuf>,
 	pub project: Option<String>,
 	pub cache_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-#[cfg(feature = "tui")]
-pub struct SessionStats {
-	pub files: usize,
-	pub defs: usize,
-	pub refs: usize,
-	pub by_lang: BTreeMap<&'static str, LangTotals>,
-	pub by_shape: BTreeMap<&'static str, usize>,
-	pub by_def_kind: BTreeMap<String, usize>,
-	pub by_ref_kind: BTreeMap<String, usize>,
-	pub scan_ms: u64,
-	pub extract_ms: u64,
-	pub index_ms: u64,
-	pub linkage_ms: u64,
-	pub changes_ms: u64,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-#[cfg(feature = "tui")]
-pub(crate) struct LangTotals {
-	pub files: usize,
-	pub defs: usize,
-	pub refs: usize,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-#[cfg(feature = "tui")]
-pub struct CheckSummary {
-	pub files_scanned: usize,
-	pub files_with_violations: usize,
-	pub total_violations: usize,
-	pub errors: Vec<CheckError>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "tui")]
-pub(crate) struct CheckError {
-	pub path: PathBuf,
-	pub error: String,
-}
-
-#[cfg(feature = "tui")]
-pub(crate) fn root_label_for_options(opts: &SessionOptions) -> String {
-	match opts.paths.as_slice() {
-		[] => "<empty>".to_string(),
-		[path] => path.display().to_string(),
-		paths => sibling_parent(paths)
-			.map(|parent| parent.display().to_string())
-			.unwrap_or_else(|| {
-				paths
-					.iter()
-					.map(|path| path.display().to_string())
-					.collect::<Vec<_>>()
-					.join(", ")
-			}),
-	}
-}
-
-#[cfg(feature = "tui")]
-fn sibling_parent(paths: &[PathBuf]) -> Option<&std::path::Path> {
-	let mut parents = paths.iter().map(|path| path.parent());
-	let first = parents.next()??;
-	parents.all(|parent| parent == Some(first)).then_some(first)
 }

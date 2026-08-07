@@ -71,7 +71,7 @@ expr     = """
 """
 message  = "MCP socket/thread runtime wiring belongs to `cli::mcp::server`."
 rationale = """
-The CLI/TUI may opt in to MCP, but socket lifetime and stream framing are global runtime concerns.
+The CLI may opt in to MCP, but socket lifetime and stream framing are global runtime concerns.
 Keeping those imports in server prevents individual tools from opening listeners or depending on
 TCP details.
 """

@@ -74,9 +74,6 @@ opentelemetry-appender-tracing = { version = "0.32", default-features = false }
 tracing-opentelemetry = { version = "0.33", default-features = false }
 
 anstyle       = "1"
-ratatui       = "0.30"
-ratatui-textarea = "0.9.1"
-crossterm     = "0.29"
 notify        = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 
 [profile.dev]

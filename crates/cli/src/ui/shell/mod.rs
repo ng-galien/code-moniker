@@ -1,4 +1,0 @@
-pub(in crate::ui) mod event_loop;
-pub(in crate::ui) mod terminal;
-
-pub(in crate::ui) use event_loop::{EventSource, ShellEvent};

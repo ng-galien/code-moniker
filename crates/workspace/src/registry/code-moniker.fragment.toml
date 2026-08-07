@@ -16,10 +16,7 @@ registry_local = """
   OR source ~ '**/dir:registry/module:local'
   OR source ~ '**/dir:registry/module:local/**'
 """
-consumer_target = """
-  target ~ '**/external_pkg:code_moniker_cli/**'
-  OR target ~ '**/external_pkg:ratatui/**'
-"""
+consumer_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
 local_resource_impl_target = "target.name =~ ^(LocalSourceCatalog|LocalSourceCatalogOptions|LocalCodeIndex|LocalCodeIndexOptions|LocalLinkage|LocalChangeOverlay|LocalResourceCache)$"
 workspace_ref = """
   kind = 'imports_symbol'
@@ -41,8 +38,8 @@ expr     = """
 message  = "`workspace::registry` is a workspace port catalog; it must not import consumer-facing models."
 rationale = """
 WorkspaceRegistry is the public catalog of workspace ports. It is consumed by extract, stats,
-check, UI, MCP, and manifest, so it must not depend on any consumer representation such as
-terminal widgets, LMNAV, or CLI command models.
+check, MCP, and manifest, so it must not depend on any consumer representation such as LMNAV
+or CLI command models.
 
 Topology:
 
@@ -86,13 +83,13 @@ Topology:
           |                             |                             |
           v                             v                             v
    +------------+                +------------+                +------------+
-   | extract    |                | ui         |                | mcp        |
-   | output rows|                | panels/nav |                | LMNAV      |
+   | extract    |                | mcp        |                | manifest   |
+   | output rows|                | LMNAV      |                | deps output|
    +------------+                +------------+                +------------+
           v                             v                             v
    +------------+                +------------+                +------------+
-   | stats      |                | check      |                | manifest   |
-   | reports    |                | diagnostics|                | deps output|
+   | stats      |                | check      |                | query      |
+   | reports    |                | diagnostics|                | text/JSON  |
    +------------+                +------------+                +------------+
 
 Event contract:

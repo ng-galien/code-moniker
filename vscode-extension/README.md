@@ -105,7 +105,7 @@ For the DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md).
 Install the CLI first when running the extension against a local checkout:
 
 ```sh
-cargo install --path ../crates/cli --features tui,mcp
+cargo install --path ../crates/cli --features mcp
 ```
 
 ```sh

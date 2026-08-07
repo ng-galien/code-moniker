@@ -364,11 +364,9 @@ uris = [
 ```
 
 Excluded files are not counted in `summary.files_scanned`, do not appear in
-the JSON `files` array, and do not produce read errors during CLI checks.
-In the TUI, exclusions apply to the check summary for the already loaded
-workspace graph. This is intended for generated sources, vendored trees,
-fixtures, and other files that should be outside a rule pack's review
-surface.
+the JSON `files` array, and do not produce read errors during CLI checks. This
+is intended for generated sources, vendored trees, fixtures, and other files
+that should be outside a rule pack's review surface.
 
 Use `rules show` when you need to see what `check` will actually run after
 loading embedded defaults, merging the project file, applying the optional

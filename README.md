@@ -51,14 +51,14 @@ flowchart LR
   end
 
   subgraph Tools["Tools"]
-    C["CLI & services<br/>extract, check, rules,<br/>ui, manifest, mcp/daemon"]
+    C["CLI & services<br/>extract, check, rules,<br/>manifest, mcp/daemon"]
     V["VS Code extension<br/>rules, catalog, symbols,<br/>daemon-backed checks"]
   end
 
   subgraph Uses["Uses"]
     I["Inspection<br/>tree, json, tsv"]
     R["Architecture rules<br/>agent hooks and CI"]
-    N["Interactive navigation<br/>TUI, MCP, daemon query"]
+    N["Interactive navigation<br/>MCP, daemon query"]
   end
 
   S --> E --> G
@@ -87,7 +87,7 @@ First useful commands:
 ```sh
 code-moniker extract src/order.ts --format tree
 code-moniker rules show .
-code-moniker ui . --cache .code-moniker-cache
+code-moniker stats .
 code-moniker check src/ --report
 code-moniker manifest .
 ```
@@ -192,8 +192,7 @@ project scans, file paths are anchored relative to the scanned root:
 
 Code Moniker 0.6 supports macOS and Linux. Its workspace daemon is currently
 Unix-only, so Windows packages are not published yet. Release binaries include
-the terminal UI and MCP server; no Rust toolchain or local compilation is
-required.
+the MCP server; no Rust toolchain or local compilation is required.
 
 Install the latest release directly:
 
@@ -224,7 +223,7 @@ code-moniker agent doctor --client codex
 Building from source remains available when a custom feature set is required:
 
 ```sh
-cargo install code-moniker --features tui,mcp
+cargo install code-moniker --features mcp
 ```
 
 The same `agent install` command detects MCP support and installs both the
@@ -251,27 +250,26 @@ diagnosis, update, and safe removal. See
 [Agent integration, hooks, and CI](docs/cli/agent.md) for the component
 matrix and exact ownership behavior.
 
-Or install the latest `main` with the terminal UI:
+Or install the latest `main` with MCP support:
 
 ```sh
-cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features tui,mcp
+cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features mcp
 ```
 
 From a local checkout:
 
 ```sh
-cargo install --path crates/cli --features tui,mcp
+cargo install --path crates/cli --features mcp
 ```
 
 ### Features
 
 - `pretty` (default) — colored output.
-- `tui` — the `ui` terminal explorer (implies `pretty`).
 - `mcp` — the `mcp` server and agent MCP installation.
 
-Official prebuilt releases enable `tui` and `mcp`. A default source build
+Official prebuilt releases enable `mcp`. A default source build
 remains light — `extract`, `check`, `rules`, the embedded skill installer and
-hooks, but no terminal UI or MCP server:
+hooks, but no MCP server:
 
 ```sh
 cargo install code-moniker
@@ -292,7 +290,7 @@ For source development, build the CLI, package the extension, and install the
 generated `.vsix`:
 
 ```sh
-cargo install --path crates/cli --features tui,mcp
+cargo install --path crates/cli --features mcp
 npm --prefix packages/client ci
 cd vscode-extension
 npm ci
@@ -328,12 +326,6 @@ Run the linter:
 
 ```sh
 code-moniker check src/
-```
-
-Open the read-only terminal explorer:
-
-```sh
-code-moniker ui . --cache .code-moniker-cache
 ```
 
 Exit codes:

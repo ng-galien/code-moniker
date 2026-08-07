@@ -2,7 +2,7 @@
 
 The daemon is the resident host for one canonical workspace set. It owns the
 live-indexed workspace and exposes a structured query DSL over **JSON-RPC**.
-HTTP MCP, TUI, IDE and interactive CLI are thin clients of the same contract.
+HTTP MCP, IDE and interactive CLI are thin clients of the same contract.
 Stdio MCP is deliberately client-owned: a stable supervisor owns the client
 pipe and delegates indexing to an in-process worker. Closing the stdio session
 terminates both processes and cannot leave a detached daemon behind.
@@ -108,7 +108,7 @@ durations may overlap and therefore need not sum to the total.
 ## Transport: JSON-RPC over loopback WebSocket
 
 - The daemon binds `127.0.0.1:0` (kernel-assigned port) and serves jsonrpsee WS.
-- Multiple clients connect concurrently to one daemon (MCP + TUI + IDE at once).
+- Multiple clients connect concurrently to one daemon (MCP + IDE at once).
 - Methods (namespace `moniker_`):
   - `handshake(client) -> HandshakeResponse` (protocol version + capabilities)
   - `query(QueryRequest) -> QueryResponse`
@@ -117,8 +117,8 @@ durations may overlap and therefore need not sum to the total.
   - `subscribeEvents` / `events` / `unsubscribeEvents` — subscription stream of
     `WorkspaceEventDto` (stale / refreshed / failed / notes / git-base).
 
-`protocol_version` guards the serialized request/response shape. CLI, MCP, TUI,
-and VS Code connect-or-start clients require an exact protocol and
+`protocol_version` guards the serialized request/response shape. CLI, MCP and
+VS Code connect-or-start clients require an exact protocol and
 workspace-root match. A daemon with an older protocol is recycled once so the
 current binary rebuilds the index. A daemon with a newer protocol is never
 stopped by the older client; the client reports that it must be updated. If a
@@ -335,7 +335,7 @@ selector accepted by `query --daemon`.
 ## Live refresh
 
 `--live-refresh` sets how the daemon reacts to file changes detected by the
-FSEvents watcher (`notify::RecommendedWatcher`, shared with the TUI):
+FSEvents watcher (`notify::RecommendedWatcher`):
 
 - `on-demand` (default): mark the workspace stale; re-extract lazily on the next
   query.

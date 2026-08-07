@@ -230,8 +230,6 @@ fn command_name(command: &Command) -> &'static str {
 		Command::Check(_) => "check",
 		Command::Diff(_) => "diff",
 		Command::Rules(_) => "rules",
-		#[cfg(feature = "tui")]
-		Command::Ui(_) => "ui",
 		#[cfg(feature = "mcp")]
 		Command::Mcp(_) => "mcp",
 		Command::Daemon(_) => "daemon",
@@ -506,8 +504,6 @@ fn project_config_path(cli: &Cli) -> PathBuf {
 			.path
 			.as_deref()
 			.or_else(|| (!args.target.contains("..")).then(|| Path::new(&args.target))),
-		#[cfg(feature = "tui")]
-		Command::Ui(args) => args.paths.first().map(PathBuf::as_path),
 		#[cfg(feature = "mcp")]
 		Command::Mcp(args) => args.paths.first().map(PathBuf::as_path),
 		Command::Daemon(args) => match &args.command {

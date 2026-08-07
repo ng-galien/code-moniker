@@ -176,7 +176,7 @@ code-moniker agent install \
 From a local checkout, install a development binary first:
 
 ```sh
-cargo install --path crates/cli --features tui,mcp
+cargo install --path crates/cli --features mcp
 ```
 
 Verify:

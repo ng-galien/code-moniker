@@ -8,7 +8,7 @@
 - `crates/check`: rules DSL and evaluation.
 - `crates/query`: public queries, DTOs and schemas.
 - `crates/daemon` and `crates/daemon-client`: daemon runtime and client.
-- `crates/cli`: CLI, TUI and MCP surfaces.
+- `crates/cli`: CLI and MCP surfaces.
 - `vscode-extension/`: VS Code extension and webviews.
 - `docs/`: human documentation.
 - `agents/`: reusable agent maps and skills.
@@ -41,7 +41,7 @@
 - `cargo moniker-check`
 
 Use focused package or test filters during iteration. See
-`agents/maps/rust-server.md` for build latency, daemon debugging and TUI/MCP
+`agents/maps/rust-server.md` for build latency, daemon debugging and MCP
 runtime procedures, and `agents/maps/vscode-extension.md` for extension work.
 
 ## Agent integration

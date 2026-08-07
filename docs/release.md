@@ -12,7 +12,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 cargo binstall code-moniker
 
 # Source-build fallback and custom feature selection.
-cargo install code-moniker --features tui,mcp
+cargo install code-moniker --features mcp
 ```
 
 ## Distribution contract
@@ -24,7 +24,7 @@ version or configuration; do not hand-edit the generated workflow.
 The `v` tag namespace deliberately excludes VS Code extension tags such as
 `extension-v0.2.0`, which have their own release workflow.
 
-The release contains full-featured binaries (`tui` and `mcp`) for:
+The release contains binaries with MCP support for:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`
@@ -76,12 +76,11 @@ The dist workflow follows five gates:
 - [ ] `code-moniker-tree-sitter-plpgsql@0.6.0` has completed the one-time
       manual bootstrap and its Trusted Publisher is configured before tagging.
 - [ ] `dist plan --tag=v0.6.0` lists exactly the three supported targets,
-      `code-moniker-installer.sh`, and a `code-moniker` build with `tui,mcp`.
+      `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo test --workspace --quiet`
 - [ ] `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - [ ] `cargo test -p code-moniker --features mcp --no-default-features --lib`
-- [ ] `cargo test -p code-moniker --features tui,mcp --no-default-features --lib`
 - [ ] From `packages/client/`: `npm ci --ignore-scripts`, `npm test`, then
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and
       `npm run test:daemon:owned -- <code-moniker-binary>`.
@@ -92,8 +91,8 @@ The dist workflow follows five gates:
       eight crates exist on crates.io at `0.6.0`.
 - [ ] On clean macOS and Linux environments, exercise the direct installer and
       `cargo binstall code-moniker --version 0.6.0`.
-- [ ] Run `code-moniker --version`, `code-moniker ui --help`,
-      `code-moniker mcp --help`, and an agent skill/MCP install smoke test.
+- [ ] Run `code-moniker --version`, `code-moniker mcp --help`, and an agent
+      skill/MCP install smoke test.
 - [ ] Publish `@code-moniker/client@0.6.0` from the verified package and confirm
       that a clean ESM and CommonJS consumer can install it from npm.
 - [ ] Verify every archive checksum and GitHub attestation.

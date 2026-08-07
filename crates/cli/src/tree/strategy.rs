@@ -8,11 +8,6 @@ pub(crate) struct TreeStrategy {
 }
 
 impl TreeStrategy {
-	#[cfg(feature = "tui")]
-	pub(crate) fn for_lang(lang: Lang) -> Self {
-		Self { lang: Some(lang) }
-	}
-
 	pub(crate) fn from_moniker(moniker: &Moniker) -> Self {
 		Self {
 			lang: lang_from_moniker(moniker),

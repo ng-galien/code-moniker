@@ -98,7 +98,7 @@ Do not translate an MCP sequence call-for-call into shell commands.
 
 ## Provenance and interpretation
 
-CLI, hooks, MCP, daemon clients, TUI and extensions are different execution
+CLI, hooks, MCP, daemon clients and extensions are different execution
 surfaces. Attribute findings only to the surface actually exercised. Keep
 indexed facts separate from architectural judgment, and report coverage or
 truncation literally.
