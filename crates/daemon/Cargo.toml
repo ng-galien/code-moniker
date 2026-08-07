@@ -18,6 +18,7 @@ code-moniker-check = { workspace = true }
 code-moniker-query = { workspace = true, features = ["rpc"] }
 
 anyhow     = { workspace = true }
+getrandom  = { workspace = true }
 ignore     = { workspace = true }
 jsonrpsee  = { workspace = true }
 tokio      = { workspace = true }

@@ -488,6 +488,7 @@ dependencies = [
  "code-moniker-core",
  "code-moniker-query",
  "code-moniker-workspace",
+ "getrandom 0.3.4",
  "ignore",
  "jsonrpsee",
  "libc",

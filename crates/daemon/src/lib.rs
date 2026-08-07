@@ -940,10 +940,9 @@ fn query_error(error: QueryError) -> ErrorObjectOwned {
 }
 
 fn generate_token() -> anyhow::Result<String> {
-	use std::io::Read;
-	let mut file = std::fs::File::open("/dev/urandom")?;
-	let mut bytes = [0u8; 16];
-	file.read_exact(&mut bytes)?;
+	let mut bytes = [0_u8; 16];
+	getrandom::fill(&mut bytes)
+		.map_err(|error| anyhow::anyhow!("cannot generate token: {error}"))?;
 	Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
@@ -6020,6 +6019,13 @@ mod tests {
 	#[ignore = "subprocess fixture"]
 	fn windows_supervisor_handle_child() {
 		std::thread::sleep(std::time::Duration::from_millis(250));
+	}
+
+	#[test]
+	fn daemon_token_is_128_bits_encoded_as_hex() {
+		let token = generate_token().expect("generate daemon token");
+		assert_eq!(token.len(), 32);
+		assert!(token.bytes().all(|byte| byte.is_ascii_hexdigit()));
 	}
 
 	fn test_rpc_service(
