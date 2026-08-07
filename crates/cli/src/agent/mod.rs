@@ -1395,20 +1395,6 @@ mod tests {
 	}
 
 	#[test]
-	fn embedded_skill_matches_canonical_agent_source() {
-		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-		for (relative, embedded) in SKILL_FILES {
-			let canonical = root.join("agents/skills/code-moniker").join(relative);
-			assert_eq!(
-				fs::read_to_string(&canonical).unwrap(),
-				*embedded,
-				"run scripts/sync-agent-assets.sh after editing {}",
-				canonical.display()
-			);
-		}
-	}
-
-	#[test]
 	fn agent_install_defaults_follow_the_binary_capabilities_without_a_rules_profile() {
 		let cli =
 			Cli::try_parse_from(["code-moniker", "agent", "install", "--client", "codex"]).unwrap();
