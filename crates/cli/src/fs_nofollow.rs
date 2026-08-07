@@ -333,7 +333,7 @@ mod imp {
 		if stat.st_mode & libc::S_IFMT != libc::S_IFREG {
 			bail!("`{}` is not a regular physical file", path.display());
 		}
-		Ok(Some(u32::from(stat.st_mode & 0o7777)))
+		Ok(Some(permission_bits(stat.st_mode)))
 	}
 
 	#[cfg(test)]
@@ -369,7 +369,7 @@ mod imp {
 				if stat.st_mode & libc::S_IFMT != libc::S_IFREG {
 					bail!("`{}` is not a regular physical file", path.display());
 				}
-				Ok(u32::from(stat.st_mode & 0o7777))
+				Ok(permission_bits(stat.st_mode))
 			})
 			.transpose()?;
 		let (temporary, temporary_name) = create_temporary(&parent, &name, path)?;
@@ -456,6 +456,12 @@ mod imp {
 				Err(error).context("concurrent managed file was not a regular physical file")
 			}
 		}
+	}
+
+	#[allow(clippy::useless_conversion)]
+	fn permission_bits(mode: libc::mode_t) -> u32 {
+		// mode_t is u16 on macOS and u32 on Linux.
+		u32::from(mode & 0o7777)
 	}
 
 	pub(super) fn remove_if_unchanged(
