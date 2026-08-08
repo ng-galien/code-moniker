@@ -225,16 +225,78 @@ pub fn claim_registry_entry(
 	entry: &DaemonRegistryEntry,
 ) -> anyhow::Result<bool> {
 	fs::create_dir_all(registry_dir())?;
-	let path = registry_path_for_config(config)?;
+	claim_registry_file(&registry_path_for_config(config)?, entry)
+}
+
+fn claim_registry_file(path: &Path, entry: &DaemonRegistryEntry) -> anyhow::Result<bool> {
+	claim_registry_file_before_publish(path, entry, || {})
+}
+
+fn claim_registry_file_before_publish(
+	path: &Path,
+	entry: &DaemonRegistryEntry,
+	before_publish: impl FnOnce(),
+) -> anyhow::Result<bool> {
+	let temp = path.with_extension(format!("{}.claim.tmp", entry.token));
 	let text = serde_json::to_vec_pretty(entry)?;
-	match OpenOptions::new().write(true).create_new(true).open(path) {
-		Ok(mut file) => {
-			file.write_all(&text)?;
-			file.sync_all()?;
-			Ok(true)
-		}
+	let mut file = OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(&temp)?;
+	let prepared = (|| {
+		file.write_all(&text)?;
+		file.sync_all()?;
+		Ok::<_, anyhow::Error>(())
+	})();
+	drop(file);
+	if let Err(error) = prepared {
+		let _ = fs::remove_file(temp);
+		return Err(error);
+	}
+	before_publish();
+	let result = publish_registry_claim(&temp, path);
+	let _ = fs::remove_file(temp);
+	result
+}
+
+#[cfg(not(windows))]
+fn publish_registry_claim(source: &Path, destination: &Path) -> anyhow::Result<bool> {
+	match fs::hard_link(source, destination) {
+		Ok(()) => Ok(true),
 		Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
 		Err(error) => Err(error.into()),
+	}
+}
+
+#[cfg(windows)]
+fn publish_registry_claim(source: &Path, destination: &Path) -> anyhow::Result<bool> {
+	use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
+
+	let source = source
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect::<Vec<_>>();
+	let destination = destination
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect::<Vec<_>>();
+	if unsafe {
+		MoveFileExW(
+			source.as_ptr(),
+			destination.as_ptr(),
+			MOVEFILE_WRITE_THROUGH,
+		)
+	} != 0
+	{
+		return Ok(true);
+	}
+	let error = std::io::Error::last_os_error();
+	if error.kind() == std::io::ErrorKind::AlreadyExists {
+		Ok(false)
+	} else {
+		Err(error.into())
 	}
 }
 
@@ -713,6 +775,112 @@ mod tests {
 		let read: DaemonRegistryEntry =
 			serde_json::from_str(&fs::read_to_string(path).expect("read entry")).expect("json");
 		assert_eq!(read, updated);
+	}
+
+	#[test]
+	fn registry_claim_keeps_the_final_path_hidden_until_publication() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let path = dir.path().join("workspace.json");
+		let owner = entry("owner-token", 111);
+		let timeout = std::time::Duration::from_secs(5);
+		let (prepared_tx, prepared_rx) = std::sync::mpsc::sync_channel(1);
+		let (publish_tx, publish_rx) = std::sync::mpsc::sync_channel(1);
+		let claim_path = path.clone();
+		let claim_owner = owner.clone();
+		let claimant = std::thread::spawn(move || {
+			claim_registry_file_before_publish(&claim_path, &claim_owner, || {
+				prepared_tx.send(()).expect("signal prepared claim");
+				publish_rx
+					.recv_timeout(timeout)
+					.expect("receive publication release");
+			})
+		});
+
+		prepared_rx
+			.recv_timeout(timeout)
+			.expect("claimant prepares the complete temporary entry");
+		assert!(
+			!path.exists(),
+			"the final registry path must stay hidden while its complete temporary is pending"
+		);
+		publish_tx.send(()).expect("release registry publication");
+		assert!(
+			claimant
+				.join()
+				.expect("join claimant")
+				.expect("claim registry"),
+			"the first complete entry must win the registry claim"
+		);
+
+		let published: DaemonRegistryEntry = serde_json::from_str(
+			&fs::read_to_string(&path).expect("read published registry entry"),
+		)
+		.expect("published registry entry is complete JSON");
+		assert_eq!(published, owner);
+	}
+
+	#[test]
+	fn concurrent_registry_claims_publish_exactly_one_complete_owner() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let path = dir.path().join("workspace.json");
+		let first = entry("first-token", 111);
+		let second = entry("second-token", 222);
+		let timeout = std::time::Duration::from_secs(5);
+		let (prepared_tx, prepared_rx) = std::sync::mpsc::sync_channel(2);
+		let spawn_claimant = |claim: DaemonRegistryEntry| {
+			let claim_path = path.clone();
+			let claimant_prepared_tx = prepared_tx.clone();
+			let (publish_tx, publish_rx) = std::sync::mpsc::sync_channel(1);
+			let claimant = std::thread::spawn(move || {
+				claim_registry_file_before_publish(&claim_path, &claim, || {
+					claimant_prepared_tx
+						.send(())
+						.expect("signal prepared claim");
+					publish_rx
+						.recv_timeout(timeout)
+						.expect("receive publication release");
+				})
+			});
+			(claimant, publish_tx)
+		};
+		let (first_claimant, first_publish_tx) = spawn_claimant(first.clone());
+		let (second_claimant, second_publish_tx) = spawn_claimant(second.clone());
+
+		for _ in 0..2 {
+			prepared_rx
+				.recv_timeout(timeout)
+				.expect("claimant prepares a complete temporary entry");
+		}
+		assert!(
+			!path.exists(),
+			"neither prepared claimant may expose the final path before publication"
+		);
+		first_publish_tx
+			.send(())
+			.expect("release first registry publication");
+		second_publish_tx
+			.send(())
+			.expect("release second registry publication");
+		let first_won = first_claimant
+			.join()
+			.expect("join first claimant")
+			.expect("first claim");
+		let second_won = second_claimant
+			.join()
+			.expect("join second claimant")
+			.expect("second claim");
+		assert_ne!(first_won, second_won, "exactly one claimant must win");
+
+		let published: DaemonRegistryEntry = serde_json::from_str(
+			&fs::read_to_string(&path).expect("read published registry entry"),
+		)
+		.expect("published registry entry is complete JSON");
+		assert_eq!(published, if first_won { first } else { second });
+		assert_eq!(
+			fs::read_dir(dir.path()).expect("list registry dir").count(),
+			1,
+			"claim publication must not leave temporary files"
+		);
 	}
 
 	#[cfg(unix)]
