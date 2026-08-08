@@ -12,7 +12,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 cargo binstall code-moniker
 
 # Source-build fallback and custom feature selection.
-cargo install code-moniker --features mcp
+cargo install code-moniker
 ```
 
 ## Distribution contract
@@ -144,11 +144,11 @@ target and can optionally execute tests through Wine. That is useful as a
 compile/smoke gate, but the GitHub-hosted Windows VM remains the release
 acceptance environment for process supervision, file locking and path behavior.
 
-## `0.6.0` acceptance checklist
+## `0.6.1` acceptance checklist
 
-- [ ] `main` is clean, CI is green, and no `v0.6.0` tag exists.
-- [ ] All workspace crates that are published share version `0.6.0`.
-- [ ] `dist plan --tag=v0.6.0` lists exactly the five supported targets,
+- [ ] `main` is clean, CI is green, and no `v0.6.1` tag exists.
+- [ ] All workspace crates that are published share version `0.6.1`.
+- [ ] `dist plan --tag=v0.6.1` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo test --workspace --quiet`
@@ -160,17 +160,20 @@ acceptance environment for process supervision, file locking and path behavior.
       `npm run test:daemon:owned -- <code-moniker-binary>`.
 - [ ] From `vscode-extension/`: `npm test`, `npm run compile`, then
       `npm run test:integration`.
-- [ ] Push `v0.6.0` only after the preceding gates pass.
+- [ ] A plain `cargo install code-moniker` exposes `code-moniker mcp --help`.
+- [ ] `agent install --client codex` writes `required = false`, and an
+      unavailable Code Moniker MCP does not prevent the agent session opening.
+- [ ] Push `v0.6.1` only after the preceding gates pass.
 - [ ] Confirm the Windows CI job installs the two npm tarballs in a clean
       consumer and completes the packaged owned-daemon smoke test.
 - [ ] Confirm the Release workflow completes through `announce`, all seven
-      crates exist on crates.io, and all five packages exist on npm at `0.6.0`.
+      crates exist on crates.io, and all five packages exist on npm at `0.6.1`.
 - [ ] On clean macOS, Linux and Windows environments, exercise the direct
-      installer and `cargo binstall code-moniker --version 0.6.0`.
+      installer and `cargo binstall code-moniker --version 0.6.1`.
 - [ ] Run `code-moniker --version`, `code-moniker mcp --help`, and an agent
       skill/MCP install smoke test.
 - [ ] Confirm clean ESM and CommonJS consumers install
-      `@code-moniker/client@0.6.0` and receive the matching native package.
+      `@code-moniker/client@0.6.1` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.
 - [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive,
       native npm package, and platform-specific VSIX.

@@ -27,7 +27,7 @@ name = "code-moniker"
 path = "src/main.rs"
 
 [features]
-default = ["pretty", "telemetry"]
+default = ["pretty", "telemetry", "mcp"]
 pretty  = ["dep:anstyle"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
 telemetry = ["code-moniker-daemon/telemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-appender-tracing", "dep:tracing", "dep:tracing-opentelemetry", "dep:tracing-subscriber"]

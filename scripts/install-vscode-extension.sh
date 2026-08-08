@@ -63,7 +63,11 @@ need_command code
 if [[ "$skip_cli" == false ]]; then
 	need_command cargo
 	echo "Installing code-moniker CLI..."
-	cargo install --path "$ROOT_DIR/crates/cli"
+	cargo install --path "$ROOT_DIR/crates/cli" --features mcp
+	# The extension installer must never replace an MCP-capable runtime with a
+	# smaller build: existing Codex/Claude/Gemini registrations keep pointing at
+	# this binary after the extension is installed.
+	code-moniker mcp --help >/dev/null
 fi
 
 if [[ ! -d "$EXT_DIR/node_modules" ]]; then

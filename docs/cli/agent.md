@@ -55,12 +55,18 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 code-moniker agent install --client codex
 ```
 
-Official release binaries include MCP. A source install remains available with
-`cargo install code-moniker --features mcp`.
+Official release binaries and normal source installs include MCP by default:
+`cargo install code-moniker`. A deliberately minimal build can opt out with
+`--no-default-features`, but it cannot provide agent MCP integration.
 
 The binary embeds the version-matched `code-moniker` skill. `agent install`
 materializes it in the selected client's user skill directory and registers a
 project-owned stdio MCP using the canonical absolute project root:
+
+For Codex, that MCP entry is deliberately registered with `required = false`.
+Code Moniker enriches a session but a transient local startup failure must not
+prevent the owning chat or delegated agent from starting; the client can report
+the unavailable MCP and continue with its remaining capabilities.
 
 ```sh
 code-moniker agent install --client codex
@@ -176,7 +182,7 @@ code-moniker agent install \
 From a local checkout, install a development binary first:
 
 ```sh
-cargo install --path crates/cli --features mcp
+cargo install --path crates/cli
 ```
 
 Verify:

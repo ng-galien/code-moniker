@@ -48,7 +48,7 @@ README.
 From the repository root:
 
 ```sh
-cargo install --path crates/cli --features mcp
+cargo install --path crates/cli
 npm --prefix packages/client ci
 cd vscode-extension
 npm ci

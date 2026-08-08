@@ -952,7 +952,10 @@ fn install_codex_mcp(
 					.collect(),
 			),
 		),
-		("required".to_string(), toml::Value::Boolean(true)),
+		// Code Moniker enriches an agent session, but it must never prevent the
+		// owning client from starting when the local MCP process is temporarily
+		// unavailable (for example after EMFILE or during a binary replacement).
+		("required".to_string(), toml::Value::Boolean(false)),
 		("startup_timeout_sec".to_string(), toml::Value::Integer(45)),
 		("tool_timeout_sec".to_string(), toml::Value::Integer(120)),
 	]));
@@ -1439,6 +1442,35 @@ mod tests {
 			config["mcpServers"]["code-moniker"]["command"],
 			"/bin/code-moniker"
 		);
+		assert!(
+			config["mcpServers"]["code-moniker"]
+				.get("required")
+				.is_none(),
+			"the Claude generator must not emit Codex's fatal-startup flag"
+		);
+	}
+
+	#[test]
+	fn gemini_mcp_install_does_not_emit_a_fatal_startup_flag() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("settings.json");
+		install_json_mcp(
+			dir.path(),
+			&path,
+			"/bin/code-moniker",
+			&["mcp".to_string(), "/project".to_string()],
+			false,
+			AgentClient::Gemini,
+		)
+		.unwrap();
+
+		let config: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+		assert!(
+			config["mcpServers"]["code-moniker"]
+				.get("required")
+				.is_none(),
+			"the Gemini generator must not emit Codex's fatal-startup flag"
+		);
 	}
 
 	#[test]
@@ -1517,6 +1549,29 @@ command = "other"
 		)
 		.unwrap_err();
 		assert!(error.to_string().contains("refusing to replace unmanaged"));
+	}
+
+	#[test]
+	fn codex_mcp_install_keeps_agent_sessions_available_when_mcp_startup_fails() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("config.toml");
+		install_codex_mcp(
+			dir.path(),
+			&path,
+			"/bin/code-moniker",
+			&["mcp".to_string(), "/project".to_string()],
+			false,
+		)
+		.unwrap();
+
+		let config = fs::read_to_string(path)
+			.unwrap()
+			.parse::<toml::Value>()
+			.unwrap();
+		assert_eq!(
+			config["mcp_servers"][SKILL_NAME]["required"].as_bool(),
+			Some(false)
+		);
 	}
 
 	#[cfg(unix)]
