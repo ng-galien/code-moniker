@@ -5986,6 +5986,7 @@ fn _assert_public_boundary_types(_: ReferenceId, _: SourceId, _: SymbolId, _: Ru
 
 #[cfg(test)]
 mod tests {
+	use std::collections::BTreeSet;
 	use std::fs;
 
 	use code_moniker_query::{
@@ -6117,6 +6118,44 @@ mod tests {
 			panic!("expected source-set replacement, got {response:?}");
 		};
 		response
+	}
+
+	fn database_source_set(revision: &str, documents: &[(&str, &str)]) -> WorkspaceSourceSetDto {
+		WorkspaceSourceSetDto {
+			srcset: "database".to_string(),
+			revision: Some(revision.to_string()),
+			documents: documents
+				.iter()
+				.map(|(uri, content)| WorkspaceSourceDocumentDto {
+					uri: (*uri).to_string(),
+					language: "sql".to_string(),
+					content: (*content).to_string(),
+				})
+				.collect(),
+		}
+	}
+
+	fn incoming_usage_files(daemon: &mut WorkspaceDaemon, uri: &str) -> BTreeSet<String> {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolUsages(SymbolUsagesQuery {
+				workspace: None,
+				uri: uri.to_string(),
+				direction: UsageDirection::Incoming,
+				path: Vec::new(),
+				lang: Vec::new(),
+				include_descendants: false,
+				projection: Vec::new(),
+			}),
+			consistency: Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected usage response");
+		};
+		let QueryResult::SymbolUsages(result) = response.result else {
+			panic!("expected symbol usages result");
+		};
+		result.rows.into_iter().map(|usage| usage.file).collect()
 	}
 
 	fn remove_source_set(daemon: &mut WorkspaceDaemon, srcset: &str) -> CommandResponse {
@@ -8872,6 +8911,196 @@ message = "the local function remains visible"
 				.collect::<Vec<_>>(),
 			snapshot.linkage.unresolved,
 			target.identity
+		);
+	}
+
+	#[test]
+	fn memory_source_set_table_rename_identifies_readers_and_relinks_projection() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+
+		replace_source_set(
+			&mut daemon,
+			database_source_set(
+				"before-table-rename",
+				&[
+					(
+						"schema/tables/orders.sql",
+						"CREATE TABLE sales.orders (id bigint);\n",
+					),
+					(
+						"schema/views/orders_view.sql",
+						"CREATE VIEW sales.orders_view AS SELECT id FROM sales.orders;\n",
+					),
+					(
+						"schema/tables/audit.sql",
+						"CREATE TABLE audit.events (id bigint);\n",
+					),
+				],
+			),
+		);
+
+		let orders_uri = {
+			let snapshot = daemon
+				.registry
+				.queries()
+				.snapshot()
+				.expect("indexed snapshot");
+			let orders = snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.name == "orders" && symbol.kind == "table")
+				.expect("orders table");
+			orders.identity.to_string()
+		};
+		let impact = incoming_usage_files(&mut daemon, &orders_uri);
+		assert_eq!(
+			impact,
+			BTreeSet::from(["schema/views/orders_view.sql".to_string()]),
+			"the existing graph identifies the table reader to reproject"
+		);
+
+		replace_source_set(
+			&mut daemon,
+			database_source_set(
+				"after-table-rename",
+				&[
+					(
+						"schema/tables/orders.sql",
+						"CREATE TABLE sales.archived_orders (id bigint);\n",
+					),
+					(
+						"schema/views/orders_view.sql",
+						"CREATE VIEW sales.orders_view AS SELECT id FROM sales.archived_orders;\n",
+					),
+					(
+						"schema/tables/audit.sql",
+						"CREATE TABLE audit.events (id bigint);\n",
+					),
+				],
+			),
+		);
+
+		assert_symbol_total(&mut daemon, "orders", 0);
+		assert_symbol_total(&mut daemon, "archived_orders", 1);
+		let archived_orders_uri = {
+			let snapshot = daemon
+				.registry
+				.queries()
+				.snapshot()
+				.expect("indexed snapshot");
+			let archived_orders = snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.name == "archived_orders" && symbol.kind == "table")
+				.expect("renamed table");
+			archived_orders.identity.to_string()
+		};
+		assert_eq!(
+			incoming_usage_files(&mut daemon, &archived_orders_uri),
+			BTreeSet::from(["schema/views/orders_view.sql".to_string()]),
+			"the reprojected view must follow the renamed table"
+		);
+	}
+
+	#[test]
+	fn memory_source_set_function_rename_identifies_callers_and_relinks_projection() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+
+		replace_source_set(
+			&mut daemon,
+			database_source_set(
+				"before-function-rename",
+				&[
+					(
+						"schema/functions/total_orders.sql",
+						"CREATE FUNCTION sales.total_orders() RETURNS integer LANGUAGE sql \
+						AS $$ SELECT 1 $$;\n",
+					),
+					(
+						"schema/views/dashboard.sql",
+						"CREATE VIEW sales.dashboard AS SELECT sales.total_orders() AS total;\n",
+					),
+					(
+						"schema/tables/audit.sql",
+						"CREATE TABLE audit.events (id bigint);\n",
+					),
+				],
+			),
+		);
+
+		let total_orders_uri = {
+			let snapshot = daemon
+				.registry
+				.queries()
+				.snapshot()
+				.expect("indexed snapshot");
+			let total_orders = snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.name == "total_orders()" && symbol.kind == "function")
+				.expect("total_orders function");
+			total_orders.identity.to_string()
+		};
+		let impact = incoming_usage_files(&mut daemon, &total_orders_uri);
+		assert_eq!(
+			impact,
+			BTreeSet::from(["schema/views/dashboard.sql".to_string()]),
+			"the existing graph identifies the function caller to reproject"
+		);
+
+		replace_source_set(
+			&mut daemon,
+			database_source_set(
+				"after-function-rename",
+				&[
+					(
+						"schema/functions/total_orders.sql",
+						"CREATE FUNCTION sales.total_orders_v2() RETURNS integer LANGUAGE sql \
+						AS $$ SELECT 1 $$;\n",
+					),
+					(
+						"schema/views/dashboard.sql",
+						"CREATE VIEW sales.dashboard AS SELECT sales.total_orders_v2() AS total;\n",
+					),
+					(
+						"schema/tables/audit.sql",
+						"CREATE TABLE audit.events (id bigint);\n",
+					),
+				],
+			),
+		);
+
+		assert_symbol_total(&mut daemon, "total_orders()", 0);
+		assert_symbol_total(&mut daemon, "total_orders_v2()", 1);
+		let total_orders_v2_uri = {
+			let snapshot = daemon
+				.registry
+				.queries()
+				.snapshot()
+				.expect("indexed snapshot");
+			let total_orders_v2 = snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.name == "total_orders_v2()" && symbol.kind == "function")
+				.expect("renamed function");
+			total_orders_v2.identity.to_string()
+		};
+		assert_eq!(
+			incoming_usage_files(&mut daemon, &total_orders_v2_uri),
+			BTreeSet::from(["schema/views/dashboard.sql".to_string()]),
+			"the reprojected view must call the renamed function"
 		);
 	}
 
