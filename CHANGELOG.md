@@ -11,6 +11,19 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-08
+
+### Fixed
+
+- **MCP stays enabled without making agent sessions fragile.** Agent installation
+  still configures Code Moniker MCP by default, while Codex receives a
+  non-required entry and other clients receive no Codex-specific fatal-startup
+  flag. A transient startup or handshake failure therefore does not prevent the
+  owning session from opening.
+- **Daemon registry claims are published atomically.** Concurrent daemon starts
+  can no longer expose an empty or partially written registry entry; exactly one
+  complete owner is published on Unix and Windows.
+
 ## [0.6.0] - 2026-08-07
 
 First stable cross-platform release of the CLI, autonomous workspace daemon,
