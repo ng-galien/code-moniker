@@ -268,6 +268,38 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDi
 	out
 }
 
+fn render_neighbors(
+	out: &mut String,
+	label: &str,
+	neighbors: &[SymbolGraphNeighbor],
+	coverage: GraphSectionCoverage,
+	max_items: usize,
+) {
+	let shown = neighbors.len().min(max_items);
+	let _ = writeln!(
+		out,
+		"{label}: {shown}/{} matching ({} total)",
+		coverage.matching, coverage.total
+	);
+	for neighbor in neighbors.iter().take(max_items) {
+		let _ = writeln!(
+			out,
+			"- {} {} ({}) x{} [{}]",
+			neighbor.symbol.kind,
+			neighbor.symbol.name,
+			neighbor.symbol.file,
+			neighbor.count,
+			neighbor.kinds.join(",")
+		);
+		if neighbor.symbol.navigable {
+			let _ = writeln!(out, "  uri: {}", neighbor.symbol.uri);
+		}
+	}
+	if neighbors.len() > max_items {
+		let _ = writeln!(out, "- truncated: +{}", neighbors.len() - max_items);
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use code_moniker_query::{GraphSectionCoverage, SymbolGraphCoverage, UnlinkedRefsDto};
@@ -429,37 +461,5 @@ mod tests {
 			!rendered.contains(&format!("  uri: {local_uri}")),
 			"{rendered}"
 		);
-	}
-}
-
-fn render_neighbors(
-	out: &mut String,
-	label: &str,
-	neighbors: &[SymbolGraphNeighbor],
-	coverage: GraphSectionCoverage,
-	max_items: usize,
-) {
-	let shown = neighbors.len().min(max_items);
-	let _ = writeln!(
-		out,
-		"{label}: {shown}/{} matching ({} total)",
-		coverage.matching, coverage.total
-	);
-	for neighbor in neighbors.iter().take(max_items) {
-		let _ = writeln!(
-			out,
-			"- {} {} ({}) x{} [{}]",
-			neighbor.symbol.kind,
-			neighbor.symbol.name,
-			neighbor.symbol.file,
-			neighbor.count,
-			neighbor.kinds.join(",")
-		);
-		if neighbor.symbol.navigable {
-			let _ = writeln!(out, "  uri: {}", neighbor.symbol.uri);
-		}
-	}
-	if neighbors.len() > max_items {
-		let _ = writeln!(out, "- truncated: +{}", neighbors.len() - max_items);
 	}
 }

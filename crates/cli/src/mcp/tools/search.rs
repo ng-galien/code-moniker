@@ -244,30 +244,6 @@ fn render_daemon_search_lmnav(
 	ToolResult::success(output).with_monikers(rows.iter().map(|row| row.uri.as_str()))
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn zero_hit_search_explains_name_scoring() {
-		let request = SearchRequest::from_arguments(&serde_json::json!({
-			"query": "run check command"
-		}))
-		.expect("search request");
-
-		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0).text;
-
-		assert!(
-			rendered.contains("hint: search scores symbol names"),
-			"a zero-hit search must explain name scoring, got:\n{rendered}"
-		);
-		assert!(
-			rendered.contains("code_moniker_symbols"),
-			"the hint must route to the regex tool, got:\n{rendered}"
-		);
-	}
-}
-
 fn render_daemon_search_row(output: &mut String, row: &SymbolDto) {
 	output.push_str(&format!(
 		"  - {} {} {}{}\n",
@@ -325,4 +301,28 @@ fn append_search_next_call(output: &mut String, request: &SearchRequest, limit: 
 		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn zero_hit_search_explains_name_scoring() {
+		let request = SearchRequest::from_arguments(&serde_json::json!({
+			"query": "run check command"
+		}))
+		.expect("search request");
+
+		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0).text;
+
+		assert!(
+			rendered.contains("hint: search scores symbol names"),
+			"a zero-hit search must explain name scoring, got:\n{rendered}"
+		);
+		assert!(
+			rendered.contains("code_moniker_symbols"),
+			"the hint must route to the regex tool, got:\n{rendered}"
+		);
+	}
 }

@@ -190,7 +190,7 @@ fn simultaneous_stdio_servers_keep_workspace_facts_isolated() {
 fn spawn_stdio_read(root: &std::path::Path) -> std::process::Child {
 	let mut child = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
 		.args(["mcp"])
-		.arg(&root)
+		.arg(root)
 		.args(["--transport", "stdio"])
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())

@@ -2320,7 +2320,7 @@ fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::P
 fn app_symbols_fixture() -> (Vec<SourceFileRecord>, Vec<SymbolRecord>, SymbolScopeFilter) {
 	let source_id = SourceId::at(1);
 	let sources = vec![SourceFileRecord {
-		id: source_id.clone(),
+		id: source_id,
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
 		path: "src/App.java".to_string(),
@@ -2332,7 +2332,7 @@ fn app_symbols_fixture() -> (Vec<SourceFileRecord>, Vec<SymbolRecord>, SymbolSco
 	let symbols = vec![
 		SymbolRecord {
 			id: SymbolId::at(0, 1),
-			source: source_id.clone(),
+			source: source_id,
 			identity: std::sync::Arc::from("code+moniker://./lang:java/package:src/class:App"),
 			name: "App".to_string(),
 			kind: "class".to_string(),
@@ -2346,7 +2346,7 @@ fn app_symbols_fixture() -> (Vec<SourceFileRecord>, Vec<SymbolRecord>, SymbolSco
 		},
 		SymbolRecord {
 			id: SymbolId::at(0, 2),
-			source: source_id.clone(),
+			source: source_id,
 			identity: std::sync::Arc::from(
 				"code+moniker://./lang:java/package:src/class:App/method:run()",
 			),
@@ -2453,8 +2453,8 @@ fn symbols_tool_lists_production_before_tests() {
 	let bench_source_id = SourceId::at(1);
 	let production_source_id = SourceId::at(2);
 	let sources = vec![
-		source_file(bench_source_id.clone(), "benches/speed.rs", "rs"),
-		source_file(production_source_id.clone(), "src/lib.rs", "rs"),
+		source_file(bench_source_id, "benches/speed.rs", "rs"),
+		source_file(production_source_id, "src/lib.rs", "rs"),
 	];
 	let symbols = vec![
 		symbol_record(
@@ -2467,7 +2467,7 @@ fn symbols_tool_lists_production_before_tests() {
 		),
 		symbol_record(
 			SymbolId::at(2, 1),
-			production_source_id.clone(),
+			production_source_id,
 			"code+moniker://./lang:rs/module:tests/fn:helper()",
 			"helper()",
 			"fn",
@@ -2507,7 +2507,7 @@ fn symbols_tool_lists_production_before_tests() {
 #[test]
 fn symbols_tool_explains_signed_callable_names_after_an_exact_bare_name_miss() {
 	let source_id = SourceId::at(1);
-	let sources = vec![source_file(source_id.clone(), "src/lib.rs", "rs")];
+	let sources = vec![source_file(source_id, "src/lib.rs", "rs")];
 	let symbols = vec![symbol_record(
 		SymbolId::at(0, 1),
 		source_id,
@@ -2612,10 +2612,10 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	let batch_source = SourceId::at(2);
 	let api_source = SourceId::at(3);
 	let sources = vec![
-		source_file(helper_source.clone(), "src/shared/Helper.java", "java"),
-		source_file(app_source.clone(), "src/app/App.java", "java"),
-		source_file(batch_source.clone(), "src/batch/Job.java", "java"),
-		source_file(api_source.clone(), "src/api/Controller.java", "java"),
+		source_file(helper_source, "src/shared/Helper.java", "java"),
+		source_file(app_source, "src/app/App.java", "java"),
+		source_file(batch_source, "src/batch/Job.java", "java"),
+		source_file(api_source, "src/api/Controller.java", "java"),
 	];
 	let helper = symbol_record(
 		SymbolId::at(0, 20),
@@ -2627,7 +2627,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	);
 	let app = symbol_record(
 		SymbolId::at(1, 0),
-		app_source.clone(),
+		app_source,
 		"code+moniker://./lang:java/package:app/class:App/method:run()",
 		"run",
 		"method",
@@ -2635,7 +2635,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	);
 	let batch = symbol_record(
 		SymbolId::at(2, 0),
-		batch_source.clone(),
+		batch_source,
 		"code+moniker://./lang:java/package:batch/class:Job/method:run()",
 		"run",
 		"method",
@@ -2643,7 +2643,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	);
 	let api = symbol_record(
 		SymbolId::at(3, 0),
-		api_source.clone(),
+		api_source,
 		"code+moniker://./lang:java/package:api/class:Controller/method:handle()",
 		"handle",
 		"method",
@@ -2679,9 +2679,9 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![
-			LinkageEdge::new(ReferenceId::at(1, 0), helper.id.clone()),
-			LinkageEdge::new(ReferenceId::at(2, 0), helper.id.clone()),
-			LinkageEdge::new(ReferenceId::at(3, 0), helper.id.clone()),
+			LinkageEdge::new(ReferenceId::at(1, 0), helper.id),
+			LinkageEdge::new(ReferenceId::at(2, 0), helper.id),
+			LinkageEdge::new(ReferenceId::at(3, 0), helper.id),
 		],
 		Vec::new(),
 	);
@@ -2725,12 +2725,12 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 	let shared_source = SourceId::at(0);
 	let app_source = SourceId::at(1);
 	let sources = vec![
-		source_file(shared_source.clone(), "packages/shared/src/ws.ts", "ts"),
-		source_file(app_source.clone(), "packages/client/src/store/ws.ts", "ts"),
+		source_file(shared_source, "packages/shared/src/ws.ts", "ts"),
+		source_file(app_source, "packages/client/src/store/ws.ts", "ts"),
 	];
 	let member = symbol_record(
 		SymbolId::at(0, 21),
-		shared_source.clone(),
+		shared_source,
 		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/interface:WsStateMessage",
 		"WsStateMessage",
 		"interface",
@@ -2738,7 +2738,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 	);
 	let union = symbol_record(
 		SymbolId::at(0, 22),
-		shared_source.clone(),
+		shared_source,
 		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/type:WsServerMessage",
 		"WsServerMessage",
 		"type",
@@ -2746,7 +2746,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 	);
 	let handler = symbol_record(
 		SymbolId::at(0, 23),
-		app_source.clone(),
+		app_source,
 		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:connect()",
 		"connect()",
 		"function",
@@ -2754,7 +2754,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 	);
 	let caller = symbol_record(
 		SymbolId::at(0, 24),
-		app_source.clone(),
+		app_source,
 		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:start()",
 		"start()",
 		"function",
@@ -2764,15 +2764,15 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		ReferenceRecord::new(
 			ReferenceId::at(0, 0),
 			shared_source,
-			union.id.clone(),
+			union.id,
 			member.identity.as_ref(),
 			"uses_type",
 			Some((98, 98)),
 		),
 		ReferenceRecord::new(
 			ReferenceId::at(0, 1),
-			app_source.clone(),
-			handler.id.clone(),
+			app_source,
+			handler.id,
 			union.identity.as_ref(),
 			"uses_type",
 			Some((287, 287)),
@@ -2780,7 +2780,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		ReferenceRecord::new(
 			ReferenceId::at(0, 2),
 			app_source,
-			caller.id.clone(),
+			caller.id,
 			handler.identity.as_ref(),
 			"calls",
 			Some((345, 345)),
@@ -2790,9 +2790,9 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![
-			LinkageEdge::new(ReferenceId::at(0, 0), member.id.clone()),
-			LinkageEdge::new(ReferenceId::at(0, 1), union.id.clone()),
-			LinkageEdge::new(ReferenceId::at(0, 2), handler.id.clone()),
+			LinkageEdge::new(ReferenceId::at(0, 0), member.id),
+			LinkageEdge::new(ReferenceId::at(0, 1), union.id),
+			LinkageEdge::new(ReferenceId::at(0, 2), handler.id),
 		],
 		Vec::new(),
 	);
@@ -2832,7 +2832,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 fn read_symbol_source_renders_source_slice() {
 	let source_id = SourceId::at(1);
 	let source = SourceFileRecord {
-		id: source_id.clone(),
+		id: source_id,
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
 		path: "src/App.java".to_string(),
@@ -2878,7 +2878,7 @@ fn read_symbol_source_renders_source_slice() {
 fn symbols_insights_summarize_index() {
 	let source_id = SourceId::at(1);
 	let sources = vec![SourceFileRecord {
-		id: source_id.clone(),
+		id: source_id,
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
 		path: "src/App.java".to_string(),
@@ -2889,7 +2889,7 @@ fn symbols_insights_summarize_index() {
 	}];
 	let class = SymbolRecord {
 		id: SymbolId::at(0, 10),
-		source: source_id.clone(),
+		source: source_id,
 		identity: std::sync::Arc::from("code+moniker://./lang:java/package:src/class:App"),
 		name: "App".to_string(),
 		kind: "class".to_string(),
@@ -2903,7 +2903,7 @@ fn symbols_insights_summarize_index() {
 	};
 	let method = SymbolRecord {
 		id: SymbolId::at(0, 11),
-		source: source_id.clone(),
+		source: source_id,
 		identity: std::sync::Arc::from(
 			"code+moniker://./lang:java/package:src/class:App/method:run()",
 		),

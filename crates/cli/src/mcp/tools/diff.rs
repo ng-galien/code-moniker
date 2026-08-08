@@ -164,6 +164,22 @@ fn render_symbols(out: &mut String, result: &ChangeReviewResult, max_items: usiz
 	}
 }
 
+fn render_refs(out: &mut String, result: &ChangeReviewResult, detail_refs: bool, max_items: usize) {
+	if !detail_refs {
+		return;
+	}
+	for change in result.ref_changes.iter().take(max_items) {
+		let _ = writeln!(out, "  {} {} {}", change.kind, change.ref_kind, change.file);
+	}
+	if result.ref_changes.len() > max_items {
+		let _ = writeln!(
+			out,
+			"  truncated: +{} ref fact(s)",
+			result.ref_changes.len() - max_items
+		);
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use code_moniker_query::{ChangeReviewSide, ChangeReviewSymbol};
@@ -217,22 +233,6 @@ mod tests {
 		assert!(
 			out.contains("struct:MemoryCheckWorkspace/method:source_catalog"),
 			"same-name facts must stay distinguishable, got:\n{out}"
-		);
-	}
-}
-
-fn render_refs(out: &mut String, result: &ChangeReviewResult, detail_refs: bool, max_items: usize) {
-	if !detail_refs {
-		return;
-	}
-	for change in result.ref_changes.iter().take(max_items) {
-		let _ = writeln!(out, "  {} {} {}", change.kind, change.ref_kind, change.file);
-	}
-	if result.ref_changes.len() > max_items {
-		let _ = writeln!(
-			out,
-			"  truncated: +{} ref fact(s)",
-			result.ref_changes.len() - max_items
 		);
 	}
 }
