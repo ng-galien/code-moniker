@@ -4,7 +4,8 @@ import * as vscode from "vscode";
 import { DaemonSession } from "../daemon/session";
 import { SymbolDto } from "../daemon/model";
 import { SymbolRepository } from "../symbols/repository";
-import { WorkspaceNode } from "../workbench/workspaceTree";
+import { WorkspaceFeature } from "../workbench/manager";
+import { LatestRequest } from "../shared/latestRequest";
 import { ExplorerPanel } from "./panel";
 import { ExplorerRepository } from "./repository";
 
@@ -16,26 +17,99 @@ export function registerExplorer(
 	context: vscode.ExtensionContext,
 	session: DaemonSession,
 	symbols: SymbolRepository,
-	selection: () => WorkspaceNode | undefined,
+	workspace: WorkspaceFeature,
 ): ExplorerFeature {
-	const repository = new ExplorerRepository(session, symbols);
-	const panel = new ExplorerPanel(context.extensionUri, repository);
+	const repository = new ExplorerRepository(session);
+	const panel = new ExplorerPanel(
+		context.extensionUri,
+		repository,
+		context.workspaceState,
+		(symbol) => workspace.revealSymbol(symbol),
+	);
+	let pendingEditorSelection: NodeJS.Timeout | undefined;
+	let lastEditorSymbolKey: string | undefined;
+	const editorRequests = new LatestRequest();
+	const cancelPendingEditorSelection = () => {
+		if (pendingEditorSelection) {
+			clearTimeout(pendingEditorSelection);
+			pendingEditorSelection = undefined;
+		}
+	};
+	const focusActiveEditor = async (): Promise<void> => {
+		cancelPendingEditorSelection();
+		const token = editorRequests.begin();
+		const editor = vscode.window.activeTextEditor;
+		if (!editor || !(await ensureGraphCapable(session)) || !editorRequests.isCurrent(token)) return;
+		if (!workspaceRelative(session, editor.document.uri.fsPath)) {
+			void vscode.window.showInformationMessage(
+				"Code Moniker: the active file is outside the daemon workspace.",
+			);
+			return;
+		}
+		const position = editor.selection.active;
+		const symbol = await symbolAtEditor(session, symbols, editor, position);
+		if (!editorRequests.isCurrent(token) || vscode.window.activeTextEditor !== editor) return;
+		if (symbol) {
+			lastEditorSymbolKey = `${editor.document.uri.toString()}\0${symbol.uri}`;
+			await panel.focus(symbol.uri, "editor");
+		} else {
+			lastEditorSymbolKey = undefined;
+			await panel.open();
+		}
+	};
 
 	context.subscriptions.push(
 		panel,
-		// Invoked with a tree/symbol argument from context menus, and with
-		// none from the view/title toolbar: then the current tree selection
-		// decides, falling back to the workspace root.
+		vscode.commands.registerCommand("codeMoniker.explorer.open", async () => {
+			if (await ensureGraphCapable(session)) {
+				await panel.open();
+			}
+		}),
+		// The focus command belongs to concrete symbol rows. Container identities
+		// deliberately open no second graph mode: the cockpit is symbol-centered.
 		vscode.commands.registerCommand("codeMoniker.explorer.focus", async (arg?: unknown) => {
 			if (!(await ensureGraphCapable(session))) {
 				return;
 			}
-			const focus = focusFromArgument(arg) ?? focusFromArgument(selection()) ?? "";
-			void panel.focus(focus);
+			const focus = focusFromArgument(arg);
+			if (focus) {
+				await panel.focus(focus, "tree");
+			} else {
+				await panel.open();
+			}
 		}),
-		vscode.commands.registerCommand("codeMoniker.explorer.focusAtCursor", () =>
-			focusAtCursor(session, symbols, panel),
-		),
+		vscode.commands.registerCommand("codeMoniker.explorer.focusAtCursor", focusActiveEditor),
+		workspace.onDidSelectSymbol((symbol) => {
+			if (panel.isOpen) void panel.focus(symbol.uri, "tree");
+		}),
+		workspace.onDidSelectSymbolContext((context) => {
+			if (panel.isOpen) panel.openContext(context);
+		}),
+		vscode.window.onDidChangeTextEditorSelection((event) => {
+			if (!panel.isOpen) return;
+			cancelPendingEditorSelection();
+			const token = editorRequests.begin();
+			const position = event.selections[0]?.active ?? event.textEditor.selection.active;
+			pendingEditorSelection = setTimeout(() => {
+				pendingEditorSelection = undefined;
+				void symbolAtEditor(session, symbols, event.textEditor, position).then((symbol) => {
+					if (!editorRequests.isCurrent(token) || !panel.isOpen) return;
+					if (!symbol) {
+						lastEditorSymbolKey = undefined;
+						return;
+					}
+					const key = `${event.textEditor.document.uri.toString()}\0${symbol.uri}`;
+					if (lastEditorSymbolKey === key) return;
+					lastEditorSymbolKey = key;
+					panel.select(symbol, "editor");
+					void workspace.revealSymbol(symbol);
+				});
+			}, 180);
+		}),
+		new vscode.Disposable(() => {
+			cancelPendingEditorSelection();
+			editorRequests.invalidate();
+		}),
 		session.onWorkspaceEvent((event) => {
 			if (event.kind === "refreshed") {
 				void panel.refreshCurrent();
@@ -54,7 +128,7 @@ async function ensureGraphCapable(session: DaemonSession): Promise<boolean> {
 		void vscode.window.showWarningMessage("Code Moniker: no workspace daemon available.");
 		return false;
 	}
-	if (session.supportsQuery("identity.graph")) {
+	if (session.supportsQuery("symbol.graph")) {
 		return true;
 	}
 	const restart = "Restart daemon";
@@ -66,7 +140,7 @@ async function ensureGraphCapable(session: DaemonSession): Promise<boolean> {
 		return false;
 	}
 	await session.stop();
-	if (!(await session.connectOrStart()) || !session.supportsQuery("identity.graph")) {
+	if (!(await session.connectOrStart()) || !session.supportsQuery("symbol.graph")) {
 		void vscode.window.showWarningMessage(
 			"Code Moniker: the restarted daemon still lacks the graph view — update the code-moniker binary.",
 		);
@@ -94,35 +168,22 @@ function focusFromArgument(arg: unknown): string | undefined {
 	if (node.kind === "symbols" && node.node) {
 		node = node.node as typeof node;
 	}
-	if (node.kind === "identity") {
-		return node.row?.identity;
-	}
 	if (node.kind === "symbol") {
-		return node.identity ?? node.symbol?.uri;
+		return node.symbol?.uri;
 	}
 	return undefined;
 }
 
-async function focusAtCursor(
+async function symbolAtEditor(
 	session: DaemonSession,
 	symbols: SymbolRepository,
-	panel: ExplorerPanel,
-): Promise<void> {
-	const editor = vscode.window.activeTextEditor;
-	if (!editor || !(await ensureGraphCapable(session))) {
-		return;
-	}
+	editor: vscode.TextEditor,
+	position: vscode.Position,
+): Promise<SymbolDto | undefined> {
 	const rel = workspaceRelative(session, editor.document.uri.fsPath);
-	if (!rel) {
-		void vscode.window.showInformationMessage(
-			"Code Moniker: the active file is outside the daemon workspace.",
-		);
-		return;
-	}
-	const line = editor.selection.active.line + 1;
-	const nodes = await symbols.fileSymbols(rel);
-	const uri = tightestSymbolAt(nodes, line);
-	await panel.focus(uri ?? "");
+	if (!rel) return undefined;
+	const line = position.line + 1;
+	return tightestSymbolAt(await symbols.fileSymbols(rel), line);
 }
 
 function workspaceRelative(session: DaemonSession, fsPath: string): string | undefined {
@@ -135,8 +196,8 @@ function workspaceRelative(session: DaemonSession, fsPath: string): string | und
 	return undefined;
 }
 
-function tightestSymbolAt(nodes: unknown[], line: number): string | undefined {
-	let best: { uri: string; span: number } | undefined;
+function tightestSymbolAt(nodes: unknown[], line: number): SymbolDto | undefined {
+	let best: { symbol: SymbolDto; span: number } | undefined;
 	const visit = (list: unknown[]) => {
 		for (const raw of list) {
 			const node = raw as {
@@ -151,7 +212,7 @@ function tightestSymbolAt(nodes: unknown[], line: number): string | undefined {
 			if (range && range[0] <= line && line <= range[1]) {
 				const span = range[1] - range[0];
 				if (!best || span < best.span) {
-					best = { uri: node.symbol.uri, span };
+					best = { symbol: node.symbol, span };
 				}
 			}
 			if (node.children) {
@@ -160,6 +221,5 @@ function tightestSymbolAt(nodes: unknown[], line: number): string | undefined {
 		}
 	};
 	visit(nodes);
-	return best?.uri;
+	return best?.symbol;
 }
-

@@ -102,9 +102,18 @@ jobs:
           npm run compile
         working-directory: vscode-extension
 
-      - name: Run extension integration tests with the bundled CLI
-        run: xvfb-run -a npm run test:integration
+      - name: Run VS Code Playwright acceptance journeys
+        run: xvfb-run -a npm run test:acceptance
         working-directory: vscode-extension
+
+      - name: Retain VS Code Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-playwright-evidence
+          path: vscode-extension/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run external Node consumer against an owned daemon
         run: npm run test:daemon:owned -- ../../target/debug/code-moniker

@@ -23,7 +23,7 @@ run from that directory. Human-facing reference lives in
 ## Ship Routine
 
 ```sh
-npm test && npm run compile && npm run test:integration
+npm test && npm run compile && npm run test:acceptance
 npx vsce package -o code-moniker.vsix
 code --install-extension code-moniker.vsix     # then Reload Window
 ```
@@ -33,11 +33,10 @@ restart stale daemons plus the `cm-mcp` tmux session.
 
 ## Verification
 
-How the extension's UI is verified, from fast unit checks to pixel-level
-inspection of the webviews. Two complementary harnesses matter: the VS Code
-integration suite (behavior through a real extension host and daemon) and the
-browser harness (pixels and computed styles of the webview bundles, outside
-VS Code entirely).
+How the extension's UI is verified, from fast unit checks to complete user
+journeys. Playwright drives the real VS Code Electron workbench, TreeView,
+editor and webview; traces, video and screenshots make the rendered run the
+acceptance evidence.
 
 The founding incident (2026-07-11): the Graph Explorer shipped with dead click
 handlers and a detail view whose meta grid collapsed values into a 15px
@@ -51,37 +50,23 @@ our own UI: do not trust the green build, trust the rendered run.
 |---|---|---|
 | Typecheck + samples | `npm test` | type drift, unimported samples |
 | Compile | `npm run compile` | build errors, bundle freshness |
-| Integration e2e | `npm run test:integration` | behavior through VS Code host + real daemon + webview acks |
-| Browser harness | manual, below | layout, computed styles, click paths, visual regressions |
+| Playwright acceptance | `npm run test:acceptance` | real TreeView/editor/webview gestures, graph layout, clicks, pan/zoom, sync and visual evidence |
+| Browser harness | manual, below | focused pixel experiments outside VS Code when diagnosis needs a synthetic payload |
 
 All commands run from `vscode-extension/`.
 
-## Integration Suite
+## Playwright Acceptance Suite
 
-`test/run-integration.js` builds the workspace binary, seeds a temp workspace
-(a small Rust file plus one deterministic rule violation), and drives a real
-VS Code via `@vscode/test-electron`. Suites live in `test/suite/*.test.js`.
+`acceptance/` follows the PostgreSQL Workbench model: global setup builds the
+CLI and prepares VS Code; a worker fixture launches an isolated Electron
+profile and deterministic Rust workspace; page objects own VS Code and React
+Flow selectors; specs describe user journeys. The campaign is serial and
+fail-fast, and scenarios never call extension feature APIs or panel handlers.
 
-Key mechanics:
-
-- **Extension API**: `activate()` returns `CodeMonikerApi`
-  (`src/extension.ts`) exposing the session, tree providers and the explorer
-  panel, so tests drive features without scraping the UI.
-- **Stale-daemon seeding**: the runner writes a dead registry entry before
-  activation to prove the extension recovers from stale registrations.
-- **Webview acks**: the harness cannot reach inside a webview, so the
-  webviews acknowledge what they actually *render*. The explorer posts
-  `{type:"ack", prefix, nodes}` after applying a scope and
-  `{type:"insetAck", uri, lines}` after rendering a code inset
-  (`src/explorer/protocol.ts`). The panel records them
-  (`panel.webviewAcks`, `panel.insetAcks`) and exposes `panel.inspect(uri)`
-  so tests can drive the inset flow. A green ack proves the chain
-  command → daemon query → host message → React render.
-
-What the suite cannot do: synthesize clicks inside a webview. The defense is
-structural instead — every canvas node carries one data shape
-(`ScopeNodeModel`), unwrapped in a single place, so a shape drift breaks
-rendering (visible to acks) rather than silently killing handlers.
+The extension exposes only an acceptance-mode lifecycle rendezvous for
+activation and editor cleanup. Cockpit actions are performed through the
+Workspace header, TreeView, editor, Command Palette and webview controls.
+See `acceptance/README.md` for structure and evidence retention.
 
 ## Browser Harness (pixel-level)
 
@@ -189,8 +174,8 @@ Two hard-won rules:
 
 ## Golden Rules
 
-- Never certify UI behavior without a webview ack or a screenshot; a green
-  compile proves nothing about clicks or layout.
+- Never certify UI behavior without a successful Playwright journey and its
+  rendered evidence; a green compile proves nothing about clicks or layout.
 - Screenshot the harness *after* the async chain settles: the explorer waits
   for the graph, its container outlines and the ELK pass before the canvas
   has nodes, and a capture taken earlier shows an empty canvas that is not a

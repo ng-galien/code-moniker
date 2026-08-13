@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-// HTML shell for the graph explorer webview; the view is rendered
+// HTML shell for the single Code Cockpit webview; the view is rendered
 // client-side from posted messages.
 export function renderExplorerHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 	const nonce = makeNonce();
@@ -23,7 +23,7 @@ export function renderExplorerHtml(webview: vscode.Webview, extensionUri: vscode
 	<meta http-equiv="Content-Security-Policy" content="${csp}" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<link href="${styleUri}" rel="stylesheet" />
-	<title>Graph Explorer</title>
+	<title>Code Cockpit</title>
 </head>
 <body>
 	<div id="root"></div>

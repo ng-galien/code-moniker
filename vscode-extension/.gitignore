@@ -2,5 +2,6 @@ node_modules/
 bin/
 dist/
 .vscode-test/
+test-results/
 *.vsix
 THIRD_PARTY_NOTICES

@@ -76,6 +76,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 	private readonly emitter = new vscode.EventEmitter<WorkspaceNode | undefined>();
 	readonly onDidChangeTreeData = this.emitter.event;
 	private readonly subscriptions: vscode.Disposable[] = [];
+	private readonly parents = new WeakMap<object, WorkspaceNode | undefined>();
 	private pendingRefresh?: NodeJS.Timeout;
 
 	constructor(
@@ -113,27 +114,74 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 
 	async getChildren(node?: WorkspaceNode): Promise<WorkspaceNode[]> {
 		if (!node) {
-			return sections();
+			return this.track(sections(), undefined);
 		}
 		if (node.kind === "section") {
-			return this.sectionChildren(node.id);
+			return this.track(await this.sectionChildren(node.id), node);
 		}
+		let children: WorkspaceNode[];
 		switch (node.kind) {
 			case "setup":
-				return wrapSetup(await this.setup.getChildren(node.node));
+				children = wrapSetup(await this.setup.getChildren(node.node));
+				break;
 			case "daemon":
-				return wrapDaemons(await this.daemons.getChildren(node.node));
+				children = wrapDaemons(await this.daemons.getChildren(node.node));
+				break;
 			case "symbols":
-				return wrapSymbols(await this.symbols.getChildren(node.node));
+				children = wrapSymbols(await this.symbols.getChildren(node.node));
+				break;
 			case "views":
-				return wrapViews(await this.views.getChildren(node.node));
+				children = wrapViews(await this.views.getChildren(node.node));
+				break;
 			case "changes":
-				return wrapChanges(await this.changes.getChildren(node.node));
+				children = wrapChanges(await this.changes.getChildren(node.node));
+				break;
 			case "check":
-				return wrapRules(await this.rules.getChildren(node.node));
+				children = wrapRules(await this.rules.getChildren(node.node));
+				break;
 			case "ruleFiles":
-				return wrapRuleFiles(await this.ruleFiles.getChildren(node.node));
+				children = wrapRuleFiles(await this.ruleFiles.getChildren(node.node));
+				break;
 		}
+		return this.track(children, node);
+	}
+
+	getParent(node: WorkspaceNode): vscode.ProviderResult<WorkspaceNode> {
+		return this.parents.get(node);
+	}
+
+	async findSymbolPath(uri: string): Promise<WorkspaceNode[] | undefined> {
+		const target = identityFromUri(uri);
+		const section: SectionNode = { kind: "section", id: "symbols", label: "Symbols" };
+		this.parents.set(section, undefined);
+		const path: WorkspaceNode[] = [section];
+		let parent: WorkspaceNode = section;
+		let children = await this.symbols.getChildren();
+		for (let hop = 0; hop < 64; hop++) {
+			const exact = children.find(
+				(node) => node.kind === "symbol" && node.symbol.uri === uri,
+			);
+			if (exact) {
+				const wrapped: WorkspaceSymbolNode = { kind: "symbols", node: exact };
+				this.parents.set(wrapped, parent);
+				return [...path, wrapped];
+			}
+			const next = children
+				.map((node) => ({ node, identity: symbolNodeIdentity(node) }))
+				.filter(
+					(candidate): candidate is { node: SymbolTreeNode; identity: string } =>
+						Boolean(candidate.identity) &&
+						(target === candidate.identity || target.startsWith(`${candidate.identity}/`)),
+				)
+				.sort((a, b) => b.identity.length - a.identity.length)[0];
+			if (!next) return undefined;
+			const wrapped: WorkspaceSymbolNode = { kind: "symbols", node: next.node };
+			this.parents.set(wrapped, parent);
+			path.push(wrapped);
+			parent = wrapped;
+			children = await this.symbols.getChildren(next.node);
+		}
+		return undefined;
 	}
 
 	getTreeItem(node: WorkspaceNode): vscode.TreeItem {
@@ -192,6 +240,11 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 			case "ruleFiles":
 				return wrapRuleFiles(await this.ruleFiles.getChildren());
 		}
+	}
+
+	private track(children: WorkspaceNode[], parent: WorkspaceNode | undefined): WorkspaceNode[] {
+		for (const child of children) this.parents.set(child, parent);
+		return children;
 	}
 }
 
@@ -254,4 +307,18 @@ function wrapRuleFiles(nodes: RuleTreeNode[]): WorkspaceRuleFileNode[] {
 
 function checkSection(): RulesTreeNode {
 	return { kind: "section", id: "check", label: "Check" };
+}
+
+function identityFromUri(uri: string): string {
+	const scheme = uri.indexOf("://");
+	if (scheme < 0) return uri;
+	const rooted = uri.slice(scheme + 3);
+	const separator = rooted.indexOf("/");
+	return separator < 0 ? "" : rooted.slice(separator + 1);
+}
+
+function symbolNodeIdentity(node: SymbolTreeNode): string | undefined {
+	if (node.kind === "identity") return node.row.identity;
+	if (node.kind === "symbol") return node.identity;
+	return undefined;
 }

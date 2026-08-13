@@ -1,41 +1,119 @@
-import type { IdentityGraphResult, SymbolDto } from "../daemon/model";
+import type { SymbolDto, SymbolGraphResult } from "../daemon/model";
 import type { HighlightedSourceSnippet } from "../symbols/detail/highlight";
 
 // Message contract between the explorer panel (extension host) and its
 // webview. Types only — this module is imported from both sides of the
 // bridge, so it must stay free of vscode and DOM value imports.
 
-// What a container node holds, so its card shows the contents instead of
-// forcing a dive: the flattened single-child path the dive would traverse,
-// a preview of the members found there, and how many exist in total.
-export interface MemberPreview {
+// Symbol-centered cockpit. Unlike a scope graph, this is an ego graph: the
+// focused definition sits in the middle, callers arrive from the left and
+// dependencies leave to the right. The webview deliberately reveals only a
+// small top-N and keeps the remainder behind explicit expansion controls.
+export interface CockpitPayload {
+	graph: SymbolGraphResult;
+	canBack: boolean;
+	canForward: boolean;
+	pinned: SymbolDto[];
+	preferences: CockpitPreferences;
+	context?: CockpitContext;
+	perspectives: CockpitSavedPerspective[];
+}
+
+export interface CockpitContext {
 	identity: string;
-	name: string;
+	label: string;
 	kind: string;
 }
 
-export interface ContainerOutline {
-	chain: string[];
-	members: MemberPreview[];
-	hidden: number;
+export type CockpitPerspective = "neighborhood" | "impact";
+export type CockpitRelation = "calls" | "data" | "types" | "references";
+
+export interface CockpitFilters {
+	incoming: boolean;
+	outgoing: boolean;
+	calls: boolean;
+	data: boolean;
+	types: boolean;
+	references: boolean;
 }
 
-export type ScopeOutline = Record<string, ContainerOutline>;
-
-export interface ScopePayload {
-	graph: IdentityGraphResult;
-	canBack: boolean;
-	canForward: boolean;
-	outline: ScopeOutline;
+export interface CockpitPreferences {
+	perspective: CockpitPerspective;
+	filters: CockpitFilters;
+	radius: CockpitRadius;
+	positions: Record<string, CockpitPosition>;
 }
 
-export interface ScopeMessage {
-	type: "scope";
-	payload: ScopePayload;
+export interface CockpitRadius {
+	incoming: number;
+	outgoing: number;
 }
 
-export interface ScopeErrorMessage {
-	type: "scopeError";
+export interface CockpitPosition {
+	x: number;
+	y: number;
+}
+
+export interface CockpitViewport extends CockpitPosition {
+	zoom: number;
+}
+
+export interface CockpitSavedPerspective {
+	name: string;
+	focus: string;
+	pinnedUris: string[];
+	preferences: CockpitPreferences;
+}
+
+export interface CockpitMessage {
+	type: "cockpit";
+	payload: CockpitPayload;
+}
+
+export interface CockpitEmptyMessage {
+	type: "cockpitEmpty";
+	context?: CockpitContext;
+}
+
+export interface CockpitLoadingMessage {
+	type: "cockpitLoading";
+	prefix: string;
+}
+
+export interface CockpitExpansionMessage {
+	type: "cockpitExpansion";
+	uri: string;
+	requestId: string;
+	rootFocus: string;
+	generation: number;
+	graph: SymbolGraphResult;
+}
+
+export interface CockpitExpansionErrorMessage {
+	type: "cockpitExpansionError";
+	uri: string;
+	requestId: string;
+	rootFocus: string;
+	generation: number;
+	message: string;
+}
+
+export interface SearchResultsMessage {
+	type: "searchResults";
+	query: string;
+	rows: SymbolDto[];
+}
+
+export interface ExternalSelectionMessage {
+	type: "externalSelection";
+	symbol: SymbolDto;
+	source: "tree" | "editor";
+}
+
+export type ExplorerStateMessage = CockpitEmptyMessage | CockpitLoadingMessage | CockpitMessage | CockpitErrorMessage;
+
+export interface CockpitErrorMessage {
+	type: "cockpitError";
 	prefix: string;
 	message: string;
 }
@@ -55,12 +133,26 @@ export interface InsetMessage {
 	source: HighlightedSourceSnippet | null;
 }
 
-// The webview acknowledges every scope it applies. This closes the loop for
-// the e2e suite: an ack proves the React bundle loaded, received the message
-// and rendered the level — not merely that the host posted it.
-export interface ScopeAck {
+// The webview acknowledges every cockpit it applies. DOM evidence keeps the
+// integration test honest about React Flow's mounted edges and controls.
+export interface CockpitAck {
 	prefix: string;
 	nodes: number;
+	edges?: number;
+	mode: "cockpit";
+	perspective?: "neighborhood" | "impact";
+	radius?: CockpitRadius;
+	enabledRelations?: string[];
+	pins?: number;
+	framedNodes?: number;
+	viewportZoom?: number;
+	mountedEdgePaths?: number;
+	visibleEdgePaths?: number;
+	paintedEdgePaths?: number;
+	zoomControls?: number;
+	reactFlowReady?: boolean;
+	viewport?: CockpitViewport;
+	viewportCommandId?: number;
 }
 
 // Posted by the webview after it renders a code inset: `lines` counts the
@@ -68,14 +160,32 @@ export interface ScopeAck {
 export interface InsetAck {
 	uri: string;
 	lines: number;
+	reason?: "loaded" | "preserved";
+	inspectorMode?: "contextual";
+	graphMounted?: boolean;
+	inspectorMounted?: boolean;
+	legacyPathPickerPresent?: boolean;
 }
 
 export type ExplorerMessage =
 	| { type: "focus"; prefix: string }
+	| {
+		type: "expand";
+		uri: string;
+		requestId: string;
+		rootFocus: string;
+		generation: number;
+	}
+	| { type: "search"; query: string }
+	| { type: "pin"; uri: string; pinned: boolean }
+	| { type: "preferences"; preferences: CockpitPreferences }
+	| { type: "savePerspective" }
+	| { type: "loadPerspective"; name: string }
+	| { type: "deletePerspective"; name: string }
 	| { type: "back" }
 	| { type: "forward" }
 	| { type: "inspect"; uri: string }
 	| { type: "openSource"; target: OpenSourceTarget }
 	| { type: "ready" }
-	| ({ type: "ack" } & ScopeAck)
+	| ({ type: "ack" } & CockpitAck)
 	| ({ type: "insetAck" } & InsetAck);
