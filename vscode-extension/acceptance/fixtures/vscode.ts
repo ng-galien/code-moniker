@@ -90,17 +90,81 @@ async function waitForVSCodeWindow(app: ElectronApplication, timeout: number): P
 }
 
 async function resizeWindow(app: ElectronApplication, page: Page, width: number, height: number): Promise<void> {
+	const tolerance = 32;
+	const deadline = Date.now() + 5_000;
+	let lastDimensions:
+		| {
+				devicePixelRatio: number;
+				nativeHeight: number;
+				nativeWidth: number;
+				rendererHeight: number;
+				rendererWidth: number;
+		  }
+		| undefined;
+	let lastError: string | undefined;
 	const browserWindow = await app.browserWindow(page);
 	try {
 		await browserWindow.evaluate((window, size) => window.setContentSize(size.width, size.height), { width, height });
-		await page.waitForFunction(
-			(size) => window.innerWidth === size.width && window.innerHeight === size.height,
-			{ width, height },
-			{ timeout: 5_000 },
-		);
 	} finally {
 		await browserWindow.dispose();
 	}
+	while (Date.now() < deadline) {
+		try {
+			const nativeWindow = await app.browserWindow(page);
+			let nativeSize: [number, number];
+			try {
+				nativeSize = await nativeWindow.evaluate((window) => window.getContentSize());
+			} finally {
+				await nativeWindow.dispose();
+			}
+			const renderer = await page.evaluate(() => ({
+				devicePixelRatio: window.devicePixelRatio,
+				height: window.innerHeight,
+				width: window.innerWidth,
+			}));
+			const [nativeWidth, nativeHeight] = nativeSize;
+			lastDimensions = {
+				devicePixelRatio: renderer.devicePixelRatio,
+				nativeHeight,
+				nativeWidth,
+				rendererHeight: renderer.height,
+				rendererWidth: renderer.width,
+			};
+			if (
+				Math.abs(nativeWidth - width) <= tolerance &&
+				Math.abs(nativeHeight - height) <= tolerance &&
+				Math.abs(renderer.width - width) <= tolerance &&
+				Math.abs(renderer.height - height) <= tolerance
+			) {
+				return;
+			}
+			lastError = undefined;
+		} catch (error) {
+			lastError = error instanceof Error ? error.message : String(error);
+		}
+		await new Promise((resolvePoll) => setTimeout(resolvePoll, 50));
+	}
+	const diagnostic = {
+		actual: lastDimensions,
+		delta: lastDimensions
+			? {
+					nativeHeight: lastDimensions.nativeHeight - height,
+					nativeWidth: lastDimensions.nativeWidth - width,
+					rendererHeight: lastDimensions.rendererHeight - height,
+					rendererWidth: lastDimensions.rendererWidth - width,
+			  }
+			: undefined,
+		error: lastError,
+		requested: { height, width },
+		tolerance,
+	};
+	const diagnosticPath = join(artifactsRoot, "window-resize-error.json");
+	const screenshotPath = join(artifactsRoot, "window-resize-error.png");
+	writeFileSync(diagnosticPath, `${JSON.stringify(diagnostic, null, 2)}\n`);
+	await page.screenshot({ path: screenshotPath }).catch(() => undefined);
+	throw new Error(
+		`VS Code window did not settle within 5000 ms. Dimensions: ${JSON.stringify(diagnostic)}. Snapshot: ${screenshotPath}`,
+	);
 }
 
 export interface VSCodeInstance {
@@ -113,6 +177,9 @@ export interface VSCodeInstance {
 }
 
 export async function launchVSCode(): Promise<VSCodeInstance> {
+	// Video recording and trace snapshots can deadlock VS Code's Electron renderer on
+	// GitHub-hosted Linux runners. CI captures the Xvfb root window instead.
+	const minimalDiagnostics = process.env.CI === "true" || process.env.CODE_MONIKER_PLAYWRIGHT_MINIMAL_DIAGNOSTICS === "1";
 	const { executablePath } = preparedAcceptanceVSCode();
 	const profileRoot = mkdtempSync(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "cm-acceptance-"));
 	const workspace = join(profileRoot, "workspace");
@@ -171,10 +238,14 @@ export async function launchVSCode(): Promise<VSCodeInstance> {
 				`--extensionDevelopmentPath=${extensionRoot}`,
 				workspace,
 			],
-			recordVideo: { dir: join(artifactsRoot, "video"), size: { width: 1440, height: 900 } },
+			recordVideo: minimalDiagnostics
+				? undefined
+				: { dir: join(artifactsRoot, "video"), size: { width: 1440, height: 900 } },
 		});
-		await app.context().tracing.start({ screenshots: true, snapshots: true });
-		tracingStarted = true;
+		if (!minimalDiagnostics) {
+			await app.context().tracing.start({ screenshots: true, snapshots: true });
+			tracingStarted = true;
+		}
 		const page = await waitForVSCodeWindow(app, 30_000);
 		await resizeWindow(app, page, 1440, 900);
 		const activity = page.locator('.activitybar a[aria-label*="Code Moniker"], .activitybar [role="tab"][aria-label*="Code Moniker"]').first();
