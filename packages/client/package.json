@@ -1,6 +1,6 @@
 {
 	"name": "@code-moniker/client",
-	"version": "0.6.1",
+	"version": "0.7.0",
 	"description": "Typed JavaScript and TypeScript client for the Code Moniker workspace daemon.",
 	"license": "MIT",
 	"repository": {
@@ -38,11 +38,12 @@
 		"generate": "npm run generate:types && npm run generate:protocol",
 		"build": "npm run generate && tsc -p tsconfig.build.json && node scripts/build.mjs",
 		"typecheck": "npm run generate && tsc --noEmit -p tsconfig.json",
-		"test:unit": "npm run build && node --test test/client.test.mjs test/node.test.mjs",
+		"test:unit": "npm run build && node --test test/client.test.mjs test/node.test.mjs test/diff-impact.test.mjs",
 		"test:consumer": "npm run build && tsc --noEmit -p test/consumer/tsconfig.json && tsc --noEmit -p test/consumer/tsconfig.nodenext.json && tsc --noEmit -p test/consumer/tsconfig.node-types-free.json",
 		"test:package": "npm run build && node --test test/package.test.mjs && node scripts/verify-native-packages.mjs && node scripts/verify-pack.mjs",
 		"test:daemon": "npm run build && node scripts/smoke-daemon.mjs",
 		"test:daemon:owned": "npm run build && node scripts/smoke-owned-daemon.mjs",
+		"test:diff-impact:daemon": "npm run build && node scripts/smoke-diff-impact-daemon.mjs",
 		"test:daemon:packaged": "npm run build && node scripts/test-packaged-daemon.mjs",
 		"test": "npm run typecheck && npm run test:unit && npm run test:consumer && npm run test:package"
 	},
@@ -57,9 +58,9 @@
 		"ws": "^8.18.0"
 	},
 	"optionalDependencies": {
-		"@code-moniker/cli-darwin-arm64": "0.6.1",
-		"@code-moniker/cli-darwin-x64": "0.6.1",
-		"@code-moniker/cli-linux-x64": "0.6.1",
-		"@code-moniker/cli-win32-x64": "0.6.1"
+		"@code-moniker/cli-darwin-arm64": "0.7.0",
+		"@code-moniker/cli-darwin-x64": "0.7.0",
+		"@code-moniker/cli-linux-x64": "0.7.0",
+		"@code-moniker/cli-win32-x64": "0.7.0"
 	}
 }

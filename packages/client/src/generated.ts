@@ -136,6 +136,14 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      base: WorkspaceSourceSetDto;
+      files: DiffImpactCompareFile[];
+      head: WorkspaceSourceSetDto;
+      op: "diff_impact_compare";
+      project?: string | null;
+      scope: string;
+    }
+  | {
       focus: string;
       max_items: number;
       op: "change_context";
@@ -205,6 +213,7 @@ export type Query =
       title?: string | null;
     };
 export type UsageDirection = "incoming" | "outgoing" | "both";
+export type DiffImpactFileStatus = "added" | "modified" | "deleted" | "renamed";
 export type GraphPathExpectation = "reachable" | "no_path";
 export type NotesAction = "list" | "get" | "create" | "update" | "transition" | "delete";
 export type Consistency = "current" | "refresh_if_stale" | "stale_ok";
@@ -260,6 +269,10 @@ export type QueryResult =
   | {
       data: ChangeReviewResult;
       kind: "change_review";
+    }
+  | {
+      data: DiffImpactResult;
+      kind: "diff_impact";
     }
   | {
       data: ChangeContextResult;
@@ -439,6 +452,18 @@ export interface CapabilitySet {
   query_mcp_tools?: {
     [k: string]: string;
   };
+}
+export interface DiffImpactCompareFile {
+  new_hunks?: DiffImpactLineSpan[];
+  new_uri?: string | null;
+  old_hunks?: DiffImpactLineSpan[];
+  old_uri?: string | null;
+  rename_score?: number | null;
+  status: DiffImpactFileStatus;
+}
+export interface DiffImpactLineSpan {
+  end: number;
+  start: number;
 }
 export interface QueryRequest {
   consistency: Consistency;
@@ -864,6 +889,7 @@ export interface ChangeReviewFile {
   old_path?: string | null;
   old_residual: [number, number][];
   symbol_changes: number;
+  test_artifact: boolean;
 }
 export interface ChangeReviewRef {
   file: string;
@@ -911,6 +937,79 @@ export interface ChangeReviewSide {
    */
   lines?: [number, number] | null;
   name: string;
+  test_artifact: boolean;
+  visibility: string;
+}
+export interface DiffImpactResult {
+  diagnostics: string[];
+  files: DiffImpactFile[];
+  ref_changes: DiffImpactRef[];
+  scope: string;
+  summary: DiffImpactSummary;
+  symbol_changes: DiffImpactSymbol[];
+}
+export interface DiffImpactFile {
+  analyzable: boolean;
+  coverage_explained: boolean;
+  disposition: string;
+  moved_symbols: number;
+  new_path?: string | null;
+  new_residual: [number, number][];
+  old_path?: string | null;
+  old_residual: [number, number][];
+  symbol_changes: number;
+  test_artifact: boolean;
+}
+export interface DiffImpactRef {
+  file: string;
+  kind: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  new_lines?: [number, number] | null;
+  new_target?: string | null;
+  new_target_compact?: string | null;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  old_lines?: [number, number] | null;
+  old_target?: string | null;
+  old_target_compact?: string | null;
+  ref_kind: string;
+}
+export interface DiffImpactSummary {
+  analyzable_files: number;
+  files: number;
+  ref_changes: number;
+  residual_files: number;
+  retargeted_refs: number;
+  symbol_changes: number;
+}
+export interface DiffImpactSymbol {
+  body_changed: boolean;
+  confidence: string;
+  file_moved: boolean;
+  header_changed: boolean;
+  kind: string;
+  new?: DiffImpactSide | null;
+  old?: DiffImpactSide | null;
+  signature_changed: boolean;
+  visibility_changed: boolean;
+}
+export interface DiffImpactSide {
+  compact_identity: string;
+  file: string;
+  identity: string;
+  kind: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  lines?: [number, number] | null;
+  name: string;
+  test_artifact: boolean;
   visibility: string;
 }
 export interface ChangeContextResult {

@@ -7,12 +7,14 @@ import {
 import type {
 	Command,
 	CommandResponse,
+	DiffImpactResult,
 	HandshakeResponse,
 	IdentityChildrenResult,
 	IdentityGraphResult,
 	Query,
 	QueryCursor,
 	QueryResult,
+	DiffImpactCompareFile,
 	SymbolDetailResult,
 	SymbolGraphResult,
 	SymbolListResult,
@@ -92,6 +94,14 @@ export interface IdentityGraphOptions extends IdentityChildrenOptions {
 	minCount?: number;
 }
 
+export interface DiffImpactCompareOptions {
+	scope: string;
+	project?: string | null;
+	base: WorkspaceSourceSetDto;
+	head: WorkspaceSourceSetDto;
+	files: DiffImpactCompareFile[];
+}
+
 type QueryKind = QueryResult["kind"];
 type QueryData<Kind extends QueryKind> = Extract<
 	QueryResult,
@@ -109,6 +119,7 @@ export class CodeMonikerClient {
 	readonly sources: SourceSetClient;
 	readonly symbols: SymbolsClient;
 	readonly graph: GraphClient;
+	readonly diffImpact: DiffImpactClient;
 	readonly events: EventsClient;
 
 	private constructor(
@@ -119,6 +130,7 @@ export class CodeMonikerClient {
 		this.sources = new SourceSetClient(this);
 		this.symbols = new SymbolsClient(this);
 		this.graph = new GraphClient(this);
+		this.diffImpact = new DiffImpactClient(this);
 		this.events = new EventsClient(this);
 	}
 
@@ -367,6 +379,28 @@ export class GraphClient {
 				min_count: options.minCount ?? 1,
 			},
 			"identity_graph",
+			queryOptions,
+		);
+	}
+}
+
+export class DiffImpactClient {
+	constructor(private readonly client: CodeMonikerClient) {}
+
+	compare(
+		options: DiffImpactCompareOptions,
+		queryOptions?: QueryOptions,
+	): Promise<DiffImpactResult> {
+		return this.client.queryData(
+			{
+				op: "diff_impact_compare",
+				scope: options.scope,
+				project: options.project ?? null,
+				base: options.base,
+				head: options.head,
+				files: options.files,
+			},
+			"diff_impact",
 			queryOptions,
 		);
 	}
