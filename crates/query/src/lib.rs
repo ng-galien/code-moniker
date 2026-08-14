@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -107,11 +107,13 @@ pub struct CapabilitySet {
 
 impl Default for CapabilitySet {
 	fn default() -> Self {
+		let mut queries: Vec<String> = query_capability_specs()
+			.iter()
+			.map(|spec| spec.name.to_string())
+			.collect();
+		queries.push("diff-impact.compare".to_string());
 		Self {
-			queries: query_capability_specs()
-				.iter()
-				.map(|spec| spec.name.to_string())
-				.collect(),
+			queries,
 			query_mcp_tools: query_capability_specs()
 				.iter()
 				.map(|spec| (spec.name.to_string(), spec.mcp_tool.to_string()))
@@ -685,6 +687,7 @@ pub enum Query {
 	RulesCheck(RulesCheckQuery),
 	RulesApplicable(RulesApplicableQuery),
 	ChangeReview(ChangeReviewQuery),
+	DiffImpactCompare(DiffImpactCompareQuery),
 	ChangeContext(ChangeContextQuery),
 	SymbolGraph(SymbolGraphQuery),
 	GraphPath(GraphPathQuery),
@@ -712,6 +715,7 @@ impl Query {
 			Self::RulesCheck(_) => "rules.check",
 			Self::RulesApplicable(_) => "rules.applicable",
 			Self::ChangeReview(_) => "change.review",
+			Self::DiffImpactCompare(_) => "diff-impact.compare",
 			Self::ChangeContext(_) => "change.context",
 			Self::SymbolGraph(_) => "symbol.graph",
 			Self::GraphPath(_) => "graph.path",
@@ -726,7 +730,10 @@ impl Query {
 	pub fn requires_workspace_snapshot(&self) -> bool {
 		!matches!(
 			self,
-			Self::QueryDescribe(_) | Self::WorkspaceStatus | Self::SyntaxParse(_)
+			Self::QueryDescribe(_)
+				| Self::WorkspaceStatus
+				| Self::SyntaxParse(_)
+				| Self::DiffImpactCompare(_)
 		)
 	}
 }
@@ -941,6 +948,46 @@ pub struct RulesApplicableQuery {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ChangeReviewQuery {
 	pub workspace: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactCompareQuery {
+	pub scope: String,
+	pub project: Option<String>,
+	pub base: WorkspaceSourceSetDto,
+	pub head: WorkspaceSourceSetDto,
+	pub files: Vec<DiffImpactCompareFile>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactCompareFile {
+	pub status: DiffImpactFileStatus,
+	pub old_uri: Option<String>,
+	pub new_uri: Option<String>,
+	#[serde(default)]
+	pub old_hunks: Vec<DiffImpactLineSpan>,
+	#[serde(default)]
+	pub new_hunks: Vec<DiffImpactLineSpan>,
+	pub rename_score: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DiffImpactFileStatus {
+	Added,
+	Modified,
+	Deleted,
+	Renamed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactLineSpan {
+	pub start: u32,
+	pub end: u32,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -1243,6 +1290,7 @@ pub enum QueryResult {
 	RulesCheck(RulesCheckResult),
 	RulesApplicable(Box<RulesApplicableResult>),
 	ChangeReview(Box<ChangeReviewResult>),
+	DiffImpact(Box<DiffImpactResult>),
 	ChangeContext(Box<ChangeContextResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
 	GraphPath(Box<GraphPathResult>),
@@ -1618,6 +1666,7 @@ pub struct ChangeReviewFile {
 	pub coverage_explained: bool,
 	pub old_residual: Vec<(u32, u32)>,
 	pub new_residual: Vec<(u32, u32)>,
+	pub test_artifact: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1643,6 +1692,7 @@ pub struct ChangeReviewSide {
 	pub name: String,
 	pub visibility: String,
 	pub lines: Option<(u32, u32)>,
+	pub test_artifact: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1653,6 +1703,84 @@ pub struct ChangeReviewRef {
 	pub ref_kind: String,
 	pub old_target: Option<String>,
 	pub new_target: Option<String>,
+	pub old_lines: Option<(u32, u32)>,
+	pub new_lines: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactResult {
+	pub scope: String,
+	pub summary: DiffImpactSummary,
+	pub files: Vec<DiffImpactFile>,
+	pub symbol_changes: Vec<DiffImpactSymbol>,
+	pub ref_changes: Vec<DiffImpactRef>,
+	pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactSummary {
+	pub files: usize,
+	pub analyzable_files: usize,
+	pub symbol_changes: usize,
+	pub ref_changes: usize,
+	pub retargeted_refs: usize,
+	pub residual_files: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactFile {
+	pub old_path: Option<String>,
+	pub new_path: Option<String>,
+	pub disposition: String,
+	pub analyzable: bool,
+	pub symbol_changes: usize,
+	pub moved_symbols: usize,
+	pub coverage_explained: bool,
+	pub old_residual: Vec<(u32, u32)>,
+	pub new_residual: Vec<(u32, u32)>,
+	pub test_artifact: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactSymbol {
+	pub kind: String,
+	pub confidence: String,
+	pub body_changed: bool,
+	pub signature_changed: bool,
+	pub visibility_changed: bool,
+	pub header_changed: bool,
+	pub file_moved: bool,
+	pub old: Option<DiffImpactSide>,
+	pub new: Option<DiffImpactSide>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactSide {
+	pub identity: String,
+	pub compact_identity: String,
+	pub file: String,
+	pub kind: String,
+	pub name: String,
+	pub visibility: String,
+	pub lines: Option<(u32, u32)>,
+	pub test_artifact: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct DiffImpactRef {
+	pub kind: String,
+	pub file: String,
+	pub ref_kind: String,
+	pub old_target: Option<String>,
+	pub new_target: Option<String>,
+	pub old_target_compact: Option<String>,
+	pub new_target_compact: Option<String>,
 	pub old_lines: Option<(u32, u32)>,
 	pub new_lines: Option<(u32, u32)>,
 }
@@ -2963,6 +3091,7 @@ pub fn format_query_response_projected(response: &QueryResponse, projection: &[S
 		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
 		QueryResult::RulesApplicable(result) => format_rules_applicable(&mut out, result),
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
+		QueryResult::DiffImpact(result) => format_diff_impact(&mut out, result),
 		QueryResult::ChangeContext(result) => format_change_context(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::GraphPath(result) => format_graph_path(&mut out, result),
@@ -3865,6 +3994,55 @@ fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
 			out,
 			"  {} {} {} [{}]",
 			change.kind, side.kind, side.name, change.confidence
+		);
+	}
+	for diagnostic in &result.diagnostics {
+		let _ = writeln!(out, "diagnostic: {diagnostic}");
+	}
+}
+
+fn format_diff_impact(out: &mut String, result: &DiffImpactResult) {
+	let _ = writeln!(out, "scope: {}", result.scope);
+	let _ = writeln!(
+		out,
+		"files: {} ({} analyzable) symbols: {} refs: {} ({} retargeted) residual: {}",
+		result.summary.files,
+		result.summary.analyzable_files,
+		result.summary.symbol_changes,
+		result.summary.ref_changes,
+		result.summary.retargeted_refs,
+		result.summary.residual_files
+	);
+	for file in &result.files {
+		let path = match (&file.old_path, &file.new_path) {
+			(Some(old), Some(new)) if old != new => format!("{old} -> {new}"),
+			(_, Some(new)) => new.clone(),
+			(Some(old), None) => old.clone(),
+			(None, None) => "<unknown>".to_string(),
+		};
+		let _ = writeln!(
+			out,
+			"- {path} {}{}{}",
+			file.disposition,
+			if file.analyzable {
+				""
+			} else {
+				" (not analyzable)"
+			},
+			if file.coverage_explained {
+				""
+			} else {
+				" [residual]"
+			}
+		);
+	}
+	for change in &result.symbol_changes {
+		let side = change.new.as_ref().or(change.old.as_ref());
+		let Some(side) = side else { continue };
+		let _ = writeln!(
+			out,
+			"  {} {} {} [{}]",
+			change.kind, side.kind, side.compact_identity, change.confidence
 		);
 	}
 	for diagnostic in &result.diagnostics {
@@ -4958,5 +5136,32 @@ mod contract_tests {
 				.iter()
 				.any(|command| command == "workspace.source_set.replace")
 		);
+		assert!(
+			CapabilitySet::default()
+				.queries
+				.iter()
+				.any(|query| query == "diff-impact.compare")
+		);
+		assert_eq!(PROTOCOL_VERSION, 17);
+	}
+
+	#[test]
+	fn test_artifact_classification_covers_canonical_paths_kinds_and_modules() {
+		for path in [
+			"tests/service.rs",
+			"benches/speed.rs",
+			"fixtures/input.py",
+			"testdata/schema.sql",
+			"src/__tests__/service.ts",
+		] {
+			assert!(symbol_is_test_artifact("function", path, ""), "{path}");
+		}
+		assert!(symbol_is_test_artifact("test", "src/lib.rs", ""));
+		assert!(symbol_is_test_artifact(
+			"function",
+			"src/lib.rs",
+			"code+moniker://module:tests/function:works()"
+		));
+		assert!(!symbol_is_test_artifact("function", "src/lib.rs", ""));
 	}
 }

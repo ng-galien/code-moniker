@@ -19,6 +19,9 @@ import {
 import type { DaemonRegistryEntry } from "./generated.js";
 import { DaemonRpc } from "./rpc.js";
 import type { WebSocketFactory, WebSocketLike } from "./transport.js";
+import { runGitDiffImpact, type DiffImpactOutput, type GitDiffImpactOptions } from "./diff-impact.js";
+
+export * from "./diff-impact.js";
 
 const HEARTBEAT_TIMEOUT_MS = 15_000;
 const DEFAULT_REGISTRATION_TIMEOUT_MS = 5_000;
@@ -344,6 +347,13 @@ export class NodeDaemonRuntime {
 		}
 		return files;
 	}
+}
+
+export function diffImpactGit(options: GitDiffImpactOptions): Promise<DiffImpactOutput> {
+	return runGitDiffImpact(
+		options,
+		(registryDirectory) => new NodeDaemonRuntime({ registryDirectory }),
+	);
 }
 
 export function defaultRegistryDirectory(): string {

@@ -59,6 +59,36 @@ test("source-set operations send typed atomic commands", async () => {
 	client.close();
 });
 
+test("the diff-impact facade sends both virtual revisions in one transactional query", async () => {
+	const daemon = new FakeDaemon();
+	const client = await connect(daemon);
+	const sourceSet = (revision, content) => ({
+		srcset: "diff-impact",
+		revision,
+		documents: [{ uri: "src/lib.rs", language: "rs", content }],
+	});
+	const result = await client.diffImpact.compare({
+		scope: "base..head",
+		project: "sample",
+		base: sourceSet("base", "pub fn changed() { old(); }"),
+		head: sourceSet("head", "pub fn changed() { new(); }"),
+		files: [{
+			status: "modified",
+			old_uri: "src/lib.rs",
+			new_uri: "src/lib.rs",
+			old_hunks: [{ start: 1, end: 1 }],
+			new_hunks: [{ start: 1, end: 1 }],
+			rename_score: null,
+		}],
+	});
+
+	assert.equal(result.scope, "base..head");
+	assert.equal(queryRequests(daemon).at(-1).op, "diff_impact_compare");
+	assert.equal(queryRequests(daemon).at(-1).base.revision, "base");
+	assert.equal(queryRequests(daemon).at(-1).head.revision, "head");
+	client.close();
+});
+
 test("symbol and graph facades map ergonomic options to the public query protocol", async () => {
 	const daemon = new FakeDaemon();
 	const client = await connect(daemon);
@@ -341,7 +371,7 @@ class FakeDaemon {
 					workspace_root: this.workspaceRoots[0],
 					workspace_roots: this.workspaceRoots,
 					capabilities: {
-						queries: ["symbol.search", "symbol.usages", "identity.graph"],
+						queries: ["symbol.search", "symbol.usages", "identity.graph", "diff-impact.compare"],
 						query_mcp_tools: {},
 						commands: [
 							"workspace.source_set.replace",
@@ -442,6 +472,20 @@ function commandMessage(op) {
 }
 
 function queryResponse(query, page) {
+	if (query.op === "diff_impact_compare") {
+		return {
+			generation: null,
+			next_cursor: null,
+			result: {
+				kind: "diff_impact",
+				data: {
+					scope: query.scope,
+					summary: { files: 1, analyzable_files: 1, symbol_changes: 1, ref_changes: 0, retargeted_refs: 0, residual_files: 0 },
+					files: [], symbol_changes: [], ref_changes: [], diagnostics: [],
+				},
+			},
+		};
+	}
 	if (query.op === "symbol_search") {
 		return {
 			generation: 8,

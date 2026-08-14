@@ -4,3 +4,4 @@ pub mod pairing;
 pub mod refpairs;
 pub mod review;
 pub mod rollup;
+pub mod virtual_diff_impact;

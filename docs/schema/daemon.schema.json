@@ -487,7 +487,8 @@
         "moved_symbols",
         "new_residual",
         "old_residual",
-        "symbol_changes"
+        "symbol_changes",
+        "test_artifact"
       ],
       "properties": {
         "analyzable": {
@@ -560,6 +561,9 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "test_artifact": {
+          "type": "boolean"
         }
       }
     },
@@ -684,6 +688,7 @@
         "identity",
         "kind",
         "name",
+        "test_artifact",
         "visibility"
       ],
       "properties": {
@@ -718,6 +723,9 @@
         },
         "name": {
           "type": "string"
+        },
+        "test_artifact": {
+          "type": "boolean"
         },
         "visibility": {
           "type": "string"
@@ -1124,6 +1132,447 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "DiffImpactCompareFile": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "new_hunks": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiffImpactLineSpan"
+          }
+        },
+        "new_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_hunks": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiffImpactLineSpan"
+          }
+        },
+        "old_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rename_score": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "status": {
+          "$ref": "#/definitions/DiffImpactFileStatus"
+        }
+      }
+    },
+    "DiffImpactFile": {
+      "type": "object",
+      "required": [
+        "analyzable",
+        "coverage_explained",
+        "disposition",
+        "moved_symbols",
+        "new_residual",
+        "old_residual",
+        "symbol_changes",
+        "test_artifact"
+      ],
+      "properties": {
+        "analyzable": {
+          "type": "boolean"
+        },
+        "coverage_explained": {
+          "type": "boolean"
+        },
+        "disposition": {
+          "type": "string"
+        },
+        "moved_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "new_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new_residual": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "old_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_residual": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "symbol_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "test_artifact": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DiffImpactFileStatus": {
+      "type": "string",
+      "enum": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed"
+      ]
+    },
+    "DiffImpactLineSpan": {
+      "type": "object",
+      "required": [
+        "end",
+        "start"
+      ],
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "DiffImpactRef": {
+      "type": "object",
+      "required": [
+        "file",
+        "kind",
+        "ref_kind"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "new_lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "new_target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new_target_compact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "old_target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_target_compact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref_kind": {
+          "type": "string"
+        }
+      }
+    },
+    "DiffImpactResult": {
+      "type": "object",
+      "required": [
+        "diagnostics",
+        "files",
+        "ref_changes",
+        "scope",
+        "summary",
+        "symbol_changes"
+      ],
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiffImpactFile"
+          }
+        },
+        "ref_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiffImpactRef"
+          }
+        },
+        "scope": {
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/definitions/DiffImpactSummary"
+        },
+        "symbol_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiffImpactSymbol"
+          }
+        }
+      }
+    },
+    "DiffImpactSide": {
+      "type": "object",
+      "required": [
+        "compact_identity",
+        "file",
+        "identity",
+        "kind",
+        "name",
+        "test_artifact",
+        "visibility"
+      ],
+      "properties": {
+        "compact_identity": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "identity": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "name": {
+          "type": "string"
+        },
+        "test_artifact": {
+          "type": "boolean"
+        },
+        "visibility": {
+          "type": "string"
+        }
+      }
+    },
+    "DiffImpactSummary": {
+      "type": "object",
+      "required": [
+        "analyzable_files",
+        "files",
+        "ref_changes",
+        "residual_files",
+        "retargeted_refs",
+        "symbol_changes"
+      ],
+      "properties": {
+        "analyzable_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ref_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "residual_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "retargeted_refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "symbol_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "DiffImpactSymbol": {
+      "type": "object",
+      "required": [
+        "body_changed",
+        "confidence",
+        "file_moved",
+        "header_changed",
+        "kind",
+        "signature_changed",
+        "visibility_changed"
+      ],
+      "properties": {
+        "body_changed": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "file_moved": {
+          "type": "boolean"
+        },
+        "header_changed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "new": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DiffImpactSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "old": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DiffImpactSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature_changed": {
+          "type": "boolean"
+        },
+        "visibility_changed": {
+          "type": "boolean"
         }
       }
     },
@@ -2673,6 +3122,45 @@
         {
           "type": "object",
           "required": [
+            "base",
+            "files",
+            "head",
+            "op",
+            "scope"
+          ],
+          "properties": {
+            "base": {
+              "$ref": "#/definitions/WorkspaceSourceSetDto"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/DiffImpactCompareFile"
+              }
+            },
+            "head": {
+              "$ref": "#/definitions/WorkspaceSourceSetDto"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "diff_impact_compare"
+              ]
+            },
+            "project": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scope": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "focus",
             "max_items",
             "op"
@@ -3446,6 +3934,24 @@
               "type": "string",
               "enum": [
                 "change_review"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/DiffImpactResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "diff_impact"
               ]
             }
           }
@@ -5878,5 +6384,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 16
+  "x-code-moniker-protocol-version": 17
 }

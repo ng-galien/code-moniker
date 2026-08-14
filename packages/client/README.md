@@ -95,6 +95,37 @@ if (owned) {
 }
 ```
 
+The same Node.js entry point can produce a bounded diff-impact report without a
+checkout or resident index:
+
+```ts
+import { writeFile } from "node:fs/promises";
+import { diffImpactGit } from "@code-moniker/client/node";
+
+const impact = await diffImpactGit({
+	repository: "https://github.com/example/project.git",
+	base: "main",
+	head: "refs/pull/42/head",
+	ticket: "PROJECT-42",
+});
+
+await writeFile("diff-impact.json", impact.json);
+console.log(impact.text);
+```
+
+For a remote repository, the client creates a temporary bare partial Git
+repository, fetches the two requested revisions without checking them out, and
+loads the complete blobs for changed files only. It then launches an isolated
+daemon, submits both virtual revisions in one transactional comparison, and
+removes the Git state, daemon registry, and empty workspace after shutdown.
+Authentication is delegated to Git and its configured credential helpers.
+
+The canonical JSON is the source of truth; the text is a deterministic compact
+projection of it and does not score or judge the change. The report explicitly
+states that semantic relations and test associations are limited to evidence
+available in the changed-file corpus. Unsupported or binary files remain in
+the inventory with an omission reason instead of disappearing silently.
+
 The Node entry point resolves the matching precompiled Code Moniker binary from
 the package's platform-specific optional dependency on macOS, Linux, and
 Windows x64. The Linux package contains the statically linked musl release

@@ -203,6 +203,7 @@ mod tests {
 				name: "source_catalog(root:&Path)".to_string(),
 				visibility: "private".to_string(),
 				lines: None,
+				test_artifact: false,
 			}),
 		}
 	}

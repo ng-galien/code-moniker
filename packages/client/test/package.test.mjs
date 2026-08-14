@@ -22,6 +22,8 @@ test("the Node entry point exposes lifecycle APIs to ESM and CommonJS consumers"
 	for (const client of [esmNodeClient, commonJsNodeClient]) {
 		assert.equal(typeof client.NodeDaemonRuntime, "function");
 		assert.equal(typeof client.nodeWebSocketFactory, "function");
+		assert.equal(typeof client.diffImpactGit, "function");
+		assert.equal(typeof client.renderDiffImpact, "function");
 		assert.equal("bundledBinaryPath" in client, false);
 		assert.equal("defaultBinaryCandidates" in client, false);
 	}
