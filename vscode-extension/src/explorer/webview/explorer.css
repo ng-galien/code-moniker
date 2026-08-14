@@ -1,3 +1,5 @@
+@import "@xyflow/react/dist/style.css";
+
 html,
 body,
 #root {
@@ -12,25 +14,15 @@ body,
 	--cm-accent: var(--vscode-charts-orange);
 	--cm-accent-text: color-mix(in srgb, var(--vscode-charts-orange) 55%, var(--vscode-foreground));
 	--cm-in-text: color-mix(in srgb, var(--vscode-charts-blue) 60%, var(--vscode-foreground));
-
-	/* Card geometry, read once by the layout pass: ELK reserves these boxes
-	   off-DOM, so a card taller than its box overlaps the rank below. Declared
-	   here so the numbers live with the rules that produce them; the card
-	   internals below are pinned to px line-heights to keep them true at any
-	   font size. */
-	--cm-card-width: 190px;
-	--cm-card-height: 64px;
-	--cm-member-chrome: 20px;
-	--cm-member-row: 16px;
-	--cm-member-more: 15px;
 }
 
 body {
 	font-family: var(--vscode-font-family);
 	color: var(--vscode-foreground);
 	margin: 0;
-	padding: 0 8px;
+	padding: 0;
 	box-sizing: border-box;
+	overflow: hidden;
 }
 
 #root {
@@ -38,9 +30,250 @@ body {
 	flex-direction: column;
 }
 
+.explorer-shell {
+	position: relative;
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+}
+
+.cockpit-loading-overlay {
+	position: absolute;
+	top: 50px;
+	right: 14px;
+	z-index: 35;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 6px 9px;
+	background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	box-shadow: 0 4px 14px color-mix(in srgb, var(--vscode-widget-shadow) 24%, transparent);
+	color: var(--vscode-descriptionForeground);
+	pointer-events: none;
+}
+
+.cockpit-loading-overlay .cockpit-spinner {
+	width: 12px;
+	height: 12px;
+}
+
+/* Search is the cockpit's front door in every context, including the empty
+   workspace and folder/file contexts selected from the native tree. */
+.cockpit-search-wrap {
+	position: relative;
+	z-index: 30;
+	padding: 8px 10px 6px;
+	border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+}
+
+.cockpit-search {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-height: 28px;
+	padding: 0 9px;
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+	border-radius: 5px;
+	color: var(--vscode-input-foreground);
+}
+
+.cockpit-search:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.cockpit-search input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+}
+
+.cockpit-search input::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+}
+
+.search-pending {
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.78em;
+}
+
+.search-results {
+	position: absolute;
+	top: calc(100% - 3px);
+	left: 0;
+	right: 0;
+	max-height: min(420px, 55vh);
+	overflow: auto;
+	background: var(--vscode-quickInput-background, var(--vscode-editorWidget-background));
+	border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	border-radius: 0 0 6px 6px;
+	box-shadow: 0 8px 22px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+}
+
+.search-results button {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	width: 100%;
+	padding: 7px 10px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-quickInput-foreground, var(--vscode-foreground));
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.search-results button:hover,
+.search-results button:focus-visible {
+	background: var(--vscode-quickInputList-focusBackground, var(--vscode-list-hoverBackground));
+	outline: 0;
+}
+
+.search-result-copy {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+
+.search-result-copy strong,
+.search-result-copy small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.search-result-copy small,
+.search-empty {
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.8em;
+}
+
+.search-empty {
+	padding: 10px;
+}
+
+.cockpit-welcome {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+.cockpit-context-identity {
+	margin-top: 4px;
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.8em;
+}
+
+.cockpit-perspectives {
+	display: flex;
+	min-height: 31px;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 7px;
+	overflow-x: auto;
+	border-top: 1px solid var(--vscode-panel-border);
+	white-space: nowrap;
+}
+
+.cockpit-perspectives button {
+	min-height: 23px;
+	padding: 2px 7px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font: inherit;
+	font-size: 0.75em;
+	cursor: pointer;
+}
+
+.cockpit-perspectives button:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.perspective-label {
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.68em;
+	font-weight: 650;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.perspective-muted {
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.74em;
+}
+
+.perspective-divider {
+	height: 18px;
+	border-left: 1px solid var(--vscode-panel-border);
+}
+
+.perspective-item {
+	display: inline-flex;
+}
+
+.perspective-item button:first-child {
+	border-radius: 5px 0 0 5px;
+}
+
+.perspective-item .delete-perspective {
+	min-width: 22px;
+	padding: 1px 4px;
+	border-left: 0;
+	border-radius: 0 5px 5px 0;
+}
+
+.cockpit-perspectives .save-perspective {
+	margin-left: auto;
+	color: var(--vscode-textLink-foreground);
+}
+
 .empty {
 	opacity: 0.7;
 	padding: 16px;
+}
+
+.cockpit-state {
+	display: flex;
+	flex: 1;
+	min-height: 240px;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 7px;
+	color: var(--vscode-descriptionForeground);
+	text-align: center;
+}
+
+.cockpit-state strong {
+	color: var(--vscode-foreground);
+}
+
+.cockpit-spinner {
+	width: 20px;
+	height: 20px;
+	border: 2px solid var(--vscode-panel-border);
+	border-top-color: var(--vscode-focusBorder);
+	border-radius: 50%;
+	animation: cockpit-spin 0.8s linear infinite;
+}
+
+.cockpit-error {
+	color: var(--vscode-errorForeground);
+}
+
+@keyframes cockpit-spin {
+	to { transform: rotate(360deg); }
 }
 
 .toolbar {
@@ -51,58 +284,217 @@ body {
 	border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-.toolbar .nav {
+.cockpit-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 46px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	background: var(--vscode-editor-background);
+}
+
+.cockpit-toolbar .nav {
 	background: var(--vscode-button-secondaryBackground);
 	color: var(--vscode-button-secondaryForeground);
-	border: none;
+	border: 0;
 	border-radius: 3px;
-	padding: 2px 8px;
+	min-height: 28px;
+	padding: 4px 9px;
 	cursor: pointer;
 }
 
-.toolbar .nav:disabled {
+.cockpit-toolbar .nav:disabled {
 	opacity: 0.4;
 	cursor: default;
 }
 
-/* the breadcrumb is the depth control: ancestors clickable, current marked */
-.breadcrumb {
+.cockpit-toolbar .cockpit-code-toggle {
+	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+	background: transparent;
+	color: var(--vscode-foreground);
+}
+
+.cockpit-toolbar .cockpit-code-toggle:hover,
+.cockpit-toolbar .cockpit-code-toggle.active {
+	background: color-mix(in srgb, var(--vscode-focusBorder) 14%, transparent);
+	border-color: var(--vscode-focusBorder);
+}
+
+.cockpit-path {
 	flex: 1;
 	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.9em;
+	color: var(--vscode-descriptionForeground);
+}
+
+.cockpit-path span {
+	padding: 0 4px;
+	opacity: 0.6;
+}
+
+.cockpit-path strong {
+	color: var(--cm-accent-text);
+}
+
+.cockpit-focus-context {
 	display: flex;
-	align-items: center;
+	min-width: 180px;
+	flex: 1 1 auto;
+	flex-direction: column;
 	gap: 2px;
 	overflow: hidden;
+}
+
+.cockpit-focus-name,
+.cockpit-focus-path {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+}
+
+.cockpit-focus-name strong {
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.94em;
+	font-weight: 650;
+	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.crumb-sep {
-	opacity: 0.5;
+.cockpit-focus-name > span:last-child {
+	flex: 0 0 auto;
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.68em;
+	text-transform: lowercase;
 }
 
-.crumb-btn {
-	background: none;
-	border: none;
-	border-radius: 3px;
-	padding: 1px 5px;
-	cursor: pointer;
-	color: var(--vscode-foreground);
+.cockpit-focus-path {
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
 	font-family: var(--vscode-editor-font-family);
-	font-size: 0.9em;
-	opacity: 0.75;
+	font-size: 0.7em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.crumb-btn:hover:not(:disabled) {
-	background: var(--vscode-list-hoverBackground);
-	opacity: 1;
+.cockpit-focus-path i {
+	opacity: 0.55;
+	font-style: normal;
 }
 
-.crumb-btn.current {
-	cursor: default;
-	opacity: 1;
+.cockpit-direction {
+	white-space: nowrap;
+	font-size: 0.75em;
 	font-weight: 600;
+}
+
+.cockpit-direction.incoming {
+	color: var(--cm-in-text);
+}
+
+.cockpit-direction.outgoing {
 	color: var(--cm-accent-text);
-	background: color-mix(in srgb, var(--cm-accent) 14%, transparent);
+}
+
+.cockpit-subtoolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 34px;
+	padding: 5px 10px;
+	overflow-x: auto;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	scrollbar-width: thin;
+}
+
+.cockpit-control-group {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 3px;
+	padding-right: 8px;
+	border-right: 1px solid var(--vscode-panel-border);
+}
+
+.cockpit-control-group.radius {
+	gap: 2px;
+}
+
+.cockpit-control-group.radius:last-child {
+	padding-right: 0;
+	border-right: 0;
+}
+
+.cockpit-radius-step {
+	width: 23px;
+	height: 23px;
+	padding: 0;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+
+.cockpit-radius-step:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.cockpit-radius-value {
+	min-width: 15px;
+	text-align: center;
+	font-size: 0.76em;
+}
+
+.cockpit-control-label {
+	margin-right: 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.72em;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.cockpit-chip {
+	min-height: 23px;
+	padding: 2px 8px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 0.72em;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.cockpit-chip:hover:not(:disabled) {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-chip.on {
+	border-color: color-mix(in srgb, var(--vscode-charts-blue) 70%, var(--vscode-panel-border));
+	background: color-mix(in srgb, var(--vscode-charts-blue) 13%, transparent);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-chip.impact.on {
+	border-color: color-mix(in srgb, var(--vscode-charts-orange) 70%, var(--vscode-panel-border));
+	background: color-mix(in srgb, var(--vscode-charts-orange) 13%, transparent);
+}
+
+.cockpit-chip:disabled {
+	opacity: 0.62;
+	cursor: default;
 }
 
 .unresolved {
@@ -117,52 +509,8 @@ body {
 	font-size: 0.85em;
 }
 
-/* ---- structural center: layered call DAG ---- */
-
-.unit-graph {
-	flex: 1;
-	min-height: 0;
-	display: flex;
-	flex-direction: column;
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 4px;
-	overflow: hidden;
-}
-
-.unit-graph .react-flow {
-	flex: 1;
-	min-height: 0;
-	background: var(--vscode-editor-background);
-}
-
 .graph-empty {
 	padding: 16px;
-}
-
-/* canonical function card */
-.fncard {
-	background: var(--vscode-editorWidget-background);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 6px;
-	padding: 6px 9px;
-	width: 190px;
-	box-sizing: border-box;
-	cursor: pointer;
-}
-
-.fncard.entry {
-	border-color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
-}
-
-.fncard.test {
-	opacity: 0.65;
-	border-style: dashed;
-}
-
-.fncard-head {
-	display: flex;
-	align-items: center;
-	gap: 5px;
 }
 
 .glyph {
@@ -173,103 +521,9 @@ body {
 	flex-shrink: 0;
 }
 
-.fnname {
-	font-family: var(--vscode-editor-font-family);
-	font-weight: 600;
-	font-size: 0.92em;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.recursion {
-	color: var(--vscode-charts-red);
-	font-weight: 700;
-}
-
-.pub {
-	margin-left: auto;
-	font-size: 0.78em;
-	color: var(--vscode-descriptionForeground);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 6px;
-	padding: 0 5px;
-	opacity: 0.85;
-	flex-shrink: 0;
-}
-
-.fncard-args {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 3px;
-	margin-top: 4px;
-}
-
-.argchip {
-	display: inline-flex;
-	gap: 4px;
-	background: var(--vscode-editor-background);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 4px;
-	padding: 1px 5px;
-	font-family: var(--vscode-editor-font-family);
-	font-size: 0.72em;
-	max-width: 100%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.argname {
-	opacity: 0.75;
-}
-
-.argtype {
-	color: var(--vscode-foreground);
-}
-
-.fncard-degrees {
-	display: flex;
-	gap: 10px;
-	margin-top: 4px;
-	font-size: 0.72em;
-	opacity: 0.85;
-}
-
-.deg-in {
-	color: var(--cm-in-text);
-}
-
-.deg-out {
-	color: var(--cm-accent-text);
-}
-
-.port {
-	opacity: 0;
-}
-
-/* call edges */
-.call-edge path.react-flow__edge-path {
-	stroke: var(--vscode-charts-orange);
-}
-
-/* rollup weight, rendered in the flow layer so it rides the routed line */
-.edge-label {
-	position: absolute;
-	pointer-events: none;
-	font-family: var(--vscode-editor-font-family);
-	font-size: 10px;
-	line-height: 1;
-	padding: 1px 4px;
-	border-radius: 3px;
-	color: var(--cm-accent-text);
-	background: var(--vscode-editor-background);
-	opacity: 0.9;
-}
 
 .react-flow__attribution {
-	background: transparent;
-	color: var(--vscode-descriptionForeground);
+	display: none;
 }
 
 /* ---- scoped exploration ---- */
@@ -281,7 +535,613 @@ body {
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
-	padding: 8px 0;
+	padding: 0;
+}
+
+.cockpit-zone {
+	--cm-inspector-track: 0px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) var(--cm-inspector-track);
+	transition: grid-template-columns 160ms ease-out;
+}
+
+.cockpit-zone.with-inspector {
+	--cm-inspector-track: var(--cm-inspector-width, 420px);
+}
+
+.cockpit-canvas {
+	position: relative;
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	border: 0;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	border-radius: 0;
+	overflow: hidden;
+	background: var(--vscode-editor-background);
+}
+
+.cockpit-canvas .react-flow {
+	flex: 1;
+	min-height: 0;
+}
+
+.cockpit-canvas .react-flow__background pattern circle {
+	fill: color-mix(in srgb, var(--vscode-descriptionForeground) 16%, transparent);
+}
+
+/* Semantic zoom must never change node geometry: React Flow measures handles
+   against this box. Hidden details stay in the layout and only become inert. */
+.cockpit-card.zoom-summary .cockpit-card-role,
+.cockpit-card.zoom-summary .cockpit-card-meta,
+.cockpit-card.zoom-summary .cockpit-focus-label,
+.cockpit-card.zoom-summary .cockpit-card-actions,
+.cockpit-card.zoom-summary .cockpit-expand-row,
+.cockpit-card.zoom-glyph .cockpit-card-copy,
+.cockpit-card.zoom-glyph .cockpit-focus-label,
+.cockpit-card.zoom-glyph .cockpit-card-actions,
+.cockpit-card.zoom-glyph .cockpit-expand-row,
+.cockpit-card.zoom-glyph .cockpit-drag-handle {
+	visibility: hidden;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.react-flow__node-cockpitCard {
+	width: 268px;
+}
+
+.cockpit-card {
+	position: relative;
+	width: 268px;
+	box-sizing: border-box;
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-left-width: 3px;
+	border-radius: 7px;
+	overflow: visible;
+	box-shadow: 0 2px 8px color-mix(in srgb, var(--vscode-widget-shadow, #000) 22%, transparent);
+	transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.cockpit-card.direction-incoming {
+	border-left-color: var(--cm-in-text);
+}
+
+.cockpit-card.direction-outgoing {
+	border-left-color: var(--cm-accent-text);
+}
+
+.cockpit-card.direction-pinned {
+	border-left-color: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+}
+
+.cockpit-card.selected {
+	border-color: var(--vscode-list-activeSelectionBackground, var(--vscode-focusBorder));
+	box-shadow:
+		0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder) 28%, transparent),
+		0 3px 11px color-mix(in srgb, var(--vscode-widget-shadow, #000) 24%, transparent);
+}
+
+.cockpit-card.pinned::before {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+	content: "";
+	z-index: 2;
+}
+
+.cockpit-card.focus {
+	border-color: var(--vscode-focusBorder);
+	border-left-width: 4px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 94%, var(--vscode-focusBorder));
+	box-shadow:
+		0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder) 22%, transparent),
+		0 4px 14px color-mix(in srgb, var(--vscode-widget-shadow, #000) 28%, transparent);
+}
+
+.react-flow__node.is-on-path .cockpit-card {
+	border-color: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-charts-yellow) 25%, transparent);
+}
+
+.react-flow__edge.is-on-path .cockpit-edge-path {
+	stroke: var(--vscode-charts-yellow);
+	stroke-width: 3px;
+}
+
+.cockpit-card-main {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-height: 62px;
+	padding: 10px 38px 10px 11px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.cockpit-card-main:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.cockpit-drag-handle {
+	position: absolute;
+	z-index: 3;
+	top: 6px;
+	right: 7px;
+	display: grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	border-radius: 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 15px;
+	line-height: 1;
+	cursor: grab;
+	user-select: none;
+}
+
+.cockpit-drag-handle:hover {
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.react-flow__node.dragging {
+	z-index: 1000 !important;
+}
+
+.react-flow__node.dragging .cockpit-card.is-dragging {
+	box-shadow:
+		0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent),
+		0 16px 30px color-mix(in srgb, var(--vscode-widget-shadow, #000) 48%, transparent);
+	transform: translateY(-3px);
+}
+
+.react-flow__node.dragging .cockpit-drag-handle {
+	cursor: grabbing;
+}
+
+.cockpit-card-copy {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.cockpit-card-name,
+.cockpit-card-role,
+.cockpit-card-meta {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cockpit-card-name {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 650;
+	font-size: 1em;
+}
+
+.cockpit-card-role {
+	color: var(--vscode-foreground);
+	font-size: 0.68em;
+	font-weight: 650;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	opacity: 0.72;
+}
+
+.cockpit-card-meta {
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.76em;
+}
+
+.cockpit-focus-label {
+	align-self: flex-start;
+	padding: 1px 5px;
+	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 65%, transparent);
+	border-radius: 7px;
+	color: var(--vscode-focusBorder);
+	font-size: 0.68em;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.cockpit-card-actions {
+	display: flex;
+	align-items: center;
+	border-top: 1px solid var(--vscode-panel-border);
+}
+
+.cockpit-card-actions button,
+.cockpit-expand {
+	min-height: 27px;
+	padding: 3px 9px;
+	border: 0;
+	border-right: 1px solid var(--vscode-panel-border);
+	background: color-mix(in srgb, var(--vscode-editor-background) 72%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 0.68em;
+	cursor: pointer;
+}
+
+.cockpit-card-actions button {
+	flex: 1;
+}
+
+.cockpit-card-actions button:last-child {
+	border-right: 0;
+}
+
+.cockpit-card-actions button:hover,
+.cockpit-expand:not(:disabled):hover {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-card-actions .cockpit-card-code {
+	color: var(--vscode-textLink-foreground);
+}
+
+.cockpit-card-actions .cockpit-card-refocus {
+	color: var(--vscode-foreground);
+	font-weight: 600;
+}
+
+.cockpit-expand:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+.cockpit-expand-row {
+	display: flex;
+	align-items: center;
+	min-height: 23px;
+	border-top: 1px solid var(--vscode-panel-border);
+	background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
+}
+
+.cockpit-expand-row .cockpit-expand {
+	flex: 0 0 auto;
+	border-right: 1px solid var(--vscode-panel-border);
+}
+
+.cockpit-expand.incoming {
+	color: var(--cm-in-text);
+}
+
+.cockpit-expand.outgoing {
+	color: var(--cm-accent-text);
+}
+
+.cockpit-loading-neighbors,
+.cockpit-index-limit {
+	padding: 3px 7px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.65em;
+}
+
+.cockpit-index-limit {
+	margin-left: auto;
+}
+
+.cockpit-port {
+	width: 7px;
+	height: 7px;
+	border: 1px solid var(--vscode-editor-background);
+	background: var(--vscode-descriptionForeground);
+}
+
+.cockpit-edge-path {
+	stroke: var(--vscode-charts-gray, var(--vscode-descriptionForeground));
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	transition: stroke-width 120ms ease, stroke-opacity 120ms ease;
+}
+
+.cockpit-edge-path.calls {
+	stroke: var(--vscode-charts-orange);
+}
+
+.cockpit-edge-path.data {
+	stroke: var(--vscode-charts-green);
+}
+
+.cockpit-edge-path.types {
+	stroke: var(--vscode-charts-purple);
+}
+
+.cockpit-edge-path.references {
+	stroke: var(--vscode-charts-blue);
+}
+
+.react-flow__edge:hover .cockpit-edge-path,
+.react-flow__edge.selected .cockpit-edge-path {
+	filter: brightness(1.12);
+	stroke-width: 3px !important;
+	stroke-opacity: 1 !important;
+}
+
+.cockpit-edge-label {
+	position: absolute;
+	padding: 1px 5px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-editor-background) 94%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 10px;
+	font-weight: 550;
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+.cockpit-edge-label.selected {
+	border-color: var(--vscode-focusBorder);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-canvas .react-flow__edge-text {
+	fill: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 9px;
+}
+
+.cockpit-canvas .react-flow__edge-textbg {
+	fill: var(--vscode-editor-background);
+	fill-opacity: 0.92;
+}
+
+.cockpit-rollup {
+	position: absolute;
+	left: 10px;
+	top: 10px;
+	display: flex;
+	max-width: calc(100% - 20px);
+	align-items: center;
+	gap: 7px;
+	padding: 5px 8px;
+	overflow: hidden;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent);
+	box-shadow: 0 2px 7px color-mix(in srgb, var(--vscode-widget-shadow, #000) 18%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.72em;
+	white-space: nowrap;
+	pointer-events: none;
+	z-index: 10;
+}
+
+.cockpit-rollup strong {
+	color: var(--cm-accent-text);
+	font-weight: 600;
+}
+
+.cockpit-map-label {
+	color: var(--vscode-foreground);
+	font-weight: 650;
+}
+
+.cockpit-map-direction,
+.cockpit-map-focus {
+	padding-left: 7px;
+	border-left: 1px solid var(--vscode-panel-border);
+	font-weight: 600;
+}
+
+.cockpit-map-direction.incoming {
+	color: var(--cm-in-text);
+}
+
+.cockpit-map-direction.outgoing {
+	color: var(--cm-accent-text);
+}
+
+.cockpit-map-focus {
+	color: var(--vscode-focusBorder);
+}
+
+.cockpit-canvas-actions {
+	position: absolute;
+	right: 10px;
+	top: 10px;
+	display: flex;
+	gap: 3px;
+	z-index: 10;
+}
+
+.cockpit-canvas-actions button {
+	min-height: 24px;
+	padding: 2px 7px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 94%, transparent);
+	color: var(--vscode-foreground);
+	font: inherit;
+	font-size: 0.72em;
+	cursor: pointer;
+}
+
+.cockpit-canvas-actions button:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.cockpit-canvas .react-flow__controls {
+	overflow: hidden;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	box-shadow: 0 2px 7px color-mix(in srgb, var(--vscode-widget-shadow, #000) 18%, transparent);
+}
+
+.cockpit-canvas .react-flow__minimap {
+	width: 142px;
+	height: 92px;
+	overflow: hidden;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 95%, transparent);
+	box-shadow: 0 2px 7px color-mix(in srgb, var(--vscode-widget-shadow, #000) 18%, transparent);
+}
+
+.cockpit-canvas .react-flow__minimap-mask {
+	fill: color-mix(in srgb, var(--vscode-editor-background) 68%, transparent);
+}
+
+.cockpit-navigation-hint {
+	position: absolute;
+	right: 10px;
+	bottom: 104px;
+	z-index: 8;
+	padding: 3px 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.66em;
+	pointer-events: none;
+}
+
+.cockpit-edge-inspector {
+	position: absolute;
+	left: 50%;
+	bottom: 12px;
+	z-index: 18;
+	display: grid;
+	max-width: min(680px, calc(100% - 380px));
+	grid-template-columns: 8px minmax(80px, 1fr) auto minmax(80px, 1fr) 24px;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 8px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 96%, transparent);
+	box-shadow: 0 6px 18px color-mix(in srgb, var(--vscode-widget-shadow, #000) 30%, transparent);
+	font-size: 0.76em;
+	transform: translateX(-50%);
+}
+
+.cockpit-edge-swatch {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--vscode-charts-blue);
+}
+
+.cockpit-edge-swatch.calls { background: var(--vscode-charts-orange); }
+.cockpit-edge-swatch.data { background: var(--vscode-charts-green); }
+.cockpit-edge-swatch.types { background: var(--vscode-charts-purple); }
+
+.cockpit-edge-endpoint,
+.cockpit-edge-relation {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cockpit-edge-endpoint {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 600;
+}
+
+.cockpit-edge-relation {
+	color: var(--vscode-descriptionForeground);
+}
+
+.cockpit-edge-inspector button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	cursor: pointer;
+}
+
+.cockpit-edge-inspector button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-canvas .react-flow__controls-button {
+	border-color: var(--vscode-panel-border);
+	background: var(--vscode-editorWidget-background);
+	color: var(--vscode-foreground);
+}
+
+.cockpit-canvas .react-flow__controls-button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.cockpit-canvas .react-flow__controls-button svg {
+	fill: currentColor;
+}
+
+.scope-rollup {
+	max-width: 150px;
+	padding-left: 6px;
+	overflow: hidden;
+	border-left: 1px solid var(--vscode-panel-border);
+	text-overflow: ellipsis;
+}
+
+.cockpit-toast {
+	position: absolute;
+	right: 10px;
+	bottom: 10px;
+	max-width: min(420px, 70%);
+	padding: 7px 10px;
+	border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+	border-radius: 5px;
+	background: var(--vscode-inputValidation-errorBackground, var(--vscode-editorWidget-background));
+	color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+	font-size: 0.8em;
+	z-index: 20;
+}
+
+.cockpit-external-selection {
+	position: absolute;
+	left: 10px;
+	bottom: 48px;
+	display: flex;
+	max-width: min(460px, 75%);
+	align-items: center;
+	gap: 10px;
+	padding: 7px 9px;
+	border: 1px solid var(--vscode-focusBorder);
+	border-radius: 5px;
+	background: var(--vscode-editorWidget-background);
+	box-shadow: 0 3px 12px color-mix(in srgb, var(--vscode-widget-shadow, #000) 28%, transparent);
+	font-size: 0.78em;
+	z-index: 20;
+}
+
+.cockpit-external-selection span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cockpit-external-selection button {
+	padding: 2px 7px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 3px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font: inherit;
+	cursor: pointer;
 }
 
 .toolbar .scope-facts {
@@ -553,72 +1413,158 @@ button:focus-visible,
 .crumb-btn:focus-visible,
 .filterchip:focus-visible,
 .portchip:focus-visible {
-	outline: 1px solid var(--vscode-focusBorder);
+	outline: 2px solid var(--vscode-focusBorder);
 	outline-offset: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.containercard-dive {
-		transition: none;
+	.cockpit-spinner {
+		animation: none;
 	}
 }
 
-/* code inset: the definition's zone floats over the canvas */
+/* Source inspector: graph and definition remain visible side by side. */
 .code-inset {
-	position: absolute;
-	left: 10px;
-	bottom: 46px;
-	width: min(560px, 62%);
-	max-height: 46%;
+	position: relative;
+	grid-column: 2;
+	width: 100%;
+	min-width: 300px;
+	max-width: none;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
-	background: var(--vscode-editorWidget-background);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 6px;
-	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-	z-index: 10;
+	background: var(--vscode-editor-background);
+	border-left: 1px solid var(--vscode-panel-border);
 	overflow: hidden;
+	animation: code-inspector-enter 150ms ease-out;
+}
+
+.with-inspector .cockpit-canvas {
+	border-radius: 0;
+}
+
+.code-inset-resize {
+	position: absolute;
+	left: -4px;
+	top: 0;
+	bottom: 0;
+	z-index: 12;
+	width: 8px;
+	height: 100%;
+	margin: 0;
+	border: 0;
+	background: transparent;
+	cursor: col-resize;
+}
+
+.code-inset-resize::after {
+	position: absolute;
+	left: 3px;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	background: transparent;
+	content: "";
+}
+
+.code-inset-resize:hover::after,
+.code-inset-resize:focus-visible::after {
+	background: var(--vscode-focusBorder);
 }
 
 .code-inset-bar {
 	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 10px 10px 9px 12px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 64%, var(--vscode-editor-background));
+}
+
+.code-inset-heading {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.code-inset-kicker {
+	color: var(--vscode-textLink-foreground);
+	font-size: 0.66em;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.code-inset-title {
+	display: flex;
+	min-width: 0;
 	align-items: center;
 	gap: 6px;
-	padding: 5px 8px;
-	border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 .code-inset-name {
 	font-family: var(--vscode-editor-font-family);
 	font-weight: 600;
-	font-size: 0.88em;
+	font-size: 0.92em;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
+.code-inset-kind {
+	flex: 0 0 auto;
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.68em;
+	text-transform: lowercase;
+}
+
+.code-inset-location {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 0.72em;
+}
+
 .code-inset-file {
-	font-size: 0.75em;
-	opacity: 0.55;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .code-inset-actions {
 	margin-left: auto;
 	display: inline-flex;
-	gap: 2px;
+	align-items: center;
+	gap: 4px;
 }
 
 .code-inset-actions button {
-	background: none;
-	border: none;
-	color: var(--vscode-foreground);
+	min-height: 24px;
+	padding: 3px 7px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 0.72em;
+	white-space: nowrap;
 	cursor: pointer;
-	opacity: 0.65;
-	padding: 0 4px;
 }
 
 .code-inset-actions button:hover {
-	opacity: 1;
+	border-color: var(--vscode-focusBorder);
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.code-inset-actions .code-inset-close {
+	min-width: 24px;
+	padding-inline: 4px;
+	border-color: transparent;
 }
 
 .code-inset-body {
@@ -637,4 +1583,53 @@ button:focus-visible,
 	opacity: 0.6;
 }
 
+@keyframes code-inspector-enter {
+	from {
+		opacity: 0;
+		transform: translateX(10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
 
+@media (max-width: 900px) {
+	.cockpit-zone.with-inspector {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.cockpit-zone.with-inspector .cockpit-canvas {
+		min-height: 48%;
+		border-radius: 5px 5px 0 0;
+		border-right: 1px solid var(--vscode-panel-border);
+		border-bottom: 0;
+	}
+
+	.code-inset {
+		flex: 0 0 42%;
+		width: 100%;
+		max-width: none;
+		min-width: 0;
+		border-left: 0;
+		border-top: 1px solid var(--vscode-panel-border);
+	}
+
+	.code-inset-resize {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.cockpit-zone {
+		transition: none;
+	}
+
+	.cockpit-card,
+	.cockpit-edge-path,
+	.code-inset {
+		transition: none;
+		animation: none;
+	}
+}

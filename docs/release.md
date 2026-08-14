@@ -159,7 +159,7 @@ acceptance environment for process supervision, file locking and path behavior.
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and
       `npm run test:daemon:owned -- <code-moniker-binary>`.
 - [ ] From `vscode-extension/`: `npm test`, `npm run compile`, then
-      `npm run test:integration`.
+      `npm run test:acceptance` and inspect the retained Playwright evidence.
 - [ ] A plain `cargo install code-moniker` exposes `code-moniker mcp --help`.
 - [ ] `agent install --client codex` writes `required = false`, and an
       unavailable Code Moniker MCP does not prevent the agent session opening.

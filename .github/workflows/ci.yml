@@ -88,6 +88,11 @@ jobs:
             vscode-extension/package-lock.json
             packages/client/package-lock.json
 
+      - name: Install VS Code acceptance runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes scrot xvfb
+
       - name: Install extension dependencies
         run: npm ci
         working-directory: vscode-extension
@@ -102,9 +107,19 @@ jobs:
           npm run compile
         working-directory: vscode-extension
 
-      - name: Run extension integration tests with the bundled CLI
-        run: xvfb-run -a npm run test:integration
-        working-directory: vscode-extension
+      - name: Run VS Code Playwright acceptance journeys
+        run: >-
+          xvfb-run -a -s "-screen 0 1600x1000x24"
+          bash vscode-extension/scripts/run-playwright-ci.sh test:acceptance
+
+      - name: Retain VS Code Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-playwright-evidence
+          path: vscode-extension/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run external Node consumer against an owned daemon
         run: npm run test:daemon:owned -- ../../target/debug/code-moniker

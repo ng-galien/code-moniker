@@ -1,4 +1,5 @@
 import { registerCatalog } from "./catalog/catalogView";
+import { registerAcceptanceControl } from "./acceptanceControl";
 import { ExplorerFeature, registerExplorer } from "./explorer/manager";
 import { registerChanges } from "./changes/manager";
 import { ChangesProvider } from "./changes/tree";
@@ -31,6 +32,7 @@ export interface CodeMonikerApi {
 	changes: ChangesProvider;
 	violations: ViolationModel;
 	workspace: WorkspaceTreeProvider;
+	workspaceSync: { revealRequests: number; revealOperations: number };
 	setup: SetupProvider;
 	explorer: ExplorerFeature;
 }
@@ -38,6 +40,8 @@ export interface CodeMonikerApi {
 let activeDaemonSession: DaemonSession | undefined;
 
 export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
+	const acceptanceControl = registerAcceptanceControl(context);
+	if (acceptanceControl) context.subscriptions.push(acceptanceControl);
 	const ruleFiles = registerRuleManager(context);
 	registerCatalog(context);
 	registerScenario(context);
@@ -60,9 +64,9 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		rules: rules.provider,
 		ruleFiles: ruleFiles.provider,
 	});
-	const explorer = registerExplorer(context, daemon.session, symbols.repository, workspace.selection);
+	const explorer = registerExplorer(context, daemon.session, symbols.repository, workspace);
 
-	return {
+	const api = {
 		session: daemon.session,
 		daemons: daemon.provider,
 		symbols: symbols.tree,
@@ -71,9 +75,12 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		changes: changes.provider,
 		violations: rules.model,
 		workspace: workspace.tree,
+		workspaceSync: workspace.syncStats,
 		setup: setup.provider,
 		explorer,
 	};
+	acceptanceControl?.markReady();
+	return api;
 }
 
 export async function deactivate(): Promise<void> {

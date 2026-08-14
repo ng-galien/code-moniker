@@ -9,6 +9,15 @@ export function postInspect(uri: string): void {
 	vscode.postMessage({ type: "inspect", uri });
 }
 
+export function postExpand(
+	uri: string,
+	requestId: string,
+	rootFocus: string,
+	generation: number,
+): void {
+	vscode.postMessage({ type: "expand", uri, requestId, rootFocus, generation });
+}
+
 export function postOpenSource(symbol: SymbolDto): void {
 	vscode.postMessage({
 		type: "openSource",

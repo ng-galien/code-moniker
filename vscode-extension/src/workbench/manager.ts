@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { ChangesProvider } from "../changes/tree";
+import { SymbolDto } from "../daemon/model";
 import { DaemonSession } from "../daemon/session";
 import { DaemonListProvider } from "../daemon/tree";
 import { RuleFilesProvider } from "../rules/tree";
@@ -11,12 +12,14 @@ import { SymbolTreeProvider } from "../symbols/tree";
 import { ViewsProvider } from "../views/tree";
 import { renderWorkspaceNode } from "./render";
 import { WorkspaceNode, WorkspaceTreeProvider } from "./workspaceTree";
+import { RevealCoordinator } from "./revealCoordinator";
 
 export interface WorkspaceFeature {
 	tree: WorkspaceTreeProvider;
-	// Current tree selection, for commands whose menu contribution carries no
-	// argument (the explorer's view/title entry point).
-	selection: () => WorkspaceNode | undefined;
+	syncStats: { revealRequests: number; revealOperations: number };
+	onDidSelectSymbol: vscode.Event<SymbolDto>;
+	onDidSelectSymbolContext: vscode.Event<{ identity: string; label: string; kind: string }>;
+	revealSymbol: (symbol: SymbolDto) => Promise<void>;
 }
 
 export interface WorkspaceInputs {
@@ -48,6 +51,10 @@ export function registerWorkspace(
 		treeDataProvider: provider,
 		showCollapseAll: true,
 	});
+	const symbolSelection = new vscode.EventEmitter<SymbolDto>();
+	const contextSelection = new vscode.EventEmitter<{ identity: string; label: string; kind: string }>();
+	const syncStats = { revealRequests: 0, revealOperations: 0 };
+	const reveals = new RevealCoordinator();
 
 	let pendingSelection: NodeJS.Timeout | undefined;
 	const SELECTION_DEBOUNCE_MS = 180;
@@ -55,7 +62,9 @@ export function registerWorkspace(
 	context.subscriptions.push(
 		provider,
 		treeView,
-		treeView.onDidChangeSelection((event) => {
+			symbolSelection,
+			contextSelection,
+			treeView.onDidChangeSelection((event) => {
 			const node = event.selection[0];
 			if (pendingSelection) {
 				clearTimeout(pendingSelection);
@@ -63,11 +72,21 @@ export function registerWorkspace(
 			}
 			if (node?.kind === "symbols" && node.node.kind === "symbol") {
 				const symbol = node.node.symbol;
+				if (reveals.consumeSelection(symbol.uri)) return;
+				symbolSelection.fire(symbol);
 				pendingSelection = setTimeout(() => {
 					pendingSelection = undefined;
 					void inputs.detail.showForSymbol(symbol);
 				}, SELECTION_DEBOUNCE_MS);
 				return;
+			}
+			reveals.cancel();
+			if (node?.kind === "symbols" && node.node.kind === "identity") {
+				contextSelection.fire({
+					identity: node.node.row.identity,
+					label: node.node.label ?? node.node.row.name,
+					kind: node.node.row.kind,
+				});
 			}
 			if (node) {
 				const document = renderWorkspaceNode(node);
@@ -80,6 +99,7 @@ export function registerWorkspace(
 			if (pendingSelection) {
 				clearTimeout(pendingSelection);
 			}
+			reveals.cancel();
 		}),
 		inputs.session.onWorkspaceEvent((event) => {
 			if (event.kind === "stale" || event.kind === "refreshed") {
@@ -95,5 +115,39 @@ export function registerWorkspace(
 		}),
 	);
 
-	return { tree: provider, selection: () => treeView.selection[0] };
+	return {
+			tree: provider,
+			syncStats,
+			onDidSelectSymbol: symbolSelection.event,
+			onDidSelectSymbolContext: contextSelection.event,
+		revealSymbol: async (symbol: SymbolDto) => {
+			syncStats.revealRequests++;
+			if (reveals.pending === symbol.uri) return;
+			const selected = treeView.selection[0];
+			if (
+				selected?.kind === "symbols" &&
+				selected.node.kind === "symbol" &&
+				selected.node.symbol.uri === symbol.uri
+			) {
+				return;
+			}
+			const token = reveals.begin(symbol.uri);
+			try {
+				const path = await provider.findSymbolPath(symbol.uri);
+				if (!reveals.isCurrent(token) || !path || path.length === 0) return;
+				syncStats.revealOperations++;
+				if (!reveals.markProgrammatic(token)) return;
+				await treeView.reveal(path[path.length - 1], {
+					expand: true,
+					select: true,
+					focus: false,
+				});
+			} catch (error) {
+				reveals.revealFailed(token);
+				throw error;
+			} finally {
+				reveals.finish(token);
+			}
+		},
+	};
 }

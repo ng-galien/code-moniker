@@ -3,6 +3,9 @@ src/**
 renderer/**
 node_modules/**
 test/**
+acceptance/**
+test-results/**
+playwright.acceptance.config.ts
 scripts/**
 esbuild.js
 tsconfig.json
