@@ -46,6 +46,7 @@ test.describe("Code Cockpit V3 user journeys", () => {
 				.toBeGreaterThan(20);
 			await cockpit.selectFirstEdge();
 			await expect(cockpit.relationInspector).toContainText(/calls|references|data|types/i);
+			await cockpit.recenter();
 		});
 
 		await test.step("expand progressive disclosure and undo it through visible controls", async () => {
