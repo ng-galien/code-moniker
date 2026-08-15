@@ -24,6 +24,14 @@ version or configuration; do not hand-edit the generated workflow.
 The `v` tag namespace deliberately excludes VS Code extension tags such as
 `extension-v0.2.0`, which have their own release workflow.
 
+The `vX.Y.Z` release gate covers the Rust workspace, CLI, daemon, MCP, reusable
+Node.js client, native npm runtimes, and distribution builds. In `.github/workflows/ci.yml`,
+the required jobs are `lint-and-unit`, `typescript-client`, `windows-runtime`,
+`linux-static-runtime`, `bench-smoke`, and `mcp-tests`. The
+`vscode-extension` job remains normal CI feedback, but it does not gate a
+`vX.Y.Z` release. Extension acceptance and VSIX packaging gate only the separate
+`extension-vX.Y.Z` release workflow.
+
 The release contains binaries with MCP support for:
 
 - `aarch64-apple-darwin`
@@ -146,7 +154,9 @@ acceptance environment for process supervision, file locking and path behavior.
 
 ## `0.7.0` acceptance checklist
 
-- [ ] `main` is clean, CI is green, and no `v0.7.0` tag exists.
+- [ ] `main` is clean, the six release-gate CI jobs listed above are green, and
+      no `v0.7.0` tag exists. The `vscode-extension` job is not part of this
+      gate.
 - [ ] All workspace crates that are published share version `0.7.0`.
 - [ ] `dist plan --tag=v0.7.0` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
@@ -158,8 +168,6 @@ acceptance environment for process supervision, file locking and path behavior.
       `npm test`, then
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and
       `npm run test:daemon:owned -- <code-moniker-binary>`.
-- [ ] From `vscode-extension/`: `npm test`, `npm run compile`, then
-      `npm run test:acceptance` and inspect the retained Playwright evidence.
 - [ ] A plain `cargo install code-moniker` exposes `code-moniker mcp --help`.
 - [ ] `agent install --client codex` writes `required = false`, and an
       unavailable Code Moniker MCP does not prevent the agent session opening.
@@ -175,5 +183,5 @@ acceptance environment for process supervision, file locking and path behavior.
 - [ ] Confirm clean ESM and CommonJS consumers install
       `@code-moniker/client@0.7.0` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.
-- [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive,
-      native npm package, and platform-specific VSIX.
+- [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive and
+      native npm package.

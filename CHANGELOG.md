@@ -11,6 +11,33 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-16
+
+This release publishes the seven Rust workspace crates, the CLI, daemon and MCP
+surfaces, and the reusable Node.js client with its four native packages. The VS
+Code extension keeps its separate version and release channel and is not
+published by the `v0.7.0` tag.
+
+### Added
+
+- **Remote Git diff-impact analysis.** The Node.js client can compare two Git
+  revisions without a checkout or resident index. It fetches changed blobs into
+  isolated virtual source sets, asks protocol 17 for structural file, symbol,
+  reference, test-artifact, and residual-hunk evidence, and returns canonical
+  deterministic JSON plus a compact text projection. Binary or unsupported
+  files remain visible with an explicit omission reason.
+- **Typed syntax helpers for Node.js consumers.** `client.syntax.tree()` reads an
+  indexed source and `client.syntax.parse()` analyzes direct source text while
+  preserving the daemon's truncation and embedded-language metadata.
+
+### Changed
+
+- **Syntax-tree budgets belong to the caller.** Explicit `maxDepth` and
+  `maxNodes` values are forwarded without fixed server-side ceilings, so clients
+  can inspect realistic deep trees such as PostgreSQL queries. Omitted values
+  still use the interactive defaults of depth 6 and 100 nodes, and a zero node
+  budget remains invalid.
+
 ## [0.6.1] - 2026-08-08
 
 ### Fixed
