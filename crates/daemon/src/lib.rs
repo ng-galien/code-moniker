@@ -6916,6 +6916,199 @@ message = "every selected function is observable"
 	}
 
 	#[test]
+	fn stateless_syntax_parse_accepts_client_owned_budgets_for_deep_postgres_lists() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let source = r#"SELECT
+  address_1.id,
+  address_1.label,
+  address_1.line1,
+  address_1.line2,
+  address_1.postal_code,
+  address_1.city,
+  address_1.country_code,
+  address_1.created_at,
+  shipment_2.id,
+  shipment_2.sales_order_id,
+  shipment_2.warehouse_id,
+  shipment_2.shipping_address_id,
+  shipment_2.carrier,
+  shipment_2.tracking_number,
+  shipment_2.status,
+  shipment_2.shipped_at,
+  shipment_2.delivered_at
+FROM
+  shop.address AS address_1
+  LEFT JOIN shop.shipment AS shipment_2 ON address_1.id = shipment_2.shipping_address_id;"#;
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "sql".to_string(),
+				source: source.to_string(),
+				uri: Some("qualified-columns.sql".to_string()),
+				max_depth: 64,
+				max_nodes: 2_000,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 80,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("client-selected syntax budgets must be accepted, got {response:?}");
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected syntax tree result");
+		};
+		assert!(!tree.has_error, "valid PostgreSQL must parse: {tree:#?}");
+		assert!(
+			!tree.truncated,
+			"depth 64 must retain the complete target list"
+		);
+		assert_eq!(tree.emitted_nodes, tree.total_nodes);
+	}
+
+	#[test]
+	fn stateless_syntax_parse_accepts_large_explicit_client_budgets() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		for (max_depth, max_nodes) in [(1_000, 100), (6, 20_000)] {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+					language: "sql".to_string(),
+					source: "SELECT account.id FROM public.account AS account;".to_string(),
+					uri: None,
+					max_depth,
+					max_nodes,
+					named_only: true,
+					include_text: false,
+					max_text_chars: 80,
+				})),
+			)));
+			assert!(
+				matches!(response, ProtocolResponse::Query(_)),
+				"explicit max_depth={max_depth} max_nodes={max_nodes} must be accepted: {response:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn stateless_syntax_parse_rejects_zero_node_budget() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "sql".to_string(),
+				source: "SELECT 1;".to_string(),
+				uri: None,
+				max_depth: 64,
+				max_nodes: 0,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 80,
+			}),
+		))));
+		let ProtocolResponse::Error(error) = response else {
+			panic!("zero max_nodes must be rejected, got {response:?}");
+		};
+		assert_eq!(error.code, "invalid_syntax_node_limit");
+	}
+
+	#[test]
+	fn stateless_syntax_parse_applies_small_client_budget_deterministically() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let query = code_moniker_query::SyntaxParseQuery {
+			language: "sql".to_string(),
+			source:
+				"SELECT account.id, account.email, account.status FROM public.account AS account;"
+					.to_string(),
+			uri: None,
+			max_depth: 64,
+			max_nodes: 12,
+			named_only: true,
+			include_text: false,
+			max_text_chars: 80,
+		};
+		let parse = |daemon: &mut WorkspaceDaemon| {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::SyntaxParse(query.clone())),
+			)));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("small client-selected budget must be accepted, got {response:?}");
+			};
+			let QueryResult::SyntaxTree(tree) = response.result else {
+				panic!("expected syntax tree result");
+			};
+			tree
+		};
+		let first = parse(&mut daemon);
+		let second = parse(&mut daemon);
+		assert_eq!(first, second);
+		assert_eq!(first.emitted_nodes, 12);
+		assert!(first.truncated);
+		assert!(!first.has_error);
+	}
+
+	#[test]
+	fn stateless_syntax_parse_handles_realistic_postgres_with_client_owned_budgets() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let source = r#"WITH recent_orders AS (
+  SELECT
+    orders.customer_id,
+    orders.payload ->> 'status' AS status,
+    sum(orders.amount) FILTER (WHERE orders.amount > 0) AS positive_total,
+    row_number() OVER (
+      PARTITION BY orders.customer_id
+      ORDER BY orders.created_at DESC
+    ) AS row_number
+  FROM sales.orders AS orders
+  JOIN sales.customers AS customers ON customers.id = orders.customer_id
+  WHERE orders.created_at >= now() - interval '30 days'
+    AND EXISTS (
+      SELECT 1
+      FROM sales.order_items AS items
+      WHERE items.order_id = orders.id
+        AND items.metadata @> '{"active": true}'::jsonb
+    )
+  GROUP BY orders.customer_id, orders.payload, orders.created_at
+)
+SELECT
+  recent_orders.customer_id,
+  jsonb_build_object(
+    'status', recent_orders.status,
+    'total', recent_orders.positive_total
+  ) AS summary,
+  count(*) OVER () AS result_count
+FROM recent_orders
+WHERE recent_orders.row_number = 1
+ORDER BY recent_orders.positive_total DESC;"#;
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: "sql".to_string(),
+				source: source.to_string(),
+				uri: Some("recent-orders.sql".to_string()),
+				max_depth: 1_000,
+				max_nodes: 20_000,
+				named_only: true,
+				include_text: false,
+				max_text_chars: 80,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("realistic PostgreSQL budgets must be accepted, got {response:?}");
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("expected syntax tree result");
+		};
+		assert!(
+			!tree.has_error,
+			"realistic PostgreSQL must parse: {tree:#?}"
+		);
+		assert!(!tree.truncated, "client budget must retain the full tree");
+		assert_eq!(tree.emitted_nodes, tree.total_nodes);
+	}
+
+	#[test]
 	fn virtual_diff_impact_is_transactional_and_does_not_mutate_workspace_state() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		fs::write(temp.path().join("lib.rs"), "pub fn workspace_symbol() {}\n")
@@ -8809,8 +9002,8 @@ pub fn production_entry() {}
 			QueryRequest::new(Query::SyntaxTree(SyntaxTreeQuery {
 				workspace: None,
 				focus: "lib.rs".to_string(),
-				max_depth: 8,
-				max_nodes: 100,
+				max_depth: 1_000,
+				max_nodes: 20_000,
 				named_only: true,
 				include_text: true,
 				max_text_chars: 40,

@@ -5,11 +5,10 @@ use std::path::PathBuf;
 use code_moniker_query::{
 	Page, Query, QueryRequest, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES,
 	SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_NODES,
-	SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_DEPTH, SYNTAX_TREE_MAX_NODES,
-	SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult, SyntaxNodeDto, SyntaxParseQuery,
-	SyntaxTreeQuery, SyntaxTreeResult, TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto,
-	ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult, ViewReadQuery,
-	ViewReadResult, ViewRuleDto, ViewRuleRefDto,
+	SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult,
+	SyntaxNodeDto, SyntaxParseQuery, SyntaxTreeQuery, SyntaxTreeResult, TreeChildrenQuery,
+	TreeChildrenResult, ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto, ViewGotchaDto,
+	ViewListResult, ViewReadQuery, ViewReadResult, ViewRuleDto, ViewRuleRefDto,
 };
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
@@ -120,14 +119,12 @@ fn read_input_schema() -> Value {
 			"max_depth": {
 				"type": "integer",
 				"minimum": 0,
-				"maximum": SYNTAX_TREE_MAX_DEPTH,
-				"description": "Maximum AST depth below the selected root. Defaults to 6."
+				"description": "Client-selected maximum AST depth below the selected root. Defaults to 6."
 			},
 			"max_nodes": {
 				"type": "integer",
 				"minimum": 1,
-				"maximum": SYNTAX_TREE_MAX_NODES,
-				"description": "Maximum AST nodes to emit. Defaults to 100."
+				"description": "Client-selected maximum AST nodes to emit. Defaults to 100."
 			},
 			"named_only": {
 				"type": "boolean",
@@ -239,14 +236,14 @@ fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
 			"max_depth",
 			SYNTAX_TREE_DEFAULT_MAX_DEPTH,
 			0,
-			SYNTAX_TREE_MAX_DEPTH,
+			None,
 		)?,
 		max_nodes: strict_usize_argument(
 			arguments,
 			"max_nodes",
 			SYNTAX_TREE_DEFAULT_MAX_NODES,
 			1,
-			SYNTAX_TREE_MAX_NODES,
+			None,
 		)?,
 		named_only: strict_bool_argument(arguments, "named_only", true)?,
 		include_text: strict_bool_argument(arguments, "include_text", false)?,
@@ -255,7 +252,7 @@ fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
 			"max_text_chars",
 			SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS,
 			0,
-			SYNTAX_TREE_MAX_TEXT_CHARS,
+			Some(SYNTAX_TREE_MAX_TEXT_CHARS),
 		)?,
 	})
 }
@@ -273,7 +270,7 @@ fn strict_usize_argument(
 	key: &str,
 	default: usize,
 	min: usize,
-	max: usize,
+	max: Option<usize>,
 ) -> anyhow::Result<usize> {
 	let Some(value) = arguments.get(key) else {
 		return Ok(default);
@@ -282,7 +279,12 @@ fn strict_usize_argument(
 		.as_u64()
 		.and_then(|value| usize::try_from(value).ok())
 		.ok_or_else(|| anyhow::anyhow!("{key} must be an unsigned integer"))?;
-	if !(min..=max).contains(&value) {
+	if value < min {
+		anyhow::bail!("{key} must be at least {min}");
+	}
+	if let Some(max) = max
+		&& value > max
+	{
 		anyhow::bail!("{key} must be between {min} and {max}");
 	}
 	Ok(value)

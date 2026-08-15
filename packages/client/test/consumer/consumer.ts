@@ -29,6 +29,10 @@ const graph: Promise<QueryPage<IdentityGraphResult>> =
 	client.graph.identity("sql/schema:public");
 void graph;
 void client.symbols.search({ text: "account" }).then(readFirstPage);
+void client.syntax.parse("sql", "SELECT 1", {
+	maxDepth: 1_000,
+	maxNodes: 20_000,
+});
 
 const runtime = new NodeDaemonRuntime();
 const owned: OwnedDaemon | undefined = undefined;

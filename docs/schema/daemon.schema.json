@@ -2798,13 +2798,11 @@
             "max_depth": {
               "type": "integer",
               "format": "uint",
-              "maximum": 32.0,
               "minimum": 0.0
             },
             "max_nodes": {
               "type": "integer",
               "format": "uint",
-              "maximum": 2000.0,
               "minimum": 1.0
             },
             "max_text_chars": {
@@ -2852,13 +2850,11 @@
             "max_depth": {
               "type": "integer",
               "format": "uint",
-              "maximum": 32.0,
               "minimum": 0.0
             },
             "max_nodes": {
               "type": "integer",
               "format": "uint",
-              "maximum": 2000.0,
               "minimum": 1.0
             },
             "max_text_chars": {
