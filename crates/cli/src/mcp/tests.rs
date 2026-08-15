@@ -582,9 +582,48 @@ fn read_tool_returns_a_bounded_ast_only_when_requested() {
 	);
 	let error = invalid.expect_err("zero AST node limit must fail");
 	assert!(
-		error.to_string().contains("max_nodes must be between 1"),
+		error.to_string().contains("max_nodes must be at least 1"),
 		"{error}"
 	);
+}
+
+#[test]
+fn read_tool_schema_and_parser_leave_syntax_budgets_to_the_client() {
+	let descriptor = tools::read::ReadTool.descriptor();
+	let properties = descriptor.input_schema["properties"]
+		.as_object()
+		.expect("read tool properties");
+	for (name, minimum) in [("max_depth", 0), ("max_nodes", 1)] {
+		let property = properties[name]
+			.as_object()
+			.unwrap_or_else(|| panic!("missing {name} schema"));
+		assert_eq!(property.get("minimum"), Some(&json!(minimum)));
+		assert!(
+			property.get("maximum").is_none(),
+			"{name} must not expose an artificial maximum: {property:?}"
+		);
+	}
+
+	let temp = tempfile::tempdir().expect("tempdir");
+	let context = preloading_context(vec![temp.path().to_path_buf()]);
+	let registry = ToolRegistry::new();
+	for arguments in [
+		json!({
+			"language": "sql",
+			"source": "SELECT account.id FROM public.account AS account;",
+			"max_depth": 1_000
+		}),
+		json!({
+			"language": "sql",
+			"source": "SELECT account.id FROM public.account AS account;",
+			"max_nodes": 20_000
+		}),
+	] {
+		let result = registry
+			.call(&context, "code_moniker_read", &arguments)
+			.expect("client-selected MCP syntax budget");
+		assert!(!result.is_error, "{}", result.text);
+	}
 }
 
 #[test]

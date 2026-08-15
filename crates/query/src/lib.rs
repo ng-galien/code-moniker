@@ -52,8 +52,6 @@ pub const PROTOCOL_VERSION: u32 = 17;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
-pub const SYNTAX_TREE_MAX_DEPTH: usize = 32;
-pub const SYNTAX_TREE_MAX_NODES: usize = 2_000;
 pub const SYNTAX_TREE_MAX_TEXT_CHARS: usize = 1_000;
 pub const SYNTAX_PARSE_MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
@@ -823,9 +821,9 @@ pub struct SymbolDetailQuery {
 pub struct SyntaxTreeQuery {
 	pub workspace: Option<String>,
 	pub focus: String,
-	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 32)))]
+	#[cfg_attr(feature = "schema", schemars(range(min = 0)))]
 	pub max_depth: usize,
-	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 2000)))]
+	#[cfg_attr(feature = "schema", schemars(range(min = 1)))]
 	pub max_nodes: usize,
 	pub named_only: bool,
 	pub include_text: bool,
@@ -839,9 +837,9 @@ pub struct SyntaxParseQuery {
 	pub language: String,
 	pub source: String,
 	pub uri: Option<String>,
-	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 32)))]
+	#[cfg_attr(feature = "schema", schemars(range(min = 0)))]
 	pub max_depth: usize,
-	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 2000)))]
+	#[cfg_attr(feature = "schema", schemars(range(min = 1)))]
 	pub max_nodes: usize,
 	pub named_only: bool,
 	pub include_text: bool,
@@ -4467,6 +4465,16 @@ mod tests {
 			})
 		);
 		assert!(!request.query.requires_workspace_snapshot());
+
+		let request = parse_query(
+			"syntax.parse language:\"sql\" source:\"SELECT 1\" max_depth:1000 max_nodes:20000",
+		)
+		.expect("client-selected syntax budgets");
+		let Query::SyntaxParse(query) = request.query else {
+			panic!("expected syntax.parse query");
+		};
+		assert_eq!(query.max_depth, 1_000);
+		assert_eq!(query.max_nodes, 20_000);
 	}
 
 	#[test]

@@ -142,6 +142,50 @@ test("symbol and graph facades map ergonomic options to the public query protoco
 	client.close();
 });
 
+test("syntax facades forward client-selected parse and tree budgets without clamping", async () => {
+	const daemon = new FakeDaemon();
+	const client = await connect(daemon);
+
+	await client.syntax.parse("sql", "SELECT address_1.id FROM shop.address AS address_1;", {
+		uri: "selection.sql",
+		maxDepth: 1_000,
+		maxNodes: 20_000,
+	});
+	await client.syntax.tree("src/query.sql", {
+		workspace: ROOT,
+		maxDepth: 64,
+		maxNodes: 2_000,
+		namedOnly: false,
+		includeText: true,
+		maxTextChars: 120,
+	});
+
+	assert.deepEqual(queryRequests(daemon).slice(-2), [
+		{
+			op: "syntax_parse",
+			language: "sql",
+			source: "SELECT address_1.id FROM shop.address AS address_1;",
+			uri: "selection.sql",
+			max_depth: 1_000,
+			max_nodes: 20_000,
+			named_only: true,
+			include_text: false,
+			max_text_chars: 80,
+		},
+		{
+			op: "syntax_tree",
+			workspace: ROOT,
+			focus: "src/query.sql",
+			max_depth: 64,
+			max_nodes: 2_000,
+			named_only: false,
+			include_text: true,
+			max_text_chars: 120,
+		},
+	]);
+	client.close();
+});
+
 test("paginated facades preserve the cursor and generation across pages", async () => {
 	const daemon = new FakeDaemon();
 	const client = await connect(daemon);
@@ -472,6 +516,36 @@ function commandMessage(op) {
 }
 
 function queryResponse(query, page) {
+	if (query.op === "syntax_parse" || query.op === "syntax_tree") {
+		return {
+			generation: query.op === "syntax_tree" ? 8 : null,
+			next_cursor: null,
+			result: {
+				kind: "syntax_tree",
+				data: {
+					file: query.uri ?? query.focus,
+					language: query.language ?? "sql",
+					focus: query.uri ?? query.focus,
+					focus_line_range: null,
+					root: {
+						kind: "source_file",
+						named: true,
+						error: false,
+						missing: false,
+						byte_range: [0, 0],
+						start: { line: 1, column: 0 },
+						end: { line: 1, column: 0 },
+						children: [],
+					},
+					emitted_nodes: 1,
+					total_nodes: 1,
+					max_depth: query.max_depth,
+					truncated: false,
+					has_error: false,
+				},
+			},
+		};
+	}
 	if (query.op === "diff_impact_compare") {
 		return {
 			generation: null,

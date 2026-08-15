@@ -62,10 +62,23 @@ deliberately wants the daemon's pinned indexed snapshot can pass
 `{ consistency: "stale_ok" }`; a consumer that wants the filesystem refreshed
 first can pass `{ consistency: "refresh_if_stale" }`.
 
-The generated query union includes bounded `syntax_tree` and stateless
+The client exposes `client.syntax.tree()` for indexed sources and
+`client.syntax.parse()` for direct source text. Explicit structural budgets are
+forwarded unchanged to the daemon; the client supplies the interactive defaults
+only when they are omitted:
+
+```ts
+const tree = await client.syntax.parse("sql", sql, {
+	maxDepth: 64,
+	maxNodes: 20_000,
+});
+console.log(tree.truncated, tree.total_nodes);
+```
+
+The generated query union also exposes the underlying `syntax_tree` and
 `syntax_parse` operations. See
 [On-demand syntax tree](../../docs/cli/mcp-syntax-tree.md) for its TypeScript
-request, result, limits, and error contract. Nodes at the root of an embedded
+request, result, defaults, and error contract. Nodes at the root of an embedded
 language tree expose the optional `language` field, for example `plpgsql`.
 
 The portable entry point does not discover, start, stop, or own daemon

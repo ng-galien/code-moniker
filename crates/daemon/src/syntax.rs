@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use code_moniker_core::lang::{Lang, ParsedDocument, SyntaxInjection, parse_source};
 use code_moniker_query::{
-	QueryError, QueryResponse, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES, SYNTAX_TREE_MAX_DEPTH,
-	SYNTAX_TREE_MAX_NODES, SYNTAX_TREE_MAX_TEXT_CHARS, SyntaxNodeDto, SyntaxParseQuery,
-	SyntaxPointDto, SyntaxTreeQuery, SyntaxTreeResult, WorkspaceGeneration,
+	QueryError, QueryResponse, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES,
+	SYNTAX_TREE_MAX_TEXT_CHARS, SyntaxNodeDto, SyntaxParseQuery, SyntaxPointDto, SyntaxTreeQuery,
+	SyntaxTreeResult, WorkspaceGeneration,
 };
 use code_moniker_workspace::snapshot::{
 	SourceFileRecord, SymbolRecord, WorkspaceSnapshot, WorkspaceView,
@@ -175,16 +175,10 @@ fn render_document(
 }
 
 fn validate_limits(options: SyntaxRenderOptions) -> Result<(), QueryError> {
-	if options.max_depth > SYNTAX_TREE_MAX_DEPTH {
-		return Err(QueryError::new(
-			"invalid_syntax_depth",
-			format!("max_depth must be <= {SYNTAX_TREE_MAX_DEPTH}"),
-		));
-	}
-	if options.max_nodes == 0 || options.max_nodes > SYNTAX_TREE_MAX_NODES {
+	if options.max_nodes == 0 {
 		return Err(QueryError::new(
 			"invalid_syntax_node_limit",
-			format!("max_nodes must be between 1 and {SYNTAX_TREE_MAX_NODES}"),
+			"max_nodes must be greater than 0",
 		));
 	}
 	if options.max_text_chars > SYNTAX_TREE_MAX_TEXT_CHARS {

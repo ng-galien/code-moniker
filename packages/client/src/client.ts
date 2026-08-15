@@ -19,6 +19,7 @@ import type {
 	SymbolGraphResult,
 	SymbolListResult,
 	SymbolUsagesResult,
+	SyntaxTreeResult,
 	UsageDirection,
 	WorkspaceEventDto,
 	WorkspaceGeneration,
@@ -102,6 +103,22 @@ export interface DiffImpactCompareOptions {
 	files: DiffImpactCompareFile[];
 }
 
+export interface SyntaxRenderOptions {
+	maxDepth?: number;
+	maxNodes?: number;
+	namedOnly?: boolean;
+	includeText?: boolean;
+	maxTextChars?: number;
+}
+
+export interface SyntaxTreeOptions extends SyntaxRenderOptions {
+	workspace?: string | null;
+}
+
+export interface SyntaxParseOptions extends SyntaxRenderOptions {
+	uri?: string | null;
+}
+
 type QueryKind = QueryResult["kind"];
 type QueryData<Kind extends QueryKind> = Extract<
 	QueryResult,
@@ -119,6 +136,7 @@ export class CodeMonikerClient {
 	readonly sources: SourceSetClient;
 	readonly symbols: SymbolsClient;
 	readonly graph: GraphClient;
+	readonly syntax: SyntaxClient;
 	readonly diffImpact: DiffImpactClient;
 	readonly events: EventsClient;
 
@@ -130,6 +148,7 @@ export class CodeMonikerClient {
 		this.sources = new SourceSetClient(this);
 		this.symbols = new SymbolsClient(this);
 		this.graph = new GraphClient(this);
+		this.syntax = new SyntaxClient(this);
 		this.diffImpact = new DiffImpactClient(this);
 		this.events = new EventsClient(this);
 	}
@@ -384,6 +403,46 @@ export class GraphClient {
 	}
 }
 
+export class SyntaxClient {
+	constructor(private readonly client: CodeMonikerClient) {}
+
+	tree(
+		focus: string,
+		options: SyntaxTreeOptions = {},
+		queryOptions?: QueryOptions,
+	): Promise<SyntaxTreeResult> {
+		return this.client.queryData(
+			{
+				op: "syntax_tree",
+				workspace: options.workspace ?? null,
+				focus,
+				...syntaxRenderQuery(options),
+			},
+			"syntax_tree",
+			queryOptions,
+		);
+	}
+
+	parse(
+		language: string,
+		source: string,
+		options: SyntaxParseOptions = {},
+		queryOptions?: QueryOptions,
+	): Promise<SyntaxTreeResult> {
+		return this.client.queryData(
+			{
+				op: "syntax_parse",
+				language,
+				source,
+				uri: options.uri ?? null,
+				...syntaxRenderQuery(options),
+			},
+			"syntax_tree",
+			queryOptions,
+		);
+	}
+}
+
 export class DiffImpactClient {
 	constructor(private readonly client: CodeMonikerClient) {}
 
@@ -414,6 +473,16 @@ export class EventsClient {
 	): Promise<RpcSubscription> {
 		return this.client.subscribeEvents(onEvent);
 	}
+}
+
+function syntaxRenderQuery(options: SyntaxRenderOptions) {
+	return {
+		max_depth: options.maxDepth ?? 6,
+		max_nodes: options.maxNodes ?? 100,
+		named_only: options.namedOnly ?? true,
+		include_text: options.includeText ?? false,
+		max_text_chars: options.maxTextChars ?? 80,
+	};
 }
 
 function validateProtocol(handshake: HandshakeResponse): void {
