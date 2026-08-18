@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::environment;
 use crate::snapshot::{
@@ -9,8 +10,9 @@ use crate::snapshot::{
 use crate::sources::{SourceFile, SourceRoot};
 
 use super::content::{
-	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceSet,
-	SourceCatalogMaterial, memory_source_path,
+	CachedMemorySource, LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL,
+	MemorySourceDocument, MemorySourceSet, SourceCatalogMaterial, is_memory_source_path,
+	memory_source_path,
 };
 use super::identity::LocalIdentityResolver;
 
@@ -141,7 +143,12 @@ fn extend_local_catalog(
 	};
 	let added = new_source_files(&material, paths);
 	let flipped = flip_retired_slots(&mut material, paths);
-	let memory_changed = sync_memory_source_sets(&mut material, &cache.memory_source_sets());
+	let memory_changed = sync_memory_source_paths(
+		&mut material,
+		&cache.memory_source_entries(paths),
+		cache.memory_source_revisions(),
+		paths,
+	);
 	if added.is_empty() && !flipped && !memory_changed {
 		return Ok(None);
 	}
@@ -220,10 +227,66 @@ fn sync_memory_source_sets(
 		|| material.memory_revisions != previous_revisions
 }
 
+fn sync_memory_source_paths(
+	material: &mut SourceCatalogMaterial,
+	entries: &BTreeMap<PathBuf, CachedMemorySource>,
+	revisions: BTreeMap<String, Option<String>>,
+	paths: &[PathBuf],
+) -> bool {
+	let mut changed = material.memory_revisions != revisions;
+	material.memory_revisions = revisions;
+	let mut slots = material
+		.sources
+		.files
+		.iter()
+		.enumerate()
+		.filter(|(_, file)| material.memory_slots.contains(&file.path))
+		.map(|(file_idx, file)| (file.path.clone(), file_idx))
+		.collect::<BTreeMap<_, _>>();
+	let needs_root = paths.iter().any(|path| entries.contains_key(path));
+	let root_idx = needs_root.then(|| memory_source_root_index(material));
+	for path in paths.iter().filter(|path| is_memory_source_path(path)) {
+		match entries.get(path) {
+			Some(source) => {
+				let root_idx = root_idx.expect("active memory source requires the memory root");
+				let next = memory_source_file(material, root_idx, &source.srcset, &source.document);
+				match slots.get(path).copied() {
+					Some(file_idx) => {
+						changed |= !same_source_file(&material.sources.files[file_idx], &next);
+						material.sources.files[file_idx] = next;
+					}
+					None => {
+						let file_idx = material.sources.files.len();
+						material.sources.files.push(next);
+						material.memory_slots.insert(path.clone());
+						slots.insert(path.clone(), file_idx);
+						changed = true;
+					}
+				}
+				changed |= material.memory_sources.get(path) != Some(&source.document.content);
+				material
+					.memory_sources
+					.insert(path.clone(), source.document.content.clone());
+			}
+			None => {
+				let Some(file_idx) = slots.get(path).copied() else {
+					continue;
+				};
+				if !material.sources.files[file_idx].retired {
+					material.sources.files[file_idx].retired = true;
+					changed = true;
+				}
+				changed |= material.memory_sources.remove(path).is_some();
+			}
+		}
+	}
+	changed
+}
+
 fn desired_memory_sources(
 	material: &mut SourceCatalogMaterial,
 	source_sets: &BTreeMap<String, MemorySourceSet>,
-) -> BTreeMap<PathBuf, (SourceFile, String)> {
+) -> BTreeMap<PathBuf, (SourceFile, Arc<str>)> {
 	let mut desired = BTreeMap::new();
 	if source_sets.is_empty() {
 		return desired;
@@ -232,24 +295,34 @@ fn desired_memory_sources(
 	for (srcset, source_set) in source_sets {
 		for document in &source_set.documents {
 			let path = memory_source_path(srcset, &document.uri);
-			let uri = PathBuf::from(&document.uri);
-			let mut ctx = material.sources.roots[root_idx].ctx.clone();
-			ctx.srcset = Some(srcset.to_string());
-			let file = SourceFile {
-				source: root_idx,
-				path: path.to_path_buf(),
-				rel_path: uri.to_path_buf(),
-				anchor: uri.to_path_buf(),
-				lang: document.lang,
-				root_moniker: environment::source_root_moniker(document.lang, &uri, &ctx),
-				source_group: None,
-				srcset: Some(srcset.to_string()),
-				retired: false,
-			};
-			desired.insert(path, (file, document.content.to_owned()));
+			let file = memory_source_file(material, root_idx, srcset, document);
+			desired.insert(path, (file, document.content.clone()));
 		}
 	}
 	desired
+}
+
+fn memory_source_file(
+	material: &SourceCatalogMaterial,
+	root_idx: usize,
+	srcset: &str,
+	document: &MemorySourceDocument,
+) -> SourceFile {
+	let path = memory_source_path(srcset, &document.uri);
+	let uri = PathBuf::from(&document.uri);
+	let mut ctx = material.sources.roots[root_idx].ctx.clone();
+	ctx.srcset = Some(srcset.to_string());
+	SourceFile {
+		source: root_idx,
+		path,
+		rel_path: uri.clone(),
+		anchor: uri.clone(),
+		lang: document.lang,
+		root_moniker: environment::source_root_moniker(document.lang, &uri, &ctx),
+		source_group: None,
+		srcset: Some(srcset.to_string()),
+		retired: false,
+	}
 }
 
 fn memory_source_root_index(material: &mut SourceCatalogMaterial) -> usize {

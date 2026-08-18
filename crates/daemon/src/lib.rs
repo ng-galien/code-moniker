@@ -22,18 +22,19 @@ use code_moniker_query::{
 	AuditClusterDto, AuditSampleDto, AuditTotalsDto, AuditZoneDto, BuildIdentity, CapabilitySet,
 	CheckSummaryDto, Command, CommandRequest, CommandResponse, Consistency, CountDto,
 	DaemonRpcServer, DaemonWorkspaceConfig, DiffImpactCompareQuery, DiffImpactFileStatus,
-	FailedRuleDto, FileErrorDto, HandshakeResponse, NoteDto, NoteResolutionDto, NotesAction,
-	NotesQuery, NotesResult, Page, ProtocolRequest, ProtocolResponse, Query, QueryCursor,
-	QueryError, QueryRequest, QueryResponse, QueryResult, ResolutionAuditResult, RuleCoverageDto,
-	RuleDto, RulePathReportDto, RulePathStepDto, RuleReportDto, RulesCheckResult,
-	RulesCheckRootResult, RulesCheckVerdict, RulesListResult, SourceLine, SourceSnippet,
-	SymbolDetailResult, SymbolDto, SymbolInsightsResult, SymbolListResult, SymbolSearchQuery,
-	SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode,
-	TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto,
-	WorkspaceEventDto, WorkspaceEventKind, WorkspaceFailureDto, WorkspaceGeneration,
-	WorkspaceLifecycle, WorkspacePhase, WorkspaceRootStatus, WorkspaceSourceSetDto,
-	WorkspaceStatus, WorkspaceTimingsDto, bounded_debug, current_build_identity,
-	describe_query_capabilities, symbol_is_test_artifact,
+	FailedRuleDto, FileErrorDto, HandshakeResponse, MemorySourceRefreshDto,
+	MemorySourceRefreshModeDto, NoteDto, NoteResolutionDto, NotesAction, NotesQuery, NotesResult,
+	Page, ProtocolRequest, ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest,
+	QueryResponse, QueryResult, ResolutionAuditResult, RuleCoverageDto, RuleDto, RulePathReportDto,
+	RulePathStepDto, RuleReportDto, RulesCheckResult, RulesCheckRootResult, RulesCheckVerdict,
+	RulesListResult, SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto,
+	SymbolInsightsResult, SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery,
+	SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode, TreeNodeKind,
+	UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto, WorkspaceEventDto,
+	WorkspaceEventKind, WorkspaceFailureDto, WorkspaceGeneration, WorkspaceLifecycle,
+	WorkspacePhase, WorkspaceRootStatus, WorkspaceSourceSetDto, WorkspaceStatus,
+	WorkspaceTimingsDto, bounded_debug, current_build_identity, describe_query_capabilities,
+	symbol_is_test_artifact,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -45,9 +46,10 @@ use code_moniker_workspace::notes::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	BoundedPathLimits, BoundedPathScope, ExternalReferenceOrigin, ReferenceId, ReferenceRecord,
-	SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest, WorkspaceResource,
-	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
+	BoundedPathLimits, BoundedPathScope, ExternalReferenceOrigin, MemorySourceRefreshMetrics,
+	MemorySourceRefreshMode, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
+	SymbolRecord, WorkspaceRequest, WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition,
+	WorkspaceView,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
@@ -1243,7 +1245,7 @@ fn parse_memory_source_set(dto: WorkspaceSourceSetDto) -> Result<MemorySourceSet
 		documents.push(MemorySourceDocument {
 			uri: document.uri,
 			lang,
-			content: document.content,
+			content: document.content.into(),
 		});
 	}
 	documents.sort_by(|left, right| left.uri.cmp(&right.uri));
@@ -1341,10 +1343,23 @@ fn validate_memory_source_uri(uri: &str) -> Result<(), QueryError> {
 
 fn refresh_memory_source_set(
 	daemon: &mut WorkspaceDaemon,
-	update: MemorySourceSetUpdate,
+	mut update: MemorySourceSetUpdate,
 	message: String,
 ) -> Result<CommandResponse, QueryError> {
 	if !update.changed {
+		tracing::info!(
+			memory.srcset = update.srcset,
+			memory.refresh.mode = "noop",
+			memory.documents.total = update.document_total,
+			memory.documents.added = 0,
+			memory.documents.modified = 0,
+			memory.documents.removed = 0,
+			memory.documents.unchanged = update.delta.unchanged,
+			memory.extraction.jobs = 0,
+			memory.extraction.completed = 0,
+			memory.linkage.invocations = 0,
+			"memory source set refresh completed"
+		);
 		return Ok(CommandResponse {
 			generation: generation(&daemon.registry),
 			message: format!("{message}: unchanged"),
@@ -1354,28 +1369,77 @@ fn refresh_memory_source_set(
 			))),
 		});
 	}
-	let MemorySourceSetUpdate {
-		paths,
-		srcset,
-		previous,
-		..
-	} = update;
-	let transition = if daemon.registry.queries().snapshot().is_some() {
-		daemon
+	let initial_collection = update.previous.is_none()
+		&& update.delta.added.len() == update.document_total
+		&& update.delta.modified.is_empty()
+		&& update.delta.removed.is_empty();
+	let complete_bulk_load = initial_collection
+		&& daemon
 			.registry
-			.commands()
-			.refresh_paths(WorkspaceRequest::new("daemon-memory-source-set"), paths)
+			.queries()
+			.snapshot()
+			.is_none_or(|snapshot| snapshot.catalog.sources.is_empty());
+	let mode = if complete_bulk_load {
+		MemorySourceRefreshMode::Bulk
 	} else {
-		daemon
-			.registry
-			.commands()
-			.refresh(WorkspaceRequest::new("daemon-memory-source-set"))
+		MemorySourceRefreshMode::Incremental
+	};
+	let checkpoint = daemon.cache.checkpoint_memory_source_update(&mut update);
+	let document_total = update.document_total;
+	let added = update.delta.added.len();
+	let modified = update.delta.modified.len();
+	let removed = update.delta.removed.len();
+	let unchanged = update.delta.unchanged;
+	let refresh_metrics = MemorySourceRefreshMetrics {
+		mode,
+		documents_total: document_total,
+		added,
+		modified,
+		removed,
+		unchanged,
+		extraction_jobs: 0,
+		extraction_workers: 0,
+		linkage_invocations: 0,
+	};
+	let paths = update.paths;
+	let request = WorkspaceRequest::new("daemon-memory-source-set")
+		.with_memory_source_refresh(refresh_metrics);
+	let transition = if complete_bulk_load {
+		daemon.registry.commands().refresh(request)
+	} else {
+		daemon.registry.commands().refresh_paths(request, paths)
 	};
 	if let Err(error) = workspace_transition_result(transition) {
-		daemon.cache.restore_memory_source_set(srcset, previous);
+		daemon.cache.restore_checkpoint(checkpoint);
 		return Err(error);
 	}
 	let generation = generation(&daemon.registry);
+	let (extraction_jobs, extraction_workers) = daemon
+		.registry
+		.queries()
+		.snapshot()
+		.map(|snapshot| {
+			(
+				snapshot.index.timings.extraction_jobs,
+				snapshot.index.timings.extraction_workers,
+			)
+		})
+		.unwrap_or_default();
+	tracing::info!(
+		memory.srcset = update.srcset,
+		memory.refresh.mode = mode.as_str(),
+		memory.documents.total = document_total,
+		memory.documents.added = added,
+		memory.documents.modified = modified,
+		memory.documents.removed = removed,
+		memory.documents.unchanged = unchanged,
+		memory.extraction.jobs = extraction_jobs,
+		memory.extraction.completed = extraction_jobs,
+		memory.extraction.workers = extraction_workers,
+		memory.linkage.invocations = 1,
+		workspace.generation = generation.map_or(0, |value| value.0),
+		"memory source set refresh completed"
+	);
 	if let Some(events) = &daemon.live.events {
 		let _ = events.send(WorkspaceEventDto {
 			kind: WorkspaceEventKind::Refreshed,
@@ -3117,7 +3181,7 @@ fn virtual_diff_impact_documents(
 			code_moniker_workspace::changes::semantic::virtual_diff_impact::VirtualDiffImpactDocument {
 				uri: document.uri,
 				lang: document.lang,
-				content: document.content,
+				content: document.content.to_string(),
 			}
 		})
 		.collect()
@@ -3785,6 +3849,22 @@ fn workspace_timings_dto(snapshot: &WorkspaceSnapshot) -> WorkspaceTimingsDto {
 		linkage_ms: milliseconds(snapshot.timings.linkage),
 		change_overlay_ms: milliseconds(snapshot.timings.change_overlay),
 		total_ms: milliseconds(snapshot.timings.total),
+		memory_source_refresh: snapshot.timings.memory_source_refresh.map(|refresh| {
+			MemorySourceRefreshDto {
+				mode: match refresh.mode {
+					MemorySourceRefreshMode::Bulk => MemorySourceRefreshModeDto::Bulk,
+					MemorySourceRefreshMode::Incremental => MemorySourceRefreshModeDto::Incremental,
+				},
+				documents_total: refresh.documents_total,
+				added: refresh.added,
+				modified: refresh.modified,
+				removed: refresh.removed,
+				unchanged: refresh.unchanged,
+				extraction_jobs: refresh.extraction_jobs,
+				extraction_workers: refresh.extraction_workers,
+				linkage_invocations: refresh.linkage_invocations,
+			}
+		}),
 	}
 }
 
@@ -9413,6 +9493,245 @@ message = "the local function remains visible"
 	}
 
 	#[test]
+	fn memory_source_set_refresh_extracts_only_added_or_modified_documents() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial refresh");
+
+		let source_set = WorkspaceSourceSetDto {
+			srcset: "database".to_string(),
+			revision: Some("1".to_string()),
+			documents: (0..8)
+				.map(|index| WorkspaceSourceDocumentDto {
+					uri: format!("schema/table_{index}.sql"),
+					language: "sql".to_string(),
+					content: format!("CREATE TABLE app.table_{index} (id bigint);\n"),
+				})
+				.collect(),
+		};
+		replace_source_set(&mut daemon, source_set.clone());
+		let initial = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("initial source set");
+		assert_eq!(initial.index.timings.extraction_jobs, 8);
+		assert!((1..=8).contains(&initial.index.timings.extraction_workers));
+		assert_eq!(
+			initial.timings.memory_source_refresh,
+			Some(MemorySourceRefreshMetrics {
+				mode: MemorySourceRefreshMode::Bulk,
+				documents_total: 8,
+				added: 8,
+				modified: 0,
+				removed: 0,
+				unchanged: 0,
+				extraction_jobs: 8,
+				extraction_workers: initial.index.timings.extraction_workers,
+				linkage_invocations: 1,
+			})
+		);
+
+		let mut one_modified = source_set.clone();
+		one_modified.revision = Some("2".to_string());
+		one_modified.documents[3]
+			.content
+			.push_str("-- catalog metadata changed\n");
+		replace_source_set(&mut daemon, one_modified.clone());
+		let modified = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("modified source set");
+		assert_eq!(modified.index.timings.extraction_jobs, 1);
+		let refresh = modified
+			.timings
+			.memory_source_refresh
+			.expect("memory refresh metrics");
+		assert_eq!(refresh.mode, MemorySourceRefreshMode::Incremental);
+		assert_eq!(refresh.modified, 1);
+		assert_eq!(refresh.unchanged, 7);
+		assert_eq!(refresh.extraction_jobs, 1);
+		assert_eq!(refresh.linkage_invocations, 1);
+
+		let mut one_added = one_modified.clone();
+		one_added.revision = Some("3".to_string());
+		one_added.documents.push(WorkspaceSourceDocumentDto {
+			uri: "schema/table_8.sql".to_string(),
+			language: "sql".to_string(),
+			content: "CREATE TABLE app.table_8 (id bigint);\n".to_string(),
+		});
+		replace_source_set(&mut daemon, one_added.clone());
+		let added = daemon.registry.queries().snapshot().expect("added source");
+		assert_eq!(added.index.timings.extraction_jobs, 1);
+
+		let mut one_removed = one_added.clone();
+		one_removed.revision = Some("4".to_string());
+		one_removed.documents.remove(4);
+		replace_source_set(&mut daemon, one_removed.clone());
+		let removed = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("removed source");
+		assert_eq!(removed.index.timings.extraction_jobs, 0);
+		assert_symbol_total(&mut daemon, "table_4", 0);
+
+		let mut revision_only = one_removed;
+		revision_only.revision = Some("5".to_string());
+		replace_source_set(&mut daemon, revision_only);
+		let revision = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("revision-only source set");
+		assert_eq!(revision.index.timings.extraction_jobs, 0);
+	}
+
+	#[test]
+	fn first_memory_source_set_on_a_mixed_workspace_reports_incremental_path() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		fs::write(temp.path().join("local.rs"), "pub fn local_symbol() {}\n")
+			.expect("local source");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		daemon
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial filesystem refresh");
+
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "database".to_string(),
+				revision: Some("1".to_string()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "schema/table.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.table (id bigint);\n".to_string(),
+				}],
+			},
+		);
+
+		let snapshot = daemon
+			.registry
+			.queries()
+			.snapshot()
+			.expect("mixed workspace snapshot");
+		let refresh = snapshot
+			.timings
+			.memory_source_refresh
+			.expect("memory refresh metrics");
+		assert_eq!(refresh.mode, MemorySourceRefreshMode::Incremental);
+		assert_eq!(refresh.added, 1);
+		assert_eq!(refresh.extraction_jobs, 1);
+		assert_eq!(refresh.linkage_invocations, 1);
+		assert_symbol_total(&mut daemon, "local_symbol()", 1);
+	}
+
+	#[test]
+	fn memory_source_set_parallel_refresh_matches_a_complete_publication() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let incremental_root = temp.path().join("incremental");
+		let complete_root = temp.path().join("complete");
+		fs::create_dir_all(&incremental_root).expect("incremental root");
+		fs::create_dir_all(&complete_root).expect("complete root");
+
+		let initial = memory_equivalence_source_set("1", false);
+		let final_set = memory_equivalence_source_set("2", true);
+		let mut incremental =
+			WorkspaceDaemon::new(vec![incremental_root]).expect("incremental daemon");
+		incremental
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial incremental workspace");
+		replace_source_set(&mut incremental, initial);
+		replace_source_set(&mut incremental, final_set.clone());
+		let incremental_snapshot = incremental
+			.registry
+			.queries()
+			.snapshot()
+			.expect("incremental snapshot")
+			.clone();
+		assert_eq!(incremental_snapshot.index.timings.extraction_jobs, 1);
+
+		let mut complete = WorkspaceDaemon::new(vec![complete_root]).expect("complete daemon");
+		complete
+			.refresh_cancellable(WorkspaceCancellation::default())
+			.expect("initial complete workspace");
+		replace_source_set(&mut complete, final_set);
+		let complete_snapshot = complete
+			.registry
+			.queries()
+			.snapshot()
+			.expect("complete snapshot");
+
+		assert_eq!(
+			incremental_snapshot.index.sources,
+			complete_snapshot.index.sources
+		);
+		assert_eq!(
+			incremental_snapshot.index.symbols,
+			complete_snapshot.index.symbols
+		);
+		assert_eq!(
+			incremental_snapshot.index.references,
+			complete_snapshot.index.references
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.resolved,
+			complete_snapshot.linkage.resolved
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.candidates,
+			complete_snapshot.linkage.candidates
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.external,
+			complete_snapshot.linkage.external
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.dynamic,
+			complete_snapshot.linkage.dynamic
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.blocked,
+			complete_snapshot.linkage.blocked
+		);
+		assert_eq!(
+			incremental_snapshot.linkage.unresolved,
+			complete_snapshot.linkage.unresolved
+		);
+	}
+
+	fn memory_equivalence_source_set(revision: &str, modified: bool) -> WorkspaceSourceSetDto {
+		WorkspaceSourceSetDto {
+			srcset: "database".to_string(),
+			revision: Some(revision.to_string()),
+			documents: vec![
+				WorkspaceSourceDocumentDto {
+					uri: "schema/accounts.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.accounts (id bigint, name text);\n".to_string(),
+				},
+				WorkspaceSourceDocumentDto {
+					uri: "schema/orders.sql".to_string(),
+					language: "sql".to_string(),
+					content: "CREATE TABLE app.orders (id bigint, account_id bigint REFERENCES app.accounts(id));\n"
+						.to_string(),
+				},
+				WorkspaceSourceDocumentDto {
+					uri: "schema/account_orders.sql".to_string(),
+					language: "sql".to_string(),
+					content: format!(
+						"CREATE VIEW app.account_orders AS SELECT a.id, o.id FROM app.accounts a JOIN app.orders o ON o.account_id = a.id;\n{}",
+						if modified { "-- refreshed\n" } else { "" }
+					),
+				},
+			],
+		}
+	}
+
+	#[test]
 	fn memory_source_set_refreshes_linkage_from_local_sources() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let source_dir = temp.path().join("src/main/java/app");
@@ -9879,7 +10198,7 @@ message = "the indexed rule must observe the memory source"
 			documents: vec![MemorySourceDocument {
 				uri: "a.rs".to_string(),
 				lang: Lang::Rs,
-				content: "fn a()".to_string(),
+				content: "fn a()".into(),
 			}],
 		};
 		validate_memory_source_set_limits(&cache, &first, limits).expect("first publication fits");
@@ -9891,7 +10210,7 @@ message = "the indexed rule must observe the memory source"
 			documents: vec![MemorySourceDocument {
 				uri: "b.rs".to_string(),
 				lang: Lang::Rs,
-				content: "fn b()".to_string(),
+				content: "fn b()".into(),
 			}],
 		};
 		let error = validate_memory_source_set_limits(&cache, &second, limits)
@@ -9904,7 +10223,7 @@ message = "the indexed rule must observe the memory source"
 			documents: vec![MemorySourceDocument {
 				uri: "long-uri.rs".to_string(),
 				lang: Lang::Rs,
-				content: "fn too_large()".to_string(),
+				content: "fn too_large()".into(),
 			}],
 		};
 		let error = validate_memory_source_set_limits(&cache, &oversized, limits)

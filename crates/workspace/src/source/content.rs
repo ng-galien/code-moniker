@@ -28,6 +28,48 @@ pub struct LocalResourceCache {
 }
 
 impl LocalResourceCache {
+	pub fn checkpoint_memory_source_update(
+		&self,
+		update: &mut MemorySourceSetUpdate,
+	) -> LocalResourceCheckpoint {
+		let inner = self.lock_material();
+		LocalResourceCheckpoint {
+			next_generation: inner.next_generation,
+			sources: inner.sources.clone(),
+			indexes: inner.indexes.clone(),
+			index_diffs: inner.index_diffs.clone(),
+			srcset: update.srcset.clone(),
+			previous: update.previous.take(),
+		}
+	}
+
+	pub fn restore_checkpoint(&self, checkpoint: LocalResourceCheckpoint) {
+		let mut inner = self.lock_material();
+		if let Some(current) = inner.memory_source_sets.remove(&checkpoint.srcset) {
+			for document in current.documents {
+				inner
+					.memory_documents
+					.remove(&memory_source_path(&checkpoint.srcset, &document.uri));
+			}
+		}
+		if let Some(previous) = checkpoint.previous {
+			for document in &previous.documents {
+				inner.memory_documents.insert(
+					memory_source_path(&checkpoint.srcset, &document.uri),
+					CachedMemorySource {
+						srcset: checkpoint.srcset.clone(),
+						document: document.clone(),
+					},
+				);
+			}
+			inner.memory_source_sets.insert(checkpoint.srcset, previous);
+		}
+		inner.next_generation = checkpoint.next_generation;
+		inner.sources = checkpoint.sources;
+		inner.indexes = checkpoint.indexes;
+		inner.index_diffs = checkpoint.index_diffs;
+	}
+
 	pub fn next_generation(&self) -> crate::snapshot::ResourceGeneration {
 		let mut inner = self.lock_material();
 		let generation = crate::snapshot::ResourceGeneration::new(inner.next_generation);
@@ -48,7 +90,7 @@ impl LocalResourceCache {
 	) {
 		let mut inner = self.lock_material();
 		inner.sources.clear();
-		inner.sources.insert(generation.value(), material);
+		inner.sources.insert(generation.value(), Arc::new(material));
 	}
 
 	pub fn source_material(
@@ -58,7 +100,7 @@ impl LocalResourceCache {
 		self.lock_material()
 			.sources
 			.get(&generation.value())
-			.cloned()
+			.map(|material| material.as_ref().clone())
 	}
 
 	pub fn insert_index(
@@ -106,28 +148,58 @@ impl LocalResourceCache {
 			.cloned()
 	}
 
-	pub fn replace_memory_source_set(&self, source_set: MemorySourceSet) -> MemorySourceSetUpdate {
+	pub fn replace_memory_source_set(
+		&self,
+		mut source_set: MemorySourceSet,
+	) -> MemorySourceSetUpdate {
 		let mut inner = self.lock_material();
+		source_set
+			.documents
+			.sort_by(|left, right| left.uri.cmp(&right.uri));
 		if inner.memory_source_sets.get(&source_set.srcset) == Some(&source_set) {
+			let document_total = source_set.documents.len();
 			return MemorySourceSetUpdate {
 				srcset: source_set.srcset,
+				delta: MemorySourceSetDelta {
+					unchanged: document_total,
+					..Default::default()
+				},
+				document_total,
 				..Default::default()
 			};
 		}
 		let srcset = source_set.srcset.clone();
-		let next_paths = memory_source_paths(&source_set);
+		let delta = memory_source_set_delta(inner.memory_source_sets.get(&srcset), &source_set);
+		let document_total = source_set.documents.len();
+		for uri in &delta.removed {
+			inner
+				.memory_documents
+				.remove(&memory_source_path(&srcset, uri));
+		}
+		for uri in delta.added.iter().chain(&delta.modified) {
+			let document = source_set
+				.documents
+				.binary_search_by(|document| document.uri.as_str().cmp(uri))
+				.ok()
+				.and_then(|index| source_set.documents.get(index))
+				.expect("memory source delta URI belongs to the replacement")
+				.clone();
+			inner.memory_documents.insert(
+				memory_source_path(&srcset, uri),
+				CachedMemorySource {
+					srcset: srcset.clone(),
+					document,
+				},
+			);
+		}
 		let previous = inner.memory_source_sets.insert(srcset.clone(), source_set);
-		let mut paths = previous
-			.as_ref()
-			.into_iter()
-			.flat_map(memory_source_paths)
-			.collect::<BTreeSet<_>>();
-		paths.extend(next_paths);
 		MemorySourceSetUpdate {
 			changed: true,
-			paths: paths.into_iter().collect(),
+			paths: delta.paths(&srcset),
 			srcset,
 			previous,
+			delta,
+			document_total,
 		}
 	}
 
@@ -139,23 +211,25 @@ impl LocalResourceCache {
 				..Default::default()
 			};
 		};
+		for document in &previous.documents {
+			inner
+				.memory_documents
+				.remove(&memory_source_path(srcset, &document.uri));
+		}
 		MemorySourceSetUpdate {
 			changed: true,
 			paths: memory_source_paths(&previous),
 			srcset: srcset.to_string(),
+			delta: MemorySourceSetDelta {
+				removed: previous
+					.documents
+					.iter()
+					.map(|document| document.uri.clone())
+					.collect(),
+				..Default::default()
+			},
 			previous: Some(previous),
-		}
-	}
-
-	pub fn restore_memory_source_set(&self, srcset: String, previous: Option<MemorySourceSet>) {
-		let mut inner = self.lock_material();
-		match previous {
-			Some(previous) => {
-				inner.memory_source_sets.insert(srcset, previous);
-			}
-			None => {
-				inner.memory_source_sets.remove(&srcset);
-			}
+			document_total: 0,
 		}
 	}
 
@@ -185,13 +259,39 @@ impl LocalResourceCache {
 	pub(crate) fn memory_source_sets(&self) -> BTreeMap<String, MemorySourceSet> {
 		self.lock_material().memory_source_sets.clone()
 	}
+
+	pub(crate) fn memory_source_entries(
+		&self,
+		paths: &[PathBuf],
+	) -> BTreeMap<PathBuf, CachedMemorySource> {
+		let inner = self.lock_material();
+		paths
+			.iter()
+			.filter_map(|path| {
+				inner
+					.memory_documents
+					.get(path)
+					.cloned()
+					.map(|source| (path.clone(), source))
+			})
+			.collect()
+	}
+
+	pub(crate) fn memory_source_revisions(&self) -> BTreeMap<String, Option<String>> {
+		self.lock_material()
+			.memory_source_sets
+			.iter()
+			.map(|(srcset, source_set)| (srcset.clone(), source_set.revision.clone()))
+			.collect()
+	}
 }
 
 struct LocalResourceMaterial {
 	next_generation: u64,
-	sources: BTreeMap<u64, SourceCatalogMaterial>,
+	sources: BTreeMap<u64, Arc<SourceCatalogMaterial>>,
 	indexes: BTreeMap<u64, Arc<CodeIndexMaterial>>,
 	memory_source_sets: BTreeMap<String, MemorySourceSet>,
+	memory_documents: BTreeMap<PathBuf, CachedMemorySource>,
 	index_diffs: BTreeMap<
 		u64,
 		(
@@ -201,6 +301,27 @@ struct LocalResourceMaterial {
 	>,
 }
 
+pub struct LocalResourceCheckpoint {
+	next_generation: u64,
+	sources: BTreeMap<u64, Arc<SourceCatalogMaterial>>,
+	indexes: BTreeMap<u64, Arc<CodeIndexMaterial>>,
+	index_diffs: BTreeMap<
+		u64,
+		(
+			crate::snapshot::ResourceGeneration,
+			Arc<crate::code::CodeIndexGraphDiff>,
+		),
+	>,
+	srcset: String,
+	previous: Option<MemorySourceSet>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CachedMemorySource {
+	pub(crate) srcset: String,
+	pub(crate) document: MemorySourceDocument,
+}
+
 impl Default for LocalResourceMaterial {
 	fn default() -> Self {
 		Self {
@@ -208,6 +329,7 @@ impl Default for LocalResourceMaterial {
 			sources: BTreeMap::new(),
 			indexes: BTreeMap::new(),
 			memory_source_sets: BTreeMap::new(),
+			memory_documents: BTreeMap::new(),
 			index_diffs: BTreeMap::new(),
 		}
 	}
@@ -224,7 +346,7 @@ pub struct MemorySourceSet {
 pub struct MemorySourceDocument {
 	pub uri: String,
 	pub lang: Lang,
-	pub content: String,
+	pub content: Arc<str>,
 }
 
 impl MemorySourceSet {
@@ -247,6 +369,72 @@ pub struct MemorySourceSetUpdate {
 	pub paths: Vec<PathBuf>,
 	pub srcset: String,
 	pub previous: Option<MemorySourceSet>,
+	pub delta: MemorySourceSetDelta,
+	pub document_total: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MemorySourceSetDelta {
+	pub added: Vec<String>,
+	pub modified: Vec<String>,
+	pub removed: Vec<String>,
+	pub unchanged: usize,
+}
+
+impl MemorySourceSetDelta {
+	fn paths(&self, srcset: &str) -> Vec<PathBuf> {
+		self.added
+			.iter()
+			.chain(&self.modified)
+			.chain(&self.removed)
+			.map(|uri| memory_source_path(srcset, uri))
+			.collect::<BTreeSet<_>>()
+			.into_iter()
+			.collect()
+	}
+}
+
+fn memory_source_set_delta(
+	previous: Option<&MemorySourceSet>,
+	next: &MemorySourceSet,
+) -> MemorySourceSetDelta {
+	let previous = previous.map_or(&[][..], |source_set| source_set.documents.as_slice());
+	let mut delta = MemorySourceSetDelta::default();
+	let mut previous_idx = 0;
+	let mut next_idx = 0;
+	while previous_idx < previous.len() || next_idx < next.documents.len() {
+		match (previous.get(previous_idx), next.documents.get(next_idx)) {
+			(Some(left), Some(right)) => match left.uri.cmp(&right.uri) {
+				std::cmp::Ordering::Less => {
+					delta.removed.push(left.uri.clone());
+					previous_idx += 1;
+				}
+				std::cmp::Ordering::Greater => {
+					delta.added.push(right.uri.clone());
+					next_idx += 1;
+				}
+				std::cmp::Ordering::Equal => {
+					if left == right {
+						delta.unchanged += 1;
+					} else {
+						delta.modified.push(right.uri.clone());
+					}
+					previous_idx += 1;
+					next_idx += 1;
+				}
+			},
+			(Some(left), None) => {
+				delta.removed.push(left.uri.clone());
+				previous_idx += 1;
+			}
+			(None, Some(right)) => {
+				delta.added.push(right.uri.clone());
+				next_idx += 1;
+			}
+			(None, None) => break,
+		}
+	}
+	delta
 }
 
 pub(crate) fn memory_source_path(srcset: &str, uri: &str) -> PathBuf {
@@ -277,7 +465,7 @@ fn memory_source_paths(source_set: &MemorySourceSet) -> Vec<PathBuf> {
 pub struct SourceCatalogMaterial {
 	pub(crate) sources: SourceFileSet,
 	pub(crate) identity: LocalIdentityResolver,
-	pub(crate) memory_sources: BTreeMap<PathBuf, String>,
+	pub(crate) memory_sources: BTreeMap<PathBuf, Arc<str>>,
 	pub(crate) memory_slots: BTreeSet<PathBuf>,
 	pub(crate) memory_revisions: BTreeMap<String, Option<String>>,
 }
@@ -327,7 +515,7 @@ impl SourceCatalogMaterial {
 	}
 
 	pub(crate) fn memory_source(&self, path: &Path) -> Option<&str> {
-		self.memory_sources.get(path).map(String::as_str)
+		self.memory_sources.get(path).map(AsRef::as_ref)
 	}
 
 	pub(crate) fn is_memory_slot(&self, path: &Path) -> bool {
@@ -536,6 +724,168 @@ mod tests {
 				.reference_target(&ReferenceId::at(0, 999999))
 				.is_none()
 		);
+	}
+
+	#[test]
+	fn memory_source_set_replacement_reports_only_the_document_delta() {
+		let cache = LocalResourceCache::default();
+		let first = memory_set(
+			"r1",
+			vec![
+				memory_document("keep.sql", Lang::Sql, "select 1;"),
+				memory_document("modify.sql", Lang::Sql, "select 2;"),
+				memory_document("remove.sql", Lang::Sql, "select 3;"),
+			],
+		);
+		let initial = cache.replace_memory_source_set(first);
+		assert_eq!(initial.delta.added.len(), 3);
+		assert_eq!(initial.paths.len(), 3);
+
+		let update = cache.replace_memory_source_set(memory_set(
+			"r2",
+			vec![
+				memory_document("add.sql", Lang::Sql, "select 4;"),
+				memory_document("modify.sql", Lang::Sql, "select 20;"),
+				memory_document("keep.sql", Lang::Sql, "select 1;"),
+			],
+		));
+
+		assert!(update.changed);
+		assert_eq!(
+			update
+				.delta
+				.added
+				.iter()
+				.map(String::as_str)
+				.collect::<Vec<_>>(),
+			vec!["add.sql"]
+		);
+		assert_eq!(
+			update
+				.delta
+				.modified
+				.iter()
+				.map(String::as_str)
+				.collect::<Vec<_>>(),
+			vec!["modify.sql"]
+		);
+		assert_eq!(
+			update
+				.delta
+				.removed
+				.iter()
+				.map(String::as_str)
+				.collect::<Vec<_>>(),
+			vec!["remove.sql"]
+		);
+		assert_eq!(update.delta.unchanged, 1);
+		assert_eq!(update.paths.len(), 3);
+		assert_eq!(update.document_total, 3);
+	}
+
+	#[test]
+	fn memory_source_set_delta_distinguishes_language_uri_and_revision_changes() {
+		let cache = LocalResourceCache::default();
+		cache.replace_memory_source_set(memory_set(
+			"r1",
+			vec![
+				memory_document("language.sql", Lang::Sql, "same"),
+				memory_document("old.sql", Lang::Sql, "same"),
+			],
+		));
+
+		let update = cache.replace_memory_source_set(memory_set(
+			"r2",
+			vec![
+				memory_document("new.sql", Lang::Sql, "same"),
+				memory_document("language.sql", Lang::Ts, "same"),
+			],
+		));
+		assert_eq!(update.delta.added.len(), 1);
+		assert_eq!(update.delta.modified.len(), 1);
+		assert_eq!(update.delta.removed.len(), 1);
+		assert_eq!(update.delta.unchanged, 0);
+
+		let revision_only = cache.replace_memory_source_set(memory_set(
+			"r3",
+			vec![
+				memory_document("language.sql", Lang::Ts, "same"),
+				memory_document("new.sql", Lang::Sql, "same"),
+			],
+		));
+		assert!(revision_only.changed);
+		assert!(revision_only.paths.is_empty());
+		assert_eq!(revision_only.delta.unchanged, 2);
+	}
+
+	#[test]
+	fn memory_source_set_document_order_is_not_a_change() {
+		let cache = LocalResourceCache::default();
+		cache.replace_memory_source_set(memory_set(
+			"r1",
+			vec![
+				memory_document("b.sql", Lang::Sql, "select 2;"),
+				memory_document("a.sql", Lang::Sql, "select 1;"),
+			],
+		));
+
+		let update = cache.replace_memory_source_set(memory_set(
+			"r1",
+			vec![
+				memory_document("a.sql", Lang::Sql, "select 1;"),
+				memory_document("b.sql", Lang::Sql, "select 2;"),
+			],
+		));
+		assert!(!update.changed);
+		assert!(update.paths.is_empty());
+	}
+
+	#[test]
+	fn memory_source_set_checkpoint_restores_the_previous_publication_state() {
+		let cache = LocalResourceCache::default();
+		let first = memory_set(
+			"r1",
+			vec![memory_document("table.sql", Lang::Sql, "select 1;")],
+		);
+		cache.replace_memory_source_set(first.clone());
+		let mut update = cache.replace_memory_source_set(memory_set(
+			"r2",
+			vec![memory_document("table.sql", Lang::Sql, "select 2;")],
+		));
+		let checkpoint = cache.checkpoint_memory_source_update(&mut update);
+
+		cache.restore_checkpoint(checkpoint);
+
+		let restored = cache.replace_memory_source_set(first);
+		assert!(!restored.changed);
+		assert_eq!(restored.delta.unchanged, 1);
+		let path = memory_source_path("catalog", "table.sql");
+		let entries = cache.memory_source_entries(std::slice::from_ref(&path));
+		assert_eq!(
+			entries
+				.get(&path)
+				.expect("restored memory source")
+				.document
+				.content
+				.as_ref(),
+			"select 1;"
+		);
+	}
+
+	fn memory_set(revision: &str, documents: Vec<MemorySourceDocument>) -> MemorySourceSet {
+		MemorySourceSet {
+			srcset: "catalog".to_string(),
+			revision: Some(revision.to_string()),
+			documents,
+		}
+	}
+
+	fn memory_document(uri: &str, lang: Lang, content: &str) -> MemorySourceDocument {
+		MemorySourceDocument {
+			uri: uri.to_string(),
+			lang,
+			content: Arc::from(content),
+		}
 	}
 
 	fn material_with_one_reference() -> (CodeIndexMaterial, Moniker, Moniker) {

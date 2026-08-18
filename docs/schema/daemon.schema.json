@@ -2199,6 +2199,72 @@
         }
       }
     },
+    "MemorySourceRefreshDto": {
+      "type": "object",
+      "required": [
+        "added",
+        "documents_total",
+        "extraction_jobs",
+        "extraction_workers",
+        "linkage_invocations",
+        "mode",
+        "modified",
+        "removed",
+        "unchanged"
+      ],
+      "properties": {
+        "added": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "documents_total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "extraction_jobs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "extraction_workers": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "linkage_invocations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "mode": {
+          "$ref": "#/definitions/MemorySourceRefreshModeDto"
+        },
+        "modified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "removed": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "MemorySourceRefreshModeDto": {
+      "type": "string",
+      "enum": [
+        "bulk",
+        "incremental"
+      ]
+    },
     "MetricsCouplingCoverage": {
       "type": "object",
       "required": [
@@ -6318,6 +6384,7 @@
             "code_index_ms": 0,
             "extract_sources_ms": 0,
             "linkage_ms": 0,
+            "memory_source_refresh": null,
             "semantic_index_ms": 0,
             "source_catalog_ms": 0,
             "total_ms": 0
@@ -6361,6 +6428,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
+        },
+        "memory_source_refresh": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MemorySourceRefreshDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "semantic_index_ms": {
           "type": "integer",

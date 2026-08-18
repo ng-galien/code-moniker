@@ -79,6 +79,9 @@ pub(crate) fn build_complete_snapshot(
 		linkage_elapsed,
 		changes_elapsed,
 		total_timer.elapsed(),
+		request
+			.memory_source_refresh()
+			.map(|refresh| refresh.with_execution(&index, 1)),
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -114,6 +117,9 @@ pub(crate) fn build_index_only_snapshot(
 		Duration::ZERO,
 		Duration::ZERO,
 		total_timer.elapsed(),
+		request
+			.memory_source_refresh()
+			.map(|refresh| refresh.with_execution(&index, 0)),
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -155,6 +161,7 @@ pub(crate) fn build_linkage_snapshot(
 		linkage_elapsed,
 		changes_elapsed,
 		total,
+		None,
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -192,6 +199,7 @@ pub(crate) fn build_change_overlay_snapshot(
 		current.timings.linkage,
 		changes_elapsed,
 		total,
+		None,
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -216,6 +224,7 @@ pub(crate) fn build_incremental_paths_snapshot(
 	paths: &[PathBuf],
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
+	let cancellation = request.cancellation().clone();
 	let RefreshPorts {
 		source_catalog,
 		code_index,
@@ -233,9 +242,15 @@ pub(crate) fn build_incremental_paths_snapshot(
 	let catalog_elapsed = catalog_timer.elapsed();
 	let index_timer = Instant::now();
 	let refresh = match &extended_catalog {
-		Some(catalog) => code_index.refresh_catalog_paths(&current.index, catalog, paths)?,
-		None => code_index.refresh_paths(&current.index, paths)?,
+		Some(catalog) => code_index.refresh_catalog_paths_cancellable(
+			&current.index,
+			catalog,
+			paths,
+			&cancellation,
+		)?,
+		None => code_index.refresh_paths_cancellable(&current.index, paths, &cancellation)?,
 	};
+	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let changed_sources = refresh.changed_sources;
 	let graph_diff = refresh.graph_diff;
 	let index = refresh.index;
@@ -261,6 +276,9 @@ pub(crate) fn build_incremental_paths_snapshot(
 		linkage_elapsed,
 		Duration::ZERO,
 		total_timer.elapsed(),
+		request
+			.memory_source_refresh()
+			.map(|refresh| refresh.with_execution(&index, 1)),
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -394,6 +412,9 @@ pub(crate) fn build_catalog_snapshot(
 		Duration::ZERO,
 		Duration::ZERO,
 		total_timer.elapsed(),
+		request
+			.memory_source_refresh()
+			.map(|refresh| refresh.with_execution(&index, 0)),
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
@@ -506,6 +527,7 @@ fn timings(
 	linkage: Duration,
 	change_overlay: Duration,
 	total: Duration,
+	memory_source_refresh: Option<crate::snapshot::MemorySourceRefreshMetrics>,
 ) -> WorkspaceTimings {
 	WorkspaceTimings {
 		source_catalog,
@@ -515,5 +537,6 @@ fn timings(
 		linkage,
 		change_overlay,
 		total,
+		memory_source_refresh,
 	}
 }

@@ -19,6 +19,7 @@ export type Command =
     };
 export type WorkspaceGeneration = number;
 export type WorkspacePhase = "loading" | "ready" | "refreshing" | "failed";
+export type MemorySourceRefreshModeDto = "bulk" | "incremental";
 export type WorkspaceEventKind = "stale" | "refreshed" | "failed" | "notes" | "git_base";
 export type Query =
   | {
@@ -421,9 +422,21 @@ export interface WorkspaceTimingsDto {
   code_index_ms: number;
   extract_sources_ms: number;
   linkage_ms: number;
+  memory_source_refresh?: MemorySourceRefreshDto | null;
   semantic_index_ms: number;
   source_catalog_ms: number;
   total_ms: number;
+}
+export interface MemorySourceRefreshDto {
+  added: number;
+  documents_total: number;
+  extraction_jobs: number;
+  extraction_workers: number;
+  linkage_invocations: number;
+  mode: MemorySourceRefreshModeDto;
+  modified: number;
+  removed: number;
+  unchanged: number;
 }
 export interface QueryError {
   code: string;
