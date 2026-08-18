@@ -37,7 +37,17 @@ try {
 } finally {
 	rmSync(cache, { recursive: true, force: true });
 }
-const [manifest] = JSON.parse(output);
+const parsedManifest = JSON.parse(output);
+const manifest = Array.isArray(parsedManifest)
+	? parsedManifest[0]
+	: Array.isArray(parsedManifest?.files)
+		? parsedManifest
+		: Object.values(parsedManifest ?? {}).find(candidate =>
+			Array.isArray(candidate?.files),
+		);
+if (!manifest || !Array.isArray(manifest.files)) {
+	throw new Error("npm pack returned an invalid package manifest");
+}
 const files = new Set(manifest.files.map(filePath));
 for (const file of files) {
 	if (file.startsWith("src/")) {
