@@ -114,7 +114,7 @@ npm trust github <package> \
 
 The generated cargo-dist workflow is the caller of the reusable npm workflow,
 so npm validates `v-release.yml`, not `publish-npm.yml`. The workflow uses Node.js
-24, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
+26, GitHub-hosted runners and `id-token: write`, as required by npm OIDC.
 
 ### One-time crates.io Trusted Publisher setup
 

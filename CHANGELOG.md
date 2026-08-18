@@ -11,6 +11,12 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-18
+
+This patch release improves memory-backed source ingestion for reusable clients
+such as PostgreSQL Workbench. The VS Code extension keeps its separate version
+and release channel and is not published by the `v0.7.1` tag.
+
 ### Changed
 
 - **Memory SourceSet refresh is delta-based and parallel.** Replacements retain
