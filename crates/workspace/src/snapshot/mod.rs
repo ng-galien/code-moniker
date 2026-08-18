@@ -20,11 +20,12 @@ pub use model::{
 	ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields, ChangeResource, ChangeStatus,
 	CodeIndex, CodeIndexTimings, DynamicReason, DynamicReference, ExternalReference,
 	ExternalReferenceOrigin, ExtractionMeasurement, LinkageEdge, LinkageReadIndex,
-	LinkageReadIndexHandle, LinkageSnapshot, ReferenceId, ReferenceRecord, ResolutionEvidence,
-	ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SourceUnit, SymbolId,
-	SymbolLocation, SymbolRecord, UnresolvedReason, UnresolvedReference, WorkspaceCancellation,
-	WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot,
-	WorkspaceTimings, WorkspaceTransition,
+	LinkageReadIndexHandle, LinkageSnapshot, MemorySourceRefreshMetrics, MemorySourceRefreshMode,
+	ReferenceId, ReferenceRecord, ResolutionEvidence, ResourceGeneration, SourceCatalog,
+	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
+	UnresolvedReason, UnresolvedReference, WorkspaceCancellation, WorkspaceFailure,
+	WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
+	WorkspaceTransition,
 };
 pub use path::{
 	BoundedPathCoverage, BoundedPathEdge, BoundedPathEngine, BoundedPathLimits, BoundedPathRequest,

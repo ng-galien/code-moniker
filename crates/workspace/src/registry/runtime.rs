@@ -890,6 +890,37 @@ roots = ["src/generated"]
 		assert!(registry.queries().snapshot().is_none());
 	}
 
+	#[test]
+	fn cancelled_incremental_refresh_keeps_the_previous_snapshot() {
+		let (temp, source, mut registry) = indexed_registry("pub fn before_cancel() {}\n");
+		let _ = &temp;
+		let generation = registry.queries().snapshot().expect("snapshot").generation;
+		fs::write(&source, "pub fn after_cancel() {}\n").expect("rewrite source");
+		let cancellation = crate::snapshot::WorkspaceCancellation::default();
+		cancellation.cancel();
+
+		let transition = registry.commands().refresh_paths(
+			WorkspaceRequest::new("cancelled-incremental").with_cancellation(cancellation),
+			vec![source],
+		);
+
+		assert!(matches!(
+			transition,
+			WorkspaceTransition::Failed { failure, .. }
+				if failure.message == "workspace build cancelled"
+		));
+		assert_eq!(
+			registry
+				.queries()
+				.snapshot()
+				.expect("previous snapshot")
+				.generation,
+			generation
+		);
+		assert!(snapshot_has_symbol(&registry, "before_cancel"));
+		assert!(!snapshot_has_symbol(&registry, "after_cancel"));
+	}
+
 	fn indexed_registry(
 		body: &str,
 	) -> (

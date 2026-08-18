@@ -11,6 +11,22 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-18
+
+This patch release improves memory-backed source ingestion for reusable clients
+such as PostgreSQL Workbench. The VS Code extension keeps its separate version
+and release channel and is not published by the `v0.7.1` tag.
+
+### Changed
+
+- **Memory SourceSet refresh is delta-based and parallel.** Replacements retain
+  an exact URI/language/content delta, extract only added or modified documents
+  through the shared deterministic Rayon pipeline, publish one aggregate
+  linkage result, and expose generation-scoped refresh counters.
+- **Memory SourceSet rollback remains atomic.** Failed publication restores the
+  complete resource cache checkpoint while identical replacement preserves its
+  generation.
+
 ## [0.7.0] - 2026-08-16
 
 This release publishes the seven Rust workspace crates, the CLI, daemon and MCP

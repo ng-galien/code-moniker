@@ -23,11 +23,14 @@ pub struct WorkspaceRequest {
 	pub label: String,
 	pub catalog: CatalogRequest,
 	cancellation: WorkspaceCancellation,
+	memory_source_refresh: Option<MemorySourceRefreshMetrics>,
 }
 
 impl PartialEq for WorkspaceRequest {
 	fn eq(&self, other: &Self) -> bool {
-		self.label == other.label && self.catalog == other.catalog
+		self.label == other.label
+			&& self.catalog == other.catalog
+			&& self.memory_source_refresh == other.memory_source_refresh
 	}
 }
 
@@ -65,6 +68,7 @@ impl WorkspaceRequest {
 			label: label.into(),
 			catalog: CatalogRequest::Refresh,
 			cancellation: WorkspaceCancellation::default(),
+			memory_source_refresh: None,
 		}
 	}
 
@@ -75,6 +79,15 @@ impl WorkspaceRequest {
 
 	pub fn cancellation(&self) -> &WorkspaceCancellation {
 		&self.cancellation
+	}
+
+	pub fn with_memory_source_refresh(mut self, refresh: MemorySourceRefreshMetrics) -> Self {
+		self.memory_source_refresh = Some(refresh);
+		self
+	}
+
+	pub fn memory_source_refresh(&self) -> Option<MemorySourceRefreshMetrics> {
+		self.memory_source_refresh
 	}
 
 	pub fn reuse_current_catalog(mut self) -> Self {
@@ -375,6 +388,8 @@ pub struct CodeIndexTimings {
 	pub semantic_index: Duration,
 	pub total: Duration,
 	pub extraction: Vec<ExtractionMeasurement>,
+	pub extraction_jobs: usize,
+	pub extraction_workers: usize,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1158,6 +1173,44 @@ pub struct WorkspaceTimings {
 	pub linkage: Duration,
 	pub change_overlay: Duration,
 	pub total: Duration,
+	pub memory_source_refresh: Option<MemorySourceRefreshMetrics>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemorySourceRefreshMode {
+	Bulk,
+	Incremental,
+}
+
+impl MemorySourceRefreshMode {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Bulk => "bulk",
+			Self::Incremental => "incremental",
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MemorySourceRefreshMetrics {
+	pub mode: MemorySourceRefreshMode,
+	pub documents_total: usize,
+	pub added: usize,
+	pub modified: usize,
+	pub removed: usize,
+	pub unchanged: usize,
+	pub extraction_jobs: usize,
+	pub extraction_workers: usize,
+	pub linkage_invocations: usize,
+}
+
+impl MemorySourceRefreshMetrics {
+	pub fn with_execution(mut self, index: &CodeIndex, linkage_invocations: usize) -> Self {
+		self.extraction_jobs = index.timings.extraction_jobs;
+		self.extraction_workers = index.timings.extraction_workers;
+		self.linkage_invocations = linkage_invocations;
+		self
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

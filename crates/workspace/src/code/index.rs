@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use code_moniker_core::core::moniker::Moniker;
@@ -40,12 +41,35 @@ pub trait CodeIndexPort {
 		current: &CodeIndex,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh>;
+	fn refresh_paths_cancellable(
+		&mut self,
+		current: &CodeIndex,
+		paths: &[PathBuf],
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		let refresh = self.refresh_paths(current, paths)?;
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		Ok(refresh)
+	}
 	fn refresh_catalog_paths(
 		&mut self,
 		current: &CodeIndex,
 		catalog: &SourceCatalog,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh>;
+	fn refresh_catalog_paths_cancellable(
+		&mut self,
+		current: &CodeIndex,
+		catalog: &SourceCatalog,
+		paths: &[PathBuf],
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		let refresh = self.refresh_catalog_paths(current, catalog, paths)?;
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		Ok(refresh)
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,7 +187,30 @@ impl CodeIndexPort for LocalCodeIndex {
 		current: &CodeIndex,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh> {
-		refresh_local_code_index(&self.cache, &self.options, current, None, paths)
+		refresh_local_code_index(
+			&self.cache,
+			&self.options,
+			current,
+			None,
+			paths,
+			&WorkspaceCancellation::default(),
+		)
+	}
+
+	fn refresh_paths_cancellable(
+		&mut self,
+		current: &CodeIndex,
+		paths: &[PathBuf],
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		refresh_local_code_index(
+			&self.cache,
+			&self.options,
+			current,
+			None,
+			paths,
+			cancellation,
+		)
 	}
 
 	fn refresh_catalog_paths(
@@ -172,7 +219,31 @@ impl CodeIndexPort for LocalCodeIndex {
 		catalog: &SourceCatalog,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh> {
-		refresh_local_code_index(&self.cache, &self.options, current, Some(catalog), paths)
+		refresh_local_code_index(
+			&self.cache,
+			&self.options,
+			current,
+			Some(catalog),
+			paths,
+			&WorkspaceCancellation::default(),
+		)
+	}
+
+	fn refresh_catalog_paths_cancellable(
+		&mut self,
+		current: &CodeIndex,
+		catalog: &SourceCatalog,
+		paths: &[PathBuf],
+		cancellation: &WorkspaceCancellation,
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		refresh_local_code_index(
+			&self.cache,
+			&self.options,
+			current,
+			Some(catalog),
+			paths,
+			cancellation,
+		)
 	}
 }
 
@@ -187,12 +258,13 @@ fn build_local_code_index(
 	let source_material = source_material(cache, catalog)?;
 	let generation = cache.next_generation();
 	let extract_timer = Instant::now();
-	let files = extract_source_files(
+	let (files, extraction_workers) = extract_source_files(
 		&source_material,
 		options.cache_dir.as_deref(),
 		cancellation,
 		options.detailed_telemetry,
 	)?;
+	let extraction_jobs = files.len();
 	let extract_sources = extract_timer.elapsed();
 	let extraction = if options.detailed_telemetry {
 		extraction_measurements(&files, None)
@@ -222,6 +294,8 @@ fn build_local_code_index(
 			semantic_index,
 			total: total_timer.elapsed(),
 			extraction,
+			extraction_jobs,
+			extraction_workers,
 		},
 	})
 }
@@ -254,6 +328,8 @@ fn build_code_index_from_extracted(
 			semantic_index: Duration::ZERO,
 			total: Duration::ZERO,
 			extraction: Vec::new(),
+			extraction_jobs: 0,
+			extraction_workers: 0,
 		},
 	})
 }
@@ -339,7 +415,9 @@ fn refresh_local_code_index(
 	current: &CodeIndex,
 	extended_catalog: Option<&SourceCatalog>,
 	paths: &[PathBuf],
+	cancellation: &WorkspaceCancellation,
 ) -> WorkspaceResult<CodeIndexRefresh> {
+	cancellation.check(WorkspaceResource::CodeIndex)?;
 	let total_timer = Instant::now();
 	let current_material = cache.index_material(current.generation).ok_or_else(|| {
 		WorkspaceFailure::new(
@@ -359,6 +437,7 @@ fn refresh_local_code_index(
 	let mut files = current_material.files.clone();
 	let mut changed_sources = Vec::new();
 	let mut changed_file_indexes = BTreeSet::new();
+	let mut extraction_jobs = BTreeSet::new();
 	let extract_timer = Instant::now();
 	let extraction_parent = options
 		.detailed_telemetry
@@ -367,26 +446,13 @@ fn refresh_local_code_index(
 	refresh_retired_slots(RetiredSlotRefresh {
 		previous_catalog: &current_material.source_catalog,
 		source_catalog: &source_catalog,
-		cache_dir: options.cache_dir.as_deref(),
 		files: &mut files,
 		changed_sources: &mut changed_sources,
 		changed_file_indexes: &mut changed_file_indexes,
-		extraction_parent: &extraction_parent,
-		detailed_telemetry: options.detailed_telemetry,
+		extraction_jobs: &mut extraction_jobs,
 	})?;
 	for file_idx in files.len()..source_catalog.sources.files.len() {
-		let file = &source_catalog.sources.files[file_idx];
-		let indexed = extract_source_file(
-			&source_catalog,
-			file_idx,
-			&file.path.clone(),
-			options.cache_dir.as_deref(),
-			&extraction_parent,
-			options.detailed_telemetry,
-		)?;
-		push_unique_source(&mut changed_sources, indexed.source_id);
-		changed_file_indexes.insert(file_idx);
-		files.push(Arc::new(indexed));
+		extraction_jobs.insert(file_idx);
 	}
 	for path in paths {
 		let Some(source) = source_catalog.resolve_source(path) else {
@@ -395,27 +461,54 @@ fn refresh_local_code_index(
 		let Some(file_idx) = source.eager_index else {
 			continue;
 		};
-		if changed_file_indexes.contains(&file_idx) {
+		if changed_file_indexes.contains(&file_idx)
+			|| source_catalog.sources.files[file_idx].retired
+		{
 			continue;
 		}
-		let indexed = extract_source_file(
-			&source_catalog,
-			file_idx,
-			&source.path,
-			options.cache_dir.as_deref(),
-			&extraction_parent,
-			options.detailed_telemetry,
-		)?;
-		if let Some(slot) = files.get_mut(file_idx) {
-			push_unique_source(&mut changed_sources, indexed.source_id);
-			changed_file_indexes.insert(file_idx);
-			*slot = Arc::new(indexed);
+		extraction_jobs.insert(file_idx);
+	}
+	let extraction_job_count = extraction_jobs.len();
+	let extracted = extract_source_file_jobs(
+		&source_catalog,
+		extraction_jobs,
+		options.cache_dir.as_deref(),
+		cancellation,
+		&extraction_parent,
+		options.detailed_telemetry,
+	)?
+	.ready_to_merge(cancellation)?;
+	let extraction_workers = extracted.workers;
+	for (file_idx, indexed) in extracted.files {
+		push_unique_source(&mut changed_sources, indexed.source_id);
+		changed_file_indexes.insert(file_idx);
+		if file_idx == files.len() {
+			files.push(indexed);
+		} else if let Some(slot) = files.get_mut(file_idx) {
+			*slot = indexed;
 		}
 	}
 	let extract_sources = extract_timer.elapsed();
 	if changed_sources.is_empty() {
+		let mut index = current.clone();
+		index.catalog_generation = extended_catalog
+			.map(|catalog| catalog.generation)
+			.unwrap_or(current.catalog_generation);
+		index.timings = CodeIndexTimings {
+			extract_sources,
+			semantic_index: Duration::ZERO,
+			total: total_timer.elapsed(),
+			extraction: Vec::new(),
+			extraction_jobs: 0,
+			extraction_workers: 0,
+		};
+		if extended_catalog.is_some() {
+			let mut material = current_material.as_ref().clone();
+			material.source_catalog = source_catalog;
+			cache.insert_index(current.generation, material);
+		}
 		return Ok(CodeIndexRefresh {
-			index: current.clone(),
+			index,
 			changed_sources,
 			graph_diff: CodeIndexGraphDiff::default(),
 		});
@@ -426,7 +519,7 @@ fn refresh_local_code_index(
 	} else {
 		Default::default()
 	};
-	let material = material_from_files(source_catalog, files, &WorkspaceCancellation::default())?;
+	let material = material_from_files(source_catalog, files, cancellation)?;
 	let sources = source_records(&material);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
 	let mut symbols = current.symbols.clone();
@@ -463,6 +556,8 @@ fn refresh_local_code_index(
 				semantic_index,
 				total: total_timer.elapsed(),
 				extraction,
+				extraction_jobs: extraction_job_count,
+				extraction_workers,
 			},
 		},
 		changed_sources,
@@ -484,12 +579,10 @@ fn cache_refreshed_index(
 struct RetiredSlotRefresh<'a> {
 	previous_catalog: &'a SourceCatalogMaterial,
 	source_catalog: &'a SourceCatalogMaterial,
-	cache_dir: Option<&'a Path>,
 	files: &'a mut Vec<Arc<IndexedSourceFile>>,
 	changed_sources: &'a mut Vec<SourceId>,
 	changed_file_indexes: &'a mut BTreeSet<usize>,
-	extraction_parent: &'a tracing::Span,
-	detailed_telemetry: bool,
+	extraction_jobs: &'a mut BTreeSet<usize>,
 }
 
 fn refresh_retired_slots(refresh: RetiredSlotRefresh<'_>) -> WorkspaceResult<()> {
@@ -503,18 +596,11 @@ fn refresh_retired_slots(refresh: RetiredSlotRefresh<'_>) -> WorkspaceResult<()>
 		if was_retired == is_retired {
 			continue;
 		}
-		let indexed = if is_retired {
-			tombstone_file(&refresh.files[file_idx])
-		} else {
-			extract_source_file(
-				refresh.source_catalog,
-				file_idx,
-				&refresh.source_catalog.sources.files[file_idx].path.clone(),
-				refresh.cache_dir,
-				refresh.extraction_parent,
-				refresh.detailed_telemetry,
-			)?
-		};
+		if !is_retired {
+			refresh.extraction_jobs.insert(file_idx);
+			continue;
+		}
+		let indexed = tombstone_file(&refresh.files[file_idx]);
 		push_unique_source(refresh.changed_sources, indexed.source_id);
 		refresh.changed_file_indexes.insert(file_idx);
 		refresh.files[file_idx] = Arc::new(indexed);
@@ -556,28 +642,84 @@ fn extract_source_files(
 	cache_dir: Option<&std::path::Path>,
 	cancellation: &WorkspaceCancellation,
 	detailed_telemetry: bool,
-) -> WorkspaceResult<Vec<Arc<IndexedSourceFile>>> {
+) -> WorkspaceResult<(Vec<Arc<IndexedSourceFile>>, usize)> {
 	let parent = detailed_telemetry
 		.then(tracing::Span::current)
 		.unwrap_or_else(tracing::Span::none);
-	source_material
-		.sources
-		.files
-		.par_iter()
-		.enumerate()
-		.map(|(file_idx, file)| {
+	let extracted = extract_source_file_jobs(
+		source_material,
+		0..source_material.sources.files.len(),
+		cache_dir,
+		cancellation,
+		&parent,
+		detailed_telemetry,
+	)?
+	.ready_to_merge(cancellation)?;
+	Ok((
+		extracted.files.into_iter().map(|(_, file)| file).collect(),
+		extracted.workers,
+	))
+}
+
+struct ExtractedFileBatch {
+	files: Vec<(usize, Arc<IndexedSourceFile>)>,
+	workers: usize,
+}
+
+impl ExtractedFileBatch {
+	fn ready_to_merge(self, cancellation: &WorkspaceCancellation) -> WorkspaceResult<Self> {
+		cancellation.check(WorkspaceResource::CodeIndex)?;
+		Ok(self)
+	}
+}
+
+fn extract_source_file_jobs(
+	source_material: &SourceCatalogMaterial,
+	file_indexes: impl IntoParallelIterator<Item = usize>,
+	cache_dir: Option<&Path>,
+	cancellation: &WorkspaceCancellation,
+	parent: &tracing::Span,
+	detailed_telemetry: bool,
+) -> WorkspaceResult<ExtractedFileBatch> {
+	let worker_usage = (0..rayon::current_num_threads())
+		.map(|_| AtomicBool::new(false))
+		.collect::<Vec<_>>();
+	let external_worker_used = AtomicBool::new(false);
+	let mut files = file_indexes
+		.into_par_iter()
+		.map(|file_idx| {
+			if let Some(worker_idx) = rayon::current_thread_index() {
+				if let Some(used) = worker_usage.get(worker_idx) {
+					used.store(true, Ordering::Relaxed);
+				}
+			} else {
+				external_worker_used.store(true, Ordering::Relaxed);
+			}
 			cancellation.check(WorkspaceResource::CodeIndex)?;
+			let file = source_material.sources.files.get(file_idx).ok_or_else(|| {
+				WorkspaceFailure::new(
+					WorkspaceResource::CodeIndex,
+					format!("source file index {file_idx} is unavailable"),
+				)
+			})?;
 			extract_source_file(
 				source_material,
 				file_idx,
 				&file.path,
 				cache_dir,
-				&parent,
+				parent,
 				detailed_telemetry,
 			)
-			.map(Arc::new)
+			.map(|file| (file_idx, Arc::new(file)))
 		})
-		.collect()
+		.collect::<WorkspaceResult<Vec<_>>>()?;
+	files.sort_by_key(|(file_idx, _)| *file_idx);
+	let workers = worker_usage
+		.iter()
+		.filter(|used| used.load(Ordering::Relaxed))
+		.count()
+		+ usize::from(external_worker_used.load(Ordering::Relaxed));
+	Ok(ExtractedFileBatch { files, workers })
 }
 
 fn extract_source_file(
@@ -1099,6 +1241,73 @@ fn ref_attr(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::snapshot::WorkspaceRequest;
+	use crate::source::{
+		LocalSourceCatalog, LocalSourceCatalogOptions, MemorySourceDocument, MemorySourceSet,
+		SourceCatalogPort,
+	};
+
+	#[test]
+	fn extraction_collection_uses_multiple_workers_and_cancels_before_merge() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let cache = LocalResourceCache::default();
+		cache.replace_memory_source_set(MemorySourceSet {
+			srcset: "parallel".to_string(),
+			revision: Some("1".to_string()),
+			documents: (0..128)
+				.map(|index| MemorySourceDocument {
+					uri: format!("schema/table_{index:03}.sql"),
+					lang: code_moniker_core::lang::Lang::Sql,
+					content: Arc::from(format!(
+						"CREATE TABLE app.table_{index:03} (id bigint, parent_id bigint, label text, metadata jsonb);"
+					)),
+				})
+				.collect(),
+		});
+		let mut catalog_port = LocalSourceCatalog::new(
+			LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+			cache.clone(),
+		);
+		let catalog = catalog_port
+			.load_catalog(&WorkspaceRequest::new("parallel-extraction-test"))
+			.expect("memory source catalog");
+		let material = source_material(&cache, &catalog).expect("source material");
+		let cancellation = WorkspaceCancellation::default();
+		let pool = rayon::ThreadPoolBuilder::new()
+			.num_threads(2)
+			.build()
+			.expect("two-worker pool");
+
+		let extracted = pool
+			.install(|| {
+				extract_source_file_jobs(
+					&material,
+					0..material.sources.files.len(),
+					None,
+					&cancellation,
+					&tracing::Span::none(),
+					false,
+				)
+			})
+			.expect("parallel extraction collection");
+
+		assert_eq!(extracted.files.len(), 128);
+		assert_eq!(extracted.workers, 2);
+		assert_eq!(
+			extracted
+				.files
+				.iter()
+				.map(|(file_idx, _)| *file_idx)
+				.collect::<Vec<_>>(),
+			(0..128).collect::<Vec<_>>()
+		);
+		cancellation.cancel();
+		let error = match extracted.ready_to_merge(&cancellation) {
+			Ok(_) => panic!("cancelled extraction batch must not become mergeable"),
+			Err(error) => error,
+		};
+		assert_eq!(error.message, "workspace build cancelled");
+	}
 
 	#[test]
 	fn line_range_changes_are_inventory_deltas_not_linkage_deltas() {

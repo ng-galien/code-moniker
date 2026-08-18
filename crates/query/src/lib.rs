@@ -1974,6 +1974,39 @@ pub struct WorkspaceTimingsDto {
 	pub linkage_ms: u64,
 	pub change_overlay_ms: u64,
 	pub total_ms: u64,
+	#[serde(default)]
+	pub memory_source_refresh: Option<MemorySourceRefreshDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MemorySourceRefreshDto {
+	pub mode: MemorySourceRefreshModeDto,
+	pub documents_total: usize,
+	pub added: usize,
+	pub modified: usize,
+	pub removed: usize,
+	pub unchanged: usize,
+	pub extraction_jobs: usize,
+	pub extraction_workers: usize,
+	pub linkage_invocations: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySourceRefreshModeDto {
+	Bulk,
+	Incremental,
+}
+
+impl fmt::Display for MemorySourceRefreshModeDto {
+	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		formatter.write_str(match self {
+			Self::Bulk => "bulk",
+			Self::Incremental => "incremental",
+		})
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -3127,6 +3160,21 @@ fn format_workspace_status(out: &mut String, status: &WorkspaceStatus) {
 		timings.linkage_ms,
 		timings.change_overlay_ms,
 	);
+	if let Some(refresh) = &timings.memory_source_refresh {
+		let _ = writeln!(
+			out,
+			"memory_refresh: mode={} documents={} added={} modified={} removed={} unchanged={} extraction_jobs={} workers={} linkage_invocations={}",
+			refresh.mode,
+			refresh.documents_total,
+			refresh.added,
+			refresh.modified,
+			refresh.removed,
+			refresh.unchanged,
+			refresh.extraction_jobs,
+			refresh.extraction_workers,
+			refresh.linkage_invocations,
+		);
+	}
 	if status.roots.len() > 1 {
 		let _ = writeln!(out, "roots:");
 		for root in &status.roots {

@@ -25,6 +25,13 @@ const sourceSet: WorkspaceSourceSetDto = {
 };
 
 void client.sources.replace(sourceSet);
+void client.workspace.status().then((status) => {
+	const refresh = status.timings?.memory_source_refresh;
+	if (refresh?.mode === "incremental") {
+		return [refresh.modified, refresh.extraction_jobs, refresh.linkage_invocations];
+	}
+	return [];
+});
 const graph: Promise<QueryPage<IdentityGraphResult>> =
 	client.graph.identity("sql/schema:public");
 void graph;
