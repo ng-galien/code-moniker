@@ -1549,6 +1549,40 @@ fn local_def_index(
 		.copied()
 }
 
+fn describe_node(node: &Node) -> String {
+	match node {
+		Node::Atom(atom) => atom.raw.clone(),
+		Node::And(nodes) => join_nodes(nodes, " AND "),
+		Node::Or(nodes) => join_nodes(nodes, " OR "),
+		Node::Not(inner) => format!("NOT ({})", describe_node(inner)),
+		Node::Implies(premise, consequent) => {
+			format!(
+				"{} => {}",
+				describe_node(premise),
+				describe_node(consequent)
+			)
+		}
+		Node::Require(pattern) => format!("require(\"{pattern}\")"),
+		Node::VerticalLayout(layout) => layout.raw.clone(),
+		Node::Quantifier { kind, domain, .. } => {
+			let kind = match kind {
+				QuantKind::Any => "any",
+				QuantKind::All => "all",
+				QuantKind::None => "none",
+			};
+			format!("{kind}({})", domain_debug_label(domain))
+		}
+	}
+}
+
+fn join_nodes(nodes: &[Node], separator: &str) -> String {
+	nodes
+		.iter()
+		.map(describe_node)
+		.collect::<Vec<_>>()
+		.join(separator)
+}
+
 fn describe_lhs(lhs: &LhsExpr) -> &str {
 	match lhs {
 		LhsExpr::Attr(a) => a.as_str(),
@@ -1648,7 +1682,7 @@ where
 		Node::Not(inner) => {
 			match walk_node(inner, atom_eval, quant_eval, require_eval, layout_eval) {
 				NodeOutcome::Pass => NodeOutcome::Fail(Failure {
-					atom_raw: "NOT (...)".to_string(),
+					atom_raw: format!("NOT ({})", describe_node(inner)),
 					lhs_label: "NOT".to_string(),
 					actual: "true".to_string(),
 					expected: "false".to_string(),
