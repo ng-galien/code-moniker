@@ -46,7 +46,7 @@
 			}
 		},
 		"logic": {
-			"match": "\\b(AND|OR|NOT)\\b|(=>)",
+			"match": "\\b(AND|OR|NOT|disjoint)\\b|(=>)",
 			"name": "keyword.control.cmrule"
 		},
 		"word-op": {

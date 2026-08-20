@@ -332,28 +332,11 @@ fn find_top_level_subset(input: &str) -> Option<(usize, usize)> {
 			'\'' | '"' => in_string = Some(ch),
 			'(' => depth += 1,
 			')' => depth -= 1,
-			_ if depth == 0 && keyword_at(input, idx, "subset") => {
+			_ if depth == 0 && cursor::keyword_at(input, idx, "subset") => {
 				return Some((idx, "subset".len()));
 			}
 			_ => {}
 		}
 	}
 	None
-}
-
-fn keyword_at(input: &str, idx: usize, keyword: &str) -> bool {
-	if !input[idx..].starts_with(keyword) {
-		return false;
-	}
-	let before = &input[..idx];
-	let after = &input[idx + keyword.len()..];
-	let before_ok = before
-		.chars()
-		.next_back()
-		.is_some_and(|ch| ch.is_ascii_whitespace());
-	let after_ok = after
-		.chars()
-		.next()
-		.is_some_and(|ch| ch.is_ascii_whitespace() || ch == '(');
-	before_ok && after_ok
 }

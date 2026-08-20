@@ -5,7 +5,9 @@
 The current check DSL can express first-order local graph rules over one
 file's extracted code graph:
 
-- Boolean logic and implication: `AND`, `OR`, `NOT`, `=>`.
+- Boolean logic and implication: `AND`, `OR`, `NOT`, `=>`, and `disjoint`
+  for symmetric mutual exclusion (`A disjoint B` is `NOT (A AND B)`, so one
+  rule replaces a mirrored pair of `=>` rules).
 - Domains: direct child kinds, `shape:<shape>`, `segment`, `out_refs`,
   `in_refs`, ref-relative `source.*_refs` / `target.*_refs`, and simple
   `pairs(D)` filters.

@@ -13,7 +13,25 @@ pub(super) struct ParserState<'a> {
 pub(super) type ParseResult<'a, T> = Result<(T, ParserState<'a>), ParseError>;
 
 const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "@>", "?="];
+/// Infix keywords `parse` consumes between atoms; `find_atom_end` stops at each
+/// one so a bare atom does not swallow the rest of the expression.
+const INFIX_KEYWORDS: &[&str] = &["AND", "OR", "=>", "disjoint"];
 const ONE_CHAR_OPS: &[&str] = &["<", ">", "=", "~"];
+
+pub(super) fn keyword_at(input: &str, idx: usize, keyword: &str) -> bool {
+	if !input[idx..].starts_with(keyword) {
+		return false;
+	}
+	let before_ok = input[..idx]
+		.chars()
+		.next_back()
+		.is_some_and(|ch| ch.is_ascii_whitespace());
+	let after_ok = input[idx + keyword.len()..]
+		.chars()
+		.next()
+		.is_some_and(|ch| ch.is_ascii_whitespace() || ch == '(');
+	before_ok && after_ok
+}
 
 pub(super) fn lhs_token_end(input: &str) -> Option<usize> {
 	let bytes = input.as_bytes();
@@ -292,13 +310,12 @@ fn find_atom_end(state: &ParserState<'_>) -> usize {
 }
 
 fn boundary_at(input: &str, i: usize) -> bool {
-	let rest = &input[i..];
-	rest.starts_with(" AND ")
-		|| rest.starts_with(" OR ")
-		|| rest.starts_with(" => ")
-		|| rest.starts_with(" AND\t")
-		|| rest.starts_with(" OR\t")
-		|| rest.starts_with(" =>\t")
+	if !input.as_bytes()[i].is_ascii_whitespace() {
+		return false;
+	}
+	INFIX_KEYWORDS
+		.iter()
+		.any(|keyword| keyword_at(input, i + 1, keyword))
 }
 
 fn take_ascii_digits<'a>(mut state: ParserState<'a>) -> ParserState<'a> {

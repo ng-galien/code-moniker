@@ -60,8 +60,44 @@ fn parse_or<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 	Ok((root, state))
 }
 
-fn parse_and<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
+/// Operands are pairwise disjoint: `A disjoint B` parses as `NOT (A AND B)`,
+/// and a longer chain conjoins that exclusion over every pair.
+fn parse_disjoint<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 	let (first, mut state) = parse_not(state)?;
+	let mut operands = vec![first];
+	loop {
+		state = cursor::skip_ws(state);
+		let (has_disjoint, next_state) = cursor::eat_keyword(state, "disjoint");
+		state = next_state;
+		if !has_disjoint {
+			break;
+		}
+		let (operand, next_state) = parse_not(state)?;
+		operands.push(operand);
+		state = next_state;
+	}
+	if operands.len() == 1 {
+		return Ok((operands.remove(0), state));
+	}
+	let mut exclusions = Vec::new();
+	for (index, left) in operands.iter().enumerate() {
+		for right in &operands[index + 1..] {
+			exclusions.push(Node::Not(Box::new(Node::And(vec![
+				left.clone(),
+				right.clone(),
+			]))));
+		}
+	}
+	let root = if exclusions.len() == 1 {
+		exclusions.remove(0)
+	} else {
+		Node::And(exclusions)
+	};
+	Ok((root, state))
+}
+
+fn parse_and<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
+	let (first, mut state) = parse_disjoint(state)?;
 	let mut nodes = vec![first];
 	loop {
 		state = cursor::skip_ws(state);
@@ -70,7 +106,7 @@ fn parse_and<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 		if !has_and {
 			break;
 		}
-		let (node, next_state) = parse_not(state)?;
+		let (node, next_state) = parse_disjoint(state)?;
 		nodes.push(node);
 		state = next_state;
 	}

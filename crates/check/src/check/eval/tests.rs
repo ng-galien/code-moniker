@@ -2584,3 +2584,169 @@ fn implies_true_premise_failed_consequent_violates() {
 		"premise true, consequent false ⇒ violation: {v:?}"
 	);
 }
+
+#[test]
+fn disjoint_holds_unless_both_operands_match_in_either_order() {
+	let rule = |expr: &str| {
+		cfg_from(&format!(
+			r#"
+			[[ts.class.where]]
+			id   = "disjoint-truth-table"
+			expr = "{expr}"
+			"#
+		))
+	};
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	for (index, name) in [
+		b"Neither".as_slice(),
+		b"AOnly".as_slice(),
+		b"OnlyB".as_slice(),
+		b"AandB".as_slice(),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		let start = index as u32 * 10;
+		g.add_def(
+			child(&module, b"class", name),
+			b"class",
+			&module,
+			Some((start, start + 5)),
+		)
+		.unwrap();
+	}
+	let violations = |expr: &str| {
+		evaluate(&g, "x", Lang::Ts, &rule(expr), SCHEME)
+			.unwrap()
+			.iter()
+			.map(|violation| violation.moniker.clone())
+			.collect::<Vec<_>>()
+	};
+	let forward = violations("name =~ ^A disjoint name =~ B$");
+	assert_eq!(
+		forward.len(),
+		1,
+		"only the both-match class violates: {forward:?}"
+	);
+	assert!(forward[0].contains("class:AandB"));
+	assert_eq!(
+		forward,
+		violations("name =~ B$ disjoint name =~ ^A"),
+		"`disjoint` is symmetric"
+	);
+}
+
+#[test]
+fn disjoint_chain_excludes_every_pair() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "three-way"
+		expr = "name =~ A disjoint name =~ B disjoint name =~ C"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	for (index, name) in [
+		b"AB".as_slice(),
+		b"ConlyX".as_slice(),
+		b"ABC".as_slice(),
+		b"Zed".as_slice(),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		let start = index as u32 * 10;
+		g.add_def(
+			child(&module, b"class", name),
+			b"class",
+			&module,
+			Some((start, start + 5)),
+		)
+		.unwrap();
+	}
+	let flagged = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME)
+		.unwrap()
+		.iter()
+		.map(|violation| violation.moniker.clone())
+		.collect::<Vec<_>>();
+	assert_eq!(
+		flagged.len(),
+		2,
+		"a chain excludes every pair, so matching two operands is enough to violate: {flagged:?}"
+	);
+	assert!(flagged.iter().any(|uri| uri.contains("class:AB")));
+	assert!(flagged.iter().any(|uri| uri.contains("class:ABC")));
+	assert!(
+		!flagged.iter().any(|uri| uri.contains("class:ConlyX")),
+		"matching a single operand of the chain stays valid: {flagged:?}"
+	);
+}
+
+#[test]
+fn disjoint_rejects_package_imports_in_both_directions() {
+	let cfg = cfg_from(
+		r#"
+		[aliases]
+		package_a = "source ~ '**/module:package-a/**' OR target ~ '**/module:package-a/**'"
+		package_b = "source ~ '**/module:package-b/**' OR target ~ '**/module:package-b/**'"
+
+		[[refs.where]]
+		id   = "package-a-and-package-b-do-not-import-each-other"
+		expr = "kind = 'uses_type' => $package_a disjoint $package_b"
+		"#,
+	);
+	let root = build_root();
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let package_a = submodule(&root, b"package-a");
+	g.add_def(package_a.clone(), b"module", &root, Some((0, 1)))
+		.unwrap();
+	let package_b = submodule(&root, b"package-b");
+	g.add_def(package_b.clone(), b"module", &root, Some((2, 3)))
+		.unwrap();
+	let other = submodule(&root, b"package-c");
+	g.add_def(other.clone(), b"module", &root, Some((4, 5)))
+		.unwrap();
+
+	let a_one = child(&package_a, b"class", b"AOne");
+	let a_two = child(&package_a, b"class", b"ATwo");
+	let b_one = child(&package_b, b"class", b"BOne");
+	let b_two = child(&package_b, b"class", b"BTwo");
+	let c_one = child(&other, b"class", b"COne");
+	let c_two = child(&other, b"class", b"CTwo");
+	for (moniker, parent, span) in [
+		(&a_one, &package_a, (6, 7)),
+		(&a_two, &package_a, (8, 9)),
+		(&b_one, &package_b, (10, 11)),
+		(&b_two, &package_b, (12, 13)),
+		(&c_one, &other, (14, 15)),
+		(&c_two, &other, (16, 17)),
+	] {
+		g.add_def(moniker.clone(), b"class", parent, Some(span))
+			.unwrap();
+	}
+
+	g.add_ref(&a_one, b_one.clone(), b"uses_type", Some((6, 7)))
+		.unwrap();
+	g.add_ref(&b_two, a_two.clone(), b"uses_type", Some((12, 13)))
+		.unwrap();
+	g.add_ref(&a_one, a_two.clone(), b"uses_type", Some((6, 7)))
+		.unwrap();
+	g.add_ref(&b_one, b_two.clone(), b"uses_type", Some((10, 11)))
+		.unwrap();
+	g.add_ref(&c_one, c_two.clone(), b"uses_type", Some((14, 15)))
+		.unwrap();
+
+	let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		v.len(),
+		2,
+		"both crossing directions violate, internal and unrelated refs pass: {v:?}"
+	);
+	assert!(
+		v.iter().all(|violation| violation.rule_id
+			== "refs.package-a-and-package-b-do-not-import-each-other"),
+		"{v:?}"
+	);
+}

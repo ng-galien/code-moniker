@@ -570,6 +570,7 @@ Operators:
 | `?=` | `bind_match`, used for cross-file symbol resolution |
 | `subset` | multiset containment |
 | `AND` `OR` `NOT` `=>` | boolean logic; `A => B` means "when A, require B" |
+| `disjoint` | mutual exclusion; `A disjoint B` means `NOT (A AND B)` |
 
 Path patterns used by `~` are segment-aware. `kind:name` matches one exact
 segment, `kind:*` matches any name of that kind, `*:name` matches any kind

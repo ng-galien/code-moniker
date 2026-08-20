@@ -197,6 +197,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 <expr> ::=
     <predicate>
   | NOT <expr>
+  | <expr> disjoint <expr>
   | <expr> AND <expr>
   | <expr> OR <expr>
   | <expr> => <expr>
@@ -319,8 +320,8 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | **
 ```
 
-Operator precedence (loosest first): `=>`, `OR`, `AND`, `NOT`. Use parens
-to override.
+Operator precedence (loosest first): `=>`, `OR`, `AND`, `disjoint`,
+`NOT`. Use parens to override.
 
 ### Parameters
 
@@ -457,7 +458,7 @@ to override.
 
 `<string_value>`
 : A bare or quoted string. Quote values that contain whitespace or boolean
-  boundary tokens such as `AND`, `OR`, or `=>`.
+  boundary tokens such as `AND`, `OR`, `disjoint`, or `=>`.
 
 `<moniker_uri>`
 : A full moniker URI parsed with the CLI scheme, usually
@@ -499,10 +500,37 @@ subset:
 - `A AND B` — both true
 - `A OR B` — at least one true
 - `NOT A` — flip
+- `A disjoint B` — equivalent to `NOT (A AND B)`. Reads as "A and B must not
+  both hold for the same item". Symmetric: `A disjoint B` and
+  `B disjoint A` are the same rule.
 - `A => B` — equivalent to `(NOT A) OR B`. Reads as "when A holds, B must
   hold". The most common form for architectural rules — without it,
   conjunctive rules end up flagging every def that doesn't match the
   premise.
+
+`disjoint` is not XOR: an item matching neither operand is valid. It binds
+tighter than `AND` and `OR`, so a compound operand takes parentheses —
+`(A OR B) disjoint (C AND D)`.
+
+A chain excludes every pair, the way sets are pairwise disjoint:
+`A disjoint B disjoint C` fails as soon as any two of the three hold, and
+passes when at most one does.
+
+Use it when a constraint has no source and no target — mutual exclusion is
+symmetric, so writing it as two `=>` rules repeats the same policy twice:
+
+```toml
+[aliases]
+package_a = "source ~ '**/dir:package-a/**' OR target ~ '**/dir:package-a/**'"
+package_b = "source ~ '**/dir:package-b/**' OR target ~ '**/dir:package-b/**'"
+
+[[refs.where]]
+id = "package-a-and-package-b-do-not-import-each-other"
+expr = "kind = 'imports_module' => $package_a disjoint $package_b"
+```
+
+A reference internal to either package matches one alias and passes; a
+reference crossing the boundary in either direction matches both and fails.
 
 ### Quantifiers
 
