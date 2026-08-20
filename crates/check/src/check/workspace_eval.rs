@@ -357,8 +357,17 @@ pub fn evaluate_workspace_rules_in(
 		if rule.plan != WorkspaceRulePlan::Inventory {
 			continue;
 		}
-		let truth = eval_node(&rule.root, inventory, universe, &mut atom_cache);
-		let violations = universe.difference(&truth);
+		let (truth, violations) = match &rule.root {
+			Node::Not(inner) => (
+				None,
+				eval_node(inner, inventory, universe, &mut atom_cache).intersection(universe),
+			),
+			_ => {
+				let truth = eval_node(&rule.root, inventory, universe, &mut atom_cache);
+				let violations = universe.difference(&truth);
+				(Some(truth), violations)
+			}
+		};
 		evaluation
 			.violation_sets
 			.insert(rule.rule_id.clone(), violations.clone());
@@ -369,10 +378,11 @@ pub fn evaluate_workspace_rules_in(
 				}
 				_ => None,
 			};
-			let matches = antecedent_truth.as_ref().map_or_else(
-				|| truth.len(),
-				|antecedent| truth.intersection(antecedent).len(),
-			);
+			let matches = match (antecedent_truth.as_ref(), truth.as_ref()) {
+				(Some(antecedent), Some(truth)) => truth.intersection(antecedent).len(),
+				(_, Some(truth)) => truth.len(),
+				_ => universe.len() - violations.len(),
+			};
 			let antecedent_matches = antecedent_truth.as_ref().map(SymbolSet::len);
 			evaluation.reports.push(rule_report(
 				rule,
@@ -731,6 +741,37 @@ mod tests {
 		);
 		assert_eq!(result.reports[0].antecedent_matches, Some(2));
 		assert_eq!(result.reports[0].matches, 1);
+	}
+
+	#[test]
+	fn not_rooted_rule_reports_the_same_counts_as_a_universe_complement() {
+		let cfg = crate::check::config::load_from_str(
+			r#"
+			[[workspace.symbol.where]]
+			id = "repositories-outside-domain"
+			expr = "name =~ Repository$ disjoint uri ~ '**/dir:domain/**'"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect("config");
+		let compiled = compile_workspace_rules(&cfg, "code+moniker://").expect("workspace compile");
+		let inventory = fixture();
+		let result = evaluate_workspace_rules(&inventory, &compiled, true);
+		assert_eq!(result.violations.len(), 1);
+		assert!(
+			result.violations[0]
+				.violation
+				.moniker
+				.ends_with("class:BadRepository")
+		);
+		let report = &result.reports[0];
+		assert_eq!(report.violations, 1);
+		assert_eq!(
+			report.matches,
+			inventory.all_symbols().len() - 1,
+			"skipping the double complement must not change the reported match count"
+		);
 	}
 
 	#[test]

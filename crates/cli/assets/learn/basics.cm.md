@@ -28,7 +28,12 @@ pub fn DoThing() {}
 ```
 
 Useful operators: `=`, `!=`, `=~`, `!~`, `<`, `<=`, `>`, `>=`, `AND`, `OR`,
-`NOT`, and implication with `=>`.
+`NOT`, mutual exclusion with `disjoint`, and implication with `=>`.
+
+`A disjoint B` is `NOT (A AND B)`: it fails only when both operands hold for
+the same symbol, and it reads the same in either order. Because it binds
+tighter than `AND` and `OR`, a compound operand is parenthesized —
+`(A OR B) disjoint (C AND D)`.
 
 ```cm:expect
 rust.fn.function-snake-case @ src/lib.rs:L3

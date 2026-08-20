@@ -1,0 +1,1 @@
+(name = 'X' OR name = 'Y') disjoint (kind = 'class' AND lines <= 10)

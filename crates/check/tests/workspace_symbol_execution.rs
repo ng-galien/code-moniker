@@ -3,6 +3,7 @@ use std::path::Path;
 
 use code_moniker_check::workspace::{
 	WorkspaceCheckRunner, WorkspaceCheckRunnerOptions, WorkspaceEvaluationMode,
+	WorkspaceRuleDiagnostics,
 };
 use code_moniker_check::{CheckRequest, DefaultRulesSelection, RuleSetRequest};
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
@@ -59,6 +60,56 @@ expr = "(shape = 'type' AND name =~ Repository$) => (uri ~ '**/dir:infra/**' OR 
 	(fixture, rules)
 }
 
+fn indexed_workspace(
+	root: &Path,
+	rules: &Path,
+	label: &str,
+	cache: LocalResourceCache,
+) -> (
+	std::sync::Arc<code_moniker_workspace::snapshot::WorkspaceSnapshot>,
+	WorkspaceCheckRunner,
+) {
+	let mut registry = LocalWorkspaceRegistry::local_with_cache(
+		LocalWorkspaceOptions::new(vec![root.to_path_buf()], None),
+		cache.clone(),
+	);
+	let transition = registry.commands().refresh(WorkspaceRequest::new(label));
+	assert!(
+		matches!(transition, WorkspaceTransition::Ready { .. }),
+		"fixture indexing failed: {:?}",
+		registry.queries().last_failure()
+	);
+	let snapshot = registry.queries().snapshot_arc().expect("snapshot");
+	let runner = WorkspaceCheckRunner::new(
+		WorkspaceCheckRunnerOptions::new(rules.to_path_buf(), None, SCHEME),
+		cache,
+	);
+	(snapshot, runner)
+}
+
+fn flagged_symbol_names(
+	snapshot: &code_moniker_workspace::snapshot::WorkspaceSnapshot,
+	diagnostics: &WorkspaceRuleDiagnostics,
+	rule_id: &str,
+) -> Vec<String> {
+	diagnostics
+		.diagnostics
+		.iter()
+		.filter(|diagnostic| diagnostic.rule_id == rule_id)
+		.map(|diagnostic| {
+			let symbol = diagnostic.symbol.expect("workspace diagnostic symbol");
+			snapshot
+				.index
+				.symbols
+				.file_records(symbol.file())
+				.get(symbol.def())
+				.expect("diagnostic symbol")
+				.name
+				.to_string()
+		})
+		.collect()
+}
+
 #[test]
 fn one_shot_and_snapshot_runner_agree_on_workspace_symbol_rule() {
 	let (fixture, rules) = workspace_fixture();
@@ -110,19 +161,8 @@ fn one_shot_and_snapshot_runner_agree_on_workspace_symbol_rule() {
 	);
 
 	let cache = LocalResourceCache::default();
-	let mut registry = LocalWorkspaceRegistry::local_with_cache(
-		LocalWorkspaceOptions::new(vec![fixture.path().to_path_buf()], None),
-		cache.clone(),
-	);
-	let transition = registry
-		.commands()
-		.refresh(WorkspaceRequest::new("workspace-symbol-runner"));
-	assert!(
-		matches!(transition, WorkspaceTransition::Ready { .. }),
-		"fixture indexing failed: {:?}",
-		registry.queries().last_failure()
-	);
-	let snapshot = registry.queries().snapshot().expect("snapshot");
+	let (snapshot, mut runner) =
+		indexed_workspace(fixture.path(), &rules, "workspace-symbol-runner", cache);
 	assert!(
 		snapshot
 			.index
@@ -133,29 +173,12 @@ fn one_shot_and_snapshot_runner_agree_on_workspace_symbol_rule() {
 			.any(|record| record.name.as_ref() == "IgnoredRepository"),
 		"the daemon inventory must contain excluded files so the check runner owns exclusion"
 	);
-	let mut runner =
-		WorkspaceCheckRunner::new(WorkspaceCheckRunnerOptions::new(rules, None, SCHEME), cache);
 	let diagnostics = runner
 		.run_check(&snapshot.index, &snapshot.linkage)
 		.expect("snapshot check");
-	let workspace_diagnostics = diagnostics
-		.diagnostics
-		.iter()
-		.filter(|diagnostic| diagnostic.rule_id == RULE_ID)
-		.collect::<Vec<_>>();
-	assert_eq!(workspace_diagnostics.len(), 1);
-	let bad_symbol = workspace_diagnostics[0]
-		.symbol
-		.expect("workspace diagnostic symbol");
 	assert_eq!(
-		snapshot
-			.index
-			.symbols
-			.file_records(bad_symbol.file())
-			.get(bad_symbol.def())
-			.expect("diagnostic symbol")
-			.name,
-		"BadRepository"
+		flagged_symbol_names(&snapshot, &diagnostics, RULE_ID),
+		vec!["BadRepository".to_string()]
 	);
 }
 
@@ -207,4 +230,63 @@ fn incremental_runner_keeps_excluded_symbols_out_of_rule_universe() {
 		WorkspaceEvaluationMode::Incremental
 	);
 	assert_eq!(incremental.diagnostics, expected.diagnostics);
+}
+
+#[test]
+fn disjoint_workspace_symbol_rule_stays_on_the_inventory_bitmaps() {
+	const DISJOINT_RULE_ID: &str = "workspace.symbol.repositories-outside-domain";
+	let fixture = tempfile::tempdir().expect("workspace fixture");
+	write(
+		fixture.path(),
+		"src/main/java/com/acme/infra/GoodRepository.java",
+		"package com.acme.infra;\n\npublic class GoodRepository {}\n",
+	);
+	write(
+		fixture.path(),
+		"src/main/java/com/acme/domain/Order.java",
+		"package com.acme.domain;\n\npublic class Order {}\n",
+	);
+	write(
+		fixture.path(),
+		"src/main/java/com/acme/domain/BadRepository.java",
+		"package com.acme.domain;\n\npublic class BadRepository {}\n",
+	);
+	let rules = fixture.path().join(".code-moniker.toml");
+	fs::write(
+		&rules,
+		r#"
+default_rules = false
+
+[[workspace.symbol.where]]
+id = "repositories-outside-domain"
+severity = "warn"
+expr = "(shape = 'type' AND name =~ Repository$) disjoint uri ~ '**/package:domain/**'"
+"#,
+	)
+	.expect("rules");
+
+	let specs = RuleSetRequest::with_rules(&rules, SCHEME)
+		.with_default_rules(DefaultRulesSelection::Disabled)
+		.compiled_specs_for_langs(std::iter::empty())
+		.expect("workspace rule specs");
+	assert_eq!(specs.len(), 1);
+	assert_eq!(
+		specs[0].plan, "t1_inventory",
+		"`disjoint` desugars to NOT/AND, so the rule keeps the bitmap-backed inventory plan"
+	);
+
+	let (snapshot, mut runner) = indexed_workspace(
+		fixture.path(),
+		&rules,
+		"workspace-disjoint",
+		LocalResourceCache::default(),
+	);
+	let diagnostics = runner
+		.run_check(&snapshot.index, &snapshot.linkage)
+		.expect("snapshot check");
+	assert_eq!(
+		flagged_symbol_names(&snapshot, &diagnostics, DISJOINT_RULE_ID),
+		vec!["BadRepository".to_string()],
+		"only the symbol matching both operands violates"
+	);
 }
