@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::linkage::{ReferenceOrdinal, ReferenceSet};
+
 use super::records::RecordTable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -733,116 +735,286 @@ pub struct LinkageSnapshot {
 
 #[derive(Debug)]
 pub struct LinkageReadIndex {
-	pub(crate) incoming: rustc_hash::FxHashMap<SymbolId, Vec<ReferenceId>>,
-	pub(crate) targets: rustc_hash::FxHashMap<ReferenceId, SymbolId>,
-	pub(crate) ordinals: rustc_hash::FxHashMap<SymbolId, u32>,
-	pub(crate) symbols: rustc_hash::FxHashMap<u32, SymbolId>,
-	pub(crate) outgoing: OutgoingPathIndex,
+	legacy: Option<LegacyLinkageReadIndex>,
+	pub(crate) symbols: Arc<super::SymbolOrdinalCatalog>,
+	pub(crate) reference_ids: Vec<ReferenceId>,
+	pub(crate) source_ordinals: Vec<Option<super::SymbolOrdinal>>,
+	pub(crate) target_ordinals: Vec<Option<super::SymbolOrdinal>>,
+	pub(crate) references_without_source: ReferenceSet,
+	pub(crate) references_without_target: ReferenceSet,
+	pub(crate) references_by_source_file: rustc_hash::FxHashMap<u32, ReferenceSet>,
+	pub(crate) references_by_target_file: rustc_hash::FxHashMap<u32, ReferenceSet>,
+	pub(crate) outgoing: TraversalReferenceIndex,
+	pub(crate) incoming_by_ordinal: TraversalReferenceIndex,
+	pub(crate) classifications: ReferenceClassificationIndex,
 }
 
-type OutgoingPathIndex =
-	rustc_hash::FxHashMap<u32, rustc_hash::FxHashMap<Arc<str>, Vec<ReferenceId>>>;
+#[derive(Debug, Default)]
+struct LegacyLinkageReadIndex {
+	incoming: rustc_hash::FxHashMap<SymbolId, Vec<ReferenceId>>,
+	targets: rustc_hash::FxHashMap<ReferenceId, SymbolId>,
+}
+
+type TraversalReferenceIndex =
+	rustc_hash::FxHashMap<super::SymbolOrdinal, rustc_hash::FxHashMap<Arc<str>, ReferenceSet>>;
+
+#[derive(Debug, Default)]
+pub(crate) struct ReferenceClassificationIndex {
+	resolved: ReferenceSet,
+	external: ReferenceSet,
+	candidate: ReferenceSet,
+	dynamic: ReferenceSet,
+	manifest_blocked: ReferenceSet,
+	unresolved: ReferenceSet,
+	candidate_reasons: rustc_hash::FxHashMap<ReferenceOrdinal, &'static str>,
+	dynamic_reasons: rustc_hash::FxHashMap<ReferenceOrdinal, &'static str>,
+	unresolved_reasons: rustc_hash::FxHashMap<ReferenceOrdinal, &'static str>,
+}
 
 impl LinkageReadIndex {
 	pub(crate) fn estimated_heap_bytes(&self) -> usize {
-		let incoming = self.incoming.capacity()
-			* (size_of::<SymbolId>() + size_of::<Vec<ReferenceId>>())
-			+ self
-				.incoming
-				.values()
-				.map(|references| references.capacity() * size_of::<ReferenceId>())
-				.sum::<usize>();
-		let targets = self.targets.capacity() * (size_of::<ReferenceId>() + size_of::<SymbolId>());
-		let ordinals = self.ordinals.capacity() * (size_of::<SymbolId>() + size_of::<u32>());
-		let symbols = self.symbols.capacity() * (size_of::<u32>() + size_of::<SymbolId>());
-		let mut relation_strings = std::collections::HashSet::<(usize, usize)>::new();
-		let outgoing = self.outgoing.capacity()
-			* (size_of::<u32>() + size_of::<rustc_hash::FxHashMap<Arc<str>, Vec<ReferenceId>>>())
-			+ self
-				.outgoing
-				.values()
-				.map(|relations| {
-					relations.capacity() * (size_of::<Arc<str>>() + size_of::<Vec<ReferenceId>>())
-						+ relations
-							.iter()
-							.map(|(relation, references)| {
-								let string_bytes = if relation_strings
-									.insert((relation.as_ptr() as usize, relation.len()))
-								{
-									relation.len()
-								} else {
-									0
-								};
-								string_bytes + references.capacity() * size_of::<ReferenceId>()
-							})
-							.sum::<usize>()
-				})
-				.sum::<usize>();
-		incoming + targets + ordinals + symbols + outgoing
+		let legacy = self.legacy.as_ref().map_or(0, |legacy| {
+			legacy.incoming.capacity() * (size_of::<SymbolId>() + size_of::<Vec<ReferenceId>>())
+				+ legacy
+					.incoming
+					.values()
+					.map(|references| references.capacity() * size_of::<ReferenceId>())
+					.sum::<usize>()
+				+ legacy.targets.capacity() * (size_of::<ReferenceId>() + size_of::<SymbolId>())
+		});
+		let reference_catalog = self.reference_ids.capacity() * size_of::<ReferenceId>()
+			+ self.source_ordinals.capacity() * size_of::<Option<super::SymbolOrdinal>>()
+			+ self.target_ordinals.capacity() * size_of::<Option<super::SymbolOrdinal>>()
+			+ self.references_without_source.serialized_size()
+			+ self.references_without_target.serialized_size();
+		let endpoint_postings = self
+			.references_by_source_file
+			.values()
+			.chain(self.references_by_target_file.values())
+			.map(ReferenceSet::serialized_size)
+			.sum::<usize>()
+			+ (self.references_by_source_file.capacity()
+				+ self.references_by_target_file.capacity())
+				* (size_of::<u32>() + size_of::<ReferenceSet>());
+		let traversal = traversal_reference_index_bytes(&self.outgoing)
+			+ traversal_reference_index_bytes(&self.incoming_by_ordinal);
+		let classifications = self.classifications.estimated_heap_bytes();
+		legacy + reference_catalog + endpoint_postings + traversal + classifications
 	}
 
 	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
-		let mut incoming = rustc_hash::FxHashMap::<SymbolId, Vec<ReferenceId>>::default();
-		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
+		let mut index = Self::empty();
+		let mut legacy = LegacyLinkageReadIndex::default();
 		for edge in edges {
 			let LinkageEdge {
 				reference, target, ..
 			} = edge.clone();
-			targets.entry(reference).or_insert(target);
-			incoming.entry(target).or_default().push(reference);
+			legacy.targets.entry(reference).or_insert(target);
+			legacy.incoming.entry(target).or_default().push(reference);
 		}
-		Self {
-			incoming,
-			targets,
-			ordinals: rustc_hash::FxHashMap::default(),
-			symbols: rustc_hash::FxHashMap::default(),
-			outgoing: rustc_hash::FxHashMap::default(),
-		}
-	}
-
-	pub(crate) fn from_edges_with_ordinals(
-		edges: &[LinkageEdge],
-		references: &RecordTable<ReferenceRecord>,
-		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
-	) -> Self {
-		let mut index = Self::from_edges(edges);
-		for (ordinal, symbol) in ordinals {
-			index.symbols.insert(ordinal, symbol);
-			index.ordinals.insert(symbol, ordinal);
-		}
-		index.outgoing = outgoing_path_index(references, &index.ordinals);
+		index.legacy = Some(legacy);
 		index
 	}
 
-	pub fn incoming(&self, symbol: &SymbolId) -> &[ReferenceId] {
-		self.incoming.get(symbol).map(Vec::as_slice).unwrap_or(&[])
+	fn empty() -> Self {
+		Self {
+			legacy: None,
+			symbols: Arc::new(super::SymbolOrdinalCatalog::default()),
+			reference_ids: Vec::new(),
+			source_ordinals: Vec::new(),
+			target_ordinals: Vec::new(),
+			references_without_source: ReferenceSet::new(),
+			references_without_target: ReferenceSet::new(),
+			references_by_source_file: rustc_hash::FxHashMap::default(),
+			references_by_target_file: rustc_hash::FxHashMap::default(),
+			outgoing: rustc_hash::FxHashMap::default(),
+			incoming_by_ordinal: rustc_hash::FxHashMap::default(),
+			classifications: ReferenceClassificationIndex::default(),
+		}
 	}
 
-	pub fn resolved_target(&self, reference: &ReferenceId) -> Option<&SymbolId> {
-		self.targets.get(reference)
+	#[cfg(test)]
+	pub(crate) fn from_snapshot_with_ordinals(
+		linkage: &LinkageSnapshot,
+		references: &RecordTable<ReferenceRecord>,
+		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
+	) -> Self {
+		Self::from_snapshot_with_catalog(
+			linkage,
+			references,
+			Arc::new(super::SymbolOrdinalCatalog::from_active_ordinals(ordinals)),
+		)
 	}
 
-	pub(crate) fn ordinal(&self, symbol: &SymbolId) -> Option<u32> {
-		self.ordinals.get(symbol).copied()
+	pub(crate) fn from_snapshot_with_catalog(
+		linkage: &LinkageSnapshot,
+		references: &RecordTable<ReferenceRecord>,
+		symbols: Arc<super::SymbolOrdinalCatalog>,
+	) -> Self {
+		let mut index = Self::empty();
+		index.symbols = symbols;
+		index.index_references(references);
+		index.index_resolved_edges(&linkage.resolved, references);
+		index.index_missing_endpoints();
+		index.classifications =
+			ReferenceClassificationIndex::from_linkage(linkage, &index.reference_ids);
+		index
 	}
 
-	pub(crate) fn symbol(&self, ordinal: u32) -> Option<SymbolId> {
-		self.symbols.get(&ordinal).copied()
+	fn index_missing_endpoints(&mut self) {
+		self.references_without_source = self
+			.source_ordinals
+			.iter()
+			.enumerate()
+			.filter(|(_, source)| source.is_none())
+			.map(|(index, _)| ReferenceOrdinal::from_index(index))
+			.collect();
+		self.references_without_target = self
+			.target_ordinals
+			.iter()
+			.enumerate()
+			.filter(|(_, target)| target.is_none())
+			.map(|(index, _)| ReferenceOrdinal::from_index(index))
+			.collect();
+		for (index, source) in self.source_ordinals.iter().copied().enumerate() {
+			let Some(file) = source
+				.and_then(|source| self.symbols.id(source))
+				.map(|source| source.file() as u32)
+			else {
+				continue;
+			};
+			self.references_by_source_file
+				.entry(file)
+				.or_default()
+				.insert(ReferenceOrdinal::from_index(index));
+		}
+		for (index, target) in self.target_ordinals.iter().copied().enumerate() {
+			let Some(file) = target
+				.and_then(|target| self.symbols.id(target))
+				.map(|target| target.file() as u32)
+			else {
+				continue;
+			};
+			self.references_by_target_file
+				.entry(file)
+				.or_default()
+				.insert(ReferenceOrdinal::from_index(index));
+		}
 	}
 
-	pub(crate) fn outgoing(&self, ordinal: u32, relation: &str) -> &[ReferenceId] {
-		self.outgoing
-			.get(&ordinal)
-			.and_then(|by_relation| by_relation.get(relation))
-			.map(Vec::as_slice)
-			.unwrap_or(&[])
+	fn index_references(&mut self, references: &RecordTable<ReferenceRecord>) {
+		self.reference_ids.reserve(references.len());
+		self.source_ordinals.reserve(references.len());
+		self.target_ordinals.resize(references.len(), None);
+		for (reference_index, reference) in references.iter().enumerate() {
+			let ordinal = ReferenceOrdinal::from_index(reference_index);
+			self.reference_ids.push(reference.id);
+			let source = self.symbols.ordinal(&reference.source_symbol);
+			self.source_ordinals.push(source);
+			if let Some(source) = source {
+				insert_traversal_reference(&mut self.outgoing, source, &reference.kind, ordinal);
+			}
+		}
+		debug_assert!(self.reference_ids.is_sorted());
 	}
 
-	pub(crate) fn outgoing_relations(&self, ordinal: u32) -> impl Iterator<Item = &str> {
-		self.outgoing
-			.get(&ordinal)
-			.into_iter()
-			.flat_map(|by_relation| by_relation.keys().map(AsRef::as_ref))
+	fn index_resolved_edges(
+		&mut self,
+		edges: &[LinkageEdge],
+		references: &RecordTable<ReferenceRecord>,
+	) {
+		for edge in edges {
+			let Some(reference_ordinal) = reference_ordinal(&self.reference_ids, edge.reference)
+			else {
+				continue;
+			};
+			let Some(target_ordinal) = self.symbols.ordinal(&edge.target) else {
+				continue;
+			};
+			self.target_ordinals[reference_ordinal.index()] = Some(target_ordinal);
+			let Some(reference) = references.reference(&edge.reference) else {
+				continue;
+			};
+			insert_traversal_reference(
+				&mut self.incoming_by_ordinal,
+				target_ordinal,
+				&reference.kind,
+				reference_ordinal,
+			);
+		}
+	}
+
+	pub fn incoming(&self, symbol: &SymbolId) -> Vec<ReferenceId> {
+		if let Some(ordinal) = self.ordinal(symbol) {
+			let mut references = ReferenceSet::new();
+			for posting in self.incoming_postings(ordinal, &[]) {
+				references.union_with(posting);
+			}
+			return references
+				.iter()
+				.filter_map(|reference| self.reference_id(reference))
+				.collect();
+		}
+		self.legacy
+			.as_ref()
+			.and_then(|legacy| legacy.incoming.get(symbol))
+			.cloned()
+			.unwrap_or_default()
+	}
+
+	pub fn resolved_target(&self, reference: &ReferenceId) -> Option<SymbolId> {
+		if let Ok(index) = self.reference_ids.binary_search(reference) {
+			let ordinal = ReferenceOrdinal::from_index(index);
+			return self
+				.reference_target(ordinal)
+				.and_then(|target| self.symbol(target));
+		}
+		self.legacy
+			.as_ref()
+			.and_then(|legacy| legacy.targets.get(reference))
+			.copied()
+	}
+
+	pub(crate) fn ordinal(&self, symbol: &SymbolId) -> Option<super::SymbolOrdinal> {
+		self.symbols.ordinal(symbol)
+	}
+
+	pub(crate) fn symbol(&self, ordinal: super::SymbolOrdinal) -> Option<SymbolId> {
+		self.symbols.id(ordinal).copied()
+	}
+
+	pub(crate) fn outgoing_postings(
+		&self,
+		ordinal: super::SymbolOrdinal,
+		relations: &[&str],
+	) -> Vec<&ReferenceSet> {
+		postings_for_relations(&self.outgoing, ordinal, relations)
+	}
+
+	pub(crate) fn incoming_postings(
+		&self,
+		ordinal: super::SymbolOrdinal,
+		relations: &[&str],
+	) -> Vec<&ReferenceSet> {
+		postings_for_relations(&self.incoming_by_ordinal, ordinal, relations)
+	}
+
+	pub(crate) fn reference_id(&self, ordinal: ReferenceOrdinal) -> Option<ReferenceId> {
+		self.reference_ids.get(ordinal.index()).copied()
+	}
+
+	pub(crate) fn reference_source(
+		&self,
+		ordinal: ReferenceOrdinal,
+	) -> Option<super::SymbolOrdinal> {
+		self.source_ordinals.get(ordinal.index()).copied().flatten()
+	}
+
+	pub(crate) fn reference_target(
+		&self,
+		ordinal: ReferenceOrdinal,
+	) -> Option<super::SymbolOrdinal> {
+		self.target_ordinals.get(ordinal.index()).copied().flatten()
 	}
 
 	#[cfg(test)]
@@ -851,23 +1023,198 @@ impl LinkageReadIndex {
 	}
 }
 
-fn outgoing_path_index(
-	references: &RecordTable<ReferenceRecord>,
-	ordinals: &rustc_hash::FxHashMap<SymbolId, u32>,
-) -> OutgoingPathIndex {
-	let mut index = OutgoingPathIndex::default();
-	for reference in references.iter() {
-		let Some(source_ordinal) = ordinals.get(&reference.source_symbol).copied() else {
-			continue;
-		};
-		let by_relation = index.entry(source_ordinal).or_default();
-		if let Some(outgoing) = by_relation.get_mut(reference.kind.as_str()) {
-			outgoing.push(reference.id);
-		} else {
-			by_relation.insert(Arc::from(reference.kind.as_str()), vec![reference.id]);
+impl ReferenceClassificationIndex {
+	fn from_linkage(linkage: &LinkageSnapshot, reference_ids: &[ReferenceId]) -> Self {
+		let mut index = Self::default();
+		for edge in &linkage.resolved {
+			insert_reference(&mut index.resolved, reference_ids, edge.reference);
 		}
+		for reference in &linkage.external {
+			insert_reference(&mut index.external, reference_ids, reference.reference);
+		}
+		for reference in &linkage.candidates {
+			if let Some(ordinal) =
+				insert_reference(&mut index.candidate, reference_ids, reference.reference)
+			{
+				index
+					.candidate_reasons
+					.insert(ordinal, reference.reason.as_str());
+			}
+		}
+		for reference in &linkage.dynamic {
+			if let Some(ordinal) =
+				insert_reference(&mut index.dynamic, reference_ids, reference.reference)
+			{
+				index
+					.dynamic_reasons
+					.insert(ordinal, reference.reason.as_str());
+			}
+		}
+		for reference in linkage.blocked.iter().chain(&linkage.manifest_blocked) {
+			if reference.reason == UnresolvedReason::ManifestBlocked {
+				insert_reference(
+					&mut index.manifest_blocked,
+					reference_ids,
+					reference.reference,
+				);
+			}
+		}
+		for reference in linkage.unresolved.iter().chain(
+			linkage
+				.blocked
+				.iter()
+				.filter(|reference| reference.reason != UnresolvedReason::ManifestBlocked),
+		) {
+			if let Some(ordinal) =
+				insert_reference(&mut index.unresolved, reference_ids, reference.reference)
+			{
+				index
+					.unresolved_reasons
+					.insert(ordinal, reference.reason.as_str());
+			}
+		}
+		index
 	}
-	index
+
+	fn estimated_heap_bytes(&self) -> usize {
+		[
+			&self.resolved,
+			&self.external,
+			&self.candidate,
+			&self.dynamic,
+			&self.manifest_blocked,
+			&self.unresolved,
+		]
+		.into_iter()
+		.map(ReferenceSet::serialized_size)
+		.sum::<usize>()
+			+ (self.candidate_reasons.capacity()
+				+ self.dynamic_reasons.capacity()
+				+ self.unresolved_reasons.capacity())
+				* (size_of::<ReferenceOrdinal>() + size_of::<&'static str>())
+	}
+
+	pub(crate) fn resolved(&self) -> &ReferenceSet {
+		&self.resolved
+	}
+
+	pub(crate) fn external(&self) -> &ReferenceSet {
+		&self.external
+	}
+
+	pub(crate) fn candidate(&self) -> &ReferenceSet {
+		&self.candidate
+	}
+
+	pub(crate) fn dynamic(&self) -> &ReferenceSet {
+		&self.dynamic
+	}
+
+	pub(crate) fn manifest_blocked(&self) -> &ReferenceSet {
+		&self.manifest_blocked
+	}
+
+	pub(crate) fn unresolved(&self) -> &ReferenceSet {
+		&self.unresolved
+	}
+
+	pub(crate) fn candidate_reason(&self, reference: ReferenceOrdinal) -> &'static str {
+		self.candidate_reasons
+			.get(&reference)
+			.copied()
+			.unwrap_or("unclassified")
+	}
+
+	pub(crate) fn dynamic_reason(&self, reference: ReferenceOrdinal) -> &'static str {
+		self.dynamic_reasons
+			.get(&reference)
+			.copied()
+			.unwrap_or("unclassified")
+	}
+
+	pub(crate) fn unresolved_reason(&self, reference: ReferenceOrdinal) -> &'static str {
+		self.unresolved_reasons
+			.get(&reference)
+			.copied()
+			.unwrap_or("unclassified")
+	}
+}
+
+fn insert_reference(
+	set: &mut ReferenceSet,
+	reference_ids: &[ReferenceId],
+	reference: ReferenceId,
+) -> Option<ReferenceOrdinal> {
+	let ordinal = reference_ordinal(reference_ids, reference)?;
+	set.insert(ordinal);
+	Some(ordinal)
+}
+
+fn reference_ordinal(
+	reference_ids: &[ReferenceId],
+	reference: ReferenceId,
+) -> Option<ReferenceOrdinal> {
+	reference_ids
+		.binary_search(&reference)
+		.ok()
+		.map(ReferenceOrdinal::from_index)
+}
+
+fn insert_traversal_reference(
+	index: &mut TraversalReferenceIndex,
+	symbol: super::SymbolOrdinal,
+	relation: &str,
+	reference: ReferenceOrdinal,
+) {
+	let by_relation = index.entry(symbol).or_default();
+	if let Some(references) = by_relation.get_mut(relation) {
+		references.insert(reference);
+	} else {
+		by_relation.insert(Arc::from(relation), ReferenceSet::from_iter([reference]));
+	}
+}
+
+fn postings_for_relations<'a>(
+	index: &'a TraversalReferenceIndex,
+	symbol: super::SymbolOrdinal,
+	relations: &[&str],
+) -> Vec<&'a ReferenceSet> {
+	let Some(by_relation) = index.get(&symbol) else {
+		return Vec::new();
+	};
+	if relations.is_empty() {
+		return by_relation.values().collect();
+	}
+	relations
+		.iter()
+		.filter_map(|relation| by_relation.get(*relation))
+		.collect()
+}
+
+fn traversal_reference_index_bytes(index: &TraversalReferenceIndex) -> usize {
+	let mut relation_strings = std::collections::HashSet::<(usize, usize)>::new();
+	index.capacity()
+		* (size_of::<super::SymbolOrdinal>()
+			+ size_of::<rustc_hash::FxHashMap<Arc<str>, ReferenceSet>>())
+		+ index
+			.values()
+			.map(|relations| {
+				relations.capacity() * (size_of::<Arc<str>>() + size_of::<ReferenceSet>())
+					+ relations
+						.iter()
+						.map(|(relation, references)| {
+							let string_bytes = if relation_strings
+								.insert((relation.as_ptr() as usize, relation.len()))
+							{
+								relation.len()
+							} else {
+								0
+							};
+							string_bytes + references.serialized_size()
+						})
+						.sum::<usize>()
+			})
+			.sum::<usize>()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -884,14 +1231,25 @@ impl LinkageReadIndexHandle {
 		Self(Some(Arc::new(LinkageReadIndex::from_edges(edges))))
 	}
 
-	pub(crate) fn from_edges_with_ordinals(
-		edges: &[LinkageEdge],
+	#[cfg(test)]
+	pub(crate) fn from_snapshot_with_ordinals(
+		linkage: &LinkageSnapshot,
 		references: &RecordTable<ReferenceRecord>,
 		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
 	) -> Self {
-		Self(Some(Arc::new(LinkageReadIndex::from_edges_with_ordinals(
-			edges, references, ordinals,
-		))))
+		Self(Some(Arc::new(
+			LinkageReadIndex::from_snapshot_with_ordinals(linkage, references, ordinals),
+		)))
+	}
+
+	pub(crate) fn from_snapshot_with_catalog(
+		linkage: &LinkageSnapshot,
+		references: &RecordTable<ReferenceRecord>,
+		symbols: Arc<super::SymbolOrdinalCatalog>,
+	) -> Self {
+		Self(Some(Arc::new(
+			LinkageReadIndex::from_snapshot_with_catalog(linkage, references, symbols),
+		)))
 	}
 
 	pub fn get(&self) -> Option<&LinkageReadIndex> {

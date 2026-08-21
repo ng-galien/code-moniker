@@ -173,7 +173,6 @@ impl<'a> AuditLookups<'a> {
 	) -> Option<crate::snapshot::SymbolId> {
 		self.read_index
 			.and_then(|index| index.resolved_target(&reference))
-			.copied()
 			.or_else(|| {
 				self.resolved_fallback
 					.as_ref()

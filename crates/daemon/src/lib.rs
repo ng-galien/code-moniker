@@ -46,10 +46,10 @@ use code_moniker_workspace::notes::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	BoundedCorridorEdge, BoundedCorridorRequest, BoundedPathLimits, BoundedPathScope,
-	ExternalReferenceOrigin, MemorySourceRefreshMetrics, MemorySourceRefreshMode, ReferenceId,
-	ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest,
-	WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
+	BoundedCorridorRequest, BoundedCorridorScope, BoundedPathCoverage, BoundedPathLimits,
+	BoundedPathScope, ExternalReferenceOrigin, MemorySourceRefreshMetrics, MemorySourceRefreshMode,
+	ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord, SymbolSet,
+	WorkspaceRequest, WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
@@ -90,12 +90,12 @@ use code_moniker_query::{
 	DiffImpactSummary, DiffImpactSymbol, GitRevisionDto, GraphCorridorEdge, GraphCorridorQuery,
 	GraphCorridorResult, GraphCorridorSearchStats, GraphPathCoverage, GraphPathExpectation,
 	GraphPathQuery, GraphPathResult, GraphPathSearchStats, GraphPathStep, GraphPathVerdict,
-	GraphSectionCoverage, IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphCoverage,
-	IdentityGraphEdge, IdentityGraphPort, IdentityGraphQuery, IdentityGraphResult,
-	IdentitySegmentDto, MetricsCouplingCoverage, MetricsCouplingQuery, MetricsCouplingResult,
-	MetricsCouplingTargetUsage, RuleApplicabilityDto, RulesApplicableQuery, RulesApplicableResult,
-	SymbolGraphCoverage, SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
-	SymbolGraphResult, UnlinkedRefsDto,
+	GraphSectionCoverage, GraphSymbolScope, IdentityChildrenQuery, IdentityChildrenResult,
+	IdentityGraphCoverage, IdentityGraphEdge, IdentityGraphPort, IdentityGraphQuery,
+	IdentityGraphResult, IdentitySegmentDto, MetricsCouplingCoverage, MetricsCouplingQuery,
+	MetricsCouplingResult, MetricsCouplingTargetUsage, RuleApplicabilityDto, RulesApplicableQuery,
+	RulesApplicableResult, SymbolGraphCoverage, SymbolGraphEdge, SymbolGraphFocus,
+	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -664,7 +664,11 @@ impl DaemonRpcService {
 		let request_kind = protocol_request_kind(&request);
 		let request_operation = protocol_request_operation(&request);
 		let started = Instant::now();
-		let result = if let Some(response) = stateless_protocol_response(&request) {
+		let result = if let ProtocolRequest::Query(query) = &request
+			&& let Err(error) = query.validate()
+		{
+			Ok(ProtocolResponse::Error(error))
+		} else if let Some(response) = stateless_protocol_response(&request) {
 			Ok(response)
 		} else if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
 			Ok(workspace_unavailable_response(request, &self.lifecycle))
@@ -1180,10 +1184,15 @@ fn daemon_registry(
 
 fn handle_protocol(daemon: &mut WorkspaceDaemon, request: ProtocolRequest) -> ProtocolResponse {
 	match request {
-		ProtocolRequest::Query(request) => match handle_query(daemon, *request) {
-			Ok(response) => ProtocolResponse::Query(Box::new(response)),
-			Err(error) => ProtocolResponse::Error(error),
-		},
+		ProtocolRequest::Query(request) => {
+			if let Err(error) = request.validate() {
+				return ProtocolResponse::Error(error);
+			}
+			match handle_query(daemon, *request) {
+				Ok(response) => ProtocolResponse::Query(Box::new(response)),
+				Err(error) => ProtocolResponse::Error(error),
+			}
+		}
 		ProtocolRequest::Command(request) => match handle_command(daemon, request) {
 			Ok(response) => ProtocolResponse::Command(response),
 			Err(error) => ProtocolResponse::Error(error),
@@ -1973,14 +1982,18 @@ fn graph_path_response(
 			));
 		}
 	}
-	let path_scope = BoundedPathScope::from_sources(
-		snapshot
-			.index
-			.sources
-			.iter()
-			.filter(|source| source_root(roots, &selected_roots, source).is_some())
-			.map(|source| source.id),
-	);
+	let path_scope = if selected_roots.len() == roots.len() {
+		BoundedPathScope::all()
+	} else {
+		BoundedPathScope::from_sources(
+			snapshot
+				.index
+				.sources
+				.iter()
+				.filter(|source| source_root(roots, &selected_roots, source).is_some())
+				.map(|source| source.id),
+		)
+	};
 	let search = snapshot
 		.bounded_path(
 			from.id,
@@ -2000,28 +2013,24 @@ fn graph_path_response(
 			)
 		})?;
 	let found = from.id == to.id || !search.path.is_empty();
-	let coverage_percent = search.coverage.percent();
-	let complete = !search.depth_limit_reached
-		&& !search.symbol_limit_reached
-		&& !search.edge_limit_reached
-		&& coverage_percent >= query.min_coverage;
+	let assessment = graph_search_assessment(
+		&search.coverage,
+		GraphSearchBudgetStatus {
+			operation: GraphSearchOperation::Path,
+			max_depth: query.max_depth,
+			depth_reached: search.depth_reached,
+			max_symbols: query.max_symbols,
+			explored_symbols: search.explored_symbols,
+			max_edges: query.max_edges,
+			admitted_references: search.coverage.total,
+			depth_limit_reached: search.depth_limit_reached,
+			symbol_limit_reached: search.symbol_limit_reached,
+			edge_limit_reached: search.edge_limit_reached,
+		},
+		query.min_coverage,
+	);
+	let complete = assessment.complete;
 	let (reachable, no_path, verdict) = graph_path_truth(found, complete, query.expect);
-	let mut reasons = Vec::new();
-	if search.depth_limit_reached {
-		reasons.push("depth_limit".to_string());
-	}
-	if search.symbol_limit_reached {
-		reasons.push("symbol_limit".to_string());
-	}
-	if search.edge_limit_reached {
-		reasons.push("edge_limit".to_string());
-	}
-	if coverage_percent < query.min_coverage {
-		reasons.push("coverage_below_threshold".to_string());
-	}
-	for (reason, count) in &search.coverage.gap_reasons {
-		push_path_gap_reason(&mut reasons, reason, *count);
-	}
 	let path = search
 		.path
 		.iter()
@@ -2035,28 +2044,20 @@ fn graph_path_response(
 		reachable,
 		no_path,
 		path,
-		coverage: GraphPathCoverage {
-			total: search.coverage.total,
-			decided: search.coverage.decided,
-			resolved: search.coverage.resolved,
-			external: search.coverage.external,
-			candidate: search.coverage.candidate,
-			dynamic: search.coverage.dynamic,
-			manifest_blocked: search.coverage.manifest_blocked,
-			unresolved: search.coverage.unresolved,
-			percent: coverage_percent,
-			gap_reasons: search.coverage.gap_reasons,
-		},
+		coverage: assessment.coverage,
 		search: GraphPathSearchStats {
 			max_depth: query.max_depth,
+			max_symbols: query.max_symbols,
+			max_edges: query.max_edges,
 			depth_reached: search.depth_reached,
 			explored_symbols: search.explored_symbols,
 			explored_edges: search.explored_edges,
+			admitted_references: search.coverage.total,
 			depth_limit_reached: search.depth_limit_reached,
 			symbol_limit_reached: search.symbol_limit_reached,
 			edge_limit_reached: search.edge_limit_reached,
 		},
-		reasons,
+		reasons: assessment.reasons,
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
@@ -2098,6 +2099,127 @@ fn graph_path_truth(
 fn push_path_gap_reason(reasons: &mut Vec<String>, reason: &str, count: usize) {
 	if count > 0 {
 		reasons.push(format!("{reason}:{count}"));
+	}
+}
+
+#[derive(Debug)]
+struct GraphSearchAssessment {
+	complete: bool,
+	coverage: GraphPathCoverage,
+	reasons: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+enum GraphSearchOperation {
+	Path,
+	Corridor,
+}
+
+#[derive(Clone, Copy)]
+struct GraphSearchBudgetStatus {
+	operation: GraphSearchOperation,
+	max_depth: usize,
+	depth_reached: usize,
+	max_symbols: usize,
+	explored_symbols: usize,
+	max_edges: usize,
+	admitted_references: usize,
+	depth_limit_reached: bool,
+	symbol_limit_reached: bool,
+	edge_limit_reached: bool,
+}
+
+fn graph_search_assessment(
+	coverage: &BoundedPathCoverage,
+	budget: GraphSearchBudgetStatus,
+	min_coverage: usize,
+) -> GraphSearchAssessment {
+	let coverage_percent = coverage.percent();
+	let internal_gap = coverage.gap_reasons.contains_key("missing_symbol_ordinal")
+		|| coverage
+			.gap_reasons
+			.contains_key("missing_reference_record");
+	let complete = !budget.depth_limit_reached
+		&& !budget.symbol_limit_reached
+		&& !budget.edge_limit_reached
+		&& !internal_gap
+		&& coverage_percent >= min_coverage;
+	let mut reasons = Vec::new();
+	if budget.depth_limit_reached {
+		let next = match (
+			budget.operation,
+			budget.max_depth >= code_moniker_query::MAX_GRAPH_DEPTH,
+		) {
+			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
+			(GraphSearchOperation::Path, false) => {
+				"increase max_depth or narrow relation/workspace"
+			}
+			(GraphSearchOperation::Corridor, true) => "narrow path/lang/kind/shape/srcset",
+			(GraphSearchOperation::Corridor, false) => {
+				"increase max_depth or narrow path/lang/kind/shape/srcset"
+			}
+		};
+		reasons.push(format!(
+			"depth_limit:reached={},max={},next={next}",
+			budget.depth_reached, budget.max_depth,
+		));
+	}
+	if budget.symbol_limit_reached {
+		let next = match (
+			budget.operation,
+			budget.max_symbols >= code_moniker_query::MAX_GRAPH_SYMBOLS,
+		) {
+			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
+			(GraphSearchOperation::Path, false) => {
+				"increase max_symbols or narrow relation/workspace"
+			}
+			(GraphSearchOperation::Corridor, true) => "narrow path/lang/kind/shape/srcset",
+			(GraphSearchOperation::Corridor, false) => {
+				"narrow path/lang/kind/shape/srcset or increase max_symbols"
+			}
+		};
+		reasons.push(format!(
+			"symbol_limit:used={},max={},next={next}",
+			budget.explored_symbols, budget.max_symbols,
+		));
+	}
+	if budget.edge_limit_reached {
+		let next = match (
+			budget.operation,
+			budget.max_edges >= code_moniker_query::MAX_GRAPH_EDGES,
+		) {
+			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
+			(GraphSearchOperation::Path, false) => {
+				"increase max_edges or narrow relation/workspace"
+			}
+			(GraphSearchOperation::Corridor, _) => "narrow relation or path/lang/kind/shape/srcset",
+		};
+		reasons.push(format!(
+			"edge_limit:used={},max={},next={next}",
+			budget.admitted_references, budget.max_edges,
+		));
+	}
+	if coverage_percent < min_coverage {
+		reasons.push("coverage_below_threshold".to_string());
+	}
+	for (reason, count) in &coverage.gap_reasons {
+		push_path_gap_reason(&mut reasons, reason, *count);
+	}
+	GraphSearchAssessment {
+		complete,
+		coverage: GraphPathCoverage {
+			total: coverage.total,
+			decided: coverage.decided,
+			resolved: coverage.resolved,
+			external: coverage.external,
+			candidate: coverage.candidate,
+			dynamic: coverage.dynamic,
+			manifest_blocked: coverage.manifest_blocked,
+			unresolved: coverage.unresolved,
+			percent: coverage_percent,
+			gap_reasons: coverage.gap_reasons.clone(),
+		},
+		reasons,
 	}
 }
 
@@ -2163,14 +2285,14 @@ fn graph_corridor_response(
 			));
 		}
 	}
-	let scope = BoundedPathScope::from_sources(
-		snapshot
-			.index
-			.sources
-			.iter()
-			.filter(|source| source_root(roots, &selected_roots, source).is_some())
-			.map(|source| source.id),
-	);
+	let scope = graph_corridor_scope(
+		snapshot,
+		roots,
+		&selected_roots,
+		&query.scope,
+		[from.id, to.id],
+		query.max_symbols,
+	)?;
 	let search = snapshot
 		.bounded_corridor(BoundedCorridorRequest {
 			from: from.id,
@@ -2189,20 +2311,25 @@ fn graph_corridor_response(
 				"the linkage snapshot has no symbol ordinal index; refresh the workspace",
 			)
 		})?;
-	let coverage_percent = search.coverage.percent();
-	let internal_gap = search
-		.coverage
-		.gap_reasons
-		.contains_key("missing_symbol_ordinal")
-		|| search
-			.coverage
-			.gap_reasons
-			.contains_key("missing_reference_record");
-	let complete = !search.depth_limit_reached
-		&& !search.symbol_limit_reached
-		&& !search.edge_limit_reached
-		&& !internal_gap
-		&& coverage_percent >= query.min_coverage;
+	let assessment = graph_search_assessment(
+		&search.coverage,
+		GraphSearchBudgetStatus {
+			operation: GraphSearchOperation::Corridor,
+			max_depth: query.max_depth,
+			depth_reached: search
+				.forward_depth_reached
+				.max(search.reverse_depth_reached),
+			max_symbols: query.max_symbols,
+			explored_symbols: search.explored_symbols,
+			max_edges: query.max_edges,
+			admitted_references: search.coverage.total,
+			depth_limit_reached: search.depth_limit_reached,
+			symbol_limit_reached: search.symbol_limit_reached,
+			edge_limit_reached: search.edge_limit_reached,
+		},
+		query.min_coverage,
+	);
+	let complete = assessment.complete;
 	let established = from.id == to.id || !search.members.is_empty();
 	let connected = if established {
 		Some(true)
@@ -2211,22 +2338,11 @@ fn graph_corridor_response(
 	} else {
 		None
 	};
-	let mut reasons = Vec::new();
-	if search.depth_limit_reached {
-		reasons.push("depth_limit".to_string());
-	}
-	if search.symbol_limit_reached {
-		reasons.push("symbol_limit".to_string());
-	}
-	if search.edge_limit_reached {
-		reasons.push("edge_limit".to_string());
-	}
-	if coverage_percent < query.min_coverage {
-		reasons.push("coverage_below_threshold".to_string());
-	}
-	for (reason, count) in &search.coverage.gap_reasons {
-		push_path_gap_reason(&mut reasons, reason, *count);
-	}
+	let member_count = search.members.len();
+	let edge_count = search
+		.edges
+		.chunk_by(|left, right| left.source == right.source && left.target == right.target)
+		.count();
 	let members = search
 		.members
 		.iter()
@@ -2241,84 +2357,230 @@ fn graph_corridor_response(
 			Ok(symbol_dto(symbol, source, roots))
 		})
 		.collect::<Result<Vec<_>, QueryError>>()?;
-	struct EdgeAggregate {
-		relations: BTreeSet<String>,
-		count: usize,
-		representative: BoundedCorridorEdge,
-	}
 	let references = view.references();
-	let mut edge_aggregates = BTreeMap::<(SymbolId, SymbolId), EdgeAggregate>::new();
-	for edge in &search.edges {
-		let reference = references.reference(&edge.reference).ok_or_else(|| {
-			QueryError::new("reference_not_found", "corridor reference not found")
-		})?;
-		let aggregate = edge_aggregates
-			.entry((edge.source, edge.target))
-			.or_insert_with(|| EdgeAggregate {
-				relations: BTreeSet::new(),
-				count: 0,
-				representative: *edge,
-			});
-		aggregate.relations.insert(reference.kind.clone());
-		aggregate.count += 1;
-	}
-	let edges = edge_aggregates
-		.into_values()
-		.map(|aggregate| {
-			let representative = graph_path_step(
-				snapshot,
-				roots,
-				&code_moniker_workspace::snapshot::BoundedPathEdge {
-					source: aggregate.representative.source,
-					target: aggregate.representative.target,
-					reference: aggregate.representative.reference,
-				},
-			)?;
+	let edges = search
+		.edges
+		.chunk_by(|left, right| left.source == right.source && left.target == right.target)
+		.map(|group| {
+			let mut relations = BTreeSet::new();
+			for edge in group {
+				let reference = references.reference(&edge.reference).ok_or_else(|| {
+					QueryError::new("reference_not_found", "corridor reference not found")
+				})?;
+				relations.insert(reference.kind.clone());
+			}
+			let representative = graph_path_step(snapshot, roots, &group[0])?;
 			Ok(GraphCorridorEdge {
-				source: representative.source.clone(),
-				target: representative.target.clone(),
-				relations: aggregate.relations.into_iter().collect(),
-				count: aggregate.count,
-				representative,
+				source: representative.source,
+				target: representative.target,
+				relations: relations.into_iter().collect(),
+				count: group.len(),
+				representative_reference: representative.reference,
+				representative_file: representative.file,
+				representative_line_range: representative.line_range,
 			})
 		})
 		.collect::<Result<Vec<_>, QueryError>>()?;
 	let result = GraphCorridorResult {
 		from: symbol_dto(from, from_source, roots),
 		to: symbol_dto(to, to_source, roots),
+		member_count,
+		edge_count,
 		members,
 		edges,
 		connected,
 		complete,
-		coverage: GraphPathCoverage {
-			total: search.coverage.total,
-			decided: search.coverage.decided,
-			resolved: search.coverage.resolved,
-			external: search.coverage.external,
-			candidate: search.coverage.candidate,
-			dynamic: search.coverage.dynamic,
-			manifest_blocked: search.coverage.manifest_blocked,
-			unresolved: search.coverage.unresolved,
-			percent: coverage_percent,
-			gap_reasons: search.coverage.gap_reasons,
-		},
+		coverage: assessment.coverage,
 		search: GraphCorridorSearchStats {
 			max_depth: query.max_depth,
+			max_symbols: query.max_symbols,
+			max_edges: query.max_edges,
 			forward_depth_reached: search.forward_depth_reached,
 			reverse_depth_reached: search.reverse_depth_reached,
 			explored_symbols: search.explored_symbols,
 			explored_edges: search.explored_edges,
+			admitted_references: search.coverage.total,
 			depth_limit_reached: search.depth_limit_reached,
 			symbol_limit_reached: search.symbol_limit_reached,
 			edge_limit_reached: search.edge_limit_reached,
 		},
-		reasons,
+		reasons: assessment.reasons,
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::GraphCorridor(Box::new(result)),
 		next_cursor: None,
 	})
+}
+
+fn graph_corridor_scope(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	selected_roots: &[&PathBuf],
+	scope: &GraphSymbolScope,
+	endpoints: [SymbolId; 2],
+	max_symbols: usize,
+) -> Result<BoundedCorridorScope, QueryError> {
+	let inventory = &snapshot.index.inventory;
+	if endpoints[0] == endpoints[1] {
+		let symbols = inventory
+			.catalog()
+			.ordinal(&endpoints[0])
+			.map(SymbolSet::from_symbol)
+			.unwrap_or_default();
+		return BoundedCorridorScope::from_symbols(symbols, max_symbols).ok_or_else(|| {
+			QueryError::new(
+				"graph_scope_too_large",
+				"corridor scope is empty or exceeds max_symbols",
+			)
+		});
+	}
+	if max_symbols < 2 {
+		return Err(QueryError::new(
+			"graph_scope_too_large",
+			format!(
+				"corridor endpoints require 2 symbols, above max_symbols={max_symbols}; next:increase max_symbols to at least 2"
+			),
+		));
+	}
+	let facets = inventory.facets();
+	let path_filter = FilePathFilter::compile(&scope.path)
+		.map_err(|error| QueryError::new("invalid_graph_scope", error.to_string()))?;
+	let mut scope_sets = Vec::new();
+	let mut facet_matches = Vec::new();
+	if !scope.path.is_empty() {
+		let mut path_symbols = SymbolSet::new();
+		for source in snapshot
+			.index
+			.sources
+			.iter()
+			.filter(|source| source_root(roots, selected_roots, source).is_some())
+		{
+			if path_filter.matches(&source.rel_path)
+				&& let Some(posting) = facets.symbols_by_source(source.id)
+			{
+				path_symbols.union_with(posting);
+			}
+		}
+		facet_matches.push(("path", path_symbols.len()));
+		scope_sets.push(path_symbols);
+	}
+	push_scope_facet(
+		&mut scope_sets,
+		&mut facet_matches,
+		"lang",
+		&scope.lang,
+		|value| facets.symbols_by_language(value),
+	);
+	push_scope_facet(
+		&mut scope_sets,
+		&mut facet_matches,
+		"kind",
+		&scope.kind,
+		|value| facets.symbols_by_kind(value),
+	);
+	push_scope_facet(
+		&mut scope_sets,
+		&mut facet_matches,
+		"shape",
+		&scope.shape,
+		|value| facets.symbols_by_shape(value),
+	);
+	push_scope_facet(
+		&mut scope_sets,
+		&mut facet_matches,
+		"srcset",
+		&scope.srcset,
+		|value| facets.symbols_by_srcset(value),
+	);
+	if scope_sets.is_empty() {
+		return Err(QueryError::new(
+			"invalid_graph_scope",
+			"at least one semantic scope is required: path, lang, kind, shape, or srcset",
+		));
+	}
+	if scope.path.is_empty() && selected_roots.len() != roots.len() {
+		let mut root_symbols = SymbolSet::new();
+		for (root_index, root) in roots.iter().enumerate() {
+			if selected_roots
+				.iter()
+				.any(|selected| selected.as_path() == root.as_path())
+				&& let Some(posting) = facets.symbols_by_source_root(root_index)
+			{
+				root_symbols.union_with(posting);
+			}
+		}
+		facet_matches.push(("workspace", root_symbols.len()));
+		scope_sets.push(root_symbols);
+	}
+	scope_sets.sort_unstable_by_key(SymbolSet::len);
+	let mut scope_sets = scope_sets.into_iter();
+	let mut symbols = scope_sets.next().unwrap_or_default();
+	for facet in scope_sets {
+		if symbols.is_empty() {
+			break;
+		}
+		symbols.intersect_with(&facet);
+	}
+	for endpoint in endpoints {
+		if let Some(ordinal) = inventory.catalog().ordinal(&endpoint) {
+			symbols.insert(ordinal);
+		}
+	}
+	if symbols.len() > max_symbols {
+		let matches = facet_matches
+			.iter()
+			.map(|(facet, count)| format!("{facet}={count}"))
+			.collect::<Vec<_>>()
+			.join(",");
+		let next = facet_matches
+			.iter()
+			.min_by_key(|(_, count)| *count)
+			.map_or_else(
+				|| "add a selective path/kind/shape/srcset facet".to_string(),
+				|(facet, count)| {
+					if *facet == "workspace" {
+						"add a selective path/kind/shape/srcset facet".to_string()
+					} else {
+						format!(
+							"narrow {facet} (currently {count} matches) or add another selective facet"
+						)
+					}
+				},
+			);
+		return Err(QueryError::new(
+			"graph_scope_too_large",
+			format!(
+				"semantic scope matched {} symbols including endpoints, above max_symbols={max_symbols}; facet_matches:{matches}; next:{next}",
+				symbols.len(),
+			),
+		));
+	}
+	BoundedCorridorScope::from_symbols(symbols, max_symbols).ok_or_else(|| {
+		QueryError::new(
+			"invalid_graph_scope",
+			"corridor scope must contain at least one bounded symbol",
+		)
+	})
+}
+
+fn push_scope_facet<'a>(
+	scope_sets: &mut Vec<SymbolSet>,
+	facet_matches: &mut Vec<(&'static str, usize)>,
+	name: &'static str,
+	values: &[String],
+	mut posting: impl FnMut(&str) -> Option<&'a SymbolSet>,
+) {
+	if values.is_empty() {
+		return;
+	}
+	let mut postings = values.iter().filter_map(|value| posting(value));
+	let mut facet = postings.next().cloned().unwrap_or_default();
+	for posting in postings {
+		facet.union_with(posting);
+	}
+	facet_matches.push((name, facet.len()));
+	scope_sets.push(facet);
 }
 
 struct SegmentAgg<'a> {
@@ -3200,7 +3462,7 @@ fn resolved_reference_target(
 	reference: &ReferenceId,
 ) -> Option<SymbolId> {
 	if let Some(index) = snapshot.linkage.read_index.get() {
-		return index.resolved_target(reference).copied();
+		return index.resolved_target(reference);
 	}
 	snapshot
 		.linkage
@@ -7064,6 +7326,10 @@ message = "every selected function is observable"
 				workspace: None,
 				from: from.to_string(),
 				to: to.to_string(),
+				scope: GraphSymbolScope {
+					shape: vec!["callable".to_string()],
+					..Default::default()
+				},
 				relation: vec!["calls".to_string(), "method_call".to_string()],
 				max_depth: limits.max_depth,
 				max_symbols: limits.max_symbols,
@@ -7105,6 +7371,7 @@ message = "every selected function is observable"
 		fs::write(
 			src_dir.join("lib.rs"),
 			concat!(
+				"mod excluded;\n",
 				"pub fn callback() { service(); alternative(); }\n",
 				"fn service() { repository(); }\n",
 				"fn alternative() { repository(); }\n",
@@ -7115,9 +7382,13 @@ message = "every selected function is observable"
 				"pub fn cyclic() { cycle_a(); }\n",
 				"fn cycle_a() { cycle_b(); }\n",
 				"fn cycle_b() { cycle_a(); }\n",
+				"pub fn scoped_entry() { excluded::excluded(); scoped_target(); }\n",
+				"fn scoped_target() {}\n",
 			),
 		)
 		.expect("write lib");
+		fs::write(src_dir.join("excluded.rs"), "pub fn excluded() {}\n")
+			.expect("write excluded module");
 		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
 			roots: vec![temp.path().display().to_string()],
 			project: None,
@@ -7152,6 +7423,8 @@ message = "every selected function is observable"
 			"cyclic",
 			"cycle_a",
 			"cycle_b",
+			"scoped_entry",
+			"scoped_target",
 		]
 		.into_iter()
 		.map(|name| {
@@ -7189,6 +7462,34 @@ message = "every selected function is observable"
 		};
 		assert_eq!(result.capabilities.len(), 1);
 		assert_eq!(result.capabilities[0].name, "change.context");
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::QueryDescribe(code_moniker_query::QueryDescribeQuery {
+				verb: Some("graph.corridor".to_string()),
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected corridor describe response, got {response:?}");
+		};
+		let QueryResult::QueryDescribe(result) = response.result else {
+			panic!("expected query describe, got {:?}", response.result);
+		};
+		let corridor = &result.capabilities[0];
+		assert!(
+			corridor
+				.constraints
+				.iter()
+				.any(|constraint| constraint.contains("at least one semantic scope facet")),
+			"{corridor:?}"
+		);
+		assert!(
+			corridor
+				.fields
+				.iter()
+				.find(|field| field.name == "srcset")
+				.is_some_and(|field| field.multiple),
+			"{corridor:?}"
+		);
 	}
 
 	#[test]
@@ -8255,11 +8556,17 @@ END;"#;
 		);
 		assert!(budgeted.search.symbol_limit_reached, "{budgeted:?}");
 		assert!(
+			budgeted.reasons.iter().any(|reason| reason.contains(
+				"symbol_limit:used=1,max=1,next=increase max_symbols or narrow relation/workspace"
+			)),
+			"{budgeted:?}"
+		);
+		assert!(
 			budgeted
 				.reasons
 				.iter()
-				.any(|reason| reason == "symbol_limit"),
-			"{budgeted:?}"
+				.all(|reason| !reason.contains("path/lang/kind/shape/srcset")),
+			"graph.path must not suggest graph.corridor-only facets: {budgeted:?}"
 		);
 		let edge_budgeted = graph_path_with_limits(
 			&mut fixture.daemon,
@@ -8278,6 +8585,53 @@ END;"#;
 			"{edge_budgeted:?}"
 		);
 		assert!(edge_budgeted.search.edge_limit_reached, "{edge_budgeted:?}");
+		assert_eq!(edge_budgeted.search.admitted_references, 1);
+		assert!(
+			edge_budgeted.reasons.iter().any(|reason| reason.contains(
+				"edge_limit:used=1,max=1,next=increase max_edges or narrow relation/workspace"
+			)),
+			"{edge_budgeted:?}"
+		);
+	}
+
+	#[test]
+	fn graph_path_budget_hints_remain_executable_at_protocol_ceilings() {
+		let coverage = BoundedPathCoverage {
+			total: code_moniker_query::MAX_GRAPH_EDGES,
+			decided: code_moniker_query::MAX_GRAPH_EDGES,
+			..Default::default()
+		};
+		let assessment = graph_search_assessment(
+			&coverage,
+			GraphSearchBudgetStatus {
+				operation: GraphSearchOperation::Path,
+				max_depth: code_moniker_query::MAX_GRAPH_DEPTH,
+				depth_reached: code_moniker_query::MAX_GRAPH_DEPTH,
+				max_symbols: code_moniker_query::MAX_GRAPH_SYMBOLS,
+				explored_symbols: code_moniker_query::MAX_GRAPH_SYMBOLS,
+				max_edges: code_moniker_query::MAX_GRAPH_EDGES,
+				admitted_references: code_moniker_query::MAX_GRAPH_EDGES,
+				depth_limit_reached: true,
+				symbol_limit_reached: true,
+				edge_limit_reached: true,
+			},
+			0,
+		);
+		assert_eq!(assessment.reasons.len(), 3, "{assessment:?}");
+		assert!(
+			assessment
+				.reasons
+				.iter()
+				.all(|reason| reason.contains("next=narrow relation/workspace")),
+			"{assessment:?}"
+		);
+		assert!(
+			assessment
+				.reasons
+				.iter()
+				.all(|reason| !reason.contains("increase")),
+			"{assessment:?}"
+		);
 	}
 
 	#[test]
@@ -8364,25 +8718,6 @@ END;"#;
 		assert_eq!(bounded.connected, None, "{bounded:?}");
 		assert!(!bounded.complete, "{bounded:?}");
 		assert!(bounded.search.depth_limit_reached, "{bounded:?}");
-		let symbol_budgeted = graph_corridor(
-			&mut fixture.daemon,
-			&callback,
-			&repository,
-			BoundedPathLimits {
-				max_depth: 6,
-				max_symbols: 1,
-				max_edges: 50_000,
-			},
-		);
-		assert_eq!(symbol_budgeted.connected, None, "{symbol_budgeted:?}");
-		assert!(
-			symbol_budgeted.search.symbol_limit_reached
-				&& symbol_budgeted
-					.reasons
-					.iter()
-					.any(|reason| reason == "symbol_limit"),
-			"{symbol_budgeted:?}"
-		);
 		let edge_budgeted = graph_corridor(
 			&mut fixture.daemon,
 			&callback,
@@ -8399,7 +8734,15 @@ END;"#;
 				&& edge_budgeted
 					.reasons
 					.iter()
-					.any(|reason| reason == "edge_limit"),
+					.any(|reason| reason.starts_with("edge_limit:")),
+			"{edge_budgeted:?}"
+		);
+		assert_eq!(edge_budgeted.search.max_edges, 1);
+		assert_eq!(edge_budgeted.search.admitted_references, 1);
+		assert!(
+			edge_budgeted.reasons.iter().any(|reason| reason.contains(
+				"edge_limit:used=1,max=1,next=narrow relation or path/lang/kind/shape/srcset"
+			)),
 			"{edge_budgeted:?}"
 		);
 
@@ -8417,6 +8760,247 @@ END;"#;
 		assert!(same.complete, "{same:?}");
 		assert_eq!(same.members.len(), 1, "{same:?}");
 		assert!(same.edges.is_empty(), "{same:?}");
+	}
+
+	#[test]
+	fn graph_queries_reject_unbounded_direct_protocol_requests() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+		let invalid_path = QueryRequest::new(Query::GraphPath(GraphPathQuery {
+			from: "from".to_string(),
+			to: "to".to_string(),
+			max_depth: code_moniker_query::MAX_GRAPH_DEPTH + 1,
+			..Default::default()
+		}));
+		let invalid_corridor = QueryRequest {
+			query: Query::GraphCorridor(GraphCorridorQuery {
+				from: "from".to_string(),
+				to: "to".to_string(),
+				max_edges: code_moniker_query::MAX_GRAPH_EDGES + 1,
+				..Default::default()
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		};
+		for request in [invalid_path, invalid_corridor] {
+			let ProtocolResponse::Error(error) =
+				daemon.handle_protocol(ProtocolRequest::Query(Box::new(request)))
+			else {
+				panic!("unbounded graph request reached workspace execution");
+			};
+			assert_eq!(error.code, "invalid_graph_limits", "{error:?}");
+		}
+		let invalid_cursor = QueryRequest {
+			query: Query::GraphCorridor(GraphCorridorQuery {
+				from: "from".to_string(),
+				to: "to".to_string(),
+				scope: GraphSymbolScope {
+					shape: vec!["callable".to_string()],
+					..Default::default()
+				},
+				relation: vec!["calls".to_string()],
+				..Default::default()
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page {
+				limit: 1,
+				cursor: Some(QueryCursor::new(1, None)),
+			},
+		};
+		let ProtocolResponse::Error(error) =
+			daemon.handle_protocol(ProtocolRequest::Query(Box::new(invalid_cursor)))
+		else {
+			panic!("corridor cursor reached workspace execution");
+		};
+		assert_eq!(error.code, "graph_corridor_not_paginated", "{error:?}");
+
+		for (query, expected_code) in [
+			(
+				GraphCorridorQuery {
+					from: "from".to_string(),
+					to: "to".to_string(),
+					relation: vec!["calls".to_string()],
+					..Default::default()
+				},
+				"invalid_graph_scope",
+			),
+			(
+				GraphCorridorQuery {
+					from: "from".to_string(),
+					to: "to".to_string(),
+					scope: GraphSymbolScope {
+						shape: vec!["callable".to_string()],
+						..Default::default()
+					},
+					..Default::default()
+				},
+				"invalid_graph_relations",
+			),
+		] {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::GraphCorridor(query)),
+			)));
+			let ProtocolResponse::Error(error) = response else {
+				panic!("invalid corridor contract reached workspace execution");
+			};
+			assert_eq!(error.code, expected_code, "{error:?}");
+		}
+	}
+
+	#[test]
+	fn graph_corridor_returns_one_full_semantically_scoped_result() {
+		let mut fixture = graph_path_fixture();
+		let callback = fixture.uri("callback");
+		let repository = fixture.uri("repository");
+		let request = QueryRequest {
+			query: Query::GraphCorridor(GraphCorridorQuery {
+				workspace: None,
+				from: callback.clone(),
+				to: repository.clone(),
+				scope: GraphSymbolScope {
+					lang: vec!["rs".to_string()],
+					shape: vec!["callable".to_string()],
+					..Default::default()
+				},
+				relation: vec!["calls".to_string()],
+				max_depth: 6,
+				max_symbols: 256,
+				max_edges: 1_024,
+				min_coverage: 100,
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		};
+		let ProtocolResponse::Query(response) = fixture
+			.daemon
+			.handle_protocol(ProtocolRequest::Query(Box::new(request)))
+		else {
+			panic!("expected scoped corridor response");
+		};
+		assert!(response.next_cursor.is_none(), "{response:?}");
+		let QueryResult::GraphCorridor(result) = response.result else {
+			panic!("expected graph corridor result");
+		};
+		assert!(result.complete, "{result:?}");
+		assert_eq!(result.connected, Some(true), "{result:?}");
+		assert_eq!(result.member_count, result.members.len());
+		assert_eq!(result.edge_count, result.edges.len());
+		assert_eq!((result.member_count, result.edge_count), (4, 4));
+		assert_eq!(result.search.max_symbols, 256);
+		assert_eq!(result.search.max_edges, 1_024);
+
+		let endpoints_exceed_budget = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+			workspace: None,
+			from: callback.clone(),
+			to: repository.clone(),
+			scope: GraphSymbolScope {
+				lang: vec!["java".to_string()],
+				..Default::default()
+			},
+			relation: vec!["calls".to_string()],
+			max_depth: 6,
+			max_symbols: 1,
+			max_edges: 1_024,
+			min_coverage: 100,
+		}));
+		let ProtocolResponse::Error(error) = fixture
+			.daemon
+			.handle_protocol(ProtocolRequest::Query(Box::new(endpoints_exceed_budget)))
+		else {
+			panic!("endpoint floor exceeded max_symbols without an error");
+		};
+		assert_eq!(error.code, "graph_scope_too_large", "{error:?}");
+		assert_eq!(
+			error.message,
+			"corridor endpoints require 2 symbols, above max_symbols=1; next:increase max_symbols to at least 2"
+		);
+		assert!(!error.message.contains("facet_matches"), "{error:?}");
+
+		let too_large = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+			workspace: None,
+			from: callback.clone(),
+			to: repository.clone(),
+			scope: GraphSymbolScope {
+				lang: vec!["rs".to_string()],
+				shape: vec!["callable".to_string()],
+				..Default::default()
+			},
+			relation: vec!["calls".to_string()],
+			max_depth: 6,
+			max_symbols: 2,
+			max_edges: 1_024,
+			min_coverage: 100,
+		}));
+		let ProtocolResponse::Error(error) = fixture
+			.daemon
+			.handle_protocol(ProtocolRequest::Query(Box::new(too_large)))
+		else {
+			panic!("oversized semantic scope reached corridor traversal");
+		};
+		assert_eq!(error.code, "graph_scope_too_large", "{error:?}");
+		assert!(error.message.contains("facet_matches:lang="), "{error:?}");
+		assert!(error.message.contains(",shape="), "{error:?}");
+		assert!(error.message.contains("; next:"), "{error:?}");
+
+		let excluded = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+			workspace: None,
+			from: callback,
+			to: repository,
+			scope: GraphSymbolScope {
+				lang: vec!["java".to_string()],
+				..Default::default()
+			},
+			relation: vec!["calls".to_string()],
+			max_depth: 6,
+			max_symbols: 256,
+			max_edges: 1_024,
+			min_coverage: 100,
+		}));
+		let ProtocolResponse::Query(response) = fixture
+			.daemon
+			.handle_protocol(ProtocolRequest::Query(Box::new(excluded)))
+		else {
+			panic!("expected excluded corridor response");
+		};
+		let QueryResult::GraphCorridor(result) = response.result else {
+			panic!("expected graph corridor result");
+		};
+		assert!(result.complete, "{result:?}");
+		assert_eq!(result.connected, Some(false), "{result:?}");
+		assert!(result.members.is_empty(), "{result:?}");
+		assert!(result.edges.is_empty(), "{result:?}");
+
+		let scoped_entry = fixture.uri("scoped_entry");
+		let scoped_target = fixture.uri("scoped_target");
+		let scoped_budget = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+			workspace: None,
+			from: scoped_entry,
+			to: scoped_target,
+			scope: GraphSymbolScope {
+				path: vec!["src/lib.rs".to_string()],
+				..Default::default()
+			},
+			relation: vec!["calls".to_string(), "method_call".to_string()],
+			max_depth: 2,
+			max_symbols: 16,
+			max_edges: 1,
+			min_coverage: 100,
+		}));
+		let ProtocolResponse::Query(response) = fixture
+			.daemon
+			.handle_protocol(ProtocolRequest::Query(Box::new(scoped_budget)))
+		else {
+			panic!("expected bitmap-scoped budget response");
+		};
+		let QueryResult::GraphCorridor(result) = response.result else {
+			panic!("expected graph corridor result");
+		};
+		assert!(
+			result.complete,
+			"out-of-scope method consumed max_edges: {result:?}"
+		);
+		assert_eq!(result.connected, Some(true), "{result:?}");
+		assert_eq!(result.edge_count, 1, "{result:?}");
 	}
 
 	#[test]

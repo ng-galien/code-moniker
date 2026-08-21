@@ -29,7 +29,7 @@ impl<'a> ReferenceView<'a> {
 
 	pub fn incoming_ids(&self, symbol: &SymbolId) -> Vec<ReferenceId> {
 		if let Some(index) = self.snapshot.linkage.read_index.get() {
-			return index.incoming(symbol).to_vec();
+			return index.incoming(symbol);
 		}
 		self.snapshot
 			.linkage
@@ -82,22 +82,7 @@ impl<'a> ReferenceView<'a> {
 	}
 
 	pub fn reference(&self, id: &ReferenceId) -> Option<&'a ReferenceRecord> {
-		let record = self
-			.snapshot
-			.index
-			.references
-			.file_records(id.file())
-			.get(id.reference());
-		if let Some(record) = record
-			&& &record.id == id
-		{
-			return Some(record);
-		}
-		self.snapshot
-			.index
-			.references
-			.iter()
-			.find(|reference| &reference.id == id)
+		self.snapshot.index.references.reference(id)
 	}
 }
 
@@ -134,7 +119,7 @@ fn reference_summary(
 
 fn resolved_target(snapshot: &WorkspaceSnapshot, reference: &ReferenceId) -> Option<SymbolId> {
 	if let Some(index) = snapshot.linkage.read_index.get() {
-		return index.resolved_target(reference).cloned();
+		return index.resolved_target(reference);
 	}
 	snapshot
 		.linkage

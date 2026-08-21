@@ -28,7 +28,7 @@ pub use model::{
 	WorkspaceTransition,
 };
 pub use path::{
-	BoundedCorridorEdge, BoundedCorridorRequest, BoundedCorridorSearch, BoundedPathCoverage,
+	BoundedCorridorRequest, BoundedCorridorScope, BoundedCorridorSearch, BoundedPathCoverage,
 	BoundedPathEdge, BoundedPathEngine, BoundedPathLimits, BoundedPathRequest, BoundedPathScope,
 	BoundedPathSearch, bounded_corridor, bounded_path,
 };

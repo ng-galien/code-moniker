@@ -187,6 +187,145 @@ fn simultaneous_stdio_servers_keep_workspace_facts_isolated() {
 	assert!(!second_text.contains("First.java"), "{second_text}");
 }
 
+#[test]
+fn stdio_query_rejects_unbounded_graph_corridor_before_execution() {
+	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
+	let workspace = tempfile::tempdir().expect("workspace");
+	std::fs::write(workspace.path().join("App.java"), "class App {}\n").expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let mut child = spawn_stdio_read(&root);
+	let stdout = child.stdout.take().expect("child stdout");
+	let (response_tx, response_rx) = std::sync::mpsc::channel();
+	let reader = thread::spawn(move || {
+		for line in BufReader::new(stdout).lines() {
+			if response_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+	receive_response(&response_rx, 1, Duration::from_secs(2)).expect("MCP initialize");
+	let request = serde_json::json!({
+		"jsonrpc": "2.0",
+		"id": 2,
+		"method": "tools/call",
+		"params": {
+			"name": "code_moniker_query",
+			"arguments": {
+				"query": "graph.corridor from:a to:b relation:calls shape:callable max_edges:0"
+			}
+		}
+	});
+	writeln!(child.stdin.as_mut().expect("child stdin"), "{request}")
+		.expect("write graph corridor request");
+	let response = receive_response(&response_rx, 2, Duration::from_secs(2))
+		.expect("bounded graph error response");
+	assert_eq!(
+		response["result"]["isError"].as_bool(),
+		Some(true),
+		"{response:#}"
+	);
+	let text = response["result"]["content"][0]["text"]
+		.as_str()
+		.expect("tool error text");
+	assert!(text.contains("max_edges"), "{text}");
+	assert!(text.contains('0'), "{text}");
+
+	drop(child.stdin.take());
+	wait_for_exit(&mut child, Duration::from_secs(2));
+	assert!(child.wait().expect("reap MCP").success());
+	reader.join().expect("stdout reader");
+	assert_no_daemon_registry(&root);
+}
+
+#[test]
+fn stdio_query_returns_a_full_scoped_graph_corridor() {
+	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
+	let workspace = tempfile::tempdir().expect("workspace");
+	let source_root = workspace.path().join("src/main/java");
+	std::fs::create_dir_all(&source_root).expect("source root");
+	std::fs::write(
+		source_root.join("App.java"),
+		"class App { static void entry() { middle(); } static void middle() { target(); } static void target() {} }\n",
+	)
+	.expect("fixture");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let mut child = spawn_stdio_read(&root);
+	let stdout = child.stdout.take().expect("child stdout");
+	let (response_tx, response_rx) = std::sync::mpsc::channel();
+	let reader = thread::spawn(move || {
+		for line in BufReader::new(stdout).lines() {
+			if response_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+	receive_response(&response_rx, 1, Duration::from_secs(2)).expect("MCP initialize");
+
+	let deadline = Instant::now() + Duration::from_secs(45);
+	let mut id = 2;
+	loop {
+		request_stdio_workspace_status(&mut child, id);
+		let remaining = deadline
+			.checked_duration_since(Instant::now())
+			.unwrap_or_else(|| panic!("workspace did not finish loading within 45s"));
+		let response =
+			receive_response(&response_rx, id, remaining).unwrap_or_else(|error| panic!("{error}"));
+		let text = response["result"]["content"][0]["text"]
+			.as_str()
+			.expect("workspace status text");
+		if text.contains("phase: ready") {
+			break;
+		}
+		assert!(text.contains("phase: loading"), "{text}");
+		thread::sleep(Duration::from_millis(20));
+		id += 1;
+	}
+
+	let mut find_uri = |name: &str| {
+		id += 1;
+		request_stdio_query(&mut child, id, &format!("symbol.search name:{name}"));
+		let response = receive_response(&response_rx, id, Duration::from_secs(2))
+			.expect("symbol search response");
+		let text = response["result"]["content"][0]["text"]
+			.as_str()
+			.expect("symbol search text");
+		text.lines()
+			.find(|line| line.starts_with("- ") && line.contains(name))
+			.and_then(|line| line.split_whitespace().last())
+			.unwrap_or_else(|| panic!("missing {name} URI in {text}"))
+			.to_string()
+	};
+	let from = find_uri("entry");
+	let to = find_uri("target");
+	id += 1;
+	request_stdio_query(
+		&mut child,
+		id,
+		&format!(
+			"graph.corridor from:\"{from}\" to:\"{to}\" relation:[calls,method_call] lang:java shape:callable srcset:[main,test]"
+		),
+	);
+	let response = receive_response(&response_rx, id, Duration::from_secs(2))
+		.expect("graph corridor response");
+	assert_ne!(
+		response["result"]["isError"].as_bool(),
+		Some(true),
+		"{response:#}"
+	);
+	let text = response["result"]["content"][0]["text"]
+		.as_str()
+		.expect("graph corridor text");
+	assert!(text.contains("connected: true"), "{text}");
+	assert!(text.contains("complete: true"), "{text}");
+	assert!(text.contains("middle"), "{text}");
+
+	drop(child.stdin.take());
+	wait_for_exit(&mut child, Duration::from_secs(2));
+	assert!(child.wait().expect("reap MCP").success());
+	reader.join().expect("stdout reader");
+	assert_no_daemon_registry(&root);
+}
+
 fn spawn_stdio_read(root: &std::path::Path) -> std::process::Child {
 	let mut child = Command::new(env!("CARGO_BIN_EXE_code-moniker"))
 		.args(["mcp"])
@@ -251,6 +390,19 @@ fn request_stdio_workspace_status(child: &mut std::process::Child, id: u64) {
 	});
 	writeln!(child.stdin.as_mut().expect("child stdin"), "{status}")
 		.expect("write MCP workspace.status");
+}
+
+fn request_stdio_query(child: &mut std::process::Child, id: u64, query: &str) {
+	let request = serde_json::json!({
+		"jsonrpc": "2.0",
+		"id": id,
+		"method": "tools/call",
+		"params": {
+			"name": "code_moniker_query",
+			"arguments": { "query": query }
+		}
+	});
+	writeln!(child.stdin.as_mut().expect("child stdin"), "{request}").expect("write MCP query");
 }
 
 fn collect_stdio_read(mut child: std::process::Child, root: &std::path::Path) -> String {

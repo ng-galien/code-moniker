@@ -18,6 +18,7 @@ use crate::snapshot::{
 use crate::source::{CodeIndexMaterial, LocalResourceCache};
 
 pub use binding::LinkageMemoryMetrics;
+pub(crate) use catalog::{ReferenceOrdinal, ReferenceSet, ReferenceSetIter};
 pub use change::{LinkageGraphDelta, LinkageRefreshImpact};
 
 pub trait LinkagePort {

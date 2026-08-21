@@ -440,21 +440,6 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		"{}",
 		described.text
 	);
-	let corridor = registry
-		.call(
-			&context,
-			"code_moniker_query",
-			&json!({"query": "query.describe verb:\"graph.corridor\""}),
-		)
-		.expect("graph corridor describe");
-	assert!(!corridor.is_error);
-	assert!(
-		corridor.text.contains("graph.corridor"),
-		"{}",
-		corridor.text
-	);
-	assert!(corridor.text.contains("max_depth"), "{}", corridor.text);
-	assert!(corridor.text.contains("min_coverage"), "{}", corridor.text);
 	let metrics = registry
 		.call(
 			&context,

@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 18;
+pub const PROTOCOL_VERSION: u32 = 19;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -143,10 +143,11 @@ pub struct QueryCapabilitySpec {
 	pub example: &'static str,
 }
 
-const COMMON_FIELDS: &[&str] = &["limit", "cursor", "consistency"];
-const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "severity", "relation"];
+const ALWAYS_REQUEST_FIELDS: &[&str] = &["consistency"];
+const PAGINATION_FIELDS: &[&str] = &["limit", "cursor"];
+const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "srcset", "severity", "relation"];
 const MULTI_VALUE_FIELDS: &[&str] = &[
-	"path", "lang", "kind", "shape", "severity", "file", "relation",
+	"path", "lang", "kind", "shape", "srcset", "severity", "file", "relation",
 ];
 
 const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
@@ -422,17 +423,22 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 			"workspace",
 			"from",
 			"to",
+			"path",
+			"lang",
+			"kind",
+			"shape",
+			"srcset",
 			"relation",
 			"max_depth",
 			"max_symbols",
 			"max_edges",
 			"min_coverage",
 		],
-		required_fields: &["from", "to"],
+		required_fields: &["from", "to", "relation"],
 		positionals: 0,
 		projection: false,
 		paginated: false,
-		example: "graph.corridor from:\"code+moniker://...\" to:\"code+moniker://...\"",
+		example: "graph.corridor from:\"code+moniker://...\" to:\"code+moniker://...\" relation:calls shape:callable",
 	},
 	QueryCapabilitySpec {
 		name: "identity.children",
@@ -586,7 +592,13 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 	let fields = spec
 		.fields
 		.iter()
-		.chain(COMMON_FIELDS)
+		.chain(ALWAYS_REQUEST_FIELDS)
+		.chain(
+			spec.paginated
+				.then_some(PAGINATION_FIELDS)
+				.into_iter()
+				.flatten(),
+		)
 		.map(|name| QueryFieldDto {
 			name: (*name).to_string(),
 			value_type: query_field_type(name).to_string(),
@@ -608,7 +620,24 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 		paginated: spec.paginated,
 		positionals: spec.positionals,
 		fields,
+		constraints: query_constraints(spec.name)
+			.iter()
+			.map(|constraint| (*constraint).to_string())
+			.collect(),
 		example: spec.example.to_string(),
+	}
+}
+
+fn query_constraints(name: &str) -> &'static [&'static str] {
+	match name {
+		"graph.path" => &["relation requires 1..16 non-blank values of at most 64 characters"],
+		"graph.corridor" => &[
+			"requires at least one semantic scope facet: path, lang, kind, shape, or srcset",
+			"each scope facet accepts 1..16 non-blank values of at most 256 characters",
+			"relation requires 1..16 non-blank values of at most 64 characters",
+			"the matched semantic scope, including endpoints, must not exceed max_symbols",
+		],
+		_ => &[],
 	}
 }
 
@@ -660,10 +689,9 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("graph.path", "max_symbols") => Some("10000"),
 		("graph.path", "max_edges") => Some("50000"),
 		("graph.path", "min_coverage") => Some("100"),
-		("graph.corridor", "relation") => Some("calls,method_call"),
 		("graph.corridor", "max_depth") => Some("12"),
-		("graph.corridor", "max_symbols") => Some("10000"),
-		("graph.corridor", "max_edges") => Some("50000"),
+		("graph.corridor", "max_symbols") => Some("256"),
+		("graph.corridor", "max_edges") => Some("1024"),
 		("graph.corridor", "min_coverage") => Some("100"),
 		("rules.check", "report") => Some("true"),
 		("change.context", "max_items") => Some("20"),
@@ -690,6 +718,98 @@ impl QueryRequest {
 			consistency: Consistency::Current,
 			page: Page::default(),
 		}
+	}
+
+	pub fn validate(&self) -> Result<(), QueryError> {
+		let limits = match &self.query {
+			Query::GraphPath(query) => Some(query.limits()),
+			Query::GraphCorridor(query) => Some(query.limits()),
+			_ => None,
+		};
+		if let Some(limits) = limits {
+			limits.validate().map_err(|error| {
+				QueryError::new(
+					"invalid_graph_limits",
+					format!(
+						"{}={} is outside the supported graph bounds",
+						error.field, error.value
+					),
+				)
+			})?;
+		}
+		if let Query::GraphPath(query) = &self.query {
+			validate_relations(&query.relation).map_err(|error| {
+				QueryError::new(error.code, format!("{}: {}", error.field, error.message))
+			})?;
+		}
+		if let Query::GraphCorridor(query) = &self.query {
+			query.validate_scope().map_err(|error| {
+				QueryError::new(error.code, format!("{}: {}", error.field, error.message))
+			})?;
+			if self.page.cursor.is_some() {
+				return Err(QueryError::new(
+					"graph_corridor_not_paginated",
+					"graph.corridor is stateless and returns one complete bounded result; narrow its semantic scope or bounds instead of using a cursor",
+				));
+			}
+			if self.page.limit != Page::default().limit {
+				return Err(QueryError::new(
+					"graph_corridor_not_paginated",
+					"graph.corridor does not accept a page limit; narrow its semantic scope or graph bounds instead",
+				));
+			}
+		}
+		Ok(())
+	}
+}
+
+pub const MAX_GRAPH_DEPTH: usize = 64;
+pub const MAX_GRAPH_SYMBOLS: usize = 100_000;
+pub const MAX_GRAPH_EDGES: usize = 500_000;
+pub const MAX_GRAPH_SCOPE_VALUES: usize = 16;
+pub const MAX_GRAPH_SCOPE_VALUE_CHARS: usize = 256;
+pub const MAX_GRAPH_RELATIONS: usize = 16;
+pub const MAX_GRAPH_RELATION_CHARS: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GraphLimitError {
+	pub field: &'static str,
+	pub value: usize,
+}
+
+#[derive(Clone, Copy)]
+struct GraphLimits {
+	max_depth: usize,
+	max_symbols: usize,
+	max_edges: usize,
+	min_coverage: usize,
+}
+
+impl GraphLimits {
+	fn validate(self) -> Result<(), GraphLimitError> {
+		for (field, value, valid) in [
+			(
+				"max_depth",
+				self.max_depth,
+				self.max_depth <= MAX_GRAPH_DEPTH,
+			),
+			(
+				"max_symbols",
+				self.max_symbols,
+				(1..=MAX_GRAPH_SYMBOLS).contains(&self.max_symbols),
+			),
+			(
+				"max_edges",
+				self.max_edges,
+				(1..=MAX_GRAPH_EDGES).contains(&self.max_edges),
+			),
+			("min_coverage", self.min_coverage, self.min_coverage <= 100),
+		] {
+			if !valid {
+				return Err(GraphLimitError { field, value });
+			}
+		}
+		Ok(())
 	}
 }
 
@@ -791,6 +911,7 @@ pub struct QueryCapabilityDto {
 	pub paginated: bool,
 	pub positionals: usize,
 	pub fields: Vec<QueryFieldDto>,
+	pub constraints: Vec<String>,
 	pub example: String,
 }
 
@@ -1056,11 +1177,27 @@ pub struct GraphPathQuery {
 	pub from: String,
 	pub to: String,
 	pub expect: GraphPathExpectation,
+	#[cfg_attr(feature = "schema", schemars(schema_with = "graph_relations_schema"))]
 	pub relation: Vec<String>,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 64)))]
 	pub max_depth: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 100000)))]
 	pub max_symbols: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 500000)))]
 	pub max_edges: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 100)))]
 	pub min_coverage: usize,
+}
+
+impl GraphPathQuery {
+	fn limits(&self) -> GraphLimits {
+		GraphLimits {
+			max_depth: self.max_depth,
+			max_symbols: self.max_symbols,
+			max_edges: self.max_edges,
+			min_coverage: self.min_coverage,
+		}
+	}
 }
 
 impl Default for GraphPathQuery {
@@ -1079,17 +1216,269 @@ impl Default for GraphPathQuery {
 	}
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GraphSymbolScope {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub path: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub lang: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub kind: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub shape: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub srcset: Vec<String>,
+}
+
+impl GraphSymbolScope {
+	fn is_empty(&self) -> bool {
+		self.path.is_empty()
+			&& self.lang.is_empty()
+			&& self.kind.is_empty()
+			&& self.shape.is_empty()
+			&& self.srcset.is_empty()
+	}
+
+	fn facets(&self) -> [(&'static str, &[String]); 5] {
+		[
+			("path", &self.path),
+			("lang", &self.lang),
+			("kind", &self.kind),
+			("shape", &self.shape),
+			("srcset", &self.srcset),
+		]
+	}
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for GraphSymbolScope {
+	fn schema_name() -> String {
+		"GraphSymbolScope".to_string()
+	}
+
+	fn json_schema(generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+		use schemars::schema::{ObjectValidation, SchemaObject, SubschemaValidation};
+
+		let mut schema = GraphSymbolScopeSchema::json_schema(generator).into_object();
+		let properties = schema
+			.object
+			.as_ref()
+			.map(|object| object.properties.clone())
+			.unwrap_or_default();
+		let any_of = ["path", "lang", "kind", "shape", "srcset"]
+			.into_iter()
+			.map(|field| {
+				let mut object = ObjectValidation::default();
+				object.required.insert(field.to_string());
+				if let Some(property) = properties.get(field) {
+					let mut property = property.clone().into_object();
+					property.array().min_items = Some(1);
+					object.properties.insert(field.to_string(), property.into());
+				}
+				SchemaObject {
+					object: Some(Box::new(object)),
+					..Default::default()
+				}
+				.into()
+			})
+			.collect();
+		schema
+			.subschemas
+			.get_or_insert_with(|| Box::new(SubschemaValidation::default()))
+			.any_of = Some(any_of);
+		schema.into()
+	}
+}
+
+#[cfg(feature = "schema")]
+#[derive(schemars::JsonSchema)]
+#[allow(dead_code)]
+struct GraphSymbolScopeSchema {
+	#[serde(default)]
+	#[schemars(length(max = 16))]
+	path: Vec<GraphScopeValue>,
+	#[serde(default)]
+	#[schemars(length(max = 16))]
+	lang: Vec<GraphScopeValue>,
+	#[serde(default)]
+	#[schemars(length(max = 16))]
+	kind: Vec<GraphScopeValue>,
+	#[serde(default)]
+	#[schemars(length(max = 16))]
+	shape: Vec<GraphScopeValue>,
+	#[serde(default)]
+	#[schemars(length(max = 16))]
+	srcset: Vec<GraphScopeValue>,
+}
+
+#[cfg(feature = "schema")]
+#[allow(dead_code)]
+struct GraphScopeValue(String);
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for GraphScopeValue {
+	fn schema_name() -> String {
+		"GraphScopeValue".to_string()
+	}
+
+	fn json_schema(_: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+		bounded_string_schema(256)
+	}
+}
+
+#[cfg(feature = "schema")]
+#[allow(dead_code)]
+struct GraphRelationValue(String);
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for GraphRelationValue {
+	fn schema_name() -> String {
+		"GraphRelationValue".to_string()
+	}
+
+	fn json_schema(_: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+		bounded_string_schema(64)
+	}
+}
+
+#[cfg(feature = "schema")]
+fn bounded_string_schema(max_length: u32) -> schemars::schema::Schema {
+	use schemars::schema::{InstanceType, SchemaObject, StringValidation};
+
+	SchemaObject {
+		instance_type: Some(InstanceType::String.into()),
+		string: Some(Box::new(StringValidation {
+			min_length: Some(1),
+			max_length: Some(max_length),
+			pattern: Some(r".*\S.*".to_string()),
+		})),
+		..Default::default()
+	}
+	.into()
+}
+
+#[cfg(feature = "schema")]
+fn graph_relations_schema(
+	generator: &mut schemars::r#gen::SchemaGenerator,
+) -> schemars::schema::Schema {
+	let mut schema = generator
+		.subschema_for::<Vec<GraphRelationValue>>()
+		.into_object();
+	schema.array().min_items = Some(1);
+	schema.array().max_items = Some(16);
+	schema.into()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GraphCorridorQuery {
 	pub workspace: Option<String>,
 	pub from: String,
 	pub to: String,
+	pub scope: GraphSymbolScope,
+	#[cfg_attr(feature = "schema", schemars(schema_with = "graph_relations_schema"))]
 	pub relation: Vec<String>,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 64)))]
 	pub max_depth: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 100000)))]
 	pub max_symbols: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 500000)))]
 	pub max_edges: usize,
+	#[cfg_attr(feature = "schema", schemars(range(min = 0, max = 100)))]
 	pub min_coverage: usize,
+}
+
+impl GraphCorridorQuery {
+	fn limits(&self) -> GraphLimits {
+		GraphLimits {
+			max_depth: self.max_depth,
+			max_symbols: self.max_symbols,
+			max_edges: self.max_edges,
+			min_coverage: self.min_coverage,
+		}
+	}
+
+	fn validate_scope(&self) -> Result<(), GraphScopeError> {
+		validate_relations(&self.relation)?;
+		if self.scope.is_empty() {
+			return Err(GraphScopeError::new(
+				"invalid_graph_scope",
+				"scope",
+				"at least one semantic scope is required: path, lang, kind, shape, or srcset",
+			));
+		}
+		for (field, values) in self.scope.facets() {
+			validate_values(
+				"invalid_graph_scope",
+				field,
+				values,
+				MAX_GRAPH_SCOPE_VALUES,
+				MAX_GRAPH_SCOPE_VALUE_CHARS,
+			)?;
+		}
+		Ok(())
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GraphScopeError {
+	code: &'static str,
+	field: &'static str,
+	message: &'static str,
+}
+
+impl GraphScopeError {
+	fn new(code: &'static str, field: &'static str, message: &'static str) -> Self {
+		Self {
+			code,
+			field,
+			message,
+		}
+	}
+}
+
+fn validate_values(
+	code: &'static str,
+	field: &'static str,
+	values: &[String],
+	max_values: usize,
+	max_chars: usize,
+) -> Result<(), GraphScopeError> {
+	if values.len() > max_values {
+		return Err(GraphScopeError::new(
+			code,
+			field,
+			"too many values in this facet",
+		));
+	}
+	if values
+		.iter()
+		.any(|value| value.trim().is_empty() || value.chars().count() > max_chars)
+	{
+		return Err(GraphScopeError::new(
+			code,
+			field,
+			"values must be non-empty and within the supported size bound",
+		));
+	}
+	Ok(())
+}
+
+fn validate_relations(relations: &[String]) -> Result<(), GraphScopeError> {
+	if relations.is_empty() {
+		return Err(GraphScopeError::new(
+			"invalid_graph_relations",
+			"relation",
+			"at least one relation is required",
+		));
+	}
+	validate_values(
+		"invalid_graph_relations",
+		"relation",
+		relations,
+		MAX_GRAPH_RELATIONS,
+		MAX_GRAPH_RELATION_CHARS,
+	)
 }
 
 impl Default for GraphCorridorQuery {
@@ -1098,10 +1487,11 @@ impl Default for GraphCorridorQuery {
 			workspace: None,
 			from: String::new(),
 			to: String::new(),
-			relation: vec!["calls".to_string(), "method_call".to_string()],
+			scope: GraphSymbolScope::default(),
+			relation: Vec::new(),
 			max_depth: 12,
-			max_symbols: 10_000,
-			max_edges: 50_000,
+			max_symbols: 256,
+			max_edges: 1_024,
 			min_coverage: 100,
 		}
 	}
@@ -1492,9 +1882,12 @@ pub struct GraphPathCoverage {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GraphPathSearchStats {
 	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
 	pub depth_reached: usize,
 	pub explored_symbols: usize,
 	pub explored_edges: usize,
+	pub admitted_references: usize,
 	pub depth_limit_reached: bool,
 	pub symbol_limit_reached: bool,
 	pub edge_limit_reached: bool,
@@ -1505,6 +1898,8 @@ pub struct GraphPathSearchStats {
 pub struct GraphCorridorResult {
 	pub from: SymbolDto,
 	pub to: SymbolDto,
+	pub member_count: usize,
+	pub edge_count: usize,
 	pub members: Vec<SymbolDto>,
 	pub edges: Vec<GraphCorridorEdge>,
 	pub connected: Option<bool>,
@@ -1521,17 +1916,22 @@ pub struct GraphCorridorEdge {
 	pub target: SymbolDto,
 	pub relations: Vec<String>,
 	pub count: usize,
-	pub representative: GraphPathStep,
+	pub representative_reference: String,
+	pub representative_file: String,
+	pub representative_line_range: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GraphCorridorSearchStats {
 	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
 	pub forward_depth_reached: usize,
 	pub reverse_depth_reached: usize,
 	pub explored_symbols: usize,
 	pub explored_edges: usize,
+	pub admitted_references: usize,
 	pub depth_limit_reached: bool,
 	pub symbol_limit_reached: bool,
 	pub edge_limit_reached: bool,
@@ -2895,11 +3295,11 @@ fn validate_fields(
 ) -> Result<(), QueryParseError> {
 	for (key, value) in &fields.values {
 		let key = key.as_str();
-		if !COMMON_FIELDS.contains(&key) && !spec.fields.contains(&key) {
+		if !request_field_allowed(spec, key) {
 			return Err(QueryParseError::UnknownField {
 				op: op.to_string(),
 				key: key.to_string(),
-				hint: field_hint(key, spec.fields),
+				hint: field_hint(key, spec),
 			});
 		}
 		if !value.quoted
@@ -2948,30 +3348,54 @@ fn projection_field_hint(field: &str, allowed: &'static [&'static str]) -> Strin
 	format!(" (valid projection fields: {})", allowed.join(", "))
 }
 
-fn field_hint(key: &str, allowed: &'static [&'static str]) -> String {
-	if let Some(suggestion) = suggest_field(key, allowed) {
+fn field_hint(key: &str, spec: &QueryCapabilitySpec) -> String {
+	if let Some(suggestion) = suggest_field(key, spec) {
 		return format!(", did you mean `{suggestion}`?");
 	}
-	let mut valid: Vec<&str> = allowed.iter().chain(COMMON_FIELDS).copied().collect();
+	let mut valid: Vec<&str> = spec
+		.fields
+		.iter()
+		.copied()
+		.chain(ALWAYS_REQUEST_FIELDS.iter().copied())
+		.chain(
+			spec.paginated
+				.then_some(PAGINATION_FIELDS)
+				.into_iter()
+				.flatten()
+				.copied(),
+		)
+		.collect();
 	valid.sort_unstable();
 	format!(" (valid fields: {})", valid.join(", "))
 }
 
-fn suggest_field(key: &str, allowed: &'static [&'static str]) -> Option<&'static str> {
+fn suggest_field(key: &str, spec: &QueryCapabilitySpec) -> Option<&'static str> {
 	const ALIASES: &[(&str, &str)] = &[("text", "name"), ("query", "name"), ("filename", "path")];
 	for (alias, target) in ALIASES {
-		if *alias == key && allowed.contains(target) {
+		if *alias == key && spec.fields.contains(target) {
 			return Some(target);
 		}
 	}
-	allowed
+	spec.fields
 		.iter()
-		.chain(COMMON_FIELDS)
+		.chain(ALWAYS_REQUEST_FIELDS)
+		.chain(
+			spec.paginated
+				.then_some(PAGINATION_FIELDS)
+				.into_iter()
+				.flatten(),
+		)
 		.copied()
 		.map(|candidate| (candidate, levenshtein(key, candidate)))
 		.filter(|(_, distance)| *distance <= 2)
 		.min_by_key(|(_, distance)| *distance)
 		.map(|(candidate, _)| candidate)
+}
+
+fn request_field_allowed(spec: &QueryCapabilitySpec, field: &str) -> bool {
+	spec.fields.contains(&field)
+		|| ALWAYS_REQUEST_FIELDS.contains(&field)
+		|| (spec.paginated && PAGINATION_FIELDS.contains(&field))
 }
 
 fn levenshtein(a: &str, b: &str) -> usize {
@@ -3110,23 +3534,11 @@ fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseE
 
 fn graph_path_query(fields: &FieldBag) -> Result<GraphPathQuery, QueryParseError> {
 	let max_depth = fields.usize("max_depth")?.unwrap_or(12);
-	if max_depth > 64 {
-		return Err(QueryParseError::InvalidValue {
-			key: "max_depth".to_string(),
-			value: max_depth.to_string(),
-		});
-	}
 	let min_coverage = fields.usize("min_coverage")?.unwrap_or(100);
-	if min_coverage > 100 {
-		return Err(QueryParseError::InvalidValue {
-			key: "min_coverage".to_string(),
-			value: min_coverage.to_string(),
-		});
-	}
-	let max_symbols = bounded_non_zero_field(fields, "max_symbols", 10_000, 100_000)?;
-	let max_edges = bounded_non_zero_field(fields, "max_edges", 50_000, 500_000)?;
+	let max_symbols = fields.usize("max_symbols")?.unwrap_or(10_000);
+	let max_edges = fields.usize("max_edges")?.unwrap_or(50_000);
 	let relation = fields.many("relation");
-	Ok(GraphPathQuery {
+	let query = GraphPathQuery {
 		workspace: fields.one("workspace"),
 		from: fields
 			.one("from")
@@ -3147,28 +3559,21 @@ fn graph_path_query(fields: &FieldBag) -> Result<GraphPathQuery, QueryParseError
 		max_symbols,
 		max_edges,
 		min_coverage,
-	})
+	};
+	validate_graph_query(query.limits())?;
+	validate_relations(&query.relation).map_err(|error| QueryParseError::InvalidValue {
+		key: error.field.to_string(),
+		value: error.message.to_string(),
+	})?;
+	Ok(query)
 }
 
 fn graph_corridor_query(fields: &FieldBag) -> Result<GraphCorridorQuery, QueryParseError> {
 	let max_depth = fields.usize("max_depth")?.unwrap_or(12);
-	if max_depth > 64 {
-		return Err(QueryParseError::InvalidValue {
-			key: "max_depth".to_string(),
-			value: max_depth.to_string(),
-		});
-	}
 	let min_coverage = fields.usize("min_coverage")?.unwrap_or(100);
-	if min_coverage > 100 {
-		return Err(QueryParseError::InvalidValue {
-			key: "min_coverage".to_string(),
-			value: min_coverage.to_string(),
-		});
-	}
-	let max_symbols = bounded_non_zero_field(fields, "max_symbols", 10_000, 100_000)?;
-	let max_edges = bounded_non_zero_field(fields, "max_edges", 50_000, 500_000)?;
-	let relation = fields.many("relation");
-	Ok(GraphCorridorQuery {
+	let max_symbols = fields.usize("max_symbols")?.unwrap_or(256);
+	let max_edges = fields.usize("max_edges")?.unwrap_or(1_024);
+	let query = GraphCorridorQuery {
 		workspace: fields.one("workspace"),
 		from: fields
 			.one("from")
@@ -3176,32 +3581,36 @@ fn graph_corridor_query(fields: &FieldBag) -> Result<GraphCorridorQuery, QueryPa
 		to: fields
 			.one("to")
 			.ok_or(QueryParseError::MissingRequired("to"))?,
-		relation: if relation.is_empty() {
-			vec!["calls".to_string(), "method_call".to_string()]
-		} else {
-			relation
+		scope: GraphSymbolScope {
+			path: fields.many("path"),
+			lang: fields.many("lang"),
+			kind: fields.many("kind"),
+			shape: fields.many("shape"),
+			srcset: fields.many("srcset"),
 		},
+		relation: fields.many("relation"),
 		max_depth,
 		max_symbols,
 		max_edges,
 		min_coverage,
-	})
+	};
+	validate_graph_query(query.limits())?;
+	query
+		.validate_scope()
+		.map_err(|error| QueryParseError::InvalidValue {
+			key: error.field.to_string(),
+			value: error.message.to_string(),
+		})?;
+	Ok(query)
 }
 
-fn bounded_non_zero_field(
-	fields: &FieldBag,
-	key: &str,
-	default: usize,
-	maximum: usize,
-) -> Result<usize, QueryParseError> {
-	let value = fields.usize(key)?.unwrap_or(default);
-	if value == 0 || value > maximum {
-		return Err(QueryParseError::InvalidValue {
-			key: key.to_string(),
-			value: value.to_string(),
-		});
-	}
-	Ok(value)
+fn validate_graph_query(limits: GraphLimits) -> Result<(), QueryParseError> {
+	limits
+		.validate()
+		.map_err(|error| QueryParseError::InvalidValue {
+			key: error.field.to_string(),
+			value: error.value.to_string(),
+		})
 }
 
 fn parse_notes_action(value: &str) -> Result<NotesAction, QueryParseError> {
@@ -3517,6 +3926,9 @@ fn format_query_describe(out: &mut String, result: &QueryDescribeResult) {
 			.collect::<Vec<_>>()
 			.join(", ");
 		let _ = writeln!(out, "  fields: {fields}");
+		for constraint in &capability.constraints {
+			let _ = writeln!(out, "  requires: {constraint}");
+		}
 		if !capability.projection_fields.is_empty() {
 			let _ = writeln!(
 				out,
@@ -4097,10 +4509,13 @@ fn format_graph_path(out: &mut String, result: &GraphPathResult) {
 	);
 	let _ = writeln!(
 		out,
-		"search: depth={}/{} symbols={} edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
+		"search: depth={}/{} symbols={}/{} references={}/{} resolved_edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
 		result.search.depth_reached,
 		result.search.max_depth,
 		result.search.explored_symbols,
+		result.search.max_symbols,
+		result.search.admitted_references,
+		result.search.max_edges,
 		result.search.explored_edges,
 		result.search.depth_limit_reached,
 		result.search.symbol_limit_reached,
@@ -4140,10 +4555,12 @@ fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
 	};
 	let _ = writeln!(
 		out,
-		"connected: {connected} complete: {} members: {} edges: {}",
+		"connected: {connected} complete: {} members: {}/{} edges: {}/{}",
 		result.complete,
 		result.members.len(),
-		result.edges.len()
+		result.member_count,
+		result.edges.len(),
+		result.edge_count
 	);
 	let _ = writeln!(out, "from: {}", result.from.uri);
 	let _ = writeln!(out, "to: {}", result.to.uri);
@@ -4162,12 +4579,15 @@ fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
 	);
 	let _ = writeln!(
 		out,
-		"search: forward_depth={}/{} reverse_depth={}/{} symbols={} edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
+		"search: forward_depth={}/{} reverse_depth={}/{} symbols={}/{} references={}/{} resolved_edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
 		result.search.forward_depth_reached,
 		result.search.max_depth,
 		result.search.reverse_depth_reached,
 		result.search.max_depth,
 		result.search.explored_symbols,
+		result.search.max_symbols,
+		result.search.admitted_references,
+		result.search.max_edges,
 		result.search.explored_edges,
 		result.search.depth_limit_reached,
 		result.search.symbol_limit_reached,
@@ -4187,7 +4607,7 @@ fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
 			edge.target.uri,
 			edge.count,
 			edge.relations.join(","),
-			edge.representative.reference
+			edge.representative_reference
 		);
 	}
 }
@@ -4626,7 +5046,10 @@ mod tests {
 			let dto = dto_fields(spec.name);
 			for field in spec.fields {
 				assert!(
-					dto.iter().any(|candidate| candidate == field),
+					dto.iter().any(|candidate| candidate == field)
+						|| (spec.name == "graph.corridor"
+							&& ["path", "lang", "kind", "shape", "srcset"].contains(field)
+							&& dto.iter().any(|candidate| candidate == "scope")),
 					"{} field `{field}` missing from DTO fields {dto:?}",
 					spec.name
 				);
@@ -4634,7 +5057,8 @@ mod tests {
 			assert!(
 				spec.fields
 					.iter()
-					.all(|field| !COMMON_FIELDS.contains(field)),
+					.all(|field| !ALWAYS_REQUEST_FIELDS.contains(field)
+						&& !PAGINATION_FIELDS.contains(field)),
 				"{} repeats a common request field",
 				spec.name
 			);
@@ -4777,50 +5201,49 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_bounded_graph_corridor_contract() {
-		let request = parse_query(
-			"graph.corridor from:\"code+moniker://./fn:callback()\" to:\"code+moniker://./fn:repository()\" relation:[calls,method_call] max_depth:8 max_symbols:300 max_edges:700 min_coverage:90",
-		)
-		.expect("graph corridor contract");
-		let Query::GraphCorridor(query) = request.query else {
-			panic!("expected graph corridor query");
-		};
-		assert_eq!(query.from, "code+moniker://./fn:callback()");
-		assert_eq!(query.to, "code+moniker://./fn:repository()");
-		assert_eq!(query.relation, vec!["calls", "method_call"]);
-		assert_eq!(query.max_depth, 8);
-		assert_eq!(query.max_symbols, 300);
-		assert_eq!(query.max_edges, 700);
-		assert_eq!(query.min_coverage, 90);
+	fn graph_corridor_rejects_pagination_fields() {
+		for field in ["limit:1", "cursor:7:40"] {
+			let error = parse_query(&format!(
+				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" relation:calls shape:callable {field}"
+			))
+			.expect_err("corridor pagination must be rejected");
+			assert!(matches!(error, QueryParseError::UnknownField { .. }));
+		}
 		let capability = describe_query_capabilities(Some("graph.corridor"))
-			.expect("graph corridor capability")
+			.expect("corridor capability")
 			.capabilities
 			.pop()
-			.expect("graph corridor descriptor");
-		assert_eq!(capability.mcp_tool, "code_moniker_query");
+			.expect("corridor descriptor");
 		assert!(!capability.paginated);
+		assert!(
+			capability
+				.fields
+				.iter()
+				.all(|field| field.name != "limit" && field.name != "cursor")
+		);
 	}
 
 	#[test]
-	fn rejects_unbounded_graph_corridor_limits() {
-		assert!(matches!(
-			parse_query(
-				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" max_depth:65"
-			),
-			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_depth"
-		));
-		assert!(matches!(
-			parse_query(
-				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" min_coverage:101"
-			),
-			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "min_coverage"
-		));
-		assert!(matches!(
-			parse_query(
-				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" max_edges:0"
-			),
-			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_edges"
-		));
+	fn graph_corridor_direct_request_rejects_non_default_page_limit() {
+		let mut request = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+			from: "symbol:0:0".to_string(),
+			to: "symbol:0:1".to_string(),
+			scope: GraphSymbolScope {
+				shape: vec!["appelé".repeat(42)],
+				..GraphSymbolScope::default()
+			},
+			relation: vec!["appels".repeat(10)],
+			..GraphCorridorQuery::default()
+		}));
+		assert!(
+			request.validate().is_ok(),
+			"Unicode bounds count characters"
+		);
+		request.page.limit = 1;
+		assert_eq!(
+			request.validate().expect_err("page limit").code,
+			"graph_corridor_not_paginated"
+		);
 	}
 
 	#[test]
@@ -5188,7 +5611,7 @@ mod tests {
 		let error = parse_query("change.review foobarbaz:1").expect_err("unknown field");
 		let message = error.to_string();
 		assert!(
-			message.contains("valid fields: consistency, cursor, limit, workspace"),
+			message.contains("valid fields: consistency, workspace"),
 			"{message}"
 		);
 	}
@@ -5440,7 +5863,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 18);
+		assert_eq!(PROTOCOL_VERSION, 19);
 	}
 
 	#[test]

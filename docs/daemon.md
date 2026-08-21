@@ -180,14 +180,33 @@ projectable result fields. MCP agents normally reach this through the
 read-only `code_moniker_query` escape hatch; direct daemon queries remain a
 developer and protocol-diagnostic surface.
 
-`graph.corridor from:"<symbol>" to:"<symbol>"` returns the bounded directed
-subgraph that participates in connectivity between two symbols. A member must
+`graph.corridor from:"<symbol>" to:"<symbol>" relation:calls shape:callable`
+returns the bounded directed subgraph that participates in connectivity between
+two symbols. The agent must provide at least one relation and at least one
+semantic symbol scope: `path`, `lang`, `kind`, `shape`, or `srcset`. Values are
+ORed within one facet and facets are ANDed together. The two requested endpoints
+are always admitted; every intermediate symbol must belong to the resulting
+scope. The resulting symbol bitmap, including endpoints, must fit
+`max_symbols`; otherwise the request fails with `graph_scope_too_large` and the
+diagnostic reports the combined cardinality, each supplied facet's cardinality,
+and the most selective facet to narrow next. Two distinct endpoints impose a
+minimum `max_symbols` of 2; this is rejected before facet bitmap construction
+with the exact minimum to request. The zero-length `from == to` corridor is
+the only exception because it needs no traversal. A member must
 be reachable from `from`, able to reach `to`, and satisfy
 `distance(from, member) + distance(member, to) <= max_depth`. An edge must
 satisfy the corresponding total-route bound with its own hop. This preserves
 parallel branches, reconvergences and participating cycles instead of choosing
-one shortest witness. Relation and workspace filters apply in both traversal
-directions and during final edge projection.
+one shortest witness. Relation and semantic scope bitmaps apply in both
+traversal directions and during final edge projection.
+
+`graph.path` and `graph.corridor` traverse the same linkage read index. Symbol
+frontiers and relation-specific reference postings are Roaring bitmaps; unions,
+intersections and differences stay in bitmap form. The engine admits references
+with an ordered merge capped by `max_edges`, so it does not materialize a large
+adjacency before enforcing the request budget. Both DSL and direct protocol
+requests enforce `max_depth <= 64`, `1 <= max_symbols <= 100000`,
+`1 <= max_edges <= 500000`, and `min_coverage <= 100`.
 
 `connected` is `true` once any corridor is established, `false` only after a
 complete disconnected search, and `null` when linkage coverage or a traversal
@@ -196,6 +215,16 @@ partial member/edge results. Coverage and explored-edge counts deduplicate a
 reference observed by both the forward and reverse scans. When `from == to`,
 the result is the deterministic zero-length corridor containing that symbol and
 no edges.
+
+Corridor output is stateless and not paginated. One request returns the entire
+result admitted by its semantic scope and explicit traversal bounds; it never
+returns a cursor. `member_count` and `edge_count` therefore match the returned
+`members` and `edges`. When `complete:false`, the agent narrows the scope or
+adjusts the explicit bounds and submits a new independent request. Search stats
+report explored/maximum symbols, admitted/maximum references, and resolved edge
+counts separately. Each limit reason names the saturated budget, its exact
+used/max values, and a concrete next action valid for `graph.path` or
+`graph.corridor` respectively.
 
 `syntax.tree focus:"<relative or absolute source path or symbol URI>"` asks the
 registered language SDK for its parsed document on demand. Semantic extraction

@@ -129,7 +129,10 @@ impl LinkageReportProjection {
 		blocked.shrink_to_fit();
 		manifest_blocked.shrink_to_fit();
 		unresolved.shrink_to_fit();
+		#[cfg(test)]
 		let read_index = crate::snapshot::LinkageReadIndexHandle::from_edges(&resolved);
+		#[cfg(not(test))]
+		let read_index = crate::snapshot::LinkageReadIndexHandle::default();
 		LinkageSnapshot {
 			generation,
 			index_generation,

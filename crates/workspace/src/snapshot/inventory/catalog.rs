@@ -13,6 +13,19 @@ pub struct SymbolOrdinalCatalog {
 }
 
 impl SymbolOrdinalCatalog {
+	#[cfg(test)]
+	pub(crate) fn from_active_ordinals(
+		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
+	) -> Self {
+		let mut catalog = Self::default();
+		for (raw_ordinal, id) in ordinals {
+			let ordinal = SymbolOrdinal::from_index(raw_ordinal as usize);
+			catalog.bind_id(ordinal, id);
+			catalog.next_ordinal = catalog.next_ordinal.max(raw_ordinal.saturating_add(1));
+		}
+		catalog
+	}
+
 	pub(super) fn estimated_heap_bytes(&self) -> usize {
 		self.ids.capacity()
 			* (std::mem::size_of::<SymbolOrdinal>() + std::mem::size_of::<SymbolId>())
