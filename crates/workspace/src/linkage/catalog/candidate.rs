@@ -75,6 +75,10 @@ impl CandidateCatalog {
 		&self.symbols
 	}
 
+	pub(in crate::linkage) fn symbol_catalog(&self) -> Arc<SymbolOrdinalCatalog> {
+		Arc::clone(&self.symbols)
+	}
+
 	pub(in crate::linkage) fn indexes(&self) -> &CandidateIndexes {
 		&self.indexes
 	}

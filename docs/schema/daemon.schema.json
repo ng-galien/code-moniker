@@ -1635,6 +1635,195 @@
         }
       }
     },
+    "GraphCorridorEdge": {
+      "type": "object",
+      "required": [
+        "count",
+        "relations",
+        "representative_file",
+        "representative_reference",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "representative_file": {
+          "type": "string"
+        },
+        "representative_line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "representative_reference": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "target": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "GraphCorridorResult": {
+      "type": "object",
+      "required": [
+        "complete",
+        "coverage",
+        "edge_count",
+        "edges",
+        "from",
+        "member_count",
+        "members",
+        "reasons",
+        "search",
+        "to"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "connected": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "coverage": {
+          "$ref": "#/definitions/GraphPathCoverage"
+        },
+        "edge_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphCorridorEdge"
+          }
+        },
+        "from": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "member_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolDto"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "search": {
+          "$ref": "#/definitions/GraphCorridorSearchStats"
+        },
+        "to": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "GraphCorridorSearchStats": {
+      "type": "object",
+      "required": [
+        "admitted_references",
+        "depth_limit_reached",
+        "edge_limit_reached",
+        "explored_edges",
+        "explored_symbols",
+        "forward_depth_reached",
+        "max_depth",
+        "max_edges",
+        "max_symbols",
+        "reverse_depth_reached",
+        "symbol_limit_reached"
+      ],
+      "properties": {
+        "admitted_references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "depth_limit_reached": {
+          "type": "boolean"
+        },
+        "edge_limit_reached": {
+          "type": "boolean"
+        },
+        "explored_edges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "explored_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "forward_depth_reached": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_depth": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_edges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "reverse_depth_reached": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "symbol_limit_reached": {
+          "type": "boolean"
+        }
+      }
+    },
     "GraphPathCoverage": {
       "type": "object",
       "required": [
@@ -1772,15 +1961,23 @@
     "GraphPathSearchStats": {
       "type": "object",
       "required": [
+        "admitted_references",
         "depth_limit_reached",
         "depth_reached",
         "edge_limit_reached",
         "explored_edges",
         "explored_symbols",
         "max_depth",
+        "max_edges",
+        "max_symbols",
         "symbol_limit_reached"
       ],
       "properties": {
+        "admitted_references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "depth_limit_reached": {
           "type": "boolean"
         },
@@ -1803,6 +2000,16 @@
           "minimum": 0.0
         },
         "max_depth": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_edges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_symbols": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
@@ -1867,6 +2074,18 @@
         "inconclusive"
       ]
     },
+    "GraphRelationValue": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
+    "GraphScopeValue": {
+      "type": "string",
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
     "GraphSectionCoverage": {
       "type": "object",
       "required": [
@@ -1889,6 +2108,123 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        }
+      }
+    },
+    "GraphSymbolScope": {
+      "type": "object",
+      "anyOf": [
+        {
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphScopeValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "lang"
+          ],
+          "properties": {
+            "lang": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphScopeValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphScopeValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "shape"
+          ],
+          "properties": {
+            "shape": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphScopeValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "srcset"
+          ],
+          "properties": {
+            "srcset": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphScopeValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          }
+        }
+      ],
+      "properties": {
+        "kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphScopeValue"
+          },
+          "maxItems": 16
+        },
+        "lang": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphScopeValue"
+          },
+          "maxItems": 16
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphScopeValue"
+          },
+          "maxItems": 16
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphScopeValue"
+          },
+          "maxItems": 16
+        },
+        "srcset": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphScopeValue"
+          },
+          "maxItems": 16
         }
       }
     },
@@ -3324,21 +3660,25 @@
             "max_depth": {
               "type": "integer",
               "format": "uint",
+              "maximum": 64.0,
               "minimum": 0.0
             },
             "max_edges": {
               "type": "integer",
               "format": "uint",
-              "minimum": 0.0
+              "maximum": 500000.0,
+              "minimum": 1.0
             },
             "max_symbols": {
               "type": "integer",
               "format": "uint",
-              "minimum": 0.0
+              "maximum": 100000.0,
+              "minimum": 1.0
             },
             "min_coverage": {
               "type": "integer",
               "format": "uint",
+              "maximum": 100.0,
               "minimum": 0.0
             },
             "op": {
@@ -3350,8 +3690,79 @@
             "relation": {
               "type": "array",
               "items": {
-                "type": "string"
-              }
+                "$ref": "#/definitions/GraphRelationValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            },
+            "to": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "from",
+            "max_depth",
+            "max_edges",
+            "max_symbols",
+            "min_coverage",
+            "op",
+            "relation",
+            "scope",
+            "to"
+          ],
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 64.0,
+              "minimum": 0.0
+            },
+            "max_edges": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 500000.0,
+              "minimum": 1.0
+            },
+            "max_symbols": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 100000.0,
+              "minimum": 1.0
+            },
+            "min_coverage": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 100.0,
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "graph_corridor"
+              ]
+            },
+            "relation": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GraphRelationValue"
+              },
+              "maxItems": 16,
+              "minItems": 1
+            },
+            "scope": {
+              "$ref": "#/definitions/GraphSymbolScope"
             },
             "to": {
               "type": "string"
@@ -3582,6 +3993,7 @@
       "type": "object",
       "required": [
         "category",
+        "constraints",
         "example",
         "fields",
         "mcp_tool",
@@ -3595,6 +4007,12 @@
       "properties": {
         "category": {
           "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "example": {
           "type": "string"
@@ -4068,6 +4486,24 @@
               "type": "string",
               "enum": [
                 "graph_path"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/GraphCorridorResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "graph_corridor"
               ]
             }
           }
@@ -6458,5 +6894,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 17
+  "x-code-moniker-protocol-version": 19
 }

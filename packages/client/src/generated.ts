@@ -168,7 +168,323 @@ export type Query =
       max_symbols: number;
       min_coverage: number;
       op: "graph_path";
-      relation: string[];
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      relation:
+        | [GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ];
+      to: string;
+      workspace?: string | null;
+    }
+  | {
+      from: string;
+      max_depth: number;
+      max_edges: number;
+      max_symbols: number;
+      min_coverage: number;
+      op: "graph_corridor";
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      relation:
+        | [GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue, GraphRelationValue]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ]
+        | [
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue,
+            GraphRelationValue
+          ];
+      scope: GraphSymbolScope;
       to: string;
       workspace?: string | null;
     }
@@ -216,6 +532,1481 @@ export type Query =
 export type UsageDirection = "incoming" | "outgoing" | "both";
 export type DiffImpactFileStatus = "added" | "modified" | "deleted" | "renamed";
 export type GraphPathExpectation = "reachable" | "no_path";
+export type GraphRelationValue = string;
+export type GraphSymbolScope = GraphSymbolScope1 & {
+  /**
+   * @maxItems 16
+   */
+  kind?:
+    | []
+    | [GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ];
+  /**
+   * @maxItems 16
+   */
+  lang?:
+    | []
+    | [GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ];
+  /**
+   * @maxItems 16
+   */
+  path?:
+    | []
+    | [GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ];
+  /**
+   * @maxItems 16
+   */
+  shape?:
+    | []
+    | [GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ];
+  /**
+   * @maxItems 16
+   */
+  srcset?:
+    | []
+    | [GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ]
+    | [
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue,
+        GraphScopeValue
+      ];
+};
+export type GraphSymbolScope1 =
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      path:
+        | [GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ];
+    }
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      lang:
+        | [GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ];
+    }
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      kind:
+        | [GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ];
+    }
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      shape:
+        | [GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ];
+    }
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 16
+       */
+      srcset:
+        | [GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue, GraphScopeValue]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ]
+        | [
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue,
+            GraphScopeValue
+          ];
+    };
+export type GraphScopeValue = string;
 export type NotesAction = "list" | "get" | "create" | "update" | "transition" | "delete";
 export type Consistency = "current" | "refresh_if_stale" | "stale_ok";
 export type QueryResult =
@@ -286,6 +2077,10 @@ export type QueryResult =
   | {
       data: GraphPathResult;
       kind: "graph_path";
+    }
+  | {
+      data: GraphCorridorResult;
+      kind: "graph_corridor";
     }
   | {
       data: IdentityChildrenResult;
@@ -501,6 +2296,7 @@ export interface QueryDescribeResult {
 }
 export interface QueryCapabilityDto {
   category: string;
+  constraints: string[];
   example: string;
   fields: QueryFieldDto[];
   mcp_tool: string;
@@ -1147,12 +2943,54 @@ export interface GraphPathStep {
   target: SymbolDto;
 }
 export interface GraphPathSearchStats {
+  admitted_references: number;
   depth_limit_reached: boolean;
   depth_reached: number;
   edge_limit_reached: boolean;
   explored_edges: number;
   explored_symbols: number;
   max_depth: number;
+  max_edges: number;
+  max_symbols: number;
+  symbol_limit_reached: boolean;
+}
+export interface GraphCorridorResult {
+  complete: boolean;
+  connected?: boolean | null;
+  coverage: GraphPathCoverage;
+  edge_count: number;
+  edges: GraphCorridorEdge[];
+  from: SymbolDto;
+  member_count: number;
+  members: SymbolDto[];
+  reasons: string[];
+  search: GraphCorridorSearchStats;
+  to: SymbolDto;
+}
+export interface GraphCorridorEdge {
+  count: number;
+  relations: string[];
+  representative_file: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  representative_line_range?: [number, number] | null;
+  representative_reference: string;
+  source: SymbolDto;
+  target: SymbolDto;
+}
+export interface GraphCorridorSearchStats {
+  admitted_references: number;
+  depth_limit_reached: boolean;
+  edge_limit_reached: boolean;
+  explored_edges: number;
+  explored_symbols: number;
+  forward_depth_reached: number;
+  max_depth: number;
+  max_edges: number;
+  max_symbols: number;
+  reverse_depth_reached: number;
   symbol_limit_reached: boolean;
 }
 export interface IdentityChildrenResult {

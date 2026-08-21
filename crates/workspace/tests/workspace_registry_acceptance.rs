@@ -15,7 +15,8 @@ use code_moniker_workspace::registry::{
 	WorkspaceEventKind, WorkspaceScopeUri, WorkspaceSnapshotPublication,
 };
 use code_moniker_workspace::snapshot::{
-	CodeIndex, LinkageSnapshot, WorkspaceRequest, WorkspaceResource, WorkspaceTransition,
+	BoundedCorridorRequest, BoundedCorridorScope, BoundedPathLimits, CodeIndex, LinkageSnapshot,
+	WorkspaceRequest, WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
@@ -207,6 +208,93 @@ fn refresh_paths_relinks_only_graph_diff_references_when_reference_ids_shift() {
 		index_reference_is_unresolved(&refreshed.index, &refreshed_linkage.snapshot, "missing"),
 		"only the inserted `missing` call should be unresolved"
 	);
+}
+
+#[test]
+fn corridor_survives_incremental_reference_id_remapping() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	fs::write(
+		&lib,
+		"pub fn entry() { middle(); }\nfn middle() { target(); }\nfn target() {}\n",
+	)
+	.expect("write graph");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("corridor-initial")),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_corridor_by_name(
+		workspace.queries().snapshot().expect("initial snapshot"),
+		"entry",
+		"target",
+		3,
+		2,
+	);
+
+	fs::write(
+		&lib,
+		"pub fn entry() { inserted(); middle(); }\nfn inserted() {}\nfn middle() { target(); }\nfn target() {}\n",
+	)
+	.expect("insert call before stable corridor reference");
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh_paths(WorkspaceRequest::new("corridor-incremental"), vec![lib]),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_corridor_by_name(
+		workspace.queries().snapshot().expect("refreshed snapshot"),
+		"entry",
+		"target",
+		3,
+		2,
+	);
+}
+
+fn assert_corridor_by_name(
+	snapshot: &WorkspaceSnapshot,
+	from_name: &str,
+	to_name: &str,
+	expected_members: usize,
+	expected_edges: usize,
+) {
+	let symbol = |name: &str| {
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.find(|symbol| symbol.name.starts_with(name))
+			.unwrap_or_else(|| panic!("missing symbol {name}"))
+	};
+	let from = symbol(from_name);
+	let to = symbol(to_name);
+	let scope =
+		BoundedCorridorScope::from_symbols(snapshot.index.inventory.all_symbols().clone(), 100)
+			.expect("bounded semantic corridor scope");
+	let corridor = snapshot
+		.bounded_corridor(BoundedCorridorRequest {
+			from: from.id,
+			to: to.id,
+			relations: &["calls".to_string()],
+			limits: BoundedPathLimits {
+				max_depth: 4,
+				max_symbols: 100,
+				max_edges: 100,
+			},
+			scope: &scope,
+		})
+		.expect("corridor read index");
+	assert_eq!(corridor.members.len(), expected_members, "{corridor:?}");
+	assert_eq!(corridor.edges.len(), expected_edges, "{corridor:?}");
+	assert!(!corridor.edge_limit_reached, "{corridor:?}");
 }
 
 #[test]

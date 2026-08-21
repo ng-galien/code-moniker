@@ -67,19 +67,17 @@ impl LinkageStore {
 		&self,
 		references: &RecordTable<ReferenceRecord>,
 		identity: &LocalIdentityResolver,
-		symbols: &SymbolOrdinalCatalog,
+		symbols: std::sync::Arc<SymbolOrdinalCatalog>,
 	) -> LinkageSnapshot {
 		let mut snapshot = crate::linkage::binding::project_decisions(
 			&self.decisions,
 			references,
 			identity,
-			symbols,
+			&symbols,
 		)
 		.into_snapshot(self.generation, self.index_generation);
-		snapshot.read_index = crate::snapshot::LinkageReadIndexHandle::from_edges_with_ordinals(
-			&snapshot.resolved,
-			references,
-			symbols.active_ordinals(),
+		snapshot.read_index = crate::snapshot::LinkageReadIndexHandle::from_snapshot_with_catalog(
+			&snapshot, references, symbols,
 		);
 		snapshot
 	}

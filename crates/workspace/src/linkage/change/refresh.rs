@@ -187,7 +187,7 @@ fn run_incremental_refresh(
 		store.project_snapshot(
 			&input.index.references,
 			&input.material.identity,
-			candidates.symbols(),
+			candidates.symbol_catalog(),
 		)
 	};
 	let memory = store.memory_metrics(candidates.symbols());

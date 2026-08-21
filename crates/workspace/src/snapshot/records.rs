@@ -80,6 +80,18 @@ impl<T> RecordTable<T> {
 	}
 }
 
+impl RecordTable<super::ReferenceRecord> {
+	pub fn reference(&self, id: &super::ReferenceId) -> Option<&super::ReferenceRecord> {
+		let record = self.file_records(id.file()).get(id.reference());
+		if let Some(record) = record
+			&& &record.id == id
+		{
+			return Some(record);
+		}
+		self.iter().find(|reference| &reference.id == id)
+	}
+}
+
 impl<T> Index<usize> for RecordTable<T> {
 	type Output = T;
 
