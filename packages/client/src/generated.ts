@@ -173,6 +173,17 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      from: string;
+      max_depth: number;
+      max_edges: number;
+      max_symbols: number;
+      min_coverage: number;
+      op: "graph_corridor";
+      relation: string[];
+      to: string;
+      workspace?: string | null;
+    }
+  | {
       op: "identity_children";
       prefix: string;
       workspace?: string | null;
@@ -286,6 +297,10 @@ export type QueryResult =
   | {
       data: GraphPathResult;
       kind: "graph_path";
+    }
+  | {
+      data: GraphCorridorResult;
+      kind: "graph_corridor";
     }
   | {
       data: IdentityChildrenResult;
@@ -1153,6 +1168,34 @@ export interface GraphPathSearchStats {
   explored_edges: number;
   explored_symbols: number;
   max_depth: number;
+  symbol_limit_reached: boolean;
+}
+export interface GraphCorridorResult {
+  complete: boolean;
+  connected?: boolean | null;
+  coverage: GraphPathCoverage;
+  edges: GraphCorridorEdge[];
+  from: SymbolDto;
+  members: SymbolDto[];
+  reasons: string[];
+  search: GraphCorridorSearchStats;
+  to: SymbolDto;
+}
+export interface GraphCorridorEdge {
+  count: number;
+  relations: string[];
+  representative: GraphPathStep;
+  source: SymbolDto;
+  target: SymbolDto;
+}
+export interface GraphCorridorSearchStats {
+  depth_limit_reached: boolean;
+  edge_limit_reached: boolean;
+  explored_edges: number;
+  explored_symbols: number;
+  forward_depth_reached: number;
+  max_depth: number;
+  reverse_depth_reached: number;
   symbol_limit_reached: boolean;
 }
 export interface IdentityChildrenResult {

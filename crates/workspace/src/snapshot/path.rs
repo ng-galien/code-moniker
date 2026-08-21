@@ -4,7 +4,7 @@ use roaring::RoaringBitmap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
-	CodeIndex, LinkageSnapshot, ReferenceId, SourceId, SymbolId, UnresolvedReason,
+	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, SourceId, SymbolId, UnresolvedReason,
 	WorkspaceSnapshot,
 };
 
@@ -50,6 +50,27 @@ pub struct BoundedPathSearch {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundedCorridorEdge {
+	pub source: SymbolId,
+	pub target: SymbolId,
+	pub reference: ReferenceId,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct BoundedCorridorSearch {
+	pub members: Vec<SymbolId>,
+	pub edges: Vec<BoundedCorridorEdge>,
+	pub coverage: BoundedPathCoverage,
+	pub forward_depth_reached: usize,
+	pub reverse_depth_reached: usize,
+	pub explored_symbols: usize,
+	pub explored_edges: usize,
+	pub depth_limit_reached: bool,
+	pub symbol_limit_reached: bool,
+	pub edge_limit_reached: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedPathLimits {
 	pub max_depth: usize,
 	pub max_symbols: usize,
@@ -67,6 +88,15 @@ pub struct BoundedPathRequest<'a> {
 	pub to: SymbolId,
 	pub relations: &'a [String],
 	pub avoid: &'a [SymbolId],
+	pub limits: BoundedPathLimits,
+	pub scope: &'a BoundedPathScope,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedCorridorRequest<'a> {
+	pub from: SymbolId,
+	pub to: SymbolId,
+	pub relations: &'a [String],
 	pub limits: BoundedPathLimits,
 	pub scope: &'a BoundedPathScope,
 }
@@ -186,16 +216,18 @@ fn tally_reason(reasons: &mut BTreeMap<String, usize>, category: &str, reason: &
 }
 
 pub struct BoundedPathEngine<'a> {
+	index: &'a CodeIndex,
 	read_index: &'a super::LinkageReadIndex,
 	classifications: ReferenceClassifications,
 }
 
 impl<'a> BoundedPathEngine<'a> {
-	pub fn new(index: &CodeIndex, linkage: &'a LinkageSnapshot) -> Option<Self> {
+	pub fn new(index: &'a CodeIndex, linkage: &'a LinkageSnapshot) -> Option<Self> {
 		if linkage.index_generation != index.generation {
 			return None;
 		}
 		Some(Self {
+			index,
 			read_index: linkage.read_index.get()?,
 			classifications: ReferenceClassifications::from_linkage(linkage),
 		})
@@ -210,6 +242,18 @@ impl<'a> BoundedPathEngine<'a> {
 			request.limits,
 			request.scope,
 		)?
+		.run(request.from, request.to)
+	}
+
+	pub fn corridor(&self, request: BoundedCorridorRequest<'_>) -> Option<BoundedCorridorSearch> {
+		CorridorTraversal::new(
+			self.index,
+			self.read_index,
+			&self.classifications,
+			request.relations,
+			request.limits,
+			request.scope,
+		)
 		.run(request.from, request.to)
 	}
 }
@@ -236,6 +280,13 @@ impl WorkspaceSnapshot {
 			},
 		)
 	}
+
+	pub fn bounded_corridor(
+		&self,
+		request: BoundedCorridorRequest<'_>,
+	) -> Option<BoundedCorridorSearch> {
+		bounded_corridor(&self.index, &self.linkage, request)
+	}
 }
 
 pub fn bounded_path(
@@ -244,6 +295,14 @@ pub fn bounded_path(
 	request: BoundedPathRequest<'_>,
 ) -> Option<BoundedPathSearch> {
 	BoundedPathEngine::new(index, linkage)?.search(request)
+}
+
+pub fn bounded_corridor(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	request: BoundedCorridorRequest<'_>,
+) -> Option<BoundedCorridorSearch> {
+	BoundedPathEngine::new(index, linkage)?.corridor(request)
 }
 
 struct PathTraversal<'a> {
@@ -422,6 +481,474 @@ impl<'a> PathTraversal<'a> {
 	}
 }
 
+struct CorridorTraversal<'a> {
+	graph: CorridorGraph<'a>,
+	relations: CorridorRelations,
+	limits: BoundedPathLimits,
+	state: CorridorState,
+}
+
+struct CorridorGraph<'a> {
+	index: &'a CodeIndex,
+	read_index: &'a super::LinkageReadIndex,
+	classifications: &'a ReferenceClassifications,
+	scope: &'a BoundedPathScope,
+}
+
+struct CorridorRelations(Vec<String>);
+
+#[derive(Default)]
+struct CorridorState {
+	seen_symbols: RoaringBitmap,
+	seen_references: FxHashSet<ReferenceId>,
+	resolved_edges: FxHashMap<ReferenceId, (u32, u32)>,
+	search: BoundedCorridorSearch,
+}
+
+struct CorridorDistances {
+	from: u32,
+	to: u32,
+	forward: FxHashMap<u32, usize>,
+	reverse: FxHashMap<u32, usize>,
+	traverse: bool,
+}
+
+enum CorridorStep {
+	Stop,
+	Skip,
+	Symbol(u32),
+}
+
+impl<'a> CorridorTraversal<'a> {
+	fn new(
+		index: &'a CodeIndex,
+		read_index: &'a super::LinkageReadIndex,
+		classifications: &'a ReferenceClassifications,
+		relations: &[String],
+		limits: BoundedPathLimits,
+		scope: &'a BoundedPathScope,
+	) -> Self {
+		Self {
+			graph: CorridorGraph {
+				index,
+				read_index,
+				classifications,
+				scope,
+			},
+			relations: CorridorRelations::new(relations),
+			limits,
+			state: CorridorState::default(),
+		}
+	}
+
+	fn run(mut self, from: SymbolId, to: SymbolId) -> Option<BoundedCorridorSearch> {
+		let (from, to) = self.endpoints(from, to)?;
+		let mut distances = self.state.distances(from, to, self.limits);
+		if distances.traverse {
+			self.walk_forward(distances.from, &mut distances.forward);
+			self.walk_reverse(distances.to, &mut distances.reverse);
+		}
+		Some(finish_corridor(
+			self.graph.read_index,
+			self.limits,
+			self.state,
+			distances.forward,
+			distances.reverse,
+		))
+	}
+
+	fn endpoints(&self, from: SymbolId, to: SymbolId) -> Option<(u32, u32)> {
+		self.graph.endpoints(from, to)
+	}
+
+	fn walk_forward(&mut self, from: u32, distances: &mut FxHashMap<u32, usize>) {
+		let mut frontier = RoaringBitmap::from_iter([from]);
+		for depth in 0..=self.limits.max_depth {
+			self.state.search.forward_depth_reached = depth;
+			let mut next = RoaringBitmap::new();
+			for source_ordinal in frontier.iter() {
+				for reference in self.forward_references(source_ordinal) {
+					match self.forward_step(source_ordinal, reference) {
+						CorridorStep::Stop => return,
+						CorridorStep::Skip => {}
+						CorridorStep::Symbol(target) => {
+							if !self.enqueue(target, depth, distances, &mut next) {
+								return;
+							}
+						}
+					}
+				}
+			}
+			if next.is_empty() {
+				break;
+			}
+			frontier = next;
+		}
+	}
+
+	fn forward_step(&mut self, source: u32, reference: ReferenceId) -> CorridorStep {
+		let target = self.graph.resolved_target(reference);
+		if !self.state.observe_reference(
+			self.graph.classifications,
+			self.limits,
+			reference,
+			target.is_some(),
+		) {
+			return CorridorStep::Stop;
+		}
+		let Some(target) = target else {
+			return CorridorStep::Skip;
+		};
+		let Some(target_ordinal) = self.graph.ordinal(target) else {
+			self.state.tally_missing_ordinal();
+			return CorridorStep::Skip;
+		};
+		self.state
+			.resolved_edges
+			.entry(reference)
+			.or_insert((source, target_ordinal));
+		if self.graph.contains(target) {
+			CorridorStep::Symbol(target_ordinal)
+		} else {
+			CorridorStep::Skip
+		}
+	}
+
+	fn enqueue(
+		&mut self,
+		ordinal: u32,
+		depth: usize,
+		distances: &mut FxHashMap<u32, usize>,
+		next: &mut RoaringBitmap,
+	) -> bool {
+		if distances.contains_key(&ordinal) {
+			return true;
+		}
+		if depth >= self.limits.max_depth {
+			self.state.search.depth_limit_reached = true;
+			return true;
+		}
+		if !self.state.register_symbol(self.limits, ordinal) {
+			return false;
+		}
+		distances.insert(ordinal, depth + 1);
+		next.insert(ordinal);
+		true
+	}
+
+	fn walk_reverse(&mut self, to: u32, distances: &mut FxHashMap<u32, usize>) {
+		let mut frontier = RoaringBitmap::from_iter([to]);
+		for depth in 0..=self.limits.max_depth {
+			self.state.search.reverse_depth_reached = depth;
+			let mut next = RoaringBitmap::new();
+			for target_ordinal in frontier.iter() {
+				for reference in self.reverse_references(target_ordinal) {
+					match self.reverse_step(target_ordinal, reference) {
+						CorridorStep::Stop => return,
+						CorridorStep::Skip => {}
+						CorridorStep::Symbol(source) => {
+							if !self.enqueue(source, depth, distances, &mut next) {
+								return;
+							}
+						}
+					}
+				}
+			}
+			if next.is_empty() {
+				break;
+			}
+			frontier = next;
+		}
+	}
+
+	fn reverse_step(&mut self, target: u32, reference: ReferenceId) -> CorridorStep {
+		let Some(record) = self.graph.reference(reference) else {
+			return if self.state.observe_missing_reference(self.limits, reference) {
+				CorridorStep::Skip
+			} else {
+				CorridorStep::Stop
+			};
+		};
+		if !self.relations.matches(&record.kind) {
+			return CorridorStep::Skip;
+		}
+		if !self
+			.state
+			.observe_reference(self.graph.classifications, self.limits, reference, true)
+		{
+			return CorridorStep::Stop;
+		}
+		let source = record.source_symbol;
+		let Some(source_ordinal) = self.graph.ordinal(source) else {
+			self.state.tally_missing_ordinal();
+			return CorridorStep::Skip;
+		};
+		self.state
+			.resolved_edges
+			.entry(reference)
+			.or_insert((source_ordinal, target));
+		if self.graph.contains(source) {
+			CorridorStep::Symbol(source_ordinal)
+		} else {
+			CorridorStep::Skip
+		}
+	}
+
+	fn forward_references(&self, source_ordinal: u32) -> Vec<ReferenceId> {
+		self.relations
+			.outgoing(self.graph.read_index, source_ordinal)
+	}
+
+	fn reverse_references(&mut self, target_ordinal: u32) -> Vec<ReferenceId> {
+		let Some(references) = self.graph.incoming(target_ordinal) else {
+			self.state.tally_missing_ordinal();
+			return Vec::new();
+		};
+		references
+	}
+}
+
+impl CorridorGraph<'_> {
+	fn endpoints(&self, from: SymbolId, to: SymbolId) -> Option<(u32, u32)> {
+		if !self.scope.contains(from) || !self.scope.contains(to) {
+			return None;
+		}
+		Some((
+			self.read_index.ordinal(&from)?,
+			self.read_index.ordinal(&to)?,
+		))
+	}
+
+	fn incoming(&self, target: u32) -> Option<Vec<ReferenceId>> {
+		let target = self.read_index.symbol(target)?;
+		let mut references = self.read_index.incoming(&target).to_vec();
+		references.sort();
+		Some(references)
+	}
+
+	fn resolved_target(&self, reference: ReferenceId) -> Option<SymbolId> {
+		self.read_index.resolved_target(&reference).copied()
+	}
+
+	fn ordinal(&self, symbol: SymbolId) -> Option<u32> {
+		self.read_index.ordinal(&symbol)
+	}
+
+	fn contains(&self, symbol: SymbolId) -> bool {
+		self.scope.contains(symbol)
+	}
+
+	fn reference(&self, reference: ReferenceId) -> Option<&ReferenceRecord> {
+		reference_record(self.index, reference)
+	}
+}
+
+impl CorridorRelations {
+	fn new(relations: &[String]) -> Self {
+		let mut relations = relations.to_vec();
+		relations.sort();
+		relations.dedup();
+		Self(relations)
+	}
+
+	fn outgoing(&self, read_index: &super::LinkageReadIndex, source: u32) -> Vec<ReferenceId> {
+		let relations = if self.0.is_empty() {
+			let mut relations = read_index
+				.outgoing_relations(source)
+				.map(str::to_string)
+				.collect::<Vec<_>>();
+			relations.sort();
+			relations
+		} else {
+			self.0.clone()
+		};
+		let mut references = relations
+			.into_iter()
+			.flat_map(|relation| read_index.outgoing(source, &relation))
+			.copied()
+			.collect::<Vec<_>>();
+		references.sort();
+		references
+	}
+
+	fn matches(&self, relation: &str) -> bool {
+		self.0.is_empty()
+			|| self
+				.0
+				.binary_search_by(|candidate| candidate.as_str().cmp(relation))
+				.is_ok()
+	}
+}
+
+impl CorridorState {
+	fn distances(&mut self, from: u32, to: u32, limits: BoundedPathLimits) -> CorridorDistances {
+		let mut forward = FxHashMap::default();
+		let mut reverse = FxHashMap::default();
+		if !self.register_symbol(limits, from) {
+			return CorridorDistances {
+				from,
+				to,
+				forward,
+				reverse,
+				traverse: false,
+			};
+		}
+		forward.insert(from, 0);
+		if from == to {
+			reverse.insert(to, 0);
+			return CorridorDistances {
+				from,
+				to,
+				forward,
+				reverse,
+				traverse: false,
+			};
+		}
+		let traverse = self.register_symbol(limits, to);
+		if traverse {
+			reverse.insert(to, 0);
+		}
+		CorridorDistances {
+			from,
+			to,
+			forward,
+			reverse,
+			traverse,
+		}
+	}
+}
+
+impl CorridorState {
+	fn register_symbol(&mut self, limits: BoundedPathLimits, ordinal: u32) -> bool {
+		if self.seen_symbols.contains(ordinal) {
+			return true;
+		}
+		if self.seen_symbols.len() as usize >= limits.max_symbols {
+			self.search.symbol_limit_reached = true;
+			return false;
+		}
+		self.seen_symbols.insert(ordinal)
+	}
+
+	fn observe_reference(
+		&mut self,
+		classifications: &ReferenceClassifications,
+		limits: BoundedPathLimits,
+		reference: ReferenceId,
+		resolved: bool,
+	) -> bool {
+		if self.seen_references.contains(&reference) {
+			return true;
+		}
+		if self.seen_references.len() >= limits.max_edges {
+			self.search.edge_limit_reached = true;
+			return false;
+		}
+		self.seen_references.insert(reference);
+		self.search.coverage.total += 1;
+		if resolved {
+			self.search.coverage.resolved += 1;
+			self.search.coverage.decided += 1;
+			self.search.explored_edges += 1;
+		} else {
+			classifications.tally_gap(reference, &mut self.search.coverage);
+		}
+		true
+	}
+
+	fn observe_missing_reference(
+		&mut self,
+		limits: BoundedPathLimits,
+		reference: ReferenceId,
+	) -> bool {
+		if self.seen_references.contains(&reference) {
+			return true;
+		}
+		if self.seen_references.len() >= limits.max_edges {
+			self.search.edge_limit_reached = true;
+			return false;
+		}
+		self.seen_references.insert(reference);
+		self.search.coverage.total += 1;
+		self.search.coverage.unresolved += 1;
+		*self
+			.search
+			.coverage
+			.gap_reasons
+			.entry("missing_reference_record".to_string())
+			.or_default() += 1;
+		true
+	}
+
+	fn tally_missing_ordinal(&mut self) {
+		*self
+			.search
+			.coverage
+			.gap_reasons
+			.entry("missing_symbol_ordinal".to_string())
+			.or_default() += 1;
+	}
+}
+
+fn finish_corridor(
+	read_index: &super::LinkageReadIndex,
+	limits: BoundedPathLimits,
+	mut state: CorridorState,
+	forward: FxHashMap<u32, usize>,
+	reverse: FxHashMap<u32, usize>,
+) -> BoundedCorridorSearch {
+	let mut member_ordinals = forward
+		.iter()
+		.filter_map(|(ordinal, forward_depth)| {
+			let reverse_depth = reverse.get(ordinal)?;
+			(forward_depth.saturating_add(*reverse_depth) <= limits.max_depth).then_some(*ordinal)
+		})
+		.collect::<Vec<_>>();
+	member_ordinals.sort();
+	let member_set = member_ordinals.iter().copied().collect::<RoaringBitmap>();
+	state.search.members = member_ordinals
+		.into_iter()
+		.filter_map(|ordinal| read_index.symbol(ordinal))
+		.collect();
+	state.search.edges = state
+		.resolved_edges
+		.into_iter()
+		.filter_map(|(reference, (source, target))| {
+			if !member_set.contains(source) || !member_set.contains(target) {
+				return None;
+			}
+			let total_depth = forward
+				.get(&source)?
+				.saturating_add(1)
+				.saturating_add(*reverse.get(&target)?);
+			if total_depth > limits.max_depth {
+				return None;
+			}
+			Some(BoundedCorridorEdge {
+				source: read_index.symbol(source)?,
+				target: read_index.symbol(target)?,
+				reference,
+			})
+		})
+		.collect();
+	state
+		.search
+		.edges
+		.sort_by_key(|edge| (edge.source, edge.target, edge.reference));
+	state.search.explored_symbols = state.seen_symbols.len() as usize;
+	state.search
+}
+
+fn reference_record(index: &CodeIndex, id: ReferenceId) -> Option<&ReferenceRecord> {
+	let record = index.references.file_records(id.file()).get(id.reference());
+	if let Some(record) = record
+		&& record.id == id
+	{
+		return Some(record);
+	}
+	index.references.iter().find(|reference| reference.id == id)
+}
+
 fn reconstruct_path(
 	read_index: &super::LinkageReadIndex,
 	predecessors: &FxHashMap<u32, (u32, ReferenceId)>,
@@ -513,12 +1040,39 @@ mod tests {
 		assert!(scoped.path.is_empty(), "{scoped:?}");
 		assert_eq!(scoped.coverage.resolved, 1, "{scoped:?}");
 		assert_eq!(scoped.coverage.decided, 1, "{scoped:?}");
+		let scoped_corridor = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from,
+				to,
+				relations: &["calls".to_string()],
+				limits,
+				scope: &selected,
+			})
+			.expect("scoped corridor search");
+		assert!(scoped_corridor.members.is_empty(), "{scoped_corridor:?}");
+		assert!(scoped_corridor.edges.is_empty(), "{scoped_corridor:?}");
 
 		let all_sources = BoundedPathScope::from_sources([first_source, other_source]);
 		let unscoped = snapshot
 			.bounded_path(from, to, &["calls".to_string()], limits, &all_sources)
 			.expect("all-roots path search");
 		assert_eq!(unscoped.path.len(), 2, "{unscoped:?}");
+		let unscoped_corridor = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from,
+				to,
+				relations: &["calls".to_string()],
+				limits,
+				scope: &all_sources,
+			})
+			.expect("all-roots corridor search");
+		assert_eq!(unscoped_corridor.members.len(), 3, "{unscoped_corridor:?}");
+		assert!(
+			[from, bridge, to]
+				.iter()
+				.all(|member| unscoped_corridor.members.contains(member)),
+			"{unscoped_corridor:?}"
+		);
 		assert_eq!(
 			snapshot
 				.linkage
@@ -529,6 +1083,230 @@ mod tests {
 			3,
 			"sparse stable ordinals must not allocate historical holes"
 		);
+	}
+
+	#[test]
+	fn corridor_keeps_parallel_branches_and_excludes_one_sided_nodes() {
+		let source = SourceId::at(0);
+		let symbols = (0..9)
+			.map(|index| SymbolId::at(0, index))
+			.collect::<Vec<_>>();
+		let [
+			from,
+			split,
+			left,
+			left_tail,
+			right,
+			right_tail,
+			to,
+			dead,
+			reverse_only,
+		] = symbols.as_slice()
+		else {
+			panic!("corridor symbols")
+		};
+		let links = [
+			(*from, *split),
+			(*split, *left),
+			(*left, *left_tail),
+			(*left_tail, *to),
+			(*split, *right),
+			(*right, *right_tail),
+			(*right_tail, *to),
+			(*left_tail, *left),
+			(*split, *dead),
+			(*reverse_only, *to),
+		];
+		let references = links
+			.iter()
+			.enumerate()
+			.map(|(index, (source_symbol, target))| {
+				ReferenceRecord::new(
+					ReferenceId::at(0, index),
+					source,
+					*source_symbol,
+					target.to_string(),
+					"calls",
+					None,
+				)
+			})
+			.collect::<Vec<_>>();
+		let edges = references
+			.iter()
+			.zip(links)
+			.map(|(reference, (_, target))| LinkageEdge::new(reference.id, target))
+			.collect::<Vec<_>>();
+		let snapshot = path_snapshot(
+			symbols
+				.iter()
+				.enumerate()
+				.map(|(index, id)| SymbolRecord::new(*id, source, format!("s{index}"), "fn"))
+				.collect(),
+			references,
+			edges,
+			symbols
+				.iter()
+				.enumerate()
+				.map(|(index, id)| (index as u32 + 10, *id))
+				.collect(),
+		);
+
+		let corridor = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from: *from,
+				to: *to,
+				relations: &["calls".to_string()],
+				limits: BoundedPathLimits {
+					max_depth: 8,
+					max_symbols: 32,
+					max_edges: 32,
+				},
+				scope: &BoundedPathScope::from_sources([source]),
+			})
+			.expect("corridor search");
+
+		assert_eq!(
+			corridor.members,
+			vec![*from, *split, *left, *left_tail, *right, *right_tail, *to],
+			"{corridor:?}"
+		);
+		assert_eq!(corridor.edges.len(), 8, "{corridor:?}");
+		assert!(
+			corridor
+				.edges
+				.iter()
+				.any(|edge| edge.source == *left_tail && edge.target == *left),
+			"participating cycles stay in the bounded corridor: {corridor:?}"
+		);
+		assert_eq!(
+			corridor.coverage.total, 10,
+			"deduplicated scans: {corridor:?}"
+		);
+		assert_eq!(corridor.explored_edges, 10, "{corridor:?}");
+		assert!(!corridor.depth_limit_reached, "{corridor:?}");
+	}
+
+	#[test]
+	fn corridor_applies_relation_and_total_route_depth_filters() {
+		let source = SourceId::at(0);
+		let from = SymbolId::at(0, 0);
+		let middle = SymbolId::at(0, 1);
+		let to = SymbolId::at(0, 2);
+		let references = vec![
+			ReferenceRecord::new(
+				ReferenceId::at(0, 0),
+				source,
+				from,
+				middle.to_string(),
+				"calls",
+				None,
+			),
+			ReferenceRecord::new(
+				ReferenceId::at(0, 1),
+				source,
+				middle,
+				to.to_string(),
+				"calls",
+				None,
+			),
+			ReferenceRecord::new(
+				ReferenceId::at(0, 2),
+				source,
+				from,
+				to.to_string(),
+				"imports_symbol",
+				None,
+			),
+		];
+		let edges = vec![
+			LinkageEdge::new(references[0].id, middle),
+			LinkageEdge::new(references[1].id, to),
+			LinkageEdge::new(references[2].id, to),
+		];
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(from, source, "from", "fn"),
+				SymbolRecord::new(middle, source, "middle", "fn"),
+				SymbolRecord::new(to, source, "to", "fn"),
+			],
+			references,
+			edges,
+			vec![(1, from), (2, middle), (3, to)],
+		);
+		let scope = BoundedPathScope::from_sources([source]);
+		let limits = BoundedPathLimits {
+			max_depth: 2,
+			max_symbols: 10,
+			max_edges: 10,
+		};
+
+		let calls = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from,
+				to,
+				relations: &["calls".to_string()],
+				limits,
+				scope: &scope,
+			})
+			.expect("calls corridor");
+		assert_eq!(calls.members, vec![from, middle, to], "{calls:?}");
+		assert_eq!(calls.edges.len(), 2, "{calls:?}");
+
+		let imports = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from,
+				to,
+				relations: &["imports_symbol".to_string()],
+				limits,
+				scope: &scope,
+			})
+			.expect("imports corridor");
+		assert_eq!(imports.members, vec![from, to], "{imports:?}");
+		assert_eq!(imports.edges.len(), 1, "{imports:?}");
+
+		let bounded = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from,
+				to,
+				relations: &["calls".to_string()],
+				limits: BoundedPathLimits {
+					max_depth: 1,
+					..limits
+				},
+				scope: &scope,
+			})
+			.expect("depth-bounded corridor");
+		assert!(bounded.members.is_empty(), "{bounded:?}");
+		assert!(bounded.depth_limit_reached, "{bounded:?}");
+	}
+
+	#[test]
+	fn corridor_from_a_symbol_to_itself_is_the_zero_length_corridor() {
+		let source = SourceId::at(0);
+		let symbol = SymbolId::at(0, 0);
+		let snapshot = path_snapshot(
+			vec![SymbolRecord::new(symbol, source, "self", "fn")],
+			Vec::new(),
+			Vec::new(),
+			vec![(42, symbol)],
+		);
+		let corridor = snapshot
+			.bounded_corridor(BoundedCorridorRequest {
+				from: symbol,
+				to: symbol,
+				relations: &[],
+				limits: BoundedPathLimits {
+					max_depth: 0,
+					max_symbols: 1,
+					max_edges: 1,
+				},
+				scope: &BoundedPathScope::from_sources([source]),
+			})
+			.expect("zero-length corridor");
+		assert_eq!(corridor.members, vec![symbol], "{corridor:?}");
+		assert!(corridor.edges.is_empty(), "{corridor:?}");
+		assert_eq!(corridor.explored_symbols, 1, "{corridor:?}");
+		assert!(!corridor.depth_limit_reached, "{corridor:?}");
 	}
 
 	#[test]

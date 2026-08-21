@@ -46,10 +46,10 @@ use code_moniker_workspace::notes::{
 };
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	BoundedPathLimits, BoundedPathScope, ExternalReferenceOrigin, MemorySourceRefreshMetrics,
-	MemorySourceRefreshMode, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
-	SymbolRecord, WorkspaceRequest, WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition,
-	WorkspaceView,
+	BoundedCorridorEdge, BoundedCorridorRequest, BoundedPathLimits, BoundedPathScope,
+	ExternalReferenceOrigin, MemorySourceRefreshMetrics, MemorySourceRefreshMode, ReferenceId,
+	ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceRequest,
+	WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, MEMORY_SOURCE_ROOT, MEMORY_SOURCE_ROOT_LABEL, MemorySourceDocument,
@@ -87,7 +87,8 @@ use code_moniker_query::{
 	ChangeContextCoverageDto, ChangeContextQuery, ChangeContextResult, ChangeReviewFile,
 	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide, ChangeReviewSummary,
 	ChangeReviewSymbol, DiffImpactFile, DiffImpactRef, DiffImpactResult, DiffImpactSide,
-	DiffImpactSummary, DiffImpactSymbol, GitRevisionDto, GraphPathCoverage, GraphPathExpectation,
+	DiffImpactSummary, DiffImpactSymbol, GitRevisionDto, GraphCorridorEdge, GraphCorridorQuery,
+	GraphCorridorResult, GraphCorridorSearchStats, GraphPathCoverage, GraphPathExpectation,
 	GraphPathQuery, GraphPathResult, GraphPathSearchStats, GraphPathStep, GraphPathVerdict,
 	GraphSectionCoverage, IdentityChildrenQuery, IdentityChildrenResult, IdentityGraphCoverage,
 	IdentityGraphEdge, IdentityGraphPort, IdentityGraphQuery, IdentityGraphResult,
@@ -1662,6 +1663,9 @@ fn dispatch_snapshot_query(
 		Query::GraphPath(query) => {
 			graph_path_response(&snapshot, &context.roots, query, current_generation)
 		}
+		Query::GraphCorridor(query) => {
+			graph_corridor_response(&snapshot, &context.roots, query, current_generation)
+		}
 		Query::IdentityChildren(query) => {
 			identity_children_response(&snapshot, &context.roots, query, current_generation)
 		}
@@ -2131,6 +2135,189 @@ fn graph_path_step(
 		reference: reference.id.to_string(),
 		file: source.rel_path.clone(),
 		line_range: reference.line_range,
+	})
+}
+
+fn graph_corridor_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: GraphCorridorQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let selected_roots = selected_roots(roots, query.workspace.as_deref())?;
+	let from = find_symbol(snapshot, &query.from)?;
+	let to = find_symbol(snapshot, &query.to)?;
+	let view = WorkspaceView::new(snapshot);
+	let sources = view.sources();
+	let from_source = sources
+		.record(&from.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "source symbol source not found"))?;
+	let to_source = sources
+		.record(&to.source)
+		.ok_or_else(|| QueryError::new("source_not_found", "target symbol source not found"))?;
+	for (uri, source) in [(&query.from, from_source), (&query.to, to_source)] {
+		if source_root(roots, &selected_roots, source).is_none() {
+			return Err(QueryError::new(
+				"symbol_not_in_workspace",
+				format!("symbol {uri} is not in the selected workspace"),
+			));
+		}
+	}
+	let scope = BoundedPathScope::from_sources(
+		snapshot
+			.index
+			.sources
+			.iter()
+			.filter(|source| source_root(roots, &selected_roots, source).is_some())
+			.map(|source| source.id),
+	);
+	let search = snapshot
+		.bounded_corridor(BoundedCorridorRequest {
+			from: from.id,
+			to: to.id,
+			relations: &query.relation,
+			limits: BoundedPathLimits {
+				max_depth: query.max_depth,
+				max_symbols: query.max_symbols,
+				max_edges: query.max_edges,
+			},
+			scope: &scope,
+		})
+		.ok_or_else(|| {
+			QueryError::new(
+				"corridor_index_unavailable",
+				"the linkage snapshot has no symbol ordinal index; refresh the workspace",
+			)
+		})?;
+	let coverage_percent = search.coverage.percent();
+	let internal_gap = search
+		.coverage
+		.gap_reasons
+		.contains_key("missing_symbol_ordinal")
+		|| search
+			.coverage
+			.gap_reasons
+			.contains_key("missing_reference_record");
+	let complete = !search.depth_limit_reached
+		&& !search.symbol_limit_reached
+		&& !search.edge_limit_reached
+		&& !internal_gap
+		&& coverage_percent >= query.min_coverage;
+	let established = from.id == to.id || !search.members.is_empty();
+	let connected = if established {
+		Some(true)
+	} else if complete {
+		Some(false)
+	} else {
+		None
+	};
+	let mut reasons = Vec::new();
+	if search.depth_limit_reached {
+		reasons.push("depth_limit".to_string());
+	}
+	if search.symbol_limit_reached {
+		reasons.push("symbol_limit".to_string());
+	}
+	if search.edge_limit_reached {
+		reasons.push("edge_limit".to_string());
+	}
+	if coverage_percent < query.min_coverage {
+		reasons.push("coverage_below_threshold".to_string());
+	}
+	for (reason, count) in &search.coverage.gap_reasons {
+		push_path_gap_reason(&mut reasons, reason, *count);
+	}
+	let members = search
+		.members
+		.iter()
+		.map(|id| {
+			let symbol = view
+				.symbols()
+				.find(id)
+				.ok_or_else(|| QueryError::new("symbol_not_found", "corridor member not found"))?;
+			let source = sources.record(&symbol.source).ok_or_else(|| {
+				QueryError::new("source_not_found", "corridor member source not found")
+			})?;
+			Ok(symbol_dto(symbol, source, roots))
+		})
+		.collect::<Result<Vec<_>, QueryError>>()?;
+	struct EdgeAggregate {
+		relations: BTreeSet<String>,
+		count: usize,
+		representative: BoundedCorridorEdge,
+	}
+	let references = view.references();
+	let mut edge_aggregates = BTreeMap::<(SymbolId, SymbolId), EdgeAggregate>::new();
+	for edge in &search.edges {
+		let reference = references.reference(&edge.reference).ok_or_else(|| {
+			QueryError::new("reference_not_found", "corridor reference not found")
+		})?;
+		let aggregate = edge_aggregates
+			.entry((edge.source, edge.target))
+			.or_insert_with(|| EdgeAggregate {
+				relations: BTreeSet::new(),
+				count: 0,
+				representative: *edge,
+			});
+		aggregate.relations.insert(reference.kind.clone());
+		aggregate.count += 1;
+	}
+	let edges = edge_aggregates
+		.into_values()
+		.map(|aggregate| {
+			let representative = graph_path_step(
+				snapshot,
+				roots,
+				&code_moniker_workspace::snapshot::BoundedPathEdge {
+					source: aggregate.representative.source,
+					target: aggregate.representative.target,
+					reference: aggregate.representative.reference,
+				},
+			)?;
+			Ok(GraphCorridorEdge {
+				source: representative.source.clone(),
+				target: representative.target.clone(),
+				relations: aggregate.relations.into_iter().collect(),
+				count: aggregate.count,
+				representative,
+			})
+		})
+		.collect::<Result<Vec<_>, QueryError>>()?;
+	let result = GraphCorridorResult {
+		from: symbol_dto(from, from_source, roots),
+		to: symbol_dto(to, to_source, roots),
+		members,
+		edges,
+		connected,
+		complete,
+		coverage: GraphPathCoverage {
+			total: search.coverage.total,
+			decided: search.coverage.decided,
+			resolved: search.coverage.resolved,
+			external: search.coverage.external,
+			candidate: search.coverage.candidate,
+			dynamic: search.coverage.dynamic,
+			manifest_blocked: search.coverage.manifest_blocked,
+			unresolved: search.coverage.unresolved,
+			percent: coverage_percent,
+			gap_reasons: search.coverage.gap_reasons,
+		},
+		search: GraphCorridorSearchStats {
+			max_depth: query.max_depth,
+			forward_depth_reached: search.forward_depth_reached,
+			reverse_depth_reached: search.reverse_depth_reached,
+			explored_symbols: search.explored_symbols,
+			explored_edges: search.explored_edges,
+			depth_limit_reached: search.depth_limit_reached,
+			symbol_limit_reached: search.symbol_limit_reached,
+			edge_limit_reached: search.edge_limit_reached,
+		},
+		reasons,
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::GraphCorridor(Box::new(result)),
+		next_cursor: None,
 	})
 }
 
@@ -6866,6 +7053,36 @@ message = "every selected function is observable"
 		*result
 	}
 
+	fn graph_corridor(
+		daemon: &mut WorkspaceDaemon,
+		from: &str,
+		to: &str,
+		limits: BoundedPathLimits,
+	) -> GraphCorridorResult {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::GraphCorridor(GraphCorridorQuery {
+				workspace: None,
+				from: from.to_string(),
+				to: to.to_string(),
+				relation: vec!["calls".to_string(), "method_call".to_string()],
+				max_depth: limits.max_depth,
+				max_symbols: limits.max_symbols,
+				max_edges: limits.max_edges,
+				min_coverage: 100,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected graph corridor response, got {response:?}");
+		};
+		let rendered = code_moniker_query::format_query_response(&response);
+		assert!(rendered.contains("connected:"), "{rendered}");
+		assert!(rendered.contains("members:"), "{rendered}");
+		let QueryResult::GraphCorridor(result) = response.result else {
+			panic!("expected graph corridor result, got {:?}", response.result);
+		};
+		*result
+	}
+
 	struct GraphPathFixture {
 		_temp: tempfile::TempDir,
 		daemon: WorkspaceDaemon,
@@ -6925,19 +7142,29 @@ message = "every selected function is observable"
 		let QueryResult::SymbolGraph(graph) = response.result else {
 			panic!("expected symbol graph, got {:?}", response.result);
 		};
-		let uris = ["callback", "repository", "safe", "uncertain", "cyclic"]
-			.into_iter()
-			.map(|name| {
-				let uri = graph
-					.members
-					.iter()
-					.find(|member| member.name.starts_with(name))
-					.unwrap_or_else(|| panic!("missing {name}: {graph:?}"))
-					.uri
-					.clone();
-				(name, uri)
-			})
-			.collect();
+		let uris = [
+			"callback",
+			"service",
+			"alternative",
+			"repository",
+			"safe",
+			"uncertain",
+			"cyclic",
+			"cycle_a",
+			"cycle_b",
+		]
+		.into_iter()
+		.map(|name| {
+			let uri = graph
+				.members
+				.iter()
+				.find(|member| member.name.starts_with(name))
+				.unwrap_or_else(|| panic!("missing {name}: {graph:?}"))
+				.uri
+				.clone();
+			(name, uri)
+		})
+		.collect();
 		GraphPathFixture {
 			_temp: temp,
 			daemon,
@@ -8051,6 +8278,145 @@ END;"#;
 			"{edge_budgeted:?}"
 		);
 		assert!(edge_budgeted.search.edge_limit_reached, "{edge_budgeted:?}");
+	}
+
+	#[test]
+	fn graph_corridor_returns_the_complete_diamond_and_tri_state_connectivity() {
+		let mut fixture = graph_path_fixture();
+		let callback = fixture.uri("callback");
+		let repository = fixture.uri("repository");
+		let safe = fixture.uri("safe");
+		let uncertain = fixture.uri("uncertain");
+		let limits = BoundedPathLimits {
+			max_depth: 6,
+			max_symbols: 10_000,
+			max_edges: 50_000,
+		};
+
+		let corridor = graph_corridor(&mut fixture.daemon, &callback, &repository, limits);
+		assert_eq!(corridor.connected, Some(true), "{corridor:?}");
+		assert!(corridor.complete, "{corridor:?}");
+		let member_names = corridor
+			.members
+			.iter()
+			.map(|member| member.name.split('(').next().unwrap_or(&member.name))
+			.collect::<BTreeSet<_>>();
+		assert_eq!(
+			member_names,
+			BTreeSet::from(["alternative", "callback", "repository", "service"]),
+			"both branches must survive: {corridor:?}"
+		);
+		assert_eq!(corridor.edges.len(), 4, "{corridor:?}");
+		assert!(
+			corridor
+				.edges
+				.iter()
+				.all(|edge| edge.count == 1 && edge.relations.iter().any(|kind| kind == "calls")),
+			"{corridor:?}"
+		);
+
+		let disconnected = graph_corridor(&mut fixture.daemon, &safe, &repository, limits);
+		assert_eq!(disconnected.connected, Some(false), "{disconnected:?}");
+		assert!(disconnected.complete, "{disconnected:?}");
+		assert!(disconnected.members.is_empty(), "{disconnected:?}");
+
+		let uncertain = graph_corridor(&mut fixture.daemon, &uncertain, &repository, limits);
+		assert_eq!(uncertain.connected, None, "{uncertain:?}");
+		assert!(!uncertain.complete, "{uncertain:?}");
+		assert!(uncertain.coverage.unresolved > 0, "{uncertain:?}");
+	}
+
+	#[test]
+	fn graph_corridor_preserves_participating_cycles_and_explicit_bounds() {
+		let mut fixture = graph_path_fixture();
+		let cyclic = fixture.uri("cyclic");
+		let cycle_b = fixture.uri("cycle_b");
+		let repository = fixture.uri("repository");
+		let callback = fixture.uri("callback");
+		let cycle = graph_corridor(
+			&mut fixture.daemon,
+			&cyclic,
+			&cycle_b,
+			BoundedPathLimits {
+				max_depth: 6,
+				max_symbols: 10_000,
+				max_edges: 50_000,
+			},
+		);
+		assert_eq!(cycle.connected, Some(true), "{cycle:?}");
+		assert!(
+			cycle.edges.iter().any(|edge| {
+				edge.source.name.starts_with("cycle_b") && edge.target.name.starts_with("cycle_a")
+			}),
+			"the participating back edge is corridor structure: {cycle:?}"
+		);
+
+		let bounded = graph_corridor(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			BoundedPathLimits {
+				max_depth: 1,
+				max_symbols: 10_000,
+				max_edges: 50_000,
+			},
+		);
+		assert_eq!(bounded.connected, None, "{bounded:?}");
+		assert!(!bounded.complete, "{bounded:?}");
+		assert!(bounded.search.depth_limit_reached, "{bounded:?}");
+		let symbol_budgeted = graph_corridor(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			BoundedPathLimits {
+				max_depth: 6,
+				max_symbols: 1,
+				max_edges: 50_000,
+			},
+		);
+		assert_eq!(symbol_budgeted.connected, None, "{symbol_budgeted:?}");
+		assert!(
+			symbol_budgeted.search.symbol_limit_reached
+				&& symbol_budgeted
+					.reasons
+					.iter()
+					.any(|reason| reason == "symbol_limit"),
+			"{symbol_budgeted:?}"
+		);
+		let edge_budgeted = graph_corridor(
+			&mut fixture.daemon,
+			&callback,
+			&repository,
+			BoundedPathLimits {
+				max_depth: 6,
+				max_symbols: 10_000,
+				max_edges: 1,
+			},
+		);
+		assert_eq!(edge_budgeted.connected, None, "{edge_budgeted:?}");
+		assert!(
+			edge_budgeted.search.edge_limit_reached
+				&& edge_budgeted
+					.reasons
+					.iter()
+					.any(|reason| reason == "edge_limit"),
+			"{edge_budgeted:?}"
+		);
+
+		let same = graph_corridor(
+			&mut fixture.daemon,
+			&repository,
+			&repository,
+			BoundedPathLimits {
+				max_depth: 0,
+				max_symbols: 1,
+				max_edges: 1,
+			},
+		);
+		assert_eq!(same.connected, Some(true), "{same:?}");
+		assert!(same.complete, "{same:?}");
+		assert_eq!(same.members.len(), 1, "{same:?}");
+		assert!(same.edges.is_empty(), "{same:?}");
 	}
 
 	#[test]

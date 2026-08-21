@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -414,6 +414,27 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		example: "graph.path from:\"code+moniker://...\" to:\"code+moniker://...\" expect:no_path",
 	},
 	QueryCapabilitySpec {
+		name: "graph.corridor",
+		category: "graph",
+		read_only: true,
+		mcp_tool: "code_moniker_query",
+		fields: &[
+			"workspace",
+			"from",
+			"to",
+			"relation",
+			"max_depth",
+			"max_symbols",
+			"max_edges",
+			"min_coverage",
+		],
+		required_fields: &["from", "to"],
+		positionals: 0,
+		projection: false,
+		paginated: false,
+		example: "graph.corridor from:\"code+moniker://...\" to:\"code+moniker://...\"",
+	},
+	QueryCapabilitySpec {
 		name: "identity.children",
 		category: "graph",
 		read_only: true,
@@ -639,6 +660,11 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("graph.path", "max_symbols") => Some("10000"),
 		("graph.path", "max_edges") => Some("50000"),
 		("graph.path", "min_coverage") => Some("100"),
+		("graph.corridor", "relation") => Some("calls,method_call"),
+		("graph.corridor", "max_depth") => Some("12"),
+		("graph.corridor", "max_symbols") => Some("10000"),
+		("graph.corridor", "max_edges") => Some("50000"),
+		("graph.corridor", "min_coverage") => Some("100"),
 		("rules.check", "report") => Some("true"),
 		("change.context", "max_items") => Some("20"),
 		("notes", "action") => Some("list"),
@@ -689,6 +715,7 @@ pub enum Query {
 	ChangeContext(ChangeContextQuery),
 	SymbolGraph(SymbolGraphQuery),
 	GraphPath(GraphPathQuery),
+	GraphCorridor(GraphCorridorQuery),
 	IdentityChildren(IdentityChildrenQuery),
 	IdentityGraph(IdentityGraphQuery),
 	MetricsCoupling(MetricsCouplingQuery),
@@ -717,6 +744,7 @@ impl Query {
 			Self::ChangeContext(_) => "change.context",
 			Self::SymbolGraph(_) => "symbol.graph",
 			Self::GraphPath(_) => "graph.path",
+			Self::GraphCorridor(_) => "graph.corridor",
 			Self::IdentityChildren(_) => "identity.children",
 			Self::IdentityGraph(_) => "identity.graph",
 			Self::MetricsCoupling(_) => "metrics.coupling",
@@ -1051,6 +1079,34 @@ impl Default for GraphPathQuery {
 	}
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphCorridorQuery {
+	pub workspace: Option<String>,
+	pub from: String,
+	pub to: String,
+	pub relation: Vec<String>,
+	pub max_depth: usize,
+	pub max_symbols: usize,
+	pub max_edges: usize,
+	pub min_coverage: usize,
+}
+
+impl Default for GraphCorridorQuery {
+	fn default() -> Self {
+		Self {
+			workspace: None,
+			from: String::new(),
+			to: String::new(),
+			relation: vec!["calls".to_string(), "method_call".to_string()],
+			max_depth: 12,
+			max_symbols: 10_000,
+			max_edges: 50_000,
+			min_coverage: 100,
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -1292,6 +1348,7 @@ pub enum QueryResult {
 	ChangeContext(Box<ChangeContextResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
 	GraphPath(Box<GraphPathResult>),
+	GraphCorridor(Box<GraphCorridorResult>),
 	IdentityChildren(IdentityChildrenResult),
 	IdentityGraph(Box<IdentityGraphResult>),
 	MetricsCoupling(Box<MetricsCouplingResult>),
@@ -1436,6 +1493,43 @@ pub struct GraphPathCoverage {
 pub struct GraphPathSearchStats {
 	pub max_depth: usize,
 	pub depth_reached: usize,
+	pub explored_symbols: usize,
+	pub explored_edges: usize,
+	pub depth_limit_reached: bool,
+	pub symbol_limit_reached: bool,
+	pub edge_limit_reached: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphCorridorResult {
+	pub from: SymbolDto,
+	pub to: SymbolDto,
+	pub members: Vec<SymbolDto>,
+	pub edges: Vec<GraphCorridorEdge>,
+	pub connected: Option<bool>,
+	pub complete: bool,
+	pub coverage: GraphPathCoverage,
+	pub search: GraphCorridorSearchStats,
+	pub reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphCorridorEdge {
+	pub source: SymbolDto,
+	pub target: SymbolDto,
+	pub relations: Vec<String>,
+	pub count: usize,
+	pub representative: GraphPathStep,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GraphCorridorSearchStats {
+	pub max_depth: usize,
+	pub forward_depth_reached: usize,
+	pub reverse_depth_reached: usize,
 	pub explored_symbols: usize,
 	pub explored_edges: usize,
 	pub depth_limit_reached: bool,
@@ -2760,6 +2854,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 		}),
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"graph.path" => Query::GraphPath(graph_path_query(&fields)?),
+		"graph.corridor" => Query::GraphCorridor(graph_corridor_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_graph_query(&fields)?),
 		"metrics.coupling" => Query::MetricsCoupling(MetricsCouplingQuery {
@@ -3055,6 +3150,44 @@ fn graph_path_query(fields: &FieldBag) -> Result<GraphPathQuery, QueryParseError
 	})
 }
 
+fn graph_corridor_query(fields: &FieldBag) -> Result<GraphCorridorQuery, QueryParseError> {
+	let max_depth = fields.usize("max_depth")?.unwrap_or(12);
+	if max_depth > 64 {
+		return Err(QueryParseError::InvalidValue {
+			key: "max_depth".to_string(),
+			value: max_depth.to_string(),
+		});
+	}
+	let min_coverage = fields.usize("min_coverage")?.unwrap_or(100);
+	if min_coverage > 100 {
+		return Err(QueryParseError::InvalidValue {
+			key: "min_coverage".to_string(),
+			value: min_coverage.to_string(),
+		});
+	}
+	let max_symbols = bounded_non_zero_field(fields, "max_symbols", 10_000, 100_000)?;
+	let max_edges = bounded_non_zero_field(fields, "max_edges", 50_000, 500_000)?;
+	let relation = fields.many("relation");
+	Ok(GraphCorridorQuery {
+		workspace: fields.one("workspace"),
+		from: fields
+			.one("from")
+			.ok_or(QueryParseError::MissingRequired("from"))?,
+		to: fields
+			.one("to")
+			.ok_or(QueryParseError::MissingRequired("to"))?,
+		relation: if relation.is_empty() {
+			vec!["calls".to_string(), "method_call".to_string()]
+		} else {
+			relation
+		},
+		max_depth,
+		max_symbols,
+		max_edges,
+		min_coverage,
+	})
+}
+
 fn bounded_non_zero_field(
 	fields: &FieldBag,
 	key: &str,
@@ -3126,6 +3259,7 @@ pub fn format_query_response_projected(response: &QueryResponse, projection: &[S
 		QueryResult::ChangeContext(result) => format_change_context(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::GraphPath(result) => format_graph_path(&mut out, result),
+		QueryResult::GraphCorridor(result) => format_graph_corridor(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
 		QueryResult::MetricsCoupling(result) => format_metrics_coupling(&mut out, result),
@@ -3998,6 +4132,66 @@ fn format_graph_path(out: &mut String, result: &GraphPathResult) {
 	}
 }
 
+fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
+	let connected = match result.connected {
+		Some(true) => "true",
+		Some(false) => "false",
+		None => "unknown",
+	};
+	let _ = writeln!(
+		out,
+		"connected: {connected} complete: {} members: {} edges: {}",
+		result.complete,
+		result.members.len(),
+		result.edges.len()
+	);
+	let _ = writeln!(out, "from: {}", result.from.uri);
+	let _ = writeln!(out, "to: {}", result.to.uri);
+	let _ = writeln!(
+		out,
+		"coverage: {}% ({}/{}) resolved={} external={} candidate={} dynamic={} manifest_blocked={} unresolved={}",
+		result.coverage.percent,
+		result.coverage.decided,
+		result.coverage.total,
+		result.coverage.resolved,
+		result.coverage.external,
+		result.coverage.candidate,
+		result.coverage.dynamic,
+		result.coverage.manifest_blocked,
+		result.coverage.unresolved
+	);
+	let _ = writeln!(
+		out,
+		"search: forward_depth={}/{} reverse_depth={}/{} symbols={} edges={} depth_limit_reached={} symbol_limit_reached={} edge_limit_reached={}",
+		result.search.forward_depth_reached,
+		result.search.max_depth,
+		result.search.reverse_depth_reached,
+		result.search.max_depth,
+		result.search.explored_symbols,
+		result.search.explored_edges,
+		result.search.depth_limit_reached,
+		result.search.symbol_limit_reached,
+		result.search.edge_limit_reached
+	);
+	if !result.reasons.is_empty() {
+		let _ = writeln!(out, "reasons: {}", result.reasons.join(", "));
+	}
+	for member in &result.members {
+		let _ = writeln!(out, "- {} {} ({})", member.kind, member.name, member.file);
+	}
+	for edge in &result.edges {
+		let _ = writeln!(
+			out,
+			"> {} -> {} x{} [{}] representative={}",
+			edge.source.uri,
+			edge.target.uri,
+			edge.count,
+			edge.relations.join(","),
+			edge.representative.reference
+		);
+	}
+}
+
 fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
 	let _ = writeln!(out, "scope: {}", result.scope);
 	let _ = writeln!(
@@ -4405,6 +4599,7 @@ mod tests {
 			"change.context" => serialized_fields(ChangeContextQuery::default()),
 			"symbol.graph" => serialized_fields(SymbolGraphQuery::default()),
 			"graph.path" => serialized_fields(GraphPathQuery::default()),
+			"graph.corridor" => serialized_fields(GraphCorridorQuery::default()),
 			"identity.children" => serialized_fields(IdentityChildrenQuery::default()),
 			"identity.graph" => serialized_fields(IdentityGraphQuery::default()),
 			"metrics.coupling" => serialized_fields(MetricsCouplingQuery::default()),
@@ -4578,6 +4773,53 @@ mod tests {
 				"graph.path from:\"symbol:0:0\" to:\"symbol:0:1\" max_symbols:0"
 			),
 			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_symbols"
+		));
+	}
+
+	#[test]
+	fn parses_bounded_graph_corridor_contract() {
+		let request = parse_query(
+			"graph.corridor from:\"code+moniker://./fn:callback()\" to:\"code+moniker://./fn:repository()\" relation:[calls,method_call] max_depth:8 max_symbols:300 max_edges:700 min_coverage:90",
+		)
+		.expect("graph corridor contract");
+		let Query::GraphCorridor(query) = request.query else {
+			panic!("expected graph corridor query");
+		};
+		assert_eq!(query.from, "code+moniker://./fn:callback()");
+		assert_eq!(query.to, "code+moniker://./fn:repository()");
+		assert_eq!(query.relation, vec!["calls", "method_call"]);
+		assert_eq!(query.max_depth, 8);
+		assert_eq!(query.max_symbols, 300);
+		assert_eq!(query.max_edges, 700);
+		assert_eq!(query.min_coverage, 90);
+		let capability = describe_query_capabilities(Some("graph.corridor"))
+			.expect("graph corridor capability")
+			.capabilities
+			.pop()
+			.expect("graph corridor descriptor");
+		assert_eq!(capability.mcp_tool, "code_moniker_query");
+		assert!(!capability.paginated);
+	}
+
+	#[test]
+	fn rejects_unbounded_graph_corridor_limits() {
+		assert!(matches!(
+			parse_query(
+				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" max_depth:65"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_depth"
+		));
+		assert!(matches!(
+			parse_query(
+				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" min_coverage:101"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "min_coverage"
+		));
+		assert!(matches!(
+			parse_query(
+				"graph.corridor from:\"symbol:0:0\" to:\"symbol:0:1\" max_edges:0"
+			),
+			Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_edges"
 		));
 	}
 
@@ -5198,7 +5440,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 17);
+		assert_eq!(PROTOCOL_VERSION, 18);
 	}
 
 	#[test]

@@ -132,7 +132,7 @@ verbs; the daemon package version string is informational.
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
 `symbol.insights`, `symbol.detail`, `syntax.tree`, `syntax.parse`, `symbol.usages`, `symbol.graph`,
-`identity.children`, `identity.graph`, `metrics.coupling`, `view.read`, `rules.list`,
+`graph.path`, `graph.corridor`, `identity.children`, `identity.graph`, `metrics.coupling`, `view.read`, `rules.list`,
 `rules.check`, `rules.applicable`, `change.review`, `change.context`,
 `resolution.audit`, `notes`. Command verbs: `workspace.refresh`,
 `workspace.source_set.replace`, `workspace.source_set.remove`.
@@ -179,6 +179,23 @@ registry. It reports fields, defaults, required values, pagination and
 projectable result fields. MCP agents normally reach this through the
 read-only `code_moniker_query` escape hatch; direct daemon queries remain a
 developer and protocol-diagnostic surface.
+
+`graph.corridor from:"<symbol>" to:"<symbol>"` returns the bounded directed
+subgraph that participates in connectivity between two symbols. A member must
+be reachable from `from`, able to reach `to`, and satisfy
+`distance(from, member) + distance(member, to) <= max_depth`. An edge must
+satisfy the corresponding total-route bound with its own hop. This preserves
+parallel branches, reconvergences and participating cycles instead of choosing
+one shortest witness. Relation and workspace filters apply in both traversal
+directions and during final edge projection.
+
+`connected` is `true` once any corridor is established, `false` only after a
+complete disconnected search, and `null` when linkage coverage or a traversal
+budget prevents that conclusion. `complete:false` and stable `reasons` identify
+partial member/edge results. Coverage and explored-edge counts deduplicate a
+reference observed by both the forward and reverse scans. When `from == to`,
+the result is the deterministic zero-length corridor containing that symbol and
+no edges.
 
 `syntax.tree focus:"<relative or absolute source path or symbol URI>"` asks the
 registered language SDK for its parsed document on demand. Semantic extraction

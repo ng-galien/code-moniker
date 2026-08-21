@@ -1635,6 +1635,141 @@
         }
       }
     },
+    "GraphCorridorEdge": {
+      "type": "object",
+      "required": [
+        "count",
+        "relations",
+        "representative",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "representative": {
+          "$ref": "#/definitions/GraphPathStep"
+        },
+        "source": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "target": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "GraphCorridorResult": {
+      "type": "object",
+      "required": [
+        "complete",
+        "coverage",
+        "edges",
+        "from",
+        "members",
+        "reasons",
+        "search",
+        "to"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "connected": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "coverage": {
+          "$ref": "#/definitions/GraphPathCoverage"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphCorridorEdge"
+          }
+        },
+        "from": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolDto"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "search": {
+          "$ref": "#/definitions/GraphCorridorSearchStats"
+        },
+        "to": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "GraphCorridorSearchStats": {
+      "type": "object",
+      "required": [
+        "depth_limit_reached",
+        "edge_limit_reached",
+        "explored_edges",
+        "explored_symbols",
+        "forward_depth_reached",
+        "max_depth",
+        "reverse_depth_reached",
+        "symbol_limit_reached"
+      ],
+      "properties": {
+        "depth_limit_reached": {
+          "type": "boolean"
+        },
+        "edge_limit_reached": {
+          "type": "boolean"
+        },
+        "explored_edges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "explored_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "forward_depth_reached": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_depth": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "reverse_depth_reached": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "symbol_limit_reached": {
+          "type": "boolean"
+        }
+      }
+    },
     "GraphPathCoverage": {
       "type": "object",
       "required": [
@@ -3367,6 +3502,65 @@
         {
           "type": "object",
           "required": [
+            "from",
+            "max_depth",
+            "max_edges",
+            "max_symbols",
+            "min_coverage",
+            "op",
+            "relation",
+            "to"
+          ],
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "max_edges": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "max_symbols": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "min_coverage": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "graph_corridor"
+              ]
+            },
+            "relation": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "to": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "op",
             "prefix"
           ],
@@ -4068,6 +4262,24 @@
               "type": "string",
               "enum": [
                 "graph_path"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/GraphCorridorResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "graph_corridor"
               ]
             }
           }
@@ -6458,5 +6670,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 17
+  "x-code-moniker-protocol-version": 18
 }
