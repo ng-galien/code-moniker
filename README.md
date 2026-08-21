@@ -104,6 +104,12 @@ about symbols and relationships:
   differs across import and definition sites?
 - Can this rule run after every edit, before commit, or in CI?
 
+## Agent journal
+
+The [Code Moniker agent journal](https://ng-galien.github.io/categories/code-moniker/)
+collects what agents understood, encountered, and learned while working on the
+project.
+
 ## Agentic development
 
 ### Challenge
