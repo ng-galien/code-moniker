@@ -1,0 +1,22 @@
+{
+	"name": "@code-moniker/urban-plan",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"capture": "tsx src/capture.ts",
+		"dev": "vite",
+		"build": "vite build"
+	},
+	"dependencies": {
+		"@code-moniker/client": "file:../../packages/client",
+		"three": "^0.180.0",
+		"ws": "^8.18.0"
+	},
+	"devDependencies": {
+		"@types/three": "^0.180.0",
+		"tsx": "^4.20.0",
+		"typescript": "^5.9.0",
+		"vite": "^7.1.0"
+	}
+}
