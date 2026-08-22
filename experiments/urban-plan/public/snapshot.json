@@ -1,0 +1,169 @@
+{
+	"kind": "urban-plan",
+	"version": 1,
+	"generation": 1,
+	"prefix": "lang:rs/dir:crates",
+	"capturedAt": "2026-08-22T10:00:00.000Z",
+	"heightMetric": "defs",
+	"footprintMetric": "defs",
+	"buildings": [
+		{
+			"id": "lang:rs/dir:crates/dir:check",
+			"label": "check",
+			"kind": "dir",
+			"defs": 2109,
+			"hasChildren": true,
+			"u": 0,
+			"v": 0,
+			"width": 2.68,
+			"depth": 2.68,
+			"height": 4.21
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:cli",
+			"label": "cli",
+			"kind": "dir",
+			"defs": 2690,
+			"hasChildren": true,
+			"u": 1,
+			"v": 0,
+			"width": 2.74,
+			"depth": 2.74,
+			"height": 4.35
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:core",
+			"label": "core",
+			"kind": "dir",
+			"defs": 3630,
+			"hasChildren": true,
+			"u": 2,
+			"v": 0,
+			"width": 2.8,
+			"depth": 2.8,
+			"height": 4.51
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:daemon",
+			"label": "daemon",
+			"kind": "dir",
+			"defs": 763,
+			"hasChildren": true,
+			"u": 0,
+			"v": 1,
+			"width": 2.46,
+			"depth": 2.46,
+			"height": 3.65
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:daemon-client",
+			"label": "daemon-client",
+			"kind": "dir",
+			"defs": 98,
+			"hasChildren": true,
+			"u": 1,
+			"v": 1,
+			"width": 2.01,
+			"depth": 2.01,
+			"height": 2.53
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:query",
+			"label": "query",
+			"kind": "dir",
+			"defs": 1408,
+			"hasChildren": true,
+			"u": 2,
+			"v": 1,
+			"width": 2.59,
+			"depth": 2.59,
+			"height": 3.99
+		},
+		{
+			"id": "lang:rs/dir:crates/dir:workspace",
+			"label": "workspace",
+			"kind": "dir",
+			"defs": 4639,
+			"hasChildren": true,
+			"u": 0,
+			"v": 2,
+			"width": 2.86,
+			"depth": 2.86,
+			"height": 4.65
+		}
+	],
+	"roads": [
+		{
+			"from": "lang:rs/dir:crates/dir:daemon",
+			"to": "lang:rs/dir:crates/dir:query",
+			"count": 1305,
+			"kinds": ["calls", "implements", "imports_symbol", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:check",
+			"to": "lang:rs/dir:crates/dir:core",
+			"count": 724,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:check",
+			"to": "lang:rs/dir:crates/dir:workspace",
+			"count": 613,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:daemon",
+			"to": "lang:rs/dir:crates/dir:workspace",
+			"count": 406,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:core",
+			"count": 361,
+			"kinds": ["calls", "imports_symbol", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:query",
+			"count": 249,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:workspace",
+			"count": 233,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:check",
+			"count": 39,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:daemon",
+			"to": "lang:rs/dir:crates/dir:check",
+			"count": 30,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:daemon",
+			"count": 23,
+			"kinds": ["calls", "uses_type"]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:daemon-client",
+			"to": "lang:rs/dir:crates/dir:query",
+			"count": 44,
+			"kinds": ["calls", "uses_type"]
+		}
+	],
+	"coverage": {
+		"nodes": 7,
+		"edgesTotal": 14,
+		"edgesEmitted": 11,
+		"roadsOmitted": 3
+	}
+}
