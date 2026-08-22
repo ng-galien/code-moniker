@@ -1,6 +1,13 @@
 # Urban plan experiment (issue #12)
 
-Isolated Node + Three.js prototype. Not part of the VS Code extension.
+Isolated Node + React prototype. Not part of the VS Code extension.
+
+- **Capture** talks to the daemon with `@code-moniker/client/node`
+  (`NodeDaemonRuntime` + `client.graph.identity()`).
+- **Scene IR** (`src/scene.ts`) has no renderer imports.
+- **Viewer** is React 19 + Vite + React Three Fiber + Drei (orthographic
+  city, HTML labels, hover state). Issue #12's VS Code webview should reuse
+  this IR later.
 
 See [STUDY.md](STUDY.md) for the index → scene-IR → renderer split.
 
