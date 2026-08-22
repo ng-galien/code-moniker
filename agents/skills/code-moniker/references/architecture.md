@@ -50,12 +50,14 @@ After the fail-closed workspace read, list project-defined views:
 code_moniker_read uri:"workspace/views"
 ```
 
-Follow only a relevant returned view call. Its intent, summary, ownership,
-prohibitions, rules and gotchas are declared project context. Resolved symbol
-and rule evidence belongs to the current index generation. Missing or ambiguous
-evidence is a coverage limit, not proof that the declared architecture is
-absent. If no relevant view exists, continue from the user's scope without
-inventing one.
+Follow only a relevant returned view call. The URI leaf is the view `id`,
+not the fragment name and not the fragment file path. Its intent, summary,
+ownership, prohibitions, rules and gotchas are declared project context.
+Resolved symbol and rule evidence belongs to the current index generation.
+Missing or ambiguous evidence is a coverage limit, not proof that the declared
+architecture is absent. If no relevant view exists, continue from the user's
+scope without inventing one. How fragments, view URIs, selectors, and namespaced
+rule ids relate: `fragments.md`.
 
 In binary-only mode, read `query-dsl.md` before the equivalent advanced query:
 

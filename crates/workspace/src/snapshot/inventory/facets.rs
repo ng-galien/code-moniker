@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use super::{InventorySegment, InventorySymbol, SourceId, SymbolOrdinal, SymbolSet};
+use super::{InventorySegment, InventorySymbol, SourceId, SymbolId, SymbolOrdinal, SymbolSet};
 
 // Posting-list accessors are independent projections over one immutable
 // inventory; low field overlap is the intended shape of this index.
@@ -11,6 +11,7 @@ use super::{InventorySegment, InventorySymbol, SourceId, SymbolOrdinal, SymbolSe
 pub struct SymbolInventoryFacets {
 	by_identity: FxHashMap<Arc<str>, SymbolSet>,
 	by_name: FxHashMap<Arc<str>, SymbolSet>,
+	by_natural_name: FxHashMap<Arc<str>, SymbolSet>,
 	by_kind: FxHashMap<Arc<str>, SymbolSet>,
 	by_shape: FxHashMap<Arc<str>, SymbolSet>,
 	by_visibility: FxHashMap<Arc<str>, SymbolSet>,
@@ -20,12 +21,14 @@ pub struct SymbolInventoryFacets {
 	by_source_root: FxHashMap<usize, SymbolSet>,
 	by_srcset: FxHashMap<Arc<str>, SymbolSet>,
 	by_segment: FxHashMap<InventorySegment, SymbolSet>,
+	by_owner: FxHashMap<SymbolId, SymbolSet>,
 }
 
 impl SymbolInventoryFacets {
 	pub(super) fn estimated_heap_bytes(&self) -> usize {
 		string_postings_bytes(&self.by_identity)
 			+ string_postings_bytes(&self.by_name)
+			+ string_postings_bytes(&self.by_natural_name)
 			+ string_postings_bytes(&self.by_kind)
 			+ string_postings_bytes(&self.by_shape)
 			+ string_postings_bytes(&self.by_visibility)
@@ -35,6 +38,7 @@ impl SymbolInventoryFacets {
 			+ postings_bytes(&self.by_source_root)
 			+ string_postings_bytes(&self.by_srcset)
 			+ postings_bytes(&self.by_segment)
+			+ postings_bytes(&self.by_owner)
 	}
 
 	pub fn symbols_by_identity(&self, identity: &str) -> Option<&SymbolSet> {
@@ -43,6 +47,10 @@ impl SymbolInventoryFacets {
 
 	pub fn symbols_by_name(&self, name: &str) -> Option<&SymbolSet> {
 		self.by_name.get(name)
+	}
+
+	pub fn symbols_by_natural_name(&self, name: &str) -> Option<&SymbolSet> {
+		self.by_natural_name.get(name)
 	}
 
 	pub fn name_postings(&self) -> impl Iterator<Item = (&str, &SymbolSet)> {
@@ -115,6 +123,10 @@ impl SymbolInventoryFacets {
 	pub fn segment_postings(&self) -> impl Iterator<Item = (&InventorySegment, &SymbolSet)> {
 		self.by_segment.iter()
 	}
+
+	pub fn symbols_by_owner(&self, owner: &SymbolId) -> Option<&SymbolSet> {
+		self.by_owner.get(owner)
+	}
 }
 
 fn postings_bytes<K>(postings: &FxHashMap<K, SymbolSet>) -> usize {
@@ -140,6 +152,11 @@ pub(super) fn insert_facets(
 		ordinal,
 	);
 	insert_posting(&mut facets.by_name, Arc::clone(&record.name), ordinal);
+	insert_posting(
+		&mut facets.by_natural_name,
+		Arc::from(natural_name(&record.name)),
+		ordinal,
+	);
 	insert_posting(&mut facets.by_kind, Arc::clone(&record.kind), ordinal);
 	insert_posting(&mut facets.by_shape, Arc::clone(&record.shape), ordinal);
 	insert_posting(
@@ -163,6 +180,11 @@ pub(super) fn insert_facets(
 	for segment in record.segments.iter() {
 		insert_posting(&mut facets.by_segment, segment.clone(), ordinal);
 	}
+	if record.navigable {
+		for owner in record.ancestors.iter() {
+			insert_posting(&mut facets.by_owner, *owner, ordinal);
+		}
+	}
 }
 
 pub(super) fn remove_facets(
@@ -172,6 +194,11 @@ pub(super) fn remove_facets(
 ) {
 	remove_posting(&mut facets.by_identity, &record.identity, ordinal);
 	remove_posting(&mut facets.by_name, &record.name, ordinal);
+	remove_posting(
+		&mut facets.by_natural_name,
+		&Arc::<str>::from(natural_name(&record.name)),
+		ordinal,
+	);
 	remove_posting(&mut facets.by_kind, &record.kind, ordinal);
 	remove_posting(&mut facets.by_shape, &record.shape, ordinal);
 	remove_posting(&mut facets.by_visibility, &record.visibility, ordinal);
@@ -183,6 +210,15 @@ pub(super) fn remove_facets(
 	for segment in record.segments.iter() {
 		remove_posting(&mut facets.by_segment, segment, ordinal);
 	}
+	if record.navigable {
+		for owner in record.ancestors.iter() {
+			remove_posting(&mut facets.by_owner, owner, ordinal);
+		}
+	}
+}
+
+fn natural_name(name: &str) -> &str {
+	name.split_once('(').map_or(name, |(base, _)| base)
 }
 
 fn posting_values(

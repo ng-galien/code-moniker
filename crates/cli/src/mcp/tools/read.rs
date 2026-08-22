@@ -56,7 +56,7 @@ fn read_input_schema() -> Value {
 		"properties": {
 			"uri": {
 				"type": "string",
-				"description": "workspace | code+moniker://workspace | relative or absolute source path for ast:true (absolute disambiguates duplicate multi-root paths) | compact moniker, canonical URI, or symbol id returned by code_moniker_symbols. With source+language, this is an optional parser filename hint such as snippet.tsx."
+				"description": "workspace | code+moniker://workspace | relative or absolute source path for ast:true (absolute disambiguates duplicate multi-root paths) | compact moniker, canonical URI, symbol id, unique bare name, or unambiguous lang:path.kind:name reference. Ambiguity returns candidates. With source+language, this is an optional parser filename hint such as snippet.tsx."
 			},
 			"source": {
 				"type": "string",

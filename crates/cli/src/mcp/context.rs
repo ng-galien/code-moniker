@@ -72,6 +72,13 @@ impl McpContext {
 			.join(", ")
 	}
 
+	pub(super) fn runtime_label(&self) -> &'static str {
+		match &self.daemon {
+			DaemonRuntime::Client { .. } => "detached-daemon",
+			DaemonRuntime::InProcess { .. } => "stdio-worker",
+		}
+	}
+
 	pub(crate) fn in_process_preload_parts(&self) -> Option<InProcessPreloadParts> {
 		self.daemon.in_process_preload_parts()
 	}
@@ -331,7 +338,9 @@ fn lock_daemon(
 	match daemon.try_lock() {
 		Ok(guard) => Ok(guard),
 		Err(TryLockError::WouldBlock) => {
-			anyhow::bail!("workspace_busy: workspace daemon is applying an exclusive mutation")
+			anyhow::bail!(
+				"workspace_busy: this stdio-worker is applying an exclusive mutation; a detached daemon is an independent runtime"
+			)
 		}
 		Err(TryLockError::Poisoned(_)) => anyhow::bail!("daemon lock poisoned"),
 	}

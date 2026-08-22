@@ -426,6 +426,11 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		.expect("query describe");
 	assert!(!described.is_error);
 	assert!(
+		described.text.starts_with("runtime: stdio-worker\n"),
+		"MCP output must identify the in-process runtime: {}",
+		described.text
+	);
+	assert!(
 		described.text.contains("operation: query.describe"),
 		"{}",
 		described.text
@@ -2657,6 +2662,7 @@ fn symbols_tool_does_not_explain_a_daemon_page_past_existing_matches() {
 		&SymbolListResult {
 			rows: Vec::new(),
 			total: 1,
+			hint: None,
 		},
 	);
 

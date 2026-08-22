@@ -1,6 +1,6 @@
 use code_moniker_query::{
-	ChangeContextQuery, ChangeContextResult, Page, Query, QueryResult, SymbolGraphFocus,
-	format_query_response,
+	ChangeContextQuery, ChangeContextResult, DEFAULT_CHANGE_CONTEXT_ITEMS,
+	MAX_CHANGE_CONTEXT_ITEMS, Page, Query, QueryResult, SymbolGraphFocus, format_query_response,
 };
 use serde_json::{Value, json};
 
@@ -21,15 +21,13 @@ impl ContextTool {
 		"generated follow-up calls preserve the active compact or canonical mode."
 	);
 
-	const DEFAULT_MAX_ITEMS: usize = 20;
-
 	fn input_schema() -> Value {
 		json!({
 			"type": "object",
 			"properties": {
 				"focus": {
 					"type": "string",
-					"description": "Compact moniker, canonical symbol URI, symbol id, or workspace-relative file path."
+					"description": "Compact moniker, canonical symbol URI, symbol id, unique bare name, unambiguous lang:path.kind:name reference, or workspace-relative file path. Ambiguity returns candidates."
 				},
 				"profile": {
 					"type": "string",
@@ -38,8 +36,8 @@ impl ContextTool {
 				"max_items": {
 					"type": "integer",
 					"minimum": 1,
-					"maximum": 100,
-					"default": Self::DEFAULT_MAX_ITEMS,
+					"maximum": MAX_CHANGE_CONTEXT_ITEMS,
+					"default": DEFAULT_CHANGE_CONTEXT_ITEMS,
 					"description": "Per-section bound. Coverage reports emitted/total counts."
 				}
 			},
@@ -76,10 +74,10 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 		.get("max_items")
 		.and_then(Value::as_u64)
 		.map(|value| value as usize)
-		.unwrap_or(ContextTool::DEFAULT_MAX_ITEMS);
-	if !(1..=100).contains(&max_items) {
+		.unwrap_or(DEFAULT_CHANGE_CONTEXT_ITEMS);
+	if !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&max_items) {
 		return Err(ToolError::failed(anyhow::anyhow!(
-			"max_items must be between 1 and 100"
+			"max_items must be between 1 and {MAX_CHANGE_CONTEXT_ITEMS}"
 		)));
 	}
 	let response = context

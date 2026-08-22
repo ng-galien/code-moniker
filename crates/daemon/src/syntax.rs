@@ -10,7 +10,9 @@ use code_moniker_workspace::snapshot::{
 	SourceFileRecord, SymbolRecord, WorkspaceSnapshot, WorkspaceView,
 };
 
-use super::{find_symbol, load_source_text, selected_roots, source_root};
+use crate::helpers::{
+	find_symbol, load_source_text, selected_roots, source_root, symbol_scope_for_roots,
+};
 
 pub(super) fn syntax_tree_response(
 	snapshot: &WorkspaceSnapshot,
@@ -213,7 +215,8 @@ fn resolve_focus<'a>(
 	focus: &str,
 ) -> Result<(&'a SourceFileRecord, Option<&'a SymbolRecord>), QueryError> {
 	if is_symbol_focus(focus) {
-		let symbol = find_symbol(snapshot, focus)?;
+		let symbol_scope = symbol_scope_for_roots(snapshot, roots, selected_roots);
+		let symbol = find_symbol(snapshot, &symbol_scope, focus)?;
 		let source = WorkspaceView::new(snapshot)
 			.sources()
 			.record(&symbol.source)

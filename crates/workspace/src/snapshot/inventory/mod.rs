@@ -57,7 +57,9 @@ pub struct InventorySymbol {
 	pub source_root: usize,
 	pub srcset: Arc<str>,
 	pub line_range: Option<(u32, u32)>,
+	pub navigable: bool,
 	pub parent: Option<SymbolId>,
+	pub ancestors: Arc<[SymbolId]>,
 	pub segments: Arc<[InventorySegment]>,
 }
 
@@ -83,6 +85,7 @@ impl SymbolInventoryIndex {
 		let mut strings = std::collections::HashSet::<(usize, usize)>::new();
 		let mut string_bytes = 0usize;
 		let mut segment_bytes = 0usize;
+		let mut ancestor_bytes = 0usize;
 		for record in self.records.values() {
 			for value in [
 				&record.identity,
@@ -99,6 +102,7 @@ impl SymbolInventoryIndex {
 				}
 			}
 			segment_bytes += record.segments.len() * std::mem::size_of::<InventorySegment>();
+			ancestor_bytes += record.ancestors.len() * std::mem::size_of::<SymbolId>();
 			for segment in record.segments.iter() {
 				for value in [&segment.kind, &segment.name] {
 					if strings.insert((value.as_ptr() as usize, value.len())) {
@@ -122,6 +126,7 @@ impl SymbolInventoryIndex {
 			+ self.compact_identity_collisions.capacity()
 				* (std::mem::size_of::<u64>() + std::mem::size_of::<Vec<SymbolOrdinal>>())
 			+ segment_bytes
+			+ ancestor_bytes
 			+ string_bytes
 	}
 
@@ -146,7 +151,7 @@ impl SymbolInventoryIndex {
 		for symbol in symbols.iter() {
 			let fallback = missing_source(symbol.source);
 			let source = sources.get(symbol.source.file()).unwrap_or(&fallback);
-			index_record(&mut inventory, symbol, source, None);
+			index_record(&mut inventory, symbol, source, symbols, None);
 		}
 		inventory
 	}
@@ -181,6 +186,40 @@ impl SymbolInventoryIndex {
 		self.catalog
 			.ordinal(id)
 			.and_then(|ordinal| self.record(ordinal))
+	}
+
+	pub fn owner_and_descendants(&self, owner: &SymbolId) -> SymbolSet {
+		let mut symbols = self
+			.facets
+			.symbols_by_owner(owner)
+			.cloned()
+			.unwrap_or_default();
+		if let Some(ordinal) = self.catalog.ordinal(owner) {
+			symbols.insert(ordinal);
+		}
+		symbols
+	}
+
+	pub fn owner_and_descendants_bounded(
+		&self,
+		owner: &SymbolId,
+		max_symbols: usize,
+	) -> Result<SymbolSet, usize> {
+		let posting = self.facets.symbols_by_owner(owner);
+		let owner_ordinal = self.catalog.ordinal(owner);
+		let total =
+			posting.map_or(0, SymbolSet::len)
+				+ usize::from(owner_ordinal.is_some_and(|ordinal| {
+					!posting.is_some_and(|symbols| symbols.contains(ordinal))
+				}));
+		if total > max_symbols {
+			return Err(total);
+		}
+		let mut symbols = posting.cloned().unwrap_or_default();
+		if let Some(ordinal) = owner_ordinal {
+			symbols.insert(ordinal);
+		}
+		Ok(symbols)
 	}
 
 	pub fn symbol_ids_by_identity(&self, identity: &str) -> Vec<SymbolId> {
@@ -220,6 +259,7 @@ fn index_record(
 	inventory: &mut SymbolInventoryIndex,
 	symbol: &SymbolRecord,
 	source: &SourceFileRecord,
+	symbols: &RecordTable<SymbolRecord>,
 	preferred_ordinal: Option<SymbolOrdinal>,
 ) {
 	let catalog = Arc::make_mut(&mut inventory.catalog);
@@ -233,7 +273,7 @@ fn index_record(
 	if inventory.records.contains_key(&ordinal) {
 		unindex_record(inventory, ordinal);
 	}
-	let record = inventory_record(symbol, source);
+	let record = inventory_record(symbol, source, symbols);
 	inventory.all_symbols.insert(ordinal);
 	facets::insert_facets(&mut inventory.facets, &record, ordinal);
 	if let Some(compact) = compact_record_identity(record.identity.as_ref()) {
@@ -242,7 +282,11 @@ fn index_record(
 	inventory.records.insert(ordinal, record);
 }
 
-fn inventory_record(symbol: &SymbolRecord, source: &SourceFileRecord) -> InventorySymbol {
+fn inventory_record(
+	symbol: &SymbolRecord,
+	source: &SourceFileRecord,
+	symbols: &RecordTable<SymbolRecord>,
+) -> InventorySymbol {
 	let segments = parse_segments(&symbol.identity);
 	let srcset = segments
 		.iter()
@@ -259,13 +303,31 @@ fn inventory_record(symbol: &SymbolRecord, source: &SourceFileRecord) -> Invento
 		shape: Arc::from(Shape::for_kind(symbol.kind.as_bytes()).as_str()),
 		visibility: Arc::from(symbol.visibility.as_str()),
 		language: Arc::from(source.language.as_str()),
-		source_path: Arc::from(source.path.as_str()),
+		source_path: Arc::from(source.rel_path.as_str()),
 		source_root: source.source_root,
 		srcset: Arc::from(srcset),
 		line_range: symbol.line_range,
+		navigable: symbol.navigable,
 		parent: symbol.parent,
+		ancestors: symbol_ancestors(symbol, symbols),
 		segments: Arc::from(segments),
 	}
+}
+
+fn symbol_ancestors(symbol: &SymbolRecord, symbols: &RecordTable<SymbolRecord>) -> Arc<[SymbolId]> {
+	let mut ancestors = Vec::new();
+	let mut parent = symbol.parent;
+	while let Some(id) = parent {
+		if ancestors.contains(&id) {
+			break;
+		}
+		ancestors.push(id);
+		parent = symbols
+			.file_records(id.file())
+			.get(id.def())
+			.and_then(|record| record.parent);
+	}
+	Arc::from(ancestors)
 }
 
 fn parse_segments(identity: &str) -> Vec<InventorySegment> {
@@ -379,7 +441,7 @@ fn refresh_inventory(
 			let source = sources.get(*file).unwrap_or(&fallback);
 			let key = (symbol.source, Arc::clone(&symbol.identity));
 			let preferred = reusable_ordinals.get_mut(&key).and_then(Vec::pop);
-			index_record(&mut inventory, symbol, source, preferred);
+			index_record(&mut inventory, symbol, source, symbols, preferred);
 		}
 	}
 	for ordinal in pending_retire {

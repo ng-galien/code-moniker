@@ -150,6 +150,7 @@ fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<
 const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
 	include_str!("../../assets/learn/basics.cm.md"),
 	include_str!("../../assets/learn/paths.cm.md"),
+	include_str!("../../assets/learn/fragments.cm.md"),
 	include_str!("../../assets/learn/refs.cm.md"),
 	include_str!("../../assets/learn/collections.cm.md"),
 	include_str!("../../assets/learn/domains.cm.md"),
@@ -830,7 +831,7 @@ mod tests {
 		let out = String::from_utf8(stdout).unwrap();
 		assert!(
 			out.contains(
-				"# Topics: basics, paths, refs, collections, domains, metrics, aggregates, relations, directives, profiles"
+				"# Topics: basics, paths, fragments, refs, collections, domains, metrics, aggregates, relations, directives, profiles"
 			),
 			"{out}"
 		);

@@ -239,8 +239,8 @@ fn reference_payload_bytes(reference: &RefRecord) -> usize {
 mod tests {
 	use super::SnapshotMemoryEstimate;
 	use crate::snapshot::{
-		CodeIndex, LinkageEdge, LinkageSnapshot, ReferenceId, ResourceGeneration, SymbolId,
-		SymbolRecord,
+		CodeIndex, LinkageEdge, LinkageReadIndexHandle, LinkageSnapshot, ReferenceId,
+		ReferenceRecord, ResourceGeneration, SourceId, SymbolId, SymbolRecord,
 	};
 
 	#[test]
@@ -272,6 +272,54 @@ mod tests {
 		assert!(
 			SnapshotMemoryEstimate::from_linkage(&populated_graph)
 				> SnapshotMemoryEstimate::from_linkage(&empty_graph)
+		);
+	}
+
+	#[test]
+	fn unique_edges_do_not_allocate_a_per_pair_hash_map_or_bitmap() {
+		const EDGE_COUNT: usize = 4_096;
+		let generation = ResourceGeneration::new(1);
+		let source = SourceId::at(0);
+		let mut symbols = Vec::with_capacity(EDGE_COUNT * 2);
+		let mut references = Vec::with_capacity(EDGE_COUNT);
+		let mut edges = Vec::with_capacity(EDGE_COUNT);
+		let mut ordinals = Vec::with_capacity(EDGE_COUNT * 2);
+		for index in 0..EDGE_COUNT {
+			let from = SymbolId::at(0, index * 2);
+			let to = SymbolId::at(0, index * 2 + 1);
+			let reference = ReferenceId::at(0, index);
+			symbols.push(SymbolRecord::new(
+				from,
+				source,
+				format!("from_{index}"),
+				"fn",
+			));
+			symbols.push(SymbolRecord::new(to, source, format!("to_{index}"), "fn"));
+			references.push(ReferenceRecord::new(
+				reference,
+				source,
+				from,
+				to.to_string(),
+				"calls",
+				None,
+			));
+			edges.push(LinkageEdge::new(reference, to));
+			ordinals.push(((index * 2) as u32, from));
+			ordinals.push(((index * 2 + 1) as u32, to));
+		}
+		let index = CodeIndex::with_references(generation, generation, symbols, references);
+		let mut linkage = LinkageSnapshot::new(generation, generation, EDGE_COUNT, 0);
+		linkage.resolved = edges;
+		linkage.read_index = LinkageReadIndexHandle::from_snapshot_with_ordinals(
+			&linkage,
+			&index.references,
+			ordinals,
+		);
+
+		let graph_bytes = SnapshotMemoryEstimate::from_linkage(&linkage);
+		assert!(
+			graph_bytes < EDGE_COUNT * 512,
+			"unique-edge linkage index used {graph_bytes} bytes for {EDGE_COUNT} edges"
 		);
 	}
 }

@@ -20,14 +20,16 @@ selected daemon's reported index generation.
 |---|---|---|
 | `query.describe` | `verb:` | live query capabilities, fields, defaults and projections |
 | `workspace.status` | — | phase, counts, staleness |
-| `identity.children` | `prefix:""` | one level of the identity tree (kind, name, def counts, URIs for defs) |
+| `identity.children` | `prefix:""`, `limit:` | one bounded level of the identity tree (kind, name, def counts, URIs for defs) |
 | `identity.graph` | `prefix:""`, `path:`, `min_count:`, `limit:`, `cursor:` | path-selected level as a paginated graph: nodes, rolled-up edges, ports, coverage and unresolved count |
-| `view.read` | `uri:"workspace/views"` | project-defined contextual view list or one returned view with boundaries, rules, gotchas and resolved evidence |
+| `view.read` | `uri:"workspace/views"` or a returned `workspace/views/<view.id>` | view list or one view. The leaf is `[[views]] id`, never `fragment =`. See `fragments.md`. |
 | `symbol.search` | `name:`, `shape:`, `path:`, `limit:` | matching symbols with exact URIs |
 | `symbol.detail` | `uri:`, `context_lines:` | one symbol + its source zone |
 | `syntax.tree` | `focus:`, `max_depth:`, `max_nodes:`, `named_only:`, `include_text:` | bounded on-demand Tree-sitter tree for a file or symbol |
 | `symbol.usages` | `uri:`, `include_descendants:`, `limit:` | exact usages by default; optional owner roll-up across navigable descendants, with internal relations excluded |
-| `symbol.graph` | `focus:`, `direction:`, `relation:`, `min_count:` | filtered ego view: members, internal edges, callers `<`, callees `>` |
+| `symbol.graph` | `focus:`, `direction:`, `relation:`, `min_count:`, `limit:` | bounded ego view: members, internal edges, callers `<`, callees `>` |
+| `graph.path` | `from:`, `to:`, `relation:`, `expect:`, `max_depth:`, `max_symbols:`, `max_edges:`, `min_coverage:` | bounded shortest witness with tri-state confidence |
+| `graph.corridor` | `from:`, `to:`, `relation:`, one or more of `path:`/`lang:`/`kind:`/`shape:`/`srcset:`, traversal budgets | one stateless bounded connectivity subgraph; `result_complete` and `search_complete` are separate |
 | `symbol.insights` | `limit:` | languages, kinds, concentration |
 | `tree.children` | `path:` | file-tree navigation |
 | `rules.list` / `rules.check` | `profile:` | compiled rules / run a check |
@@ -39,18 +41,35 @@ selected daemon's reported index generation.
 
 ## Field syntax
 
-- Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`. A quoted
-  value is atomic: commas and whitespace inside it are literal and never list
-  separators. Canonical URIs, compact monikers returned by MCP, and symbol ids
-  are accepted by symbol-targeting verbs.
+- Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`.
+  Canonical URIs, compact monikers returned by MCP, symbol ids, unique bare
+  names, and unambiguous `lang:path.kind:name` references are accepted by
+  symbol-targeting verbs. Ambiguous natural references fail with concrete
+  canonical candidates instead of choosing one silently.
 - Numbers bare: `limit:10`.
 - `syntax.tree` defaults to named nodes, depth 6 and 100 nodes. Set
   `named_only:false` only when punctuation or anonymous grammar nodes matter;
   `include_text:true max_text_chars:80` attaches normalized text to leaves.
-- Multi-value fields OR-combine: `shape:callable,type`, `shape:[callable,type]`
-  (bracket list sugar on `lang`/`kind`/`shape`/`severity`), or repeat the field.
-  Lists must be unquoted; no spaces are allowed inside an unquoted list, and an
-  unclosed `[` is a parse error.
+- Multi-value fields OR-combine. Natural forms are equivalent:
+  `shape:callable,type`, `shape:"callable,type"`, `shape:[callable,type]`,
+  `shape:["callable","type"]`, or repeated `shape:` fields. Quoting a whole
+  list does not turn its comma into a literal glob. Inside a bracketed list,
+  quote one item to preserve a literal comma, for example
+  `path:["generated,a.ts"]`. Spaces after list commas are accepted. An
+  unclosed `[` remains a parse error.
+- Result budgets accept `limit:` and `max_items:` as aliases. `query.describe`
+  exposes the canonical field, its request default and its accepted range;
+  `symbol.graph` and `identity.children` accept `1..500`. Supplying both aliases
+  is rejected because two competing budgets are genuinely ambiguous.
+- `max_symbols`, `max_edges`, `max_depth`, and `min_coverage` are request
+  controls, not hidden product constants. Read their current defaults and
+  protocol ceilings with `query.describe verb:"graph.path"` or
+  `query.describe verb:"graph.corridor"`. A budget error first gives the exact
+  field/value to raise, then a scope-narrowing alternative.
+- Path and corridor accept a type or namespace owner naturally: the endpoint
+  becomes a Roaring set containing that owner and its navigable members. The
+  result reports both endpoint-set cardinalities. Use a member endpoint when
+  the owner scope is broader than the intended question.
 - `symbol.search` filters AND-combine: `name:"change" shape:callable path:"src/**"`.
 - Fields are validated per verb: an unknown field (e.g. `text:`) is a parse
   error with a suggestion (`did you mean \`name\`?`) or the valid-field list.

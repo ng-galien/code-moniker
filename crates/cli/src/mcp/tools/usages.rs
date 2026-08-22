@@ -53,7 +53,7 @@ impl UsagesTool {
 			"properties": {
 				"uri": {
 					"type": "string",
-					"description": "Compact moniker, canonical URI, or symbol id returned by code_moniker_symbols."
+					"description": "Compact moniker, canonical URI, symbol id, unique bare name, or unambiguous lang:path.kind:name reference. Ambiguity returns candidates."
 				},
 				"direction": {
 					"type": "string",

@@ -1,0 +1,226 @@
+fragment = "daemon"
+
+# Daemon runtime, state, lifecycle, and query boundaries.
+
+[aliases]
+daemon_lib = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lib/**'"
+daemon_runtime = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:runtime/**'"
+daemon_lifecycle = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lifecycle/**'"
+daemon_helpers = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:/^(helpers|pagination)$/**'"
+daemon_query = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:query/**'"
+daemon_read_query = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:query/module:/^(changes|graph|identity|model|rules|symbols)$/**'"
+daemon_stateful_query = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:query/module:/^(context|notes)$/**'"
+daemon_source_sets = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:source_sets/**'"
+daemon_syntax = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+
+runtime_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:runtime/**'"
+lifecycle_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:lifecycle/**'"
+daemon_state_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:daemon/**'"
+daemon_query_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:query/**'"
+query_implementation_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:query/module:/^(changes|context|graph|identity|notes|rules|symbols)$/**'"
+source_sets_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:source_sets/**'"
+shared_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:/^(helpers|pagination)$/**'"
+
+daemon_internal_ref = """
+  kind = 'imports_symbol'
+  OR kind = 'imports_module'
+  OR kind = 'uses_type'
+  OR kind = 'calls'
+  OR kind = 'method_call'
+  OR kind = 'implements'
+  OR kind = 'instantiates'
+"""
+
+[[rust.shape.callable.where]]
+id       = "lib-is-composition-only"
+severity = "error"
+expr     = "$daemon_lib => name = 'set_telemetry_export_enabled'"
+message  = "Daemon `lib.rs` callable `{name}` is implementation logic; keep the crate root limited to module wiring and the telemetry switch."
+rationale = """
+The crate root is the public composition surface. Runtime transport, mutable daemon state,
+lifecycle transitions, query evaluation, and shared projections each have a dedicated module.
+"""
+
+[[rust.shape.type.where]]
+id       = "lib-defines-no-policy-types"
+severity = "error"
+expr     = "NOT $daemon_lib"
+message  = "Daemon `lib.rs` type `{name}` is policy or state; move it to its functional owner."
+rationale = "The composition root declares modules and public reexports; domain types belong to an owning module."
+
+[[rust.shape.value.where]]
+id       = "lib-defines-no-policy-values"
+severity = "error"
+expr     = "NOT ($daemon_lib AND (kind = 'const' OR kind = 'static'))"
+message  = "Daemon `lib.rs` value `{name}` is policy; move it to its functional owner."
+rationale = "Constants and statics encode policy and therefore belong beside the implementation that enforces them."
+
+[[refs.where]]
+id       = "runtime-does-not-enter-query-implementations"
+severity = "error"
+expr     = "$daemon_runtime AND ($daemon_internal_ref) => NOT $query_implementation_target"
+message  = "Daemon runtime transport must dispatch through `daemon`, not call a query implementation directly."
+rationale = """
+Runtime owns JSON-RPC, supervision, concurrency, publication, and shutdown. Query selection and
+evaluation belong to the daemon orchestration boundary so transport remains replaceable.
+"""
+
+[[refs.where]]
+id       = "lifecycle-is-independent-from-transport-and-queries"
+severity = "error"
+expr     = "$daemon_lifecycle AND ($daemon_internal_ref) => NOT ($runtime_target OR $daemon_query_target)"
+message  = "Daemon lifecycle must not depend on RPC transport or query implementations."
+rationale = """
+Refresh planning and workspace state transitions operate on `WorkspaceDaemon`; they must remain
+usable without an RPC server and must not trigger product queries as side effects.
+"""
+
+[[refs.where]]
+id       = "queries-do-not-depend-on-runtime-or-lifecycle"
+severity = "error"
+expr     = "$daemon_query AND ($daemon_internal_ref) => NOT ($runtime_target OR $lifecycle_target)"
+message  = "Daemon query code must be independent from RPC transport and refresh lifecycle."
+rationale = """
+Queries consume an explicit snapshot or the narrowly scoped daemon state passed by orchestration.
+They never own server concurrency, refresh transitions, or publication policy.
+"""
+
+[[refs.where]]
+id       = "read-queries-do-not-own-daemon-state"
+severity = "error"
+expr     = "$daemon_read_query AND ($daemon_internal_ref) => NOT $daemon_state_target"
+message  = "Read-only query implementations must consume explicit inputs, not mutable `WorkspaceDaemon` state."
+rationale = """
+Graph, symbol, rule, diff, and query-model code is deterministic from its snapshot and request.
+Only notes and the composed change-context query need explicitly passed mutable daemon state.
+"""
+
+[[refs.where]]
+id       = "shared-query-foundations-stay-below-orchestration"
+severity = "error"
+expr     = "$daemon_helpers AND ($daemon_internal_ref) => NOT ($runtime_target OR $lifecycle_target OR $daemon_state_target OR $source_sets_target OR $query_implementation_target)"
+message  = "Daemon helpers and pagination are foundational projections; they must not depend on orchestration or query implementations."
+rationale = """
+Shared helpers may depend on query model types and workspace/query contracts, but importing an
+implementation owner would create a hidden dependency cycle through `use super::*`.
+"""
+
+[[refs.where]]
+id       = "source-set-owner-does-not-depend-on-transport-or-queries"
+severity = "error"
+expr     = "$daemon_source_sets AND ($daemon_internal_ref) => NOT ($runtime_target OR $daemon_query_target)"
+message  = "Memory source-set commands must not depend on RPC transport or query implementations."
+rationale = """
+Source-set validation and refresh are a command-side owner shared by daemon commands and virtual
+diff preparation. They may use daemon state and lifecycle status, but not user-facing queries.
+"""
+
+[[refs.where]]
+id       = "syntax-is-stateless"
+severity = "error"
+expr     = "$daemon_syntax AND ($daemon_internal_ref) => NOT ($runtime_target OR $lifecycle_target OR $daemon_state_target OR $source_sets_target OR $daemon_query_target)"
+message  = "Syntax parsing must remain stateless and independent from daemon orchestration."
+rationale = """
+`syntax.parse` and syntax-tree projection are deterministic from source, language, snapshot input,
+and explicit limits. They must not drain events, refresh a workspace, or reach mutable daemon state.
+"""
+
+[[rust.shape.callable.where]]
+id       = "graph-path-uses-bounded-set-algebra"
+severity = "error"
+expr     = """
+  $daemon_query AND name = 'graph_path_response'
+  => any(out_refs, kind = 'method_call' AND target.name = 'bounded_path_between')
+"""
+message  = "`graph.path` must delegate traversal to the bounded set-to-set workspace API."
+rationale = """
+Natural endpoints are resolved to scoped Roaring sets before traversal. Reintroducing pairwise
+endpoint loops would duplicate graph work and make owner expansion explosive.
+"""
+
+[[rust.shape.callable.where]]
+id       = "graph-corridor-uses-bounded-set-algebra"
+severity = "error"
+expr     = """
+  $daemon_query AND name = 'graph_corridor_response'
+  => any(out_refs, kind = 'method_call' AND target.name = 'bounded_corridor_between')
+"""
+message  = "`graph.corridor` must delegate traversal to the bounded set-to-set workspace API."
+rationale = """
+Corridor is stateless and computed from scoped Roaring endpoint sets under explicit budgets. The
+daemon must not rebuild it through per-endpoint or per-page traversal loops.
+"""
+
+[[views]]
+id = "daemon-boundaries"
+title = "Daemon functional boundaries"
+scope = "daemon"
+intent = "Change daemon runtime or queries without recreating the former monolithic lib.rs."
+summary = """
+The crate root composes independent owners. Runtime hosts transport and publication; daemon owns
+request orchestration and mutable state; lifecycle owns refresh transitions; source_sets owns
+memory-source commands; query modules own bounded projections; syntax remains stateless.
+"""
+
+[[views.boundaries]]
+id = "crate-root"
+owns = ["module wiring", "public reexports", "telemetry switch"]
+forbids = ["request handling", "workspace lifecycle", "query evaluation", "graph traversal"]
+rationale = "`lib.rs` is a composition root, not an implementation module."
+symbols = ["module:lib"]
+rules = ["daemon.lib-is-composition-only"]
+
+[[views.boundaries]]
+id = "rpc-runtime"
+owns = ["JSON-RPC server", "supervision", "request concurrency", "published snapshots", "shutdown"]
+forbids = ["query implementation", "refresh policy", "graph traversal"]
+rationale = "Transport dispatches through daemon orchestration and never enters a query owner directly."
+symbols = ["module:runtime/struct:DaemonRpcService", "module:runtime/fn:serve_foreground_config"]
+rules = ["refs.daemon.runtime-does-not-enter-query-implementations"]
+
+[[views.boundaries]]
+id = "daemon-orchestration"
+owns = ["WorkspaceDaemon state", "command/query dispatch", "query input contexts"]
+forbids = ["socket supervision", "graph algorithms", "rule evaluation details"]
+rationale = "The daemon module is the single coordinator between state, lifecycle, and query owners."
+symbols = ["module:daemon/struct:WorkspaceDaemon", "module:daemon/fn:handle_query"]
+
+[[views.boundaries]]
+id = "workspace-lifecycle"
+owns = ["live event draining", "refresh plans", "workspace status", "failure projection"]
+forbids = ["RPC transport", "query execution"]
+rationale = "Lifecycle transitions remain usable and testable without starting the server."
+symbols = ["module:lifecycle/fn:drain_live_events", "module:lifecycle/fn:workspace_status_result"]
+rules = ["refs.daemon.lifecycle-is-independent-from-transport-and-queries"]
+
+[[views.boundaries]]
+id = "memory-source-commands"
+owns = ["source-set validation", "memory budgets", "incremental source-set refresh"]
+forbids = ["RPC transport", "query implementation"]
+rationale = "One command-side owner serves daemon commands and virtual diff preparation."
+symbols = ["module:source_sets/fn:parse_memory_source_set", "module:source_sets/fn:refresh_memory_source_set"]
+rules = ["refs.daemon.source-set-owner-does-not-depend-on-transport-or-queries"]
+
+[[views.boundaries]]
+id = "bounded-graph-queries"
+owns = ["endpoint resolution", "Roaring endpoint sets", "bounded path and corridor", "identity graph", "resolution audit"]
+forbids = ["pairwise endpoint traversal", "transport", "refresh lifecycle"]
+rationale = "Path and corridor share bounded set algebra over immutable snapshots."
+symbols = ["module:query/module:graph/fn:graph_path_response", "module:query/module:graph/fn:graph_corridor_response"]
+rules = ["daemon.graph-path-uses-bounded-set-algebra", "daemon.graph-corridor-uses-bounded-set-algebra"]
+
+[[views.boundaries]]
+id = "query-projections"
+owns = ["changes", "context", "graph", "notes", "rules", "symbols", "query model"]
+forbids = ["RPC transport", "refresh lifecycle"]
+rationale = "Each query family owns its DTO projection and consumes explicit snapshot/context inputs."
+symbols = ["module:query"]
+rules = ["refs.daemon.queries-do-not-depend-on-runtime-or-lifecycle"]
+
+[[views.boundaries]]
+id = "stateless-syntax"
+owns = ["syntax parse", "bounded syntax-tree projection"]
+forbids = ["daemon state", "refresh", "source-set mutation", "RPC transport"]
+rationale = "Syntax operations remain deterministic and callable without a loaded workspace."
+symbols = ["module:syntax"]
+rules = ["refs.daemon.syntax-is-stateless"]

@@ -13,7 +13,10 @@ return `workspace_loading` immediately; the client can retry without restarting
 the server. Initial failure is likewise observable as `failed` with its cause
 while the endpoint stays available.
 Stdio MCP projects that same lifecycle into both `workspace.status` and data
-query errors; it does not maintain a separate preload verdict.
+query errors; it does not maintain a separate preload verdict. Agent-oriented
+MCP responses identify their execution source as `runtime: stdio-worker` or
+`runtime: detached-daemon`. A `workspace_busy` response names the affected
+runtime explicitly; the other runtime owns an independent snapshot and lock.
 
 The supervisor fingerprints its executable path. After an atomic reinstall, it
 waits for the JSON-RPC connection to be idle, starts the replacement worker,
@@ -187,13 +190,15 @@ returns the bounded directed subgraph that participates in connectivity between
 two symbols. The agent must provide at least one relation and at least one
 semantic symbol scope: `path`, `lang`, `kind`, `shape`, or `srcset`. Values are
 ORed within one facet and facets are ANDed together. The two requested endpoints
-are always admitted; every intermediate symbol must belong to the resulting
-scope. The resulting symbol bitmap, including endpoints, must fit
-`max_symbols`; otherwise the request fails with `graph_scope_too_large` and the
-diagnostic reports the combined cardinality, each supplied facet's cardinality,
-and the most selective facet to narrow next. Two distinct endpoints impose a
-minimum `max_symbols` of 2; this is rejected before facet bitmap construction
-with the exact minimum to request. The zero-length `from == to` corridor is
+are always admitted. A type or namespace endpoint resolves naturally to the
+owner and its navigable descendants; an exact member endpoint remains exact.
+Every intermediate symbol must belong to the resulting scope. The resulting
+symbol bitmap, including expanded endpoints, must fit `max_symbols`; otherwise
+the request fails with `graph_scope_too_large`. The diagnostic first proposes
+the exact request budget needed (up to the protocol ceiling), then a semantic
+facet or member endpoint to narrow. Two distinct endpoints impose a minimum
+`max_symbols` of 2; this is rejected before facet bitmap construction with the
+exact minimum to request. The zero-length `from == to` corridor is
 the only exception because it needs no traversal. A member must
 be reachable from `from`, able to reach `to`, and satisfy
 `distance(from, member) + distance(member, to) <= max_depth`. An edge must
@@ -212,17 +217,21 @@ requests enforce `max_depth <= 64`, `1 <= max_symbols <= 100000`,
 
 `connected` is `true` once any corridor is established, `false` only after a
 complete disconnected search, and `null` when linkage coverage or a traversal
-limit prevents that conclusion. `complete:false` and stable `reasons` identify
-partial member/edge results. Coverage and explored-edge counts deduplicate a
-reference observed by both the forward and reverse scans. When `from == to`,
-the result is the deterministic zero-length corridor containing that symbol and
-no edges.
+limit prevents that conclusion. `result_complete` says whether the emitted
+member/edge result is whole; `search_complete` separately says whether coverage
+and traversal budgets support a conclusive search. Stable `reasons` explain an
+incomplete search and identify the request field to adjust. Coverage and
+explored-edge counts deduplicate a reference observed by both the forward and
+reverse scans. When `from == to`, the result is the deterministic zero-length
+corridor containing that symbol and no edges.
 
 Corridor output is stateless and not paginated. One request returns the entire
 result admitted by its semantic scope and explicit traversal bounds; it never
 returns a cursor. `member_count` and `edge_count` therefore match the returned
-`members` and `edges`. When `complete:false`, the agent narrows the scope or
-adjusts the explicit bounds and submits a new independent request. Search stats
+`members` and `edges`. When `search_complete:false`, the agent can use the
+reported reason to adjust the relevant request budget, lower `min_coverage`
+when the emitted corridor is sufficient, or narrow the semantic scope, then
+submit a new independent request. Search stats
 report explored/maximum symbols, admitted/maximum references, and resolved edge
 counts separately. Each limit reason names the reached limit, its exact
 used/max values, and a concrete next action valid for `graph.path` or
@@ -271,6 +280,8 @@ feeds the IDE Graph Explorer and the `code_moniker_graph` MCP tool.
 MCP surface. Coverage reports total neighbors before filters, matching
 neighbors after `relation`/`min_count`, and rows returned after direction or
 internal-edge selection, so a filtered zero never reads as an absent relation.
+`limit:` and its natural `max_items:` alias both accept `1..500` (default 40);
+supplying both is rejected as an ambiguous pair of competing budgets.
 
 `symbol.usages` keeps exact-symbol semantics by default. With
 `include_descendants:true`, a symbol owner such as a type includes navigable
@@ -284,6 +295,8 @@ child segment carries its kind/name (`package:acme`, `module:pairing`,
 `fn:pair_file(...)`), aggregate def counts, and the full `SymbolDto` when the
 segment itself is a navigable definition. An empty prefix lists the roots
 (`srcset:*`, `lang:*`); full moniker URIs are accepted and normalized.
+Its bounded result accepts `limit:` or `max_items:` in `1..500` (default 80),
+with the same conflict rule when both aliases are supplied.
 
 `identity.graph prefix:"<identity prefix>" path:"<glob>" min_count:<N>`
 projects that level as a graph:

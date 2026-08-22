@@ -76,7 +76,8 @@ pub struct BoundedPathLimits {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BoundedPathScope {
 	all: bool,
-	sources: RoaringBitmap,
+	source_files: RoaringBitmap,
+	source_roots: RoaringBitmap,
 	symbols: Option<SymbolSet>,
 }
 
@@ -94,9 +95,28 @@ pub struct BoundedPathRequest<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct BoundedPathSetRequest<'a> {
+	pub from: &'a SymbolSet,
+	pub to: &'a SymbolSet,
+	pub relations: &'a [String],
+	pub avoid: &'a [SymbolId],
+	pub limits: BoundedPathLimits,
+	pub scope: &'a BoundedPathScope,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct BoundedCorridorRequest<'a> {
 	pub from: SymbolId,
 	pub to: SymbolId,
+	pub relations: &'a [String],
+	pub limits: BoundedPathLimits,
+	pub scope: &'a BoundedCorridorScope,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedCorridorSetRequest<'a> {
+	pub from: &'a SymbolSet,
+	pub to: &'a SymbolSet,
 	pub relations: &'a [String],
 	pub limits: BoundedPathLimits,
 	pub scope: &'a BoundedCorridorScope,
@@ -106,7 +126,8 @@ impl BoundedPathScope {
 	pub fn all() -> Self {
 		Self {
 			all: true,
-			sources: RoaringBitmap::new(),
+			source_files: RoaringBitmap::new(),
+			source_roots: RoaringBitmap::new(),
 			symbols: None,
 		}
 	}
@@ -114,10 +135,20 @@ impl BoundedPathScope {
 	pub fn from_sources(sources: impl IntoIterator<Item = SourceId>) -> Self {
 		Self {
 			all: false,
-			sources: sources
+			source_files: sources
 				.into_iter()
 				.map(|source| source.file() as u32)
 				.collect(),
+			source_roots: RoaringBitmap::new(),
+			symbols: None,
+		}
+	}
+
+	pub fn from_source_roots(source_roots: impl IntoIterator<Item = usize>) -> Self {
+		Self {
+			all: false,
+			source_files: RoaringBitmap::new(),
+			source_roots: source_roots.into_iter().map(|root| root as u32).collect(),
 			symbols: None,
 		}
 	}
@@ -125,7 +156,8 @@ impl BoundedPathScope {
 	pub fn from_symbols(symbols: SymbolSet) -> Self {
 		Self {
 			all: false,
-			sources: RoaringBitmap::new(),
+			source_files: RoaringBitmap::new(),
+			source_roots: RoaringBitmap::new(),
 			symbols: Some(symbols),
 		}
 	}
@@ -134,14 +166,25 @@ impl BoundedPathScope {
 		if self.all {
 			return true;
 		}
-		self.symbols.as_ref().map_or_else(
-			|| {
-				read_index
-					.symbol(ordinal)
-					.is_some_and(|symbol| self.sources.contains(symbol.file() as u32))
-			},
-			|symbols| symbols.contains(ordinal),
-		)
+		if let Some(symbols) = &self.symbols {
+			return symbols.contains(ordinal);
+		}
+		let Some(symbol) = read_index.symbol(ordinal) else {
+			return false;
+		};
+		if !self.source_roots.is_empty() {
+			return read_index
+				.source_roots_by_file
+				.get(symbol.file())
+				.is_some_and(|root| self.source_roots.contains(*root));
+		}
+		self.source_files.contains(symbol.file() as u32)
+	}
+
+	fn exceeds(&self, max_symbols: usize) -> bool {
+		self.symbols
+			.as_ref()
+			.is_some_and(|symbols| symbols.len() > max_symbols)
 	}
 }
 
@@ -175,6 +218,9 @@ impl<'a> BoundedPathEngine<'a> {
 	}
 
 	pub fn search(&self, request: BoundedPathRequest<'_>) -> Option<BoundedPathSearch> {
+		if request.scope.exceeds(request.limits.max_symbols) {
+			return None;
+		}
 		PathTraversal::new(
 			self.read_index,
 			request.relations,
@@ -185,8 +231,31 @@ impl<'a> BoundedPathEngine<'a> {
 		.run(request.from, request.to)
 	}
 
+	pub fn search_between(&self, request: BoundedPathSetRequest<'_>) -> Option<BoundedPathSearch> {
+		if request.from.is_empty()
+			|| request.to.is_empty()
+			|| request.from.len() > request.limits.max_symbols
+			|| request.to.len() > request.limits.max_symbols
+			|| request.scope.exceeds(request.limits.max_symbols)
+		{
+			return None;
+		}
+		PathTraversal::new(
+			self.read_index,
+			request.relations,
+			request.avoid,
+			request.limits,
+			request.scope,
+		)
+		.run_between(request.from, request.to)
+	}
+
 	pub fn corridor(&self, request: BoundedCorridorRequest<'_>) -> Option<BoundedCorridorSearch> {
 		if request.relations.is_empty()
+			|| request
+				.scope
+				.as_path_scope()
+				.exceeds(request.limits.max_symbols)
 			|| request.limits.max_depth > 64
 			|| request.limits.max_symbols == 0
 			|| request.limits.max_symbols > 100_000
@@ -202,6 +271,37 @@ impl<'a> BoundedPathEngine<'a> {
 			request.scope.as_path_scope(),
 		)
 		.run(request.from, request.to)
+	}
+
+	pub fn corridor_between(
+		&self,
+		request: BoundedCorridorSetRequest<'_>,
+	) -> Option<BoundedCorridorSearch> {
+		if request.from.is_empty()
+			|| request.to.is_empty()
+			|| request.from.len() > request.limits.max_symbols
+			|| request.to.len() > request.limits.max_symbols
+			|| request.from.union_len(request.to) > request.limits.max_symbols
+			|| request
+				.scope
+				.as_path_scope()
+				.exceeds(request.limits.max_symbols)
+			|| request.relations.is_empty()
+			|| request.limits.max_depth > 64
+			|| request.limits.max_symbols == 0
+			|| request.limits.max_symbols > 100_000
+			|| request.limits.max_edges == 0
+			|| request.limits.max_edges > 500_000
+		{
+			return None;
+		}
+		CorridorTraversal::new(
+			self.read_index,
+			request.relations,
+			request.limits,
+			request.scope.as_path_scope(),
+		)
+		.run_between(request.from, request.to)
 	}
 }
 
@@ -228,11 +328,25 @@ impl WorkspaceSnapshot {
 		)
 	}
 
+	pub fn bounded_path_between(
+		&self,
+		request: BoundedPathSetRequest<'_>,
+	) -> Option<BoundedPathSearch> {
+		BoundedPathEngine::new(&self.index, &self.linkage)?.search_between(request)
+	}
+
 	pub fn bounded_corridor(
 		&self,
 		request: BoundedCorridorRequest<'_>,
 	) -> Option<BoundedCorridorSearch> {
 		bounded_corridor(&self.index, &self.linkage, request)
+	}
+
+	pub fn bounded_corridor_between(
+		&self,
+		request: BoundedCorridorSetRequest<'_>,
+	) -> Option<BoundedCorridorSearch> {
+		BoundedPathEngine::new(&self.index, &self.linkage)?.corridor_between(request)
 	}
 }
 
@@ -299,68 +413,67 @@ impl<'a> PathTraversal<'a> {
 		}
 	}
 
-	fn run(mut self, from: SymbolId, to: SymbolId) -> Option<BoundedPathSearch> {
-		let from_ordinal = self.read_index.ordinal(&from)?;
-		let to_ordinal = self.read_index.ordinal(&to)?;
-		if !self.scope.contains(self.read_index, from_ordinal)
-			|| !self.scope.contains(self.read_index, to_ordinal)
-		{
+	fn run(self, from: SymbolId, to: SymbolId) -> Option<BoundedPathSearch> {
+		let from = SymbolSet::from_symbol(self.read_index.ordinal(&from)?);
+		let to = SymbolSet::from_symbol(self.read_index.ordinal(&to)?);
+		self.run_between(&from, &to)
+	}
+
+	fn run_between(mut self, from: &SymbolSet, to: &SymbolSet) -> Option<BoundedPathSearch> {
+		let mut from_ordinals = self.endpoint_ordinals(from);
+		let to_ordinals = self.endpoint_ordinals(to);
+		if from_ordinals.is_empty() || to_ordinals.is_empty() {
 			return None;
 		}
-		if self.avoided.contains(from_ordinal) || self.avoided.contains(to_ordinal) {
-			return None;
+		if from_ordinals.len() > self.max_symbols {
+			self.search.symbol_limit_reached = true;
+			from_ordinals = from_ordinals.iter().take(self.max_symbols).collect();
 		}
-		let mut frontier = SymbolSet::new();
-		self.visited.insert(from_ordinal);
-		frontier.insert(from_ordinal);
-		if from_ordinal != to_ordinal {
-			let reference_scope = reference_scope_terms(
-				self.read_index,
-				self.scope,
-				TraversalDirection::Forward,
-				&self.relations,
-			);
-			self.walk(&mut frontier, to_ordinal, &reference_scope);
+		let mut frontier = from_ordinals.clone();
+		self.visited = from_ordinals.clone();
+		if !from_ordinals.intersects(&to_ordinals) {
+			self.walk(&mut frontier, &to_ordinals);
 		}
 		self.search.coverage = std::mem::take(&mut self.references.coverage);
 		self.search.explored_edges = self.references.explored_edges;
 		self.search.edge_limit_reached = self.references.limit_reached;
 		self.search.explored_symbols = self.visited.len();
-		if self.visited.contains(to_ordinal) {
-			self.search.path = reconstruct_path(
+		if let Some(to_ordinal) = self
+			.visited
+			.iter()
+			.find(|ordinal| to_ordinals.contains(*ordinal))
+		{
+			self.search.path = reconstruct_path_from_any(
 				self.read_index,
 				&self.predecessors,
-				from_ordinal,
+				&from_ordinals,
 				to_ordinal,
 			)?;
 		}
 		Some(self.search)
 	}
 
-	fn walk(
-		&mut self,
-		frontier: &mut SymbolSet,
-		to_ordinal: SymbolOrdinal,
-		reference_scope: &ReferenceScope<'_>,
-	) {
+	fn endpoint_ordinals(&self, symbols: &SymbolSet) -> SymbolSet {
+		symbols
+			.iter()
+			.filter(|ordinal| {
+				self.scope.contains(self.read_index, *ordinal) && !self.avoided.contains(*ordinal)
+			})
+			.collect()
+	}
+
+	fn walk(&mut self, frontier: &mut SymbolSet, to_ordinals: &SymbolSet) {
 		for depth in 0..=self.max_depth {
 			self.search.depth_reached = depth;
-			let postings = reference_postings_from_symbols(
-				self.read_index,
-				TraversalDirection::Forward,
+			let selection = ReferenceSelection {
+				direction: TraversalDirection::Forward,
 				frontier,
-				&self.relations,
-			);
-			if postings.is_empty() {
-				break;
-			}
-			let batch = self.references.admit(
-				self.read_index,
-				postings,
-				reference_scope,
-				false,
-				self.max_edges,
-			);
+				scope: self.scope,
+				reuse_seen: false,
+			};
+			let batch =
+				self.references
+					.admit(self.read_index, &self.relations, selection, self.max_edges);
 			let resolved = batch
 				.references
 				.intersection(self.read_index.classifications.resolved());
@@ -383,7 +496,7 @@ impl<'a> PathTraversal<'a> {
 				}
 			}
 			self.visited.union_with(&next);
-			if next.contains(to_ordinal) {
+			if next.intersects(to_ordinals) {
 				self.search.depth_reached = depth + 1;
 				break;
 			}
@@ -454,6 +567,127 @@ struct ReferenceBatch {
 	limit_reached: bool,
 }
 
+struct ReferencePostingUnion<'a> {
+	iterators: Vec<ReferenceSetIter<'a>>,
+	heap: BinaryHeap<Reverse<(ReferenceOrdinal, usize)>>,
+}
+
+struct ReferencePostingIntersection<'a> {
+	left: ReferencePostingUnion<'a>,
+	right: ReferencePostingUnion<'a>,
+	left_current: Option<ReferenceOrdinal>,
+	right_current: Option<ReferenceOrdinal>,
+}
+
+impl<'a> ReferencePostingUnion<'a> {
+	fn new(postings: Vec<&'a ReferenceSet>) -> Self {
+		let mut iterators = postings
+			.into_iter()
+			.map(ReferenceSet::ordered_iter)
+			.collect::<Vec<_>>();
+		let mut heap = BinaryHeap::new();
+		for (index, iterator) in iterators.iter_mut().enumerate() {
+			if let Some(reference) = iterator.next() {
+				heap.push(Reverse((reference, index)));
+			}
+		}
+		Self { iterators, heap }
+	}
+
+	fn advance_to(&mut self, target: ReferenceOrdinal) {
+		while self
+			.heap
+			.peek()
+			.is_some_and(|Reverse((reference, _))| *reference < target)
+		{
+			let Reverse((_, index)) = self.heap.pop().expect("peeked posting");
+			let iterator = &mut self.iterators[index];
+			iterator.advance_to(target);
+			if let Some(reference) = iterator.next() {
+				self.heap.push(Reverse((reference, index)));
+			}
+		}
+	}
+}
+
+impl Iterator for ReferencePostingUnion<'_> {
+	type Item = ReferenceOrdinal;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let Reverse((reference, index)) = self.heap.pop()?;
+		if let Some(next) = self.iterators[index].next() {
+			self.heap.push(Reverse((next, index)));
+		}
+		while self
+			.heap
+			.peek()
+			.is_some_and(|Reverse((duplicate, _))| *duplicate == reference)
+		{
+			let Reverse((_, index)) = self.heap.pop().expect("peeked duplicate");
+			if let Some(next) = self.iterators[index].next() {
+				self.heap.push(Reverse((next, index)));
+			}
+		}
+		Some(reference)
+	}
+}
+
+impl<'a> ReferencePostingIntersection<'a> {
+	fn new(left: Vec<&'a ReferenceSet>, right: Vec<&'a ReferenceSet>) -> Self {
+		Self {
+			left: ReferencePostingUnion::new(left),
+			right: ReferencePostingUnion::new(right),
+			left_current: None,
+			right_current: None,
+		}
+	}
+}
+
+impl Iterator for ReferencePostingIntersection<'_> {
+	type Item = ReferenceOrdinal;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		loop {
+			if self.left_current.is_none() {
+				self.left_current = self.left.next();
+			}
+			if self.right_current.is_none() {
+				self.right_current = self.right.next();
+			}
+			let left = self.left_current?;
+			let right = self.right_current?;
+			match left.cmp(&right) {
+				std::cmp::Ordering::Less => {
+					self.left.advance_to(right);
+					self.left_current = None;
+				}
+				std::cmp::Ordering::Greater => {
+					self.right.advance_to(left);
+					self.right_current = None;
+				}
+				std::cmp::Ordering::Equal => {
+					self.left_current = None;
+					self.right_current = None;
+					return Some(left);
+				}
+			}
+		}
+	}
+}
+
+#[derive(Clone, Copy)]
+struct ReferenceSelection<'a> {
+	direction: TraversalDirection,
+	frontier: &'a SymbolSet,
+	scope: &'a BoundedPathScope,
+	reuse_seen: bool,
+}
+
+enum ReferenceScope<'a> {
+	All,
+	Terms(Vec<&'a ReferenceSet>),
+}
+
 #[derive(Default)]
 struct ReferenceTraversal {
 	seen: ReferenceSet,
@@ -466,11 +700,6 @@ struct ReferenceTraversal {
 enum TraversalDirection {
 	Forward,
 	Reverse,
-}
-
-enum ReferenceScope<'a> {
-	All,
-	Terms(Vec<&'a ReferenceSet>),
 }
 
 impl<'a> CorridorTraversal<'a> {
@@ -495,24 +724,31 @@ impl<'a> CorridorTraversal<'a> {
 		}
 	}
 
-	fn run(mut self, from: SymbolId, to: SymbolId) -> Option<BoundedCorridorSearch> {
-		let (from, to) = self.endpoints(from, to)?;
-		let forward_start = self.state.admit_endpoint(from, self.limits);
-		let reverse_start = if from == to {
+	fn run(self, from: SymbolId, to: SymbolId) -> Option<BoundedCorridorSearch> {
+		let from = SymbolSet::from_symbol(self.read_index.ordinal(&from)?);
+		let to = SymbolSet::from_symbol(self.read_index.ordinal(&to)?);
+		self.run_between(&from, &to)
+	}
+
+	fn run_between(mut self, from: &SymbolSet, to: &SymbolSet) -> Option<BoundedCorridorSearch> {
+		let (from, to) = self.endpoints_between(from, to)?;
+		let same = from == to;
+		let forward_start = self.state.admit_symbols(from, self.limits);
+		let reverse_start = if same {
 			forward_start.clone()
 		} else {
-			self.state.admit_endpoint(to, self.limits)
+			self.state.admit_symbols(to, self.limits)
 		};
 		let forward = if forward_start.is_empty() {
 			CorridorLayers::default()
-		} else if from == to {
+		} else if same {
 			CorridorLayers::from_start(forward_start)
 		} else {
 			self.walk(TraversalDirection::Forward, forward_start)
 		};
 		let reverse = if reverse_start.is_empty() {
 			CorridorLayers::default()
-		} else if from == to {
+		} else if same {
 			CorridorLayers::from_start(reverse_start)
 		} else {
 			self.walk(TraversalDirection::Reverse, reverse_start)
@@ -526,38 +762,38 @@ impl<'a> CorridorTraversal<'a> {
 		))
 	}
 
-	fn endpoints(&self, from: SymbolId, to: SymbolId) -> Option<(SymbolOrdinal, SymbolOrdinal)> {
-		let from = self.read_index.ordinal(&from)?;
-		let to = self.read_index.ordinal(&to)?;
-		if !self.scope.contains(self.read_index, from) || !self.scope.contains(self.read_index, to)
-		{
-			return None;
-		}
-		Some((from, to))
+	fn endpoints_between(
+		&self,
+		from: &SymbolSet,
+		to: &SymbolSet,
+	) -> Option<(SymbolSet, SymbolSet)> {
+		let collect = |symbols: &SymbolSet| {
+			symbols
+				.iter()
+				.filter(|ordinal| self.scope.contains(self.read_index, *ordinal))
+				.collect::<SymbolSet>()
+		};
+		let from = collect(from);
+		let to = collect(to);
+		(!from.is_empty() && !to.is_empty()).then_some((from, to))
 	}
 
 	fn walk(&mut self, direction: TraversalDirection, start: SymbolSet) -> CorridorLayers {
-		let reference_scope =
-			reference_scope_terms(self.read_index, self.scope, direction, &self.relations);
 		let mut frontier = start.clone();
 		let mut reached = start;
 		let mut exact = vec![frontier.clone()];
 		for depth in 0..=self.limits.max_depth {
 			self.record_depth(direction, depth);
-			let postings = reference_postings_from_symbols(
-				self.read_index,
+			let selection = ReferenceSelection {
 				direction,
-				&frontier,
-				&self.relations,
-			);
-			if postings.is_empty() {
-				break;
-			}
+				frontier: &frontier,
+				scope: self.scope,
+				reuse_seen: matches!(direction, TraversalDirection::Reverse),
+			};
 			let batch = self.state.admit_references(
 				self.read_index,
-				postings,
-				&reference_scope,
-				matches!(direction, TraversalDirection::Reverse),
+				&self.relations,
+				selection,
 				self.limits,
 			);
 			let resolved = batch
@@ -623,18 +859,6 @@ impl CorridorLayers {
 }
 
 impl CorridorState {
-	fn admit_endpoint(&mut self, endpoint: SymbolOrdinal, limits: BoundedPathLimits) -> SymbolSet {
-		if self.seen_symbols.contains(endpoint) {
-			return SymbolSet::from_symbol(endpoint);
-		}
-		if self.seen_symbols.len() >= limits.max_symbols {
-			self.search.symbol_limit_reached = true;
-			return SymbolSet::new();
-		}
-		self.seen_symbols.insert(endpoint);
-		SymbolSet::from_symbol(endpoint)
-	}
-
 	fn admit_symbols(&mut self, candidates: SymbolSet, limits: BoundedPathLimits) -> SymbolSet {
 		let already_seen = candidates.intersection(&self.seen_symbols);
 		let unseen = candidates.difference(&self.seen_symbols);
@@ -652,18 +876,12 @@ impl CorridorState {
 	fn admit_references(
 		&mut self,
 		read_index: &super::LinkageReadIndex,
-		postings: Vec<&ReferenceSet>,
-		reference_scope: &ReferenceScope<'_>,
-		reuse_seen: bool,
+		relations: &[&str],
+		selection: ReferenceSelection<'_>,
 		limits: BoundedPathLimits,
 	) -> ReferenceBatch {
-		self.references.admit(
-			read_index,
-			postings,
-			reference_scope,
-			reuse_seen,
-			limits.max_edges,
-		)
+		self.references
+			.admit(read_index, relations, selection, limits.max_edges)
 	}
 
 	fn tally_missing_ordinal(&mut self) {
@@ -671,33 +889,17 @@ impl CorridorState {
 	}
 }
 
-fn reference_postings_from_symbols<'a>(
-	read_index: &'a super::LinkageReadIndex,
-	direction: TraversalDirection,
-	symbols: &SymbolSet,
-	relations: &[&str],
-) -> Vec<&'a ReferenceSet> {
-	symbols
-		.iter()
-		.flat_map(|symbol| match direction {
-			TraversalDirection::Forward => read_index.outgoing_postings(symbol, relations),
-			TraversalDirection::Reverse => read_index.incoming_postings(symbol, relations),
-		})
-		.collect()
-}
-
 impl ReferenceTraversal {
 	fn admit(
 		&mut self,
 		read_index: &super::LinkageReadIndex,
-		postings: Vec<&ReferenceSet>,
-		reference_scope: &ReferenceScope<'_>,
-		reuse_seen: bool,
+		relations: &[&str],
+		selection: ReferenceSelection<'_>,
 		max_edges: usize,
 	) -> ReferenceBatch {
 		let remaining = max_edges.saturating_sub(self.seen.len() as usize);
 		let (already_seen, admitted_unseen, limit_reached) =
-			bounded_posting_union(postings, reference_scope, &self.seen, reuse_seen, remaining);
+			bounded_frontier_references(read_index, relations, selection, &self.seen, remaining);
 		if limit_reached {
 			self.limit_reached = true;
 		}
@@ -780,179 +982,90 @@ impl ReferenceTraversal {
 	}
 }
 
-fn bounded_posting_union(
-	postings: Vec<&ReferenceSet>,
-	reference_scope: &ReferenceScope<'_>,
+fn bounded_frontier_references(
+	read_index: &super::LinkageReadIndex,
+	relations: &[&str],
+	selection: ReferenceSelection<'_>,
 	seen: &ReferenceSet,
-	reuse_seen: bool,
 	limit: usize,
 ) -> (ReferenceSet, ReferenceSet, bool) {
-	let already_seen = if reuse_seen {
-		reusable_references(&postings, reference_scope, seen)
+	let already_seen = if selection.reuse_seen {
+		seen.iter()
+			.filter(|reference| {
+				reference_matches_selection(read_index, relations, selection, *reference)
+			})
+			.collect()
 	} else {
 		ReferenceSet::new()
 	};
-	let candidates = PostingUnion::new(postings);
-	let mut references = match reference_scope {
-		ReferenceScope::All => ScopedPostingUnion::All(candidates),
-		ReferenceScope::Terms(terms) => ScopedPostingUnion::Intersection {
-			candidates,
-			scope: PostingUnion::new(terms.clone()),
-			candidate: None,
-			allowed: None,
-		},
-	};
-	let mut admitted = ReferenceSet::new();
-	for reference in &mut references {
-		if seen.contains(reference) {
-			continue;
+	let mut admission = ReferenceAdmission::new(seen, limit, already_seen);
+	let frontier_postings = reference_postings_from_symbols(
+		read_index,
+		selection.direction,
+		selection.frontier,
+		relations,
+	);
+	match reference_scope_terms(read_index, selection.scope, selection.direction, relations) {
+		ReferenceScope::All => admission.admit(ReferencePostingUnion::new(frontier_postings)),
+		ReferenceScope::Terms(scope_postings) => admission.admit(
+			ReferencePostingIntersection::new(frontier_postings, scope_postings),
+		),
+	}
+	admission.finish()
+}
+
+fn reference_postings_from_symbols<'a>(
+	read_index: &'a super::LinkageReadIndex,
+	direction: TraversalDirection,
+	symbols: &SymbolSet,
+	relations: &[&str],
+) -> Vec<&'a ReferenceSet> {
+	symbols
+		.iter()
+		.flat_map(|symbol| match direction {
+			TraversalDirection::Forward => read_index.outgoing_postings(symbol, relations),
+			TraversalDirection::Reverse => read_index.incoming_postings(symbol, relations),
+		})
+		.collect()
+}
+
+struct ReferenceAdmission<'a> {
+	seen: &'a ReferenceSet,
+	limit: usize,
+	already_seen: ReferenceSet,
+	admitted: ReferenceSet,
+	limit_reached: bool,
+}
+
+impl<'a> ReferenceAdmission<'a> {
+	fn new(seen: &'a ReferenceSet, limit: usize, already_seen: ReferenceSet) -> Self {
+		Self {
+			seen,
+			limit,
+			already_seen,
+			admitted: ReferenceSet::new(),
+			limit_reached: false,
 		}
-		if admitted.len() as usize == limit {
-			return (already_seen, admitted, true);
+	}
+
+	fn admit(&mut self, references: impl Iterator<Item = ReferenceOrdinal>) {
+		if self.limit_reached {
+			return;
 		}
-		admitted.insert(reference);
-	}
-	(already_seen, admitted, false)
-}
-
-fn reusable_references(
-	postings: &[&ReferenceSet],
-	reference_scope: &ReferenceScope<'_>,
-	seen: &ReferenceSet,
-) -> ReferenceSet {
-	if seen.is_empty() {
-		return ReferenceSet::new();
-	}
-	let reusable = collect_posting_intersection(postings.to_vec(), vec![seen]);
-	if reusable.is_empty() {
-		return reusable;
-	}
-	match reference_scope {
-		ReferenceScope::All => reusable,
-		ReferenceScope::Terms(terms) => {
-			collect_posting_intersection(vec![&reusable], terms.clone())
-		}
-	}
-}
-
-fn collect_posting_intersection(
-	left: Vec<&ReferenceSet>,
-	right: Vec<&ReferenceSet>,
-) -> ReferenceSet {
-	ScopedPostingUnion::Intersection {
-		candidates: PostingUnion::new(left),
-		scope: PostingUnion::new(right),
-		candidate: None,
-		allowed: None,
-	}
-	.collect()
-}
-
-struct PostingUnion<'a> {
-	iterators: Vec<ReferenceSetIter<'a>>,
-	heap: BinaryHeap<Reverse<(ReferenceOrdinal, usize)>>,
-}
-
-impl<'a> PostingUnion<'a> {
-	fn new(postings: Vec<&'a ReferenceSet>) -> Self {
-		let mut iterators = postings
-			.into_iter()
-			.map(ReferenceSet::ordered_iter)
-			.collect::<Vec<_>>();
-		let mut heap = BinaryHeap::new();
-		for (index, iterator) in iterators.iter_mut().enumerate() {
-			if let Some(reference) = iterator.next() {
-				heap.push(Reverse((reference, index)));
+		for reference in references {
+			if self.seen.contains(reference) {
+				continue;
 			}
-		}
-		Self { iterators, heap }
-	}
-
-	fn advance_to(&mut self, target: ReferenceOrdinal) {
-		while self
-			.heap
-			.peek()
-			.is_some_and(|Reverse((reference, _))| *reference < target)
-		{
-			let Reverse((_, index)) = self.heap.pop().expect("peeked posting");
-			let iterator = &mut self.iterators[index];
-			iterator.advance_to(target);
-			if let Some(reference) = iterator.next() {
-				self.heap.push(Reverse((reference, index)));
+			if self.admitted.len() as usize == self.limit {
+				self.limit_reached = true;
+				return;
 			}
+			self.admitted.insert(reference);
 		}
 	}
-}
 
-impl Iterator for PostingUnion<'_> {
-	type Item = ReferenceOrdinal;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		let Reverse((reference, index)) = self.heap.pop()?;
-		if let Some(next) = self.iterators[index].next() {
-			self.heap.push(Reverse((next, index)));
-		}
-		while self
-			.heap
-			.peek()
-			.is_some_and(|Reverse((duplicate, _))| *duplicate == reference)
-		{
-			let Reverse((_, index)) = self.heap.pop().expect("peeked duplicate");
-			if let Some(next) = self.iterators[index].next() {
-				self.heap.push(Reverse((next, index)));
-			}
-		}
-		Some(reference)
-	}
-}
-
-enum ScopedPostingUnion<'a> {
-	All(PostingUnion<'a>),
-	Intersection {
-		candidates: PostingUnion<'a>,
-		scope: PostingUnion<'a>,
-		candidate: Option<ReferenceOrdinal>,
-		allowed: Option<ReferenceOrdinal>,
-	},
-}
-
-impl Iterator for ScopedPostingUnion<'_> {
-	type Item = ReferenceOrdinal;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		match self {
-			Self::All(candidates) => candidates.next(),
-			Self::Intersection {
-				candidates,
-				scope,
-				candidate,
-				allowed,
-			} => loop {
-				if candidate.is_none() {
-					*candidate = candidates.next();
-				}
-				if allowed.is_none() {
-					*allowed = scope.next();
-				}
-				let left = (*candidate)?;
-				let right = (*allowed)?;
-				match left.cmp(&right) {
-					std::cmp::Ordering::Less => {
-						candidates.advance_to(right);
-						*candidate = candidates.next();
-					}
-					std::cmp::Ordering::Greater => {
-						scope.advance_to(left);
-						*allowed = scope.next();
-					}
-					std::cmp::Ordering::Equal => {
-						*candidate = candidates.next();
-						*allowed = scope.next();
-						return Some(left);
-					}
-				}
-			},
-		}
+	fn finish(self) -> (ReferenceSet, ReferenceSet, bool) {
+		(self.already_seen, self.admitted, self.limit_reached)
 	}
 }
 
@@ -978,36 +1091,75 @@ fn reference_scope_terms<'a>(
 		}
 		return ReferenceScope::Terms(terms);
 	}
-	let postings_by_file = match direction {
-		TraversalDirection::Forward => &read_index.references_by_target_file,
-		TraversalDirection::Reverse => &read_index.references_by_source_file,
+	let (selected_boundaries, postings_by_boundary) = if !scope.source_roots.is_empty() {
+		(
+			&scope.source_roots,
+			match direction {
+				TraversalDirection::Forward => &read_index.references_by_target_root,
+				TraversalDirection::Reverse => &read_index.references_by_source_root,
+			},
+		)
+	} else {
+		(
+			&scope.source_files,
+			match direction {
+				TraversalDirection::Forward => &read_index.references_by_target_file,
+				TraversalDirection::Reverse => &read_index.references_by_source_file,
+			},
+		)
 	};
-	if postings_by_file
-		.keys()
-		.all(|file| scope.sources.contains(*file))
-	{
-		return ReferenceScope::All;
-	}
 	let mut terms = vec![match direction {
 		TraversalDirection::Forward => &read_index.references_without_target,
 		TraversalDirection::Reverse => &read_index.references_without_source,
 	}];
-	if scope.sources.len() as usize <= postings_by_file.len() {
+	if selected_boundaries.len() as usize <= postings_by_boundary.len() {
 		terms.extend(
-			scope
-				.sources
+			selected_boundaries
 				.iter()
-				.filter_map(|file| postings_by_file.get(&file)),
+				.filter_map(|boundary| postings_by_boundary.get(&boundary)),
 		);
 	} else {
 		terms.extend(
-			postings_by_file
+			postings_by_boundary
 				.iter()
-				.filter(|(file, _)| scope.sources.contains(**file))
+				.filter(|(boundary, _)| selected_boundaries.contains(**boundary))
 				.map(|(_, posting)| posting),
 		);
 	}
 	ReferenceScope::Terms(terms)
+}
+
+fn reference_matches_selection(
+	read_index: &super::LinkageReadIndex,
+	relations: &[&str],
+	selection: ReferenceSelection<'_>,
+	reference: ReferenceOrdinal,
+) -> bool {
+	let (frontier, opposite) = match selection.direction {
+		TraversalDirection::Forward => (
+			read_index.reference_source(reference),
+			read_index.reference_target(reference),
+		),
+		TraversalDirection::Reverse => (
+			read_index.reference_target(reference),
+			read_index.reference_source(reference),
+		),
+	};
+	let Some(frontier) = frontier else {
+		return false;
+	};
+	if !selection.frontier.contains(frontier)
+		|| opposite.is_some_and(|opposite| !selection.scope.contains(read_index, opposite))
+	{
+		return false;
+	}
+	let postings = match selection.direction {
+		TraversalDirection::Forward => read_index.outgoing_postings(frontier, relations),
+		TraversalDirection::Reverse => read_index.incoming_postings(frontier, relations),
+	};
+	postings
+		.into_iter()
+		.any(|posting| posting.contains(reference))
 }
 
 fn finish_corridor(
@@ -1109,15 +1261,15 @@ fn layer_depth(layers: &[SymbolSet], symbol: SymbolOrdinal) -> Option<usize> {
 	layers.iter().position(|layer| layer.contains(symbol))
 }
 
-fn reconstruct_path(
+fn reconstruct_path_from_any(
 	read_index: &super::LinkageReadIndex,
 	predecessors: &FxHashMap<SymbolOrdinal, (SymbolOrdinal, ReferenceId)>,
-	from: SymbolOrdinal,
+	from: &SymbolSet,
 	to: SymbolOrdinal,
 ) -> Option<Vec<BoundedPathEdge>> {
 	let mut path = Vec::new();
 	let mut current = to;
-	while current != from {
+	while !from.contains(current) {
 		let (previous, reference) = predecessors.get(&current).copied()?;
 		path.push(BoundedPathEdge {
 			source: read_index.symbol(previous)?,
@@ -1132,13 +1284,15 @@ fn reconstruct_path(
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+
 	use super::*;
 	use crate::snapshot::{
 		CandidateReason, CandidateReference, CandidateScope, ChangeOverlay, CodeIndex,
 		DynamicReason, DynamicReference, ExternalReference, ExternalReferenceOrigin, LinkageEdge,
 		LinkageReadIndexHandle, LinkageSnapshot, ReferenceRecord, ResolutionEvidence,
-		ResourceGeneration, SourceCatalog, SymbolRecord, UnresolvedReason, UnresolvedReference,
-		WorkspaceTimings,
+		ResourceGeneration, SourceCatalog, SourceId, SymbolRecord, UnresolvedReason,
+		UnresolvedReference, WorkspaceTimings,
 	};
 
 	fn path_snapshot(
@@ -1196,7 +1350,7 @@ mod tests {
 			max_symbols: 10,
 			max_edges: 10,
 		};
-		let selected = BoundedPathScope::from_sources([first_source]);
+		let selected = BoundedPathScope::from_source_roots([first_source.file()]);
 		let scoped = snapshot
 			.bounded_path(from, to, &["calls".to_string()], limits, &selected)
 			.expect("scoped path search");
@@ -1204,7 +1358,8 @@ mod tests {
 		assert_eq!(scoped.coverage.resolved, 0, "{scoped:?}");
 		assert_eq!(scoped.coverage.decided, 0, "{scoped:?}");
 
-		let all_sources = BoundedPathScope::from_sources([first_source, other_source]);
+		let all_sources =
+			BoundedPathScope::from_source_roots([first_source.file(), other_source.file()]);
 		let unscoped = snapshot
 			.bounded_path(from, to, &["calls".to_string()], limits, &all_sources)
 			.expect("all-roots path search");
@@ -1219,6 +1374,135 @@ mod tests {
 			3,
 			"sparse stable ordinals must not allocate historical holes"
 		);
+	}
+
+	#[test]
+	fn selected_root_scope_uses_one_posting_across_many_files() {
+		let from_source = SourceId::at(0);
+		let to_source = SourceId::at(1);
+		let from = SymbolId::at(0, 0);
+		let to = SymbolId::at(1, 0);
+		let reference = ReferenceId::at(0, 0);
+		let mut snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(from, from_source, "from", "fn"),
+				SymbolRecord::new(to, to_source, "to", "fn"),
+			],
+			vec![ReferenceRecord::new(
+				reference,
+				from_source,
+				from,
+				to.to_string(),
+				"calls",
+				None,
+			)],
+			vec![LinkageEdge::new(reference, to)],
+			vec![(0, from), (1, to)],
+		);
+		snapshot.linkage.read_index = LinkageReadIndexHandle::from_snapshot_with_catalog(
+			&snapshot.linkage,
+			&snapshot.index.references,
+			Arc::clone(snapshot.index.inventory.catalog()),
+			vec![0, 0],
+		);
+		let scope = BoundedPathScope::from_source_roots([0]);
+		let search = snapshot
+			.bounded_path(
+				from,
+				to,
+				&["calls".to_string()],
+				BoundedPathLimits {
+					max_depth: 1,
+					max_symbols: 2,
+					max_edges: 1,
+				},
+				&scope,
+			)
+			.expect("same-root cross-file path");
+		assert_eq!(search.path.len(), 1, "{search:?}");
+		let read_index = snapshot.linkage.read_index.get().expect("read index");
+		assert_eq!(read_index.references_by_target_root.len(), 1);
+		assert_eq!(
+			read_index
+				.references_by_target_root
+				.get(&0)
+				.expect("root posting")
+				.len(),
+			1
+		);
+	}
+
+	#[test]
+	fn owner_endpoint_sets_find_member_paths_with_bitmap_traversal() {
+		let source = SourceId::at(0);
+		let owner = SymbolId::at(0, 0);
+		let member = SymbolId::at(0, 1);
+		let target = SymbolId::at(0, 2);
+		let reference = ReferenceId::at(0, 0);
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(owner, source, "Owner", "struct"),
+				SymbolRecord::new(member, source, "field", "field"),
+				SymbolRecord::new(target, source, "Target", "struct"),
+			],
+			vec![ReferenceRecord::new(
+				reference,
+				source,
+				member,
+				target.to_string(),
+				"uses_type",
+				None,
+			)],
+			vec![LinkageEdge::new(reference, target)],
+			vec![(1, owner), (2, member), (3, target)],
+		);
+		let relations = vec!["uses_type".to_string()];
+		let limits = BoundedPathLimits {
+			max_depth: 2,
+			max_symbols: 3,
+			max_edges: 3,
+		};
+		let read_index = snapshot.linkage.read_index.get().expect("path index");
+		let endpoint_set = |symbols: &[SymbolId]| {
+			symbols
+				.iter()
+				.filter_map(|symbol| read_index.ordinal(symbol))
+				.collect::<SymbolSet>()
+		};
+		let from_endpoints = endpoint_set(&[owner, member]);
+		let to_endpoints = endpoint_set(&[target]);
+		let path_scope = BoundedPathScope::from_source_roots([source.file()]);
+		let path = snapshot
+			.bounded_path_between(BoundedPathSetRequest {
+				from: &from_endpoints,
+				to: &to_endpoints,
+				relations: &relations,
+				avoid: &[],
+				limits,
+				scope: &path_scope,
+			})
+			.expect("owner-expanded path search");
+		assert_eq!(path.path.len(), 1, "{path:?}");
+		assert_eq!(path.path[0].source, member, "{path:?}");
+		assert_eq!(path.path[0].target, target, "{path:?}");
+
+		let corridor_symbols = [owner, member, target]
+			.into_iter()
+			.filter_map(|symbol| read_index.ordinal(&symbol))
+			.collect();
+		let corridor_scope =
+			BoundedCorridorScope::from_symbols(corridor_symbols, 3).expect("bounded scope");
+		let corridor = snapshot
+			.bounded_corridor_between(BoundedCorridorSetRequest {
+				from: &from_endpoints,
+				to: &to_endpoints,
+				relations: &relations,
+				limits,
+				scope: &corridor_scope,
+			})
+			.expect("owner-expanded corridor search");
+		assert_eq!(corridor.members, vec![member, target], "{corridor:?}");
+		assert_eq!(corridor.edges.len(), 1, "{corridor:?}");
 	}
 
 	#[test]
@@ -1289,7 +1573,7 @@ mod tests {
 					max_symbols: 10,
 					max_edges: 10,
 				},
-				&BoundedPathScope::from_sources([source]),
+				&BoundedPathScope::from_source_roots([source.file()]),
 			)
 			.expect("coverage path search");
 		assert_eq!(search.coverage.total, 5, "{search:?}");
@@ -1338,12 +1622,246 @@ mod tests {
 					max_symbols: 10,
 					max_edges: 3,
 				},
-				&BoundedPathScope::from_sources([source]),
+				&BoundedPathScope::from_source_roots([source.file()]),
 			)
 			.expect("limited path search");
 		assert_eq!(search.coverage.total, 3, "{search:?}");
 		assert_eq!(search.explored_edges, 3, "{search:?}");
 		assert!(search.edge_limit_reached, "{search:?}");
+	}
+
+	#[test]
+	fn edge_budget_stops_before_materializing_frontier_relation_product() {
+		let source = SourceId::at(0);
+		let sink = SymbolId::at(0, 512);
+		let mut symbols = (0..512)
+			.map(|index| {
+				let id = SymbolId::at(0, index);
+				SymbolRecord::new(id, source, format!("from_{index}"), "fn")
+			})
+			.collect::<Vec<_>>();
+		symbols.push(SymbolRecord::new(sink, source, "sink", "fn"));
+		let relations = (0..16).map(|index| format!("r{index}")).collect::<Vec<_>>();
+		let mut references = Vec::with_capacity(512 * relations.len());
+		let mut edges = Vec::with_capacity(512 * relations.len());
+		for symbol in 0..512 {
+			for relation in &relations {
+				let id = ReferenceId::at(0, references.len());
+				references.push(ReferenceRecord::new(
+					id,
+					source,
+					SymbolId::at(0, symbol),
+					sink.to_string(),
+					relation,
+					None,
+				));
+				edges.push(LinkageEdge::new(id, sink));
+			}
+		}
+		let ordinals = (0..=512)
+			.map(|index| ((index + 1) as u32, SymbolId::at(0, index)))
+			.collect::<Vec<_>>();
+		let snapshot = path_snapshot(symbols, references, edges, ordinals);
+		let read_index = snapshot.linkage.read_index.get().expect("path index");
+		let from = (0..512)
+			.filter_map(|index| read_index.ordinal(&SymbolId::at(0, index)))
+			.collect();
+		let to = SymbolSet::from_symbol(read_index.ordinal(&sink).expect("sink ordinal"));
+		let search = snapshot
+			.bounded_path_between(BoundedPathSetRequest {
+				from: &from,
+				to: &to,
+				relations: &relations,
+				avoid: &[],
+				limits: BoundedPathLimits {
+					max_depth: 1,
+					max_symbols: 1_024,
+					max_edges: 1,
+				},
+				scope: &BoundedPathScope::all(),
+			})
+			.expect("bounded frontier path");
+		assert_eq!(search.coverage.total, 1, "{search:?}");
+		assert_eq!(search.explored_edges, 1, "{search:?}");
+		assert!(search.edge_limit_reached, "{search:?}");
+	}
+
+	#[test]
+	fn relation_or_order_does_not_change_a_budgeted_path() {
+		let source = SourceId::at(0);
+		let from = SymbolId::at(0, 0);
+		let dead_end = SymbolId::at(0, 1);
+		let to = SymbolId::at(0, 2);
+		let dead = ReferenceId::at(0, 0);
+		let live = ReferenceId::at(0, 1);
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(from, source, "from", "fn"),
+				SymbolRecord::new(dead_end, source, "dead_end", "fn"),
+				SymbolRecord::new(to, source, "to", "fn"),
+			],
+			vec![
+				ReferenceRecord::new(dead, source, from, dead_end.to_string(), "dead", None),
+				ReferenceRecord::new(live, source, from, to.to_string(), "live", None),
+			],
+			vec![LinkageEdge::new(dead, dead_end), LinkageEdge::new(live, to)],
+			vec![(1, from), (2, dead_end), (3, to)],
+		);
+		let limits = BoundedPathLimits {
+			max_depth: 1,
+			max_symbols: 3,
+			max_edges: 1,
+		};
+		let first = snapshot
+			.bounded_path(
+				from,
+				to,
+				&["dead".to_string(), "live".to_string()],
+				limits,
+				&BoundedPathScope::all(),
+			)
+			.expect("first relation order");
+		let reversed = snapshot
+			.bounded_path(
+				from,
+				to,
+				&["live".to_string(), "dead".to_string()],
+				limits,
+				&BoundedPathScope::all(),
+			)
+			.expect("reversed relation order");
+		assert_eq!(first, reversed);
+		assert!(first.path.is_empty(), "{first:?}");
+		assert!(first.edge_limit_reached, "{first:?}");
+	}
+
+	#[test]
+	fn selective_scope_postings_anchor_before_a_large_frontier_adjacency() {
+		let source = SourceId::at(0);
+		let from = SymbolId::at(0, 0);
+		let to = SymbolId::at(0, 1_025);
+		let mut symbols = vec![SymbolRecord::new(from, source, "from", "fn")];
+		let mut references = Vec::new();
+		let mut edges = Vec::new();
+		for index in 1..=1_024 {
+			let target = SymbolId::at(0, index);
+			symbols.push(SymbolRecord::new(
+				target,
+				source,
+				format!("outside_{index}"),
+				"fn",
+			));
+			let reference = ReferenceId::at(0, references.len());
+			references.push(ReferenceRecord::new(
+				reference,
+				source,
+				from,
+				target.to_string(),
+				"calls",
+				None,
+			));
+			edges.push(LinkageEdge::new(reference, target));
+		}
+		symbols.push(SymbolRecord::new(to, source, "to", "fn"));
+		let live = ReferenceId::at(0, references.len());
+		references.push(ReferenceRecord::new(
+			live,
+			source,
+			from,
+			to.to_string(),
+			"calls",
+			None,
+		));
+		edges.push(LinkageEdge::new(live, to));
+		let ordinals = (0..=1_025)
+			.map(|index| ((index + 1) as u32, SymbolId::at(0, index)))
+			.collect::<Vec<_>>();
+		let snapshot = path_snapshot(symbols, references, edges, ordinals);
+		let read_index = snapshot.linkage.read_index.get().expect("path index");
+		let scope_symbols = [from, to]
+			.into_iter()
+			.filter_map(|symbol| read_index.ordinal(&symbol))
+			.collect();
+		let search = snapshot
+			.bounded_path(
+				from,
+				to,
+				&["calls".to_string()],
+				BoundedPathLimits {
+					max_depth: 1,
+					max_symbols: 2,
+					max_edges: 1,
+				},
+				&BoundedPathScope::from_symbols(scope_symbols),
+			)
+			.expect("scope-anchored path");
+		assert_eq!(search.path.len(), 1, "{search:?}");
+		assert!(!search.edge_limit_reached, "{search:?}");
+	}
+
+	#[test]
+	fn scope_intersection_precedes_edge_lookahead() {
+		let source = SourceId::at(0);
+		let from = SymbolId::at(0, 0);
+		let first_outsider = SymbolId::at(0, 1);
+		let second_outsider = SymbolId::at(0, 2);
+		let to = SymbolId::at(0, 3);
+		let first = ReferenceId::at(0, 0);
+		let second = ReferenceId::at(0, 1);
+		let live = ReferenceId::at(0, 2);
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(from, source, "from", "fn"),
+				SymbolRecord::new(first_outsider, source, "first_outsider", "fn"),
+				SymbolRecord::new(second_outsider, source, "second_outsider", "fn"),
+				SymbolRecord::new(to, source, "to", "fn"),
+			],
+			vec![
+				ReferenceRecord::new(first, source, first_outsider, to.to_string(), "calls", None),
+				ReferenceRecord::new(
+					second,
+					source,
+					second_outsider,
+					to.to_string(),
+					"calls",
+					None,
+				),
+				ReferenceRecord::new(live, source, from, to.to_string(), "calls", None),
+			],
+			vec![
+				LinkageEdge::new(first, to),
+				LinkageEdge::new(second, to),
+				LinkageEdge::new(live, to),
+			],
+			vec![
+				(1, from),
+				(2, first_outsider),
+				(3, second_outsider),
+				(4, to),
+			],
+		);
+		let read_index = snapshot.linkage.read_index.get().expect("path index");
+		let scope = [from, to]
+			.into_iter()
+			.filter_map(|symbol| read_index.ordinal(&symbol))
+			.collect();
+		let search = snapshot
+			.bounded_path(
+				from,
+				to,
+				&["calls".to_string()],
+				BoundedPathLimits {
+					max_depth: 1,
+					max_symbols: 2,
+					max_edges: 1,
+				},
+				&BoundedPathScope::from_symbols(scope),
+			)
+			.expect("scope-anchored path");
+
+		assert_eq!(search.path.len(), 1, "{search:?}");
+		assert_eq!(search.path[0].reference, live, "{search:?}");
+		assert!(!search.edge_limit_reached, "{search:?}");
 	}
 
 	#[test]
@@ -1431,7 +1949,7 @@ mod tests {
 			],
 			vec![(1, from), (2, middle), (3, to)],
 		);
-		let scope = BoundedPathScope::from_sources([source]);
+		let scope = BoundedPathScope::from_source_roots([source.file()]);
 		let relations = vec!["calls".to_string()];
 		let limits = BoundedPathLimits {
 			max_depth: 4,
@@ -1475,5 +1993,86 @@ mod tests {
 		assert_eq!(first_search.path.len(), 1);
 		assert_eq!(second_search.path.len(), 2);
 		assert!(avoided_search.path.is_empty(), "{avoided_search:?}");
+	}
+
+	#[test]
+	fn set_entrypoints_reject_oversized_endpoint_bitmaps_before_traversal() {
+		let source = SourceId::at(0);
+		let first = SymbolId::at(0, 0);
+		let second = SymbolId::at(0, 1);
+		let snapshot = path_snapshot(
+			vec![
+				SymbolRecord::new(first, source, "first", "fn"),
+				SymbolRecord::new(second, source, "second", "fn"),
+			],
+			Vec::new(),
+			Vec::new(),
+			vec![(1, first), (2, second)],
+		);
+		let engine =
+			BoundedPathEngine::new(&snapshot.index, &snapshot.linkage).expect("path engine");
+		let catalog = snapshot.index.inventory.catalog();
+		let first = catalog.ordinal(&first).expect("first ordinal");
+		let second = catalog.ordinal(&second).expect("second ordinal");
+		let both = [first, second].into_iter().collect::<SymbolSet>();
+		let first_only = SymbolSet::from_symbol(first);
+		let second_only = SymbolSet::from_symbol(second);
+		let relations = vec!["calls".to_string()];
+		let limits = BoundedPathLimits {
+			max_depth: 1,
+			max_symbols: 1,
+			max_edges: 1,
+		};
+		let path_scope = BoundedPathScope::from_source_roots([source.file()]);
+		assert!(
+			engine
+				.search_between(BoundedPathSetRequest {
+					from: &both,
+					to: &second_only,
+					relations: &relations,
+					avoid: &[],
+					limits,
+					scope: &path_scope,
+				})
+				.is_none()
+		);
+		let oversized_scope = BoundedPathScope::from_symbols(both.clone());
+		assert!(
+			engine
+				.search_between(BoundedPathSetRequest {
+					from: &first_only,
+					to: &second_only,
+					relations: &relations,
+					avoid: &[],
+					limits,
+					scope: &oversized_scope,
+				})
+				.is_none()
+		);
+		let corridor_scope =
+			BoundedCorridorScope::from_symbols(both.clone(), 2).expect("corridor scope");
+		assert!(
+			engine
+				.corridor_between(BoundedCorridorSetRequest {
+					from: &first_only,
+					to: &first_only,
+					relations: &relations,
+					limits,
+					scope: &corridor_scope,
+				})
+				.is_none(),
+			"the request endpoints fit max_symbols, but the corridor scope does not"
+		);
+		assert!(
+			engine
+				.corridor_between(BoundedCorridorSetRequest {
+					from: &first_only,
+					to: &second_only,
+					relations: &relations,
+					limits,
+					scope: &corridor_scope,
+				})
+				.is_none()
+		);
 	}
 }

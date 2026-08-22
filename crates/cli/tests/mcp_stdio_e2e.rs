@@ -316,7 +316,8 @@ fn stdio_query_returns_a_full_scoped_graph_corridor() {
 		.as_str()
 		.expect("graph corridor text");
 	assert!(text.contains("connected: true"), "{text}");
-	assert!(text.contains("complete: true"), "{text}");
+	assert!(text.contains("result_complete: true"), "{text}");
+	assert!(text.contains("search_complete: true"), "{text}");
 	assert!(text.contains("middle"), "{text}");
 
 	drop(child.stdin.take());

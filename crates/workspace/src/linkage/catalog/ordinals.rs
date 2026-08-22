@@ -26,20 +26,8 @@ pub(crate) struct ReferenceSet {
 	bitmap: RoaringBitmap,
 }
 
-pub(crate) struct ReferenceSetIter<'a>(roaring::bitmap::Iter<'a>);
-
-impl Iterator for ReferenceSetIter<'_> {
-	type Item = ReferenceOrdinal;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.0.next().map(ReferenceOrdinal)
-	}
-}
-
-impl ReferenceSetIter<'_> {
-	pub(crate) fn advance_to(&mut self, reference: ReferenceOrdinal) {
-		self.0.advance_to(reference.raw());
-	}
+pub(crate) struct ReferenceSetIter<'a> {
+	inner: roaring::bitmap::Iter<'a>,
 }
 
 impl ReferenceSet {
@@ -65,10 +53,6 @@ impl ReferenceSet {
 		self.bitmap.serialized_size()
 	}
 
-	pub(crate) fn intersect_with(&mut self, other: &Self) {
-		self.bitmap &= &other.bitmap;
-	}
-
 	pub(crate) fn union_with(&mut self, other: &Self) {
 		self.bitmap |= &other.bitmap;
 	}
@@ -78,15 +62,15 @@ impl ReferenceSet {
 	}
 
 	pub(crate) fn intersection(&self, other: &Self) -> Self {
-		let mut result = self.clone();
-		result.intersect_with(other);
-		result
+		Self {
+			bitmap: &self.bitmap & &other.bitmap,
+		}
 	}
 
 	pub(crate) fn union(&self, other: &Self) -> Self {
-		let mut result = self.clone();
-		result.union_with(other);
-		result
+		Self {
+			bitmap: &self.bitmap | &other.bitmap,
+		}
 	}
 
 	pub(crate) fn difference(&self, other: &Self) -> Self {
@@ -100,11 +84,27 @@ impl ReferenceSet {
 	}
 
 	pub(crate) fn ordered_iter(&self) -> ReferenceSetIter<'_> {
-		ReferenceSetIter(self.bitmap.iter())
+		ReferenceSetIter {
+			inner: self.bitmap.iter(),
+		}
 	}
 
 	pub(crate) fn insert(&mut self, reference: ReferenceOrdinal) -> bool {
 		self.bitmap.insert(reference.raw())
+	}
+}
+
+impl Iterator for ReferenceSetIter<'_> {
+	type Item = ReferenceOrdinal;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.inner.next().map(ReferenceOrdinal)
+	}
+}
+
+impl ReferenceSetIter<'_> {
+	pub(crate) fn advance_to(&mut self, reference: ReferenceOrdinal) {
+		self.inner.advance_to(reference.raw());
 	}
 }
 

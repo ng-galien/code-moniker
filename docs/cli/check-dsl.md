@@ -919,6 +919,12 @@ project file and discovered fragments, in command-line order.
 overlay: it is accepted only in the canonical root `.code-moniker.toml` and is
 rejected in inline, standalone, and fragment sources.
 
+The same file can also declare `[[views]]`. A view URI is
+`workspace/views/<view.id>` from the `workspace/views` listing — not the
+`fragment` field and not the file path. View `symbols` entries are identity
+suffixes scoped to the fragment directory, not compact monikers. See
+`code-moniker rules learn fragments`.
+
 Fragments use the file name `code-moniker.fragment.toml` below the canonical
 root `.code-moniker.toml` directory. A differently named `--rules` file is
 standalone and does not discover sibling fragments:
@@ -967,7 +973,9 @@ Executable catalog scenarios live in
 language or rule family. Workspace inventory, group and transitive-path roots
 have dedicated catalog scenarios linked in
 [Workspace roots](#workspace-roots). Focused executable DSL learning scenarios
-live in [samples/learn](../../samples/learn).
+live in [samples/learn](../../samples/learn), including
+[fragments](../../samples/learn/fragments.cm.md) for view URIs and namespaced
+rule ids. Agent-facing contract: `agents/skills/code-moniker/references/fragments.md`.
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 

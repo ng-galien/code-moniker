@@ -70,6 +70,23 @@ fn indexes_facets_and_preserves_sparse_universe_complements() {
 }
 
 #[test]
+fn natural_name_posting_groups_callable_overloads_without_scanning_names() {
+	let sources = vec![source(0, "rs", "src/lib.rs")];
+	let symbols = RecordTable::from_shards(vec![Arc::from(vec![
+		symbol(0, 0, "code+moniker://./fn:get()", "get()"),
+		symbol(0, 1, "code+moniker://./fn:get(u32)", "get(u32)"),
+		symbol(0, 2, "code+moniker://./fn:getaway()", "getaway()"),
+	])]);
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &symbols);
+	let matches = inventory
+		.facets()
+		.symbols_by_natural_name("get")
+		.expect("natural name posting");
+	assert_eq!(matches.len(), 2);
+	assert!(inventory.facets().symbols_by_natural_name("geta").is_none());
+}
+
+#[test]
 fn refresh_keeps_identity_ordinal_and_retires_removed_symbols() {
 	let sources = vec![source(0, "java", "src/main/java/acme/Order.java")];
 	let identity = "code+moniker://./lang:java/srcset:main/package:acme/class:OrderRepository";
@@ -269,4 +286,56 @@ fn compact_identity_lookup_preserves_and_refreshes_ambiguity() {
 		refreshed.symbol_ids_by_compact_identity(&compact),
 		vec![SymbolId::at(0, 0)]
 	);
+}
+
+#[test]
+fn owner_descendant_posting_follows_parent_chain_across_refresh() {
+	let sources = vec![source(0, "rs", "src/lib.rs")];
+	let mut owner = symbol(
+		0,
+		0,
+		"code+moniker://./lang:rs/dir:src/class:Owner",
+		"Owner",
+	);
+	let mut method = symbol(
+		0,
+		1,
+		"code+moniker://./lang:rs/dir:src/class:Owner/method:run",
+		"run",
+	);
+	method.kind = "method".to_string();
+	method.parent = Some(owner.id);
+	let mut local = symbol(
+		0,
+		2,
+		"code+moniker://./lang:rs/dir:src/class:Owner/method:run/local:item",
+		"item",
+	);
+	local.kind = "local".to_string();
+	local.parent = Some(method.id);
+	let before = RecordTable::from_shards(vec![Arc::from(vec![
+		owner.clone(),
+		method.clone(),
+		local.clone(),
+	])]);
+	let inventory = SymbolInventoryIndex::build(ResourceGeneration::new(1), &sources, &before);
+	let owned = inventory.owner_and_descendants(&owner.id);
+	assert_eq!(owned.len(), 3);
+	assert!(
+		inventory
+			.catalog()
+			.ordinal(&local.id)
+			.is_some_and(|ordinal| owned.contains(ordinal))
+	);
+
+	owner.name = "Owner2".to_string();
+	let after = RecordTable::from_shards(vec![Arc::from(vec![owner.clone()])]);
+	let refreshed = inventory.refresh(
+		ResourceGeneration::new(2),
+		&sources,
+		&after,
+		&BTreeSet::from([0]),
+	);
+	assert_eq!(refreshed.owner_and_descendants(&owner.id).len(), 1);
+	assert!(refreshed.facets().symbols_by_owner(&owner.id).is_none());
 }

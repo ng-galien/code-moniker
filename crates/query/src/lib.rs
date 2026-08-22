@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -145,7 +145,7 @@ pub struct QueryCapabilitySpec {
 
 const ALWAYS_REQUEST_FIELDS: &[&str] = &["consistency"];
 const PAGINATION_FIELDS: &[&str] = &["limit", "cursor"];
-const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "srcset", "severity", "relation"];
+const BOUNDED_RESULT_FIELDS: &[&str] = &["limit"];
 const MULTI_VALUE_FIELDS: &[&str] = &[
 	"path", "lang", "kind", "shape", "srcset", "severity", "file", "relation",
 ];
@@ -599,6 +599,12 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 				.into_iter()
 				.flatten(),
 		)
+		.chain(
+			supports_bounded_result(spec.name)
+				.then_some(BOUNDED_RESULT_FIELDS)
+				.into_iter()
+				.flatten(),
+		)
 		.map(|name| {
 			let required = spec.required_fields.contains(name);
 			QueryFieldDto {
@@ -684,6 +690,7 @@ fn query_field_type(name: &str) -> &'static str {
 fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 	match (verb, name) {
 		("resolution.audit", "limit") => Some("20"),
+		("symbol.graph", "limit") => Some("40"),
 		(_, "limit") => Some("80"),
 		(_, "consistency") => Some("current"),
 		("tree.children", "depth") => Some("1"),
@@ -728,6 +735,8 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 fn query_field_allowed(verb: &str, name: &str) -> Option<&'static str> {
 	match (verb, name) {
 		(_, "consistency") => Some("current|refresh-if-stale|stale-ok"),
+		("symbol.graph" | "identity.children", "limit" | "max_items") => Some("1..500"),
+		("change.context", "max_items" | "limit") => Some("1..100"),
 		(_, "limit" | "depth" | "context_lines" | "max_items") => Some("0..unbounded"),
 		("syntax.tree" | "syntax.parse", "max_depth") => Some("0..unbounded"),
 		("syntax.tree" | "syntax.parse", "max_nodes") => Some("1..unbounded"),
@@ -776,6 +785,30 @@ impl QueryRequest {
 	}
 
 	pub fn validate(&self) -> Result<(), QueryError> {
+		let bounded_limit = match &self.query {
+			Query::SymbolGraph(query) => Some(("symbol.graph", query.limit)),
+			Query::IdentityChildren(query) => Some(("identity.children", query.limit)),
+			_ => None,
+		};
+		if let Some((operation, limit)) = bounded_limit
+			&& !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&limit)
+		{
+			return Err(QueryError::new(
+				"invalid_result_limit",
+				format!("{operation} limit={limit} is outside 1..={MAX_BOUNDED_RESULT_ITEMS}"),
+			));
+		}
+		if let Query::ChangeContext(query) = &self.query
+			&& !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&query.max_items)
+		{
+			return Err(QueryError::new(
+				"invalid_result_limit",
+				format!(
+					"change.context max_items={} is outside 1..={MAX_CHANGE_CONTEXT_ITEMS}",
+					query.max_items
+				),
+			));
+		}
 		let limits = match &self.query {
 			Query::GraphPath(query) => Some(query.limits()),
 			Query::GraphCorridor(query) => Some(query.limits()),
@@ -794,12 +827,22 @@ impl QueryRequest {
 		}
 		if let Query::GraphPath(query) = &self.query {
 			validate_relations(&query.relation).map_err(|error| {
-				QueryError::new(error.code, format!("{}: {}", error.field, error.message))
+				let code = if query.relation.is_empty() {
+					"missing_required"
+				} else {
+					error.code
+				};
+				QueryError::new(code, format!("{}: {}", error.field, error.message))
 			})?;
 		}
 		if let Query::GraphCorridor(query) = &self.query {
 			query.validate_scope().map_err(|error| {
-				QueryError::new(error.code, format!("{}: {}", error.field, error.message))
+				let code = if error.message.starts_with("at least one") {
+					"missing_required"
+				} else {
+					error.code
+				};
+				QueryError::new(code, format!("{}: {}", error.field, error.message))
 			})?;
 			if self.page.cursor.is_some() {
 				return Err(QueryError::new(
@@ -825,6 +868,9 @@ pub const MAX_GRAPH_SCOPE_VALUES: usize = 16;
 pub const MAX_GRAPH_SCOPE_VALUE_CHARS: usize = 256;
 pub const MAX_GRAPH_RELATIONS: usize = 16;
 pub const MAX_GRAPH_RELATION_CHARS: usize = 64;
+pub const MAX_BOUNDED_RESULT_ITEMS: usize = 500;
+pub const DEFAULT_CHANGE_CONTEXT_ITEMS: usize = 20;
+pub const MAX_CHANGE_CONTEXT_ITEMS: usize = 100;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GraphLimitError {
@@ -1193,13 +1239,25 @@ pub struct DiffImpactLineSpan {
 	pub end: u32,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ChangeContextQuery {
 	pub workspace: Option<String>,
 	pub focus: String,
 	pub profile: Option<String>,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 100)))]
 	pub max_items: usize,
+}
+
+impl Default for ChangeContextQuery {
+	fn default() -> Self {
+		Self {
+			workspace: None,
+			focus: String::new(),
+			profile: None,
+			max_items: DEFAULT_CHANGE_CONTEXT_ITEMS,
+		}
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1211,6 +1269,8 @@ pub struct SymbolGraphQuery {
 	pub relation: Vec<String>,
 	pub min_count: usize,
 	pub include_internal: bool,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 500)))]
+	pub limit: usize,
 }
 
 impl Default for SymbolGraphQuery {
@@ -1222,6 +1282,7 @@ impl Default for SymbolGraphQuery {
 			relation: Vec::new(),
 			min_count: 1,
 			include_internal: true,
+			limit: 40,
 		}
 	}
 }
@@ -1594,6 +1655,8 @@ impl FromStr for GraphPathExpectation {
 pub struct IdentityChildrenQuery {
 	pub workspace: Option<String>,
 	pub prefix: String,
+	#[cfg_attr(feature = "schema", schemars(range(min = 1, max = 500)))]
+	pub limit: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1824,6 +1887,7 @@ pub struct UnlinkedRefsDto {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolGraphResult {
 	pub focus: SymbolGraphFocus,
+	pub direction: UsageDirection,
 	pub coverage: SymbolGraphCoverage,
 	pub members: Vec<SymbolDto>,
 	pub internal_edges: Vec<SymbolGraphEdge>,
@@ -1879,6 +1943,8 @@ pub struct SymbolGraphEdge {
 pub struct GraphPathResult {
 	pub from: SymbolDto,
 	pub to: SymbolDto,
+	pub from_endpoint_symbols: usize,
+	pub to_endpoint_symbols: usize,
 	pub expectation: GraphPathExpectation,
 	pub verdict: GraphPathVerdict,
 	pub reachable: Option<bool>,
@@ -1954,12 +2020,15 @@ pub struct GraphPathSearchStats {
 pub struct GraphCorridorResult {
 	pub from: SymbolDto,
 	pub to: SymbolDto,
+	pub from_endpoint_symbols: usize,
+	pub to_endpoint_symbols: usize,
 	pub member_count: usize,
 	pub edge_count: usize,
 	pub members: Vec<SymbolDto>,
 	pub edges: Vec<GraphCorridorEdge>,
 	pub connected: Option<bool>,
-	pub complete: bool,
+	pub result_complete: bool,
+	pub search_complete: bool,
 	pub coverage: GraphPathCoverage,
 	pub search: GraphCorridorSearchStats,
 	pub reasons: Vec<String>,
@@ -1997,6 +2066,7 @@ pub struct GraphCorridorSearchStats {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct IdentityChildrenResult {
 	pub prefix: String,
+	pub total: usize,
 	pub children: Vec<IdentitySegmentDto>,
 }
 
@@ -2609,6 +2679,7 @@ pub enum TreeNodeKind {
 pub struct SymbolListResult {
 	pub rows: Vec<SymbolDto>,
 	pub total: usize,
+	pub hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -3122,6 +3193,10 @@ pub enum QueryParseError {
 	InvalidValue { key: String, value: String },
 	#[error("missing required `{0}`")]
 	MissingRequired(&'static str),
+	#[error(
+		"missing required `scope`: at least one semantic scope is required: path, lang, kind, shape, or srcset"
+	)]
+	MissingSemanticScope,
 	#[error("unknown field `{key}` for `{op}`{hint}")]
 	UnknownField {
 		op: String,
@@ -3157,6 +3232,7 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 	}
 	fields.positional = positional;
 	let spec = verb_spec(&op).ok_or_else(|| QueryParseError::UnknownOperation(op.clone()))?;
+	normalize_field_aliases(spec, &mut fields)?;
 	validate_fields(&op, spec, &fields)?;
 	if let Some(value) = fields.one("consistency") {
 		fields.consistency = value.parse()?;
@@ -3169,6 +3245,26 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 		consistency,
 		page,
 	})
+}
+
+fn normalize_field_aliases(
+	spec: &QueryCapabilitySpec,
+	fields: &mut FieldBag,
+) -> Result<(), QueryParseError> {
+	for (key, _) in &mut fields.values {
+		if key == "max_items"
+			&& (spec.fields.contains(&"limit") || supports_bounded_result(spec.name))
+		{
+			*key = "limit".to_string();
+		} else if key == "limit" && spec.fields.contains(&"max_items") {
+			*key = "max_items".to_string();
+		}
+	}
+	Ok(())
+}
+
+fn supports_bounded_result(op: &str) -> bool {
+	matches!(op, "symbol.graph" | "identity.children")
 }
 
 fn collect_line(
@@ -3210,7 +3306,6 @@ fn collect_line(
 				"direction".to_string(),
 				FieldValue {
 					text: value.text.clone(),
-					quoted: value.quoted,
 				},
 			));
 		}
@@ -3299,19 +3394,25 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 		"change.review" => Query::ChangeReview(ChangeReviewQuery {
 			workspace: fields.one("workspace"),
 		}),
-		"change.context" => Query::ChangeContext(ChangeContextQuery {
-			workspace: fields.one("workspace"),
-			focus: fields
-				.one("focus")
-				.or_else(|| fields.positional.first().cloned())
-				.ok_or(QueryParseError::MissingRequired("focus"))?,
-			profile: fields.one("profile"),
-			max_items: fields.usize("max_items")?.unwrap_or(20),
-		}),
+		"change.context" => {
+			let max_items = fields
+				.usize("max_items")?
+				.unwrap_or(DEFAULT_CHANGE_CONTEXT_ITEMS);
+			validate_change_context_items(max_items)?;
+			Query::ChangeContext(ChangeContextQuery {
+				workspace: fields.one("workspace"),
+				focus: fields
+					.one("focus")
+					.or_else(|| fields.positional.first().cloned())
+					.ok_or(QueryParseError::MissingRequired("focus"))?,
+				profile: fields.one("profile"),
+				max_items,
+			})
+		}
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"graph.path" => Query::GraphPath(graph_path_query(&fields)?),
 		"graph.corridor" => Query::GraphCorridor(graph_corridor_query(&fields)?),
-		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
+		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)?),
 		"identity.graph" => Query::IdentityGraph(identity_graph_query(&fields)?),
 		"metrics.coupling" => Query::MetricsCoupling(MetricsCouplingQuery {
 			workspace: fields.one("workspace"),
@@ -3349,7 +3450,7 @@ fn validate_fields(
 	spec: &QueryCapabilitySpec,
 	fields: &FieldBag,
 ) -> Result<(), QueryParseError> {
-	for (key, value) in &fields.values {
+	for (index, (key, value)) in fields.values.iter().enumerate() {
 		let key = key.as_str();
 		if !request_field_allowed(spec, key) {
 			return Err(QueryParseError::UnknownField {
@@ -3358,14 +3459,46 @@ fn validate_fields(
 				hint: field_hint(key, spec),
 			});
 		}
-		if !value.quoted
-			&& BRACKET_LIST_FIELDS.contains(&key)
+		if MULTI_VALUE_FIELDS.contains(&key)
 			&& value.text.starts_with('[') != value.text.ends_with(']')
 		{
 			return Err(QueryParseError::InvalidValue {
 				key: key.to_string(),
 				value: value.text.clone(),
 			});
+		}
+		if !MULTI_VALUE_FIELDS.contains(&key) {
+			let first = scalar_value(&value.text);
+			if let Some((_, conflicting)) =
+				fields.values[index + 1..]
+					.iter()
+					.find(|(candidate, candidate_value)| {
+						candidate == key && scalar_value(&candidate_value.text) != first
+					}) {
+				return Err(QueryParseError::InvalidValue {
+					key: key.to_string(),
+					value: format!(
+						"conflicting repeated scalar values `{first}` and `{}`",
+						scalar_value(&conflicting.text)
+					),
+				});
+			}
+		}
+	}
+	if let Some(key) = positional_field(op)
+		&& let (Some(positional), Some(named)) = (fields.positional.first(), fields.one(key))
+		&& positional != &named
+	{
+		return Err(QueryParseError::InvalidValue {
+			key: key.to_string(),
+			value: format!("conflicting positional and named values `{positional}` and `{named}`"),
+		});
+	}
+	for (index, required) in spec.required_fields.iter().enumerate() {
+		let supplied_positionally =
+			index < spec.positionals && fields.positional.get(index).is_some();
+		if fields.one(required).is_none() && !supplied_positionally {
+			return Err(QueryParseError::MissingRequired(required));
 		}
 	}
 	if let Some(extra) = fields.positional.get(spec.positionals) {
@@ -3388,6 +3521,16 @@ fn validate_fields(
 		}
 	}
 	Ok(())
+}
+
+fn positional_field(op: &str) -> Option<&'static str> {
+	match op {
+		"query.describe" => Some("verb"),
+		"symbol.detail" | "symbol.usages" | "view.read" => Some("uri"),
+		"syntax.tree" | "rules.applicable" | "change.context" | "symbol.graph" => Some("focus"),
+		"identity.children" | "identity.graph" | "resolution.audit" => Some("prefix"),
+		_ => None,
+	}
 }
 
 fn projection_field_hint(field: &str, allowed: &'static [&'static str]) -> String {
@@ -3420,6 +3563,13 @@ fn field_hint(key: &str, spec: &QueryCapabilitySpec) -> String {
 				.flatten()
 				.copied(),
 		)
+		.chain(
+			supports_bounded_result(spec.name)
+				.then_some(BOUNDED_RESULT_FIELDS)
+				.into_iter()
+				.flatten()
+				.copied(),
+		)
 		.collect();
 	valid.sort_unstable();
 	format!(" (valid fields: {})", valid.join(", "))
@@ -3441,6 +3591,12 @@ fn suggest_field(key: &str, spec: &QueryCapabilitySpec) -> Option<&'static str> 
 				.into_iter()
 				.flatten(),
 		)
+		.chain(
+			supports_bounded_result(spec.name)
+				.then_some(BOUNDED_RESULT_FIELDS)
+				.into_iter()
+				.flatten(),
+		)
 		.copied()
 		.map(|candidate| (candidate, levenshtein(key, candidate)))
 		.filter(|(_, distance)| *distance <= 2)
@@ -3452,6 +3608,7 @@ fn request_field_allowed(spec: &QueryCapabilitySpec, field: &str) -> bool {
 	spec.fields.contains(&field)
 		|| ALWAYS_REQUEST_FIELDS.contains(&field)
 		|| (spec.paginated && PAGINATION_FIELDS.contains(&field))
+		|| (supports_bounded_result(spec.name) && BOUNDED_RESULT_FIELDS.contains(&field))
 }
 
 fn levenshtein(a: &str, b: &str) -> usize {
@@ -3549,14 +3706,17 @@ fn notes_query(fields: &FieldBag) -> Result<NotesQuery, QueryParseError> {
 	})
 }
 
-fn identity_children_query(fields: &FieldBag) -> IdentityChildrenQuery {
-	IdentityChildrenQuery {
+fn identity_children_query(fields: &FieldBag) -> Result<IdentityChildrenQuery, QueryParseError> {
+	let query = IdentityChildrenQuery {
 		workspace: fields.one("workspace"),
 		prefix: fields
 			.one("prefix")
 			.or_else(|| fields.positional.first().cloned())
 			.unwrap_or_default(),
-	}
+		limit: fields.usize("limit")?.unwrap_or(80),
+	};
+	validate_bounded_result_limit("identity.children", query.limit)?;
+	Ok(query)
 }
 
 fn identity_graph_query(fields: &FieldBag) -> Result<IdentityGraphQuery, QueryParseError> {
@@ -3572,7 +3732,7 @@ fn identity_graph_query(fields: &FieldBag) -> Result<IdentityGraphQuery, QueryPa
 }
 
 fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseError> {
-	Ok(SymbolGraphQuery {
+	let query = SymbolGraphQuery {
 		workspace: fields.one("workspace"),
 		focus: fields
 			.one("focus")
@@ -3585,7 +3745,36 @@ fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseE
 		relation: fields.many("relation"),
 		min_count: fields.usize("min_count")?.unwrap_or(1).max(1),
 		include_internal: fields.bool("include_internal")?.unwrap_or(true),
-	})
+		limit: fields.usize("limit")?.unwrap_or(40),
+	};
+	validate_bounded_result_limit("symbol.graph", query.limit)?;
+	Ok(query)
+}
+
+fn validate_bounded_result_limit(operation: &str, limit: usize) -> Result<(), QueryParseError> {
+	if (1..=MAX_BOUNDED_RESULT_ITEMS).contains(&limit) {
+		Ok(())
+	} else {
+		Err(QueryParseError::InvalidValue {
+			key: "limit".to_string(),
+			value: format!(
+				"{limit} is outside {operation}'s supported range 1..={MAX_BOUNDED_RESULT_ITEMS}"
+			),
+		})
+	}
+}
+
+fn validate_change_context_items(max_items: usize) -> Result<(), QueryParseError> {
+	if (1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&max_items) {
+		Ok(())
+	} else {
+		Err(QueryParseError::InvalidValue {
+			key: "max_items".to_string(),
+			value: format!(
+				"{max_items} is outside change.context's supported range 1..={MAX_CHANGE_CONTEXT_ITEMS}"
+			),
+		})
+	}
 }
 
 fn graph_path_query(fields: &FieldBag) -> Result<GraphPathQuery, QueryParseError> {
@@ -3651,12 +3840,16 @@ fn graph_corridor_query(fields: &FieldBag) -> Result<GraphCorridorQuery, QueryPa
 		min_coverage,
 	};
 	validate_graph_query(query.limits())?;
-	query
-		.validate_scope()
-		.map_err(|error| QueryParseError::InvalidValue {
-			key: error.field.to_string(),
-			value: error.message.to_string(),
-		})?;
+	query.validate_scope().map_err(|error| {
+		if error.message.starts_with("at least one") {
+			QueryParseError::MissingSemanticScope
+		} else {
+			QueryParseError::InvalidValue {
+				key: error.field.to_string(),
+				value: error.message.to_string(),
+			}
+		}
+	})?;
 	Ok(query)
 }
 
@@ -3813,6 +4006,9 @@ fn format_symbol_list(out: &mut String, result: &SymbolListResult, projection: &
 		} else {
 			format_projected_value(out, row, projection);
 		}
+	}
+	if let Some(hint) = &result.hint {
+		let _ = writeln!(out, "hint: {hint}");
 	}
 }
 
@@ -4276,6 +4472,12 @@ fn format_notes(out: &mut String, result: &NotesResult) {
 	for row in &result.rows {
 		let _ = writeln!(out, "- {} [{}] {}", row.id, row.status, row.title);
 	}
+	if result.action == "list" && result.total == 0 {
+		let _ = writeln!(
+			out,
+			"result: no notes match this workspace and the selected filters"
+		);
+	}
 }
 
 fn format_rules_list_rows(out: &mut String, result: &RulesListResult) {
@@ -4298,7 +4500,7 @@ fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
 		&result.prefix
 	};
 	let _ = writeln!(out, "prefix: {prefix}");
-	let _ = writeln!(out, "children: {}", result.children.len());
+	let _ = writeln!(out, "children: {}/{}", result.children.len(), result.total);
 	for child in &result.children {
 		let marker = if child.symbol.is_some() { "def" } else { "…" };
 		let _ = writeln!(
@@ -4478,41 +4680,57 @@ fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 		result.coverage.internal_edges.total
 	);
 	format_unlinked(out, &result.unlinked);
-	let _ = writeln!(
-		out,
-		"callers: {}/{} matching ({} total)",
-		result.coverage.callers.returned,
-		result.coverage.callers.matching,
-		result.coverage.callers.total
-	);
-	for caller in &result.callers {
+	if result.direction == UsageDirection::Outgoing {
 		let _ = writeln!(
 			out,
-			"< {} {} ({}) x{} [{}]",
-			caller.symbol.kind,
-			caller.symbol.name,
-			caller.symbol.file,
-			caller.count,
-			caller.kinds.join(",")
+			"callers: omitted (direction=outgoing; {} exist)",
+			result.coverage.callers.total
 		);
+	} else {
+		let _ = writeln!(
+			out,
+			"callers: {}/{} matching ({} total)",
+			result.coverage.callers.returned,
+			result.coverage.callers.matching,
+			result.coverage.callers.total
+		);
+		for caller in &result.callers {
+			let _ = writeln!(
+				out,
+				"< {} {} ({}) x{} [{}]",
+				caller.symbol.kind,
+				caller.symbol.name,
+				caller.symbol.file,
+				caller.count,
+				caller.kinds.join(",")
+			);
+		}
 	}
-	let _ = writeln!(
-		out,
-		"callees: {}/{} matching ({} total)",
-		result.coverage.callees.returned,
-		result.coverage.callees.matching,
-		result.coverage.callees.total
-	);
-	for callee in &result.callees {
+	if result.direction == UsageDirection::Incoming {
 		let _ = writeln!(
 			out,
-			"> {} {} ({}) x{} [{}]",
-			callee.symbol.kind,
-			callee.symbol.name,
-			callee.symbol.file,
-			callee.count,
-			callee.kinds.join(",")
+			"callees: omitted (direction=incoming; {} exist)",
+			result.coverage.callees.total
 		);
+	} else {
+		let _ = writeln!(
+			out,
+			"callees: {}/{} matching ({} total)",
+			result.coverage.callees.returned,
+			result.coverage.callees.matching,
+			result.coverage.callees.total
+		);
+		for callee in &result.callees {
+			let _ = writeln!(
+				out,
+				"> {} {} ({}) x{} [{}]",
+				callee.symbol.kind,
+				callee.symbol.name,
+				callee.symbol.file,
+				callee.count,
+				callee.kinds.join(",")
+			);
+		}
 	}
 }
 
@@ -4532,6 +4750,11 @@ fn format_graph_path(out: &mut String, result: &GraphPathResult) {
 		out,
 		"to: {} {} ({})",
 		result.to.kind, result.to.name, result.to.file
+	);
+	let _ = writeln!(
+		out,
+		"endpoint_scope: owner-and-descendants from={} to={}",
+		result.from_endpoint_symbols, result.to_endpoint_symbols
 	);
 	let truth = |value: Option<bool>| match value {
 		Some(true) => "true",
@@ -4606,8 +4829,9 @@ fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
 	};
 	let _ = writeln!(
 		out,
-		"connected: {connected} complete: {} members: {}/{} edges: {}/{}",
-		result.complete,
+		"connected: {connected} result_complete: {} search_complete: {} members: {}/{} edges: {}/{}",
+		result.result_complete,
+		result.search_complete,
 		result.members.len(),
 		result.member_count,
 		result.edges.len(),
@@ -4615,6 +4839,11 @@ fn format_graph_corridor(out: &mut String, result: &GraphCorridorResult) {
 	);
 	let _ = writeln!(out, "from: {}", result.from.uri);
 	let _ = writeln!(out, "to: {}", result.to.uri);
+	let _ = writeln!(
+		out,
+		"endpoint_scope: owner-and-descendants from={} to={}",
+		result.from_endpoint_symbols, result.to_endpoint_symbols
+	);
 	let _ = writeln!(
 		out,
 		"coverage: {}% ({}/{}) resolved={} external={} candidate={} dynamic={} manifest_blocked={} unresolved={}",
@@ -4675,6 +4904,9 @@ fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
 		result.summary.retargeted_refs,
 		result.summary.residual_files
 	);
+	if result.summary.files == 0 {
+		let _ = writeln!(out, "result: no symbolic changes in {}", result.scope);
+	}
 	for file in &result.files {
 		let path = match (&file.old_path, &file.new_path) {
 			(Some(old), Some(new)) if old != new => format!("{old} -> {new}"),
@@ -4827,13 +5059,11 @@ struct FieldBag {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FieldValue {
 	text: String,
-	quoted: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct QueryToken {
 	text: String,
-	quoted: bool,
 }
 
 impl FieldBag {
@@ -4876,20 +5106,14 @@ impl FieldBag {
 		self.values
 			.iter()
 			.find(|(candidate, _)| candidate == key)
-			.map(|(_, value)| value.text.clone())
+			.map(|(_, value)| scalar_value(&value.text))
 	}
 
 	fn many(&self, key: &str) -> Vec<String> {
 		self.values
 			.iter()
 			.filter(|(candidate, _)| candidate == key)
-			.flat_map(|(_, value)| {
-				if value.quoted || !MULTI_VALUE_FIELDS.contains(&key) {
-					vec![value.text.clone()]
-				} else {
-					split_csv(strip_bracket_list(key, &value.text))
-				}
-			})
+			.flat_map(|(_, value)| list_values(key, &value.text))
 			.collect()
 	}
 }
@@ -4905,11 +5129,10 @@ fn collect_tokens(
 				key.to_string(),
 				FieldValue {
 					text: value.to_string(),
-					quoted: token.quoted,
 				},
 			));
 		} else {
-			positional.push(token.text.trim_end_matches(',').to_string());
+			positional.push(scalar_value(token.text.trim_end_matches(',')));
 		}
 	}
 	Ok(())
@@ -4945,23 +5168,31 @@ fn tokenize(input: &str) -> Result<Vec<QueryToken>, QueryParseError> {
 	let mut current = String::new();
 	let mut chars = input.chars().peekable();
 	let mut quoted = false;
-	let mut token_quoted = false;
+	let mut bracket_depth = 0usize;
 	while let Some(ch) = chars.next() {
 		match ch {
 			'"' => {
 				quoted = !quoted;
-				token_quoted = true;
+				current.push(ch);
 			}
 			'\\' if quoted => {
 				if let Some(next) = chars.next() {
+					current.push(ch);
 					current.push(next);
 				}
 			}
-			ch if ch.is_whitespace() && !quoted => {
+			'[' if !quoted => {
+				bracket_depth += 1;
+				current.push(ch);
+			}
+			']' if !quoted => {
+				bracket_depth = bracket_depth.saturating_sub(1);
+				current.push(ch);
+			}
+			ch if ch.is_whitespace() && !quoted && bracket_depth == 0 => {
 				if !current.is_empty() {
 					tokens.push(QueryToken {
 						text: std::mem::take(&mut current),
-						quoted: std::mem::take(&mut token_quoted),
 					});
 				}
 			}
@@ -4972,24 +5203,80 @@ fn tokenize(input: &str) -> Result<Vec<QueryToken>, QueryParseError> {
 		return Err(QueryParseError::InvalidToken(input.to_string()));
 	}
 	if !current.is_empty() {
-		tokens.push(QueryToken {
-			text: current,
-			quoted: token_quoted,
-		});
+		tokens.push(QueryToken { text: current });
 	}
 	Ok(tokens)
 }
 
-// `shape:[callable,type]` list sugar, restricted to enum-like fields so glob
-// character classes in `path:`/`file:` values stay untouched.
-fn strip_bracket_list<'a>(key: &str, value: &'a str) -> &'a str {
-	if !BRACKET_LIST_FIELDS.contains(&key) {
-		return value;
+fn scalar_value(value: &str) -> String {
+	let value = value.trim();
+	let unquoted = value
+		.strip_prefix('"')
+		.and_then(|inner| inner.strip_suffix('"'))
+		.unwrap_or(value);
+	unescape_quoted(unquoted)
+}
+
+fn list_values(key: &str, value: &str) -> Vec<String> {
+	if !MULTI_VALUE_FIELDS.contains(&key) {
+		return vec![scalar_value(value)];
 	}
-	value
+	let normalized = scalar_value(value);
+	let (contents, structured) = normalized
 		.strip_prefix('[')
 		.and_then(|inner| inner.strip_suffix(']'))
-		.unwrap_or(value)
+		.map_or((normalized.as_str(), false), |inner| (inner, true));
+	if structured {
+		split_structured_csv(contents)
+	} else {
+		split_csv(contents)
+	}
+}
+
+fn split_structured_csv(value: &str) -> Vec<String> {
+	let mut entries = Vec::new();
+	let mut current = String::new();
+	let mut quoted = false;
+	let mut escaped = false;
+	for ch in value.chars() {
+		if escaped {
+			current.push(ch);
+			escaped = false;
+			continue;
+		}
+		match ch {
+			'\\' if quoted => escaped = true,
+			'"' => quoted = !quoted,
+			',' if !quoted => {
+				let entry = current.trim();
+				if !entry.is_empty() {
+					entries.push(entry.to_string());
+				}
+				current.clear();
+			}
+			_ => current.push(ch),
+		}
+	}
+	let entry = current.trim();
+	if !entry.is_empty() {
+		entries.push(entry.to_string());
+	}
+	entries
+}
+
+fn unescape_quoted(value: &str) -> String {
+	let mut result = String::with_capacity(value.len());
+	let mut chars = value.chars();
+	while let Some(ch) = chars.next() {
+		if ch == '\\'
+			&& let Some(next) = chars.next()
+		{
+			result.push(next);
+		} else {
+			result.push(ch);
+		}
+	}
+	result
 }
 
 pub fn split_csv(value: &str) -> Vec<String> {
@@ -5181,6 +5468,57 @@ mod tests {
 			)
 		);
 		assert!(!formatted.contains("unsigned_integer=12"));
+
+		for (verb, expected_default) in [("symbol.graph", "40"), ("identity.children", "80")] {
+			let capability = describe_query_capabilities(Some(verb))
+				.expect("bounded result capability")
+				.capabilities
+				.pop()
+				.expect("bounded result descriptor");
+			let limit = capability
+				.fields
+				.iter()
+				.find(|field| field.name == "limit")
+				.expect("explicit bounded result limit");
+			assert_eq!(limit.default, expected_default);
+			assert_eq!(limit.allowed, "1..500");
+			assert!(!capability.paginated);
+		}
+	}
+
+	#[test]
+	fn empty_results_state_their_scope_in_plain_language() {
+		let notes = format_query_response(&QueryResponse {
+			generation: None,
+			result: QueryResult::Notes(NotesResult {
+				action: "list".to_string(),
+				total: 0,
+				rows: Vec::new(),
+				deleted: None,
+			}),
+			next_cursor: None,
+		});
+		assert!(
+			notes.contains("no notes match this workspace and the selected filters"),
+			"{notes}"
+		);
+
+		let review = format_query_response(&QueryResponse {
+			generation: None,
+			result: QueryResult::ChangeReview(Box::new(ChangeReviewResult {
+				scope: "HEAD..worktree".to_string(),
+				summary: ChangeReviewSummary::default(),
+				files: Vec::new(),
+				symbol_changes: Vec::new(),
+				ref_changes: Vec::new(),
+				diagnostics: Vec::new(),
+			})),
+			next_cursor: None,
+		});
+		assert!(
+			review.contains("no symbolic changes in HEAD..worktree"),
+			"{review}"
+		);
 	}
 
 	#[test]
@@ -5351,15 +5689,205 @@ mod tests {
 	}
 
 	#[test]
-	fn quoted_multi_value_field_does_not_split_commas() {
-		let request =
-			parse_query("symbol.search path:\"src/generated,a.ts\" shape:\"callable,type\"")
-				.expect("quoted multi-value fields");
+	fn quoted_multi_value_fields_are_normalized_as_natural_lists() {
+		for fields in [
+			"path:src/generated,a.ts shape:callable,type",
+			"path:\"src/generated,a.ts\" shape:\"callable,type\"",
+			"path:[src/generated,a.ts] shape:[callable,type]",
+			"path:[\"src/generated\",\"a.ts\"] shape:[\"callable\",\"type\"]",
+		] {
+			let request = parse_query(&format!("symbol.search {fields}"))
+				.expect("natural multi-value field syntax");
+			let Query::SymbolSearch(query) = request.query else {
+				panic!("expected symbol search query");
+			};
+			assert_eq!(query.path, vec!["src/generated", "a.ts"]);
+			assert_eq!(query.shape, vec!["callable", "type"]);
+		}
+	}
+
+	#[test]
+	fn structured_lists_preserve_quoted_commas_and_accept_spaces() {
+		let request = parse_query(
+			"symbol.search path:[\"src/generated,a.ts\", \"tests/b.ts\"] shape:[\"callable\", \"type\"]",
+		)
+		.expect("structured multi-value fields");
 		let Query::SymbolSearch(query) = request.query else {
 			panic!("expected symbol search query");
 		};
-		assert_eq!(query.path, vec!["src/generated,a.ts"]);
-		assert_eq!(query.shape, vec!["callable,type"]);
+		assert_eq!(query.path, vec!["src/generated,a.ts", "tests/b.ts"]);
+		assert_eq!(query.shape, vec!["callable", "type"]);
+	}
+
+	#[test]
+	fn bounded_result_fields_accept_limit_and_max_items_as_aliases() {
+		for field in ["limit:7", "max_items:7"] {
+			let request = parse_query(&format!("symbol.graph focus:App {field}"))
+				.expect("bounded symbol graph");
+			let Query::SymbolGraph(query) = request.query else {
+				panic!("expected symbol graph query");
+			};
+			assert_eq!(query.limit, 7);
+
+			let request = parse_query(&format!("identity.children prefix:lang:rs {field}"))
+				.expect("bounded identity children");
+			let Query::IdentityChildren(query) = request.query else {
+				panic!("expected identity children query");
+			};
+			assert_eq!(query.limit, 7);
+
+			let request = parse_query(&format!("change.context focus:App {field}"))
+				.expect("bounded change context");
+			let Query::ChangeContext(query) = request.query else {
+				panic!("expected change context query");
+			};
+			assert_eq!(query.max_items, 7);
+		}
+	}
+
+	#[test]
+	fn bounded_result_aliases_reject_conflicting_duplicates() {
+		let error = parse_query("symbol.graph focus:App limit:5 max_items:20")
+			.expect_err("conflicting aliases");
+		assert!(matches!(
+			error,
+			QueryParseError::InvalidValue { ref key, .. } if key == "limit"
+		));
+		let request = parse_query("symbol.graph focus:App limit:20 max_items:20")
+			.expect("identical aliases are one unambiguous scalar");
+		let Query::SymbolGraph(query) = request.query else {
+			panic!("expected symbol graph query");
+		};
+		assert_eq!(query.limit, 20);
+	}
+
+	#[test]
+	fn scalar_fields_reject_conflicting_repetitions_but_accept_identical_values() {
+		for expression in [
+			"graph.path from:A from:B to:C relation:calls",
+			"graph.corridor from:A to:B relation:calls shape:callable max_symbols:1 max_symbols:100000",
+			"change.context focus:A max_items:1 max_items:100",
+		] {
+			assert!(matches!(
+				parse_query(expression),
+				Err(QueryParseError::InvalidValue { .. })
+			));
+		}
+		let request = parse_query("change.context focus:A focus:A max_items:20 max_items:20")
+			.expect("identical scalar repetitions are normalized");
+		let Query::ChangeContext(query) = request.query else {
+			panic!("expected change context query");
+		};
+		assert_eq!(query.focus, "A");
+		assert_eq!(query.max_items, DEFAULT_CHANGE_CONTEXT_ITEMS);
+	}
+
+	#[test]
+	fn positional_and_named_scalar_values_must_agree() {
+		let request = parse_query("symbol.detail A uri:A")
+			.expect("identical positional and named values are accepted");
+		let Query::SymbolDetail(query) = request.query else {
+			panic!("expected symbol detail query");
+		};
+		assert_eq!(query.uri, "A");
+
+		let error = parse_query("symbol.detail A uri:B")
+			.expect_err("conflicting positional and named values");
+		assert!(matches!(
+			error,
+			QueryParseError::InvalidValue { ref key, .. } if key == "uri"
+		));
+	}
+
+	#[test]
+	fn bounded_result_limits_are_consistently_validated() {
+		for expression in [
+			"symbol.graph focus:App limit:0",
+			"symbol.graph focus:App max_items:501",
+			"identity.children prefix:lang:rs limit:0",
+			"identity.children prefix:lang:rs max_items:501",
+		] {
+			assert!(matches!(
+				parse_query(expression),
+				Err(QueryParseError::InvalidValue { ref key, .. }) if key == "limit"
+			));
+		}
+	}
+
+	#[test]
+	fn direct_bounded_result_requests_enforce_the_public_limit_contract() {
+		for query in [
+			Query::SymbolGraph(SymbolGraphQuery {
+				focus: "App".to_string(),
+				limit: 0,
+				..Default::default()
+			}),
+			Query::IdentityChildren(IdentityChildrenQuery {
+				prefix: String::new(),
+				limit: MAX_BOUNDED_RESULT_ITEMS + 1,
+				..Default::default()
+			}),
+		] {
+			let error = QueryRequest::new(query)
+				.validate()
+				.expect_err("invalid direct result limit");
+			assert_eq!(error.code, "invalid_result_limit");
+			assert!(error.message.contains("1..=500"), "{error:?}");
+		}
+	}
+
+	#[test]
+	fn change_context_limit_is_consistent_for_dsl_direct_requests_and_describe() {
+		for max_items in [0, MAX_CHANGE_CONTEXT_ITEMS + 1] {
+			assert!(matches!(
+				parse_query(&format!("change.context focus:App max_items:{max_items}")),
+				Err(QueryParseError::InvalidValue { ref key, .. }) if key == "max_items"
+			));
+			let error = QueryRequest::new(Query::ChangeContext(ChangeContextQuery {
+				focus: "App".to_string(),
+				max_items,
+				..Default::default()
+			}))
+			.validate()
+			.expect_err("invalid direct change.context limit");
+			assert_eq!(error.code, "invalid_result_limit");
+		}
+		let capability = describe_query_capabilities(Some("change.context"))
+			.expect("change.context capability")
+			.capabilities
+			.pop()
+			.expect("change.context descriptor");
+		let field = capability
+			.fields
+			.iter()
+			.find(|field| field.name == "max_items")
+			.expect("max_items field");
+		assert_eq!(field.default, DEFAULT_CHANGE_CONTEXT_ITEMS.to_string());
+		assert_eq!(field.allowed, "1..100");
+	}
+
+	#[test]
+	fn corridor_reports_absent_relation_and_scope_as_missing_required() {
+		let missing_relation =
+			parse_query("graph.corridor from:symbol:0:0 to:symbol:0:1 shape:callable")
+				.expect_err("relation is required");
+		assert!(matches!(
+			missing_relation,
+			QueryParseError::MissingRequired("relation")
+		));
+
+		let missing_scope =
+			parse_query("graph.corridor from:symbol:0:0 to:symbol:0:1 relation:calls")
+				.expect_err("semantic scope is required");
+		assert!(matches!(
+			missing_scope,
+			QueryParseError::MissingSemanticScope
+		));
+		assert!(
+			missing_scope
+				.to_string()
+				.contains("path, lang, kind, shape, or srcset")
+		);
 	}
 
 	#[test]
@@ -5601,6 +6129,7 @@ mod tests {
 					source: None,
 				}],
 				total: 1,
+				hint: None,
 			}),
 			next_cursor: None,
 		};
@@ -5739,6 +6268,7 @@ mod tests {
 			result: QueryResult::SymbolList(SymbolListResult {
 				rows: Vec::new(),
 				total: 0,
+				hint: None,
 			}),
 			next_cursor: Some(QueryCursor::new(40, Some(WorkspaceGeneration(7)))),
 		};
@@ -5768,6 +6298,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/lib.rs".to_string(),
 			},
+			direction: UsageDirection::Both,
 			coverage: SymbolGraphCoverage::default(),
 			members: vec![
 				member("symbol:40:2", "alpha()"),
@@ -5860,10 +6391,11 @@ mod contract_tests {
 		let result = QueryResult::SymbolList(SymbolListResult {
 			rows: Vec::new(),
 			total: 0,
+			hint: None,
 		});
 		assert_eq!(
 			serde_json::to_value(&result).unwrap(),
-			json!({ "kind": "symbol_list", "data": { "rows": [], "total": 0 } }),
+			json!({ "kind": "symbol_list", "data": { "rows": [], "total": 0, "hint": null } }),
 		);
 	}
 
@@ -5954,7 +6486,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 20);
+		assert_eq!(PROTOCOL_VERSION, 21);
 	}
 
 	#[test]

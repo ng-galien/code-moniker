@@ -284,12 +284,11 @@ impl ToolRegistry {
 		};
 		let contract = tool.output_contract();
 		contract.validate_arguments(arguments)?;
-		OutputContract::finalize(
-			contract,
-			tool.call(context, arguments)?,
-			arguments,
-			context.scheme(),
-		)
+		let mut result = tool.call(context, arguments)?;
+		if contract == OutputContract::Agent {
+			result.text = format!("runtime: {}\n{}", context.runtime_label(), result.text);
+		}
+		OutputContract::finalize(contract, result, arguments, context.scheme())
 	}
 }
 

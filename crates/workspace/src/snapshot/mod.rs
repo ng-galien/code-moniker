@@ -28,9 +28,9 @@ pub use model::{
 	WorkspaceTransition,
 };
 pub use path::{
-	BoundedCorridorRequest, BoundedCorridorScope, BoundedCorridorSearch, BoundedPathCoverage,
-	BoundedPathEdge, BoundedPathEngine, BoundedPathLimits, BoundedPathRequest, BoundedPathScope,
-	BoundedPathSearch, bounded_corridor, bounded_path,
+	BoundedCorridorRequest, BoundedCorridorScope, BoundedCorridorSearch, BoundedCorridorSetRequest,
+	BoundedPathCoverage, BoundedPathEdge, BoundedPathEngine, BoundedPathLimits, BoundedPathRequest,
+	BoundedPathScope, BoundedPathSearch, BoundedPathSetRequest, bounded_corridor, bounded_path,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

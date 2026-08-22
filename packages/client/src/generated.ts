@@ -155,6 +155,7 @@ export type Query =
       direction: UsageDirection;
       focus: string;
       include_internal: boolean;
+      limit: number;
       min_count: number;
       op: "symbol_graph";
       relation: string[];
@@ -489,6 +490,7 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      limit: number;
       op: "identity_children";
       prefix: string;
       workspace?: string | null;
@@ -2339,6 +2341,7 @@ export interface TreeNode {
   root: string;
 }
 export interface SymbolListResult {
+  hint?: string | null;
   rows: SymbolDto[];
   total: number;
 }
@@ -2853,6 +2856,7 @@ export interface SymbolGraphResult {
   callees: SymbolGraphNeighbor[];
   callers: SymbolGraphNeighbor[];
   coverage: SymbolGraphCoverage;
+  direction: UsageDirection;
   focus: SymbolGraphFocus;
   internal_edges: SymbolGraphEdge[];
   members: SymbolDto[];
@@ -2909,12 +2913,14 @@ export interface GraphPathResult {
   coverage: GraphPathCoverage;
   expectation: GraphPathExpectation;
   from: SymbolDto;
+  from_endpoint_symbols: number;
   no_path?: boolean | null;
   path: GraphPathStep[];
   reachable?: boolean | null;
   reasons: string[];
   search: GraphPathSearchStats;
   to: SymbolDto;
+  to_endpoint_symbols: number;
   verdict: GraphPathVerdict;
 }
 export interface GraphPathCoverage {
@@ -2956,17 +2962,20 @@ export interface GraphPathSearchStats {
   symbol_limit_reached: boolean;
 }
 export interface GraphCorridorResult {
-  complete: boolean;
   connected?: boolean | null;
   coverage: GraphPathCoverage;
   edge_count: number;
   edges: GraphCorridorEdge[];
   from: SymbolDto;
+  from_endpoint_symbols: number;
   member_count: number;
   members: SymbolDto[];
   reasons: string[];
+  result_complete: boolean;
   search: GraphCorridorSearchStats;
+  search_complete: boolean;
   to: SymbolDto;
+  to_endpoint_symbols: number;
 }
 export interface GraphCorridorEdge {
   count: number;
@@ -2997,6 +3006,7 @@ export interface GraphCorridorSearchStats {
 export interface IdentityChildrenResult {
   children: IdentitySegmentDto[];
   prefix: string;
+  total: number;
 }
 export interface IdentitySegmentDto {
   defs: number;

@@ -186,7 +186,7 @@ fn run_incremental_refresh(
 	} else {
 		store.project_snapshot(
 			&input.index.references,
-			&input.material.identity,
+			input.material,
 			candidates.symbol_catalog(),
 		)
 	};

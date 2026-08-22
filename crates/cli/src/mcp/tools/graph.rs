@@ -1,8 +1,8 @@
 use std::fmt::Write as _;
 
 use code_moniker_query::{
-	GraphSectionCoverage, Page, Query, QueryResult, SymbolGraphFocus, SymbolGraphNeighbor,
-	SymbolGraphQuery, SymbolGraphResult, UsageDirection,
+	GraphSectionCoverage, MAX_BOUNDED_RESULT_ITEMS, Page, Query, QueryResult, SymbolGraphFocus,
+	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UsageDirection,
 };
 use serde_json::{Value, json};
 
@@ -40,12 +40,12 @@ impl GraphTool {
 			"properties": {
 				"focus": {
 					"type": "string",
-					"description": "Compact moniker, canonical symbol URI, symbol id, or workspace-relative file path."
+					"description": "Compact moniker, canonical symbol URI, symbol id, unique bare name, unambiguous lang:path.kind:name reference, or workspace-relative file path. Ambiguity returns candidates."
 				},
 				"max_items": {
 					"type": "integer",
 					"minimum": 1,
-					"maximum": 500,
+					"maximum": MAX_BOUNDED_RESULT_ITEMS,
 					"description": "Bound for listed neighbors and members. Defaults 40; truncation is reported."
 				},
 				"direction": {
@@ -115,8 +115,8 @@ fn graph_request(arguments: &Value) -> anyhow::Result<GraphRequest> {
 	let max_items = optional_u64(arguments, "max_items")?
 		.map(|value| value as usize)
 		.unwrap_or(GraphTool::DEFAULT_MAX_ITEMS);
-	if !(1..=500).contains(&max_items) {
-		anyhow::bail!("max_items must be between 1 and 500");
+	if !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&max_items) {
+		anyhow::bail!("max_items must be between 1 and {MAX_BOUNDED_RESULT_ITEMS}");
 	}
 	let direction = match arguments.get("direction") {
 		Some(Value::String(value)) => value.parse::<UsageDirection>()?,
@@ -173,6 +173,7 @@ fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<Tool
 			relation,
 			min_count,
 			include_internal,
+			limit: max_items,
 		}),
 		Page::default(),
 	)?;
@@ -312,6 +313,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
 			},
+			direction: UsageDirection::Both,
 			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),
@@ -344,6 +346,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
 			},
+			direction: UsageDirection::Outgoing,
 			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),
@@ -370,6 +373,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/hub.rs".to_string(),
 			},
+			direction: UsageDirection::Incoming,
 			coverage: SymbolGraphCoverage {
 				callers: GraphSectionCoverage {
 					total: 2_192,
@@ -402,6 +406,7 @@ mod tests {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.rs".to_string(),
 			},
+			direction: UsageDirection::Both,
 			coverage: Default::default(),
 			members: Vec::new(),
 			internal_edges: Vec::new(),

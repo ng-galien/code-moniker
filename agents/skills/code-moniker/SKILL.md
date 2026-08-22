@@ -69,12 +69,15 @@ scope and triggering event before diagnosing invalidation.
 - Unknown workspace: one `code_moniker_read` on `workspace` with
   `expected_roots`, `budget:"small"`, shallow depth and a tight limit.
 - Known scope: use `code_moniker_symbols` with path/name/kind/shape filters.
-- Relationship question: pass a returned moniker to `code_moniker_usages` or
-  `code_moniker_graph`; never invent a moniker.
+- Relationship question: pass a returned moniker when available. The tools also
+  accept an unambiguous bare name or `lang:path.kind:name` reference and return
+  candidates instead of guessing when that natural reference is ambiguous.
 - Structural edit with uncertain impact: use `code_moniker_context` once on the
   selected symbol or file. Skip it for local edits with known consumers.
 - Project-defined architecture view: read `workspace/views` only when that view
-  is relevant to the question.
+  is relevant to the question. Follow a returned `workspace/views/<view.id>`
+  call; do not build that URI from a fragment name or file path. See
+  `references/fragments.md`.
 - Advanced daemon query: use `code_moniker_query` only when no intent tool
   covers the required read-only capability, and discover the live grammar
   before composing a query.
@@ -109,6 +112,7 @@ Read only the reference needed for the current task:
 
 - unfamiliar-code exploration: `references/explore.md`;
 - architecture language and contextual views: `references/architecture.md`;
+- fragment files, view URIs, and rule id namespaces: `references/fragments.md`;
 - health, coupling and smell diagnosis: `references/diagnose.md`;
 - detailed MCP contracts and budgets: `references/mcp.md`;
 - developer-only query grammar: `references/query-dsl.md`.

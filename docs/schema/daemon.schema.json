@@ -1694,21 +1694,21 @@
     "GraphCorridorResult": {
       "type": "object",
       "required": [
-        "complete",
         "coverage",
         "edge_count",
         "edges",
         "from",
+        "from_endpoint_symbols",
         "member_count",
         "members",
         "reasons",
+        "result_complete",
         "search",
-        "to"
+        "search_complete",
+        "to",
+        "to_endpoint_symbols"
       ],
       "properties": {
-        "complete": {
-          "type": "boolean"
-        },
         "connected": {
           "type": [
             "boolean",
@@ -1732,6 +1732,11 @@
         "from": {
           "$ref": "#/definitions/SymbolDto"
         },
+        "from_endpoint_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "member_count": {
           "type": "integer",
           "format": "uint",
@@ -1749,11 +1754,22 @@
             "type": "string"
           }
         },
+        "result_complete": {
+          "type": "boolean"
+        },
         "search": {
           "$ref": "#/definitions/GraphCorridorSearchStats"
         },
+        "search_complete": {
+          "type": "boolean"
+        },
         "to": {
           "$ref": "#/definitions/SymbolDto"
+        },
+        "to_endpoint_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       }
     },
@@ -1907,10 +1923,12 @@
         "coverage",
         "expectation",
         "from",
+        "from_endpoint_symbols",
         "path",
         "reasons",
         "search",
         "to",
+        "to_endpoint_symbols",
         "verdict"
       ],
       "properties": {
@@ -1922,6 +1940,11 @@
         },
         "from": {
           "$ref": "#/definitions/SymbolDto"
+        },
+        "from_endpoint_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         },
         "no_path": {
           "type": [
@@ -1952,6 +1975,11 @@
         },
         "to": {
           "$ref": "#/definitions/SymbolDto"
+        },
+        "to_endpoint_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         },
         "verdict": {
           "$ref": "#/definitions/GraphPathVerdict"
@@ -2275,7 +2303,8 @@
       "type": "object",
       "required": [
         "children",
-        "prefix"
+        "prefix",
+        "total"
       ],
       "properties": {
         "children": {
@@ -2286,6 +2315,11 @@
         },
         "prefix": {
           "type": "string"
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       }
     },
@@ -3570,7 +3604,8 @@
             "max_items": {
               "type": "integer",
               "format": "uint",
-              "minimum": 0.0
+              "maximum": 100.0,
+              "minimum": 1.0
             },
             "op": {
               "type": "string",
@@ -3598,6 +3633,7 @@
             "direction",
             "focus",
             "include_internal",
+            "limit",
             "min_count",
             "op",
             "relation"
@@ -3611,6 +3647,12 @@
             },
             "include_internal": {
               "type": "boolean"
+            },
+            "limit": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 500.0,
+              "minimum": 1.0
             },
             "min_count": {
               "type": "integer",
@@ -3778,10 +3820,17 @@
         {
           "type": "object",
           "required": [
+            "limit",
             "op",
             "prefix"
           ],
           "properties": {
+            "limit": {
+              "type": "integer",
+              "format": "uint",
+              "maximum": 500.0,
+              "minimum": 1.0
+            },
             "op": {
               "type": "string",
               "enum": [
@@ -5519,6 +5568,7 @@
         "callees",
         "callers",
         "coverage",
+        "direction",
         "focus",
         "internal_edges",
         "members",
@@ -5539,6 +5589,9 @@
         },
         "coverage": {
           "$ref": "#/definitions/SymbolGraphCoverage"
+        },
+        "direction": {
+          "$ref": "#/definitions/UsageDirection"
         },
         "focus": {
           "$ref": "#/definitions/SymbolGraphFocus"
@@ -5639,6 +5692,12 @@
         "total"
       ],
       "properties": {
+        "hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rows": {
           "type": "array",
           "items": {
@@ -6896,5 +6955,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 20
+  "x-code-moniker-protocol-version": 21
 }

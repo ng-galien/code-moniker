@@ -82,7 +82,7 @@ syntax_parse_query = "kind = 'struct' AND name = 'SyntaxParseQuery' AND moniker 
 syntax_parse_response = "kind = 'fn' AND name =~ ^syntax_parse_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
 query_snapshot_requirement = "kind = 'method' AND name =~ ^requires_workspace_snapshot AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
 mcp_daemon_runtime_query = "kind = 'method' AND name =~ ^query AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/enum:DaemonRuntime/**'"
-daemon_handle_query = "kind = 'fn' AND name =~ ^handle_query AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lib/**'"
+daemon_handle_query = "kind = 'fn' AND name =~ ^handle_query AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:daemon/**'"
 language_parse_source = "kind = 'fn' AND name =~ ^parse_source AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**'"
 syntax_tree_limit_validator = "kind = 'fn' AND name =~ ^validate_limits AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
 language_extractor_contract = "kind = 'trait' AND name = 'LangExtractor' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/module:extractor/**'"
@@ -97,7 +97,7 @@ daemon_client_process_spawn = "kind = 'fn' AND name = 'start_daemon_process' AND
 daemon_client_compatibility_policy = "kind = 'fn' AND name = 'compatibility_action' AND moniker ~ '**/dir:crates/dir:daemon-client/dir:src/**'"
 mcp_preload_gate = "kind = 'fn' AND name = 'ensure_workspace_available' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/**'"
 mcp_lifecycle_projection = "kind = 'fn' AND name = 'project_workspace_lifecycle' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/**'"
-daemon_registry_claim_maintenance = "kind = 'fn' AND name = 'maintain_registry_claim' AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:lib/**'"
+daemon_registry_claim_maintenance = "kind = 'fn' AND name = 'maintain_registry_claim' AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:runtime/**'"
 daemon_registry_entry_read = "kind = 'fn' AND name = 'read_registry_entry' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:discovery/**'"
 daemon_registry_owned_update = "kind = 'fn' AND name = 'update_registry_entry_if_own' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:discovery/**'"
 source_group_config_scope = "kind = 'fn' AND name = 'ensure_source_groups_owned_by_project_root' AND moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:config/**'"
@@ -139,6 +139,9 @@ enable = [
 	"\\.agent-",
 	"\\.smell-one-to-one-method-helper-satellites$",
 ]
+
+[profiles.daemon]
+enable = ["(^|\\.)daemon\\."]
 
 # ─── Agent output boundary ──────────────────────────────────────────────
 

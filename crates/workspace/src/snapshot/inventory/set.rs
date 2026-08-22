@@ -30,6 +30,19 @@ impl SymbolSet {
 		self.bitmap.contains(symbol.raw())
 	}
 
+	pub fn intersects(&self, other: &Self) -> bool {
+		!self.bitmap.is_disjoint(&other.bitmap)
+	}
+
+	pub fn union_len(&self, other: &Self) -> usize {
+		let len = self.bitmap.union_len(&other.bitmap);
+		assert!(
+			usize::try_from(len).is_ok(),
+			"symbol set union length exceeds usize"
+		);
+		len as usize
+	}
+
 	pub fn intersect_with(&mut self, other: &Self) {
 		self.bitmap &= &other.bitmap;
 	}
@@ -43,15 +56,15 @@ impl SymbolSet {
 	}
 
 	pub fn intersection(&self, other: &Self) -> Self {
-		let mut result = self.clone();
-		result.intersect_with(other);
-		result
+		Self {
+			bitmap: &self.bitmap & &other.bitmap,
+		}
 	}
 
 	pub fn union(&self, other: &Self) -> Self {
-		let mut result = self.clone();
-		result.union_with(other);
-		result
+		Self {
+			bitmap: &self.bitmap | &other.bitmap,
+		}
 	}
 
 	pub fn difference(&self, other: &Self) -> Self {

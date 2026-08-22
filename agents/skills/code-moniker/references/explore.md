@@ -18,10 +18,12 @@ follow only the narrow `next` call relevant to the requested scope.
 
 For architecture, audit, refactor, or project-convention questions, call
 `code_moniker_read uri:"workspace/views"` after the verified workspace read.
-Follow only a relevant returned view call. A project-defined view is a
-contextual lens over the current index: its intent, summary, boundaries,
-ownership, prohibitions, rules and gotchas orient exploration while its
-selectors resolve to current evidence.
+Follow only a relevant returned view call (`workspace/views/<view.id>` from
+that listing). A project-defined view is a contextual lens over the current
+index: its intent, summary, boundaries, ownership, prohibitions, rules and
+gotchas orient exploration while its selectors resolve to current evidence.
+Selectors are identity suffixes scoped to the fragment directory, not compact
+monikers. See `fragments.md`.
 
 Treat declared intent as project context and resolved symbols/rules as indexed
 facts. Missing or ambiguous evidence is coverage information, not proof that a
@@ -47,8 +49,10 @@ running server may differ from this reference.
 
 Use `code_moniker_symbols action:"list"` with the narrowest available `path`,
 `lang`, `shape`, `kind` and `name`, plus a small `limit`. Every result carries a
-compact moniker that can be passed directly to other symbol tools. Never guess
-one; canonical URIs and symbol ids remain accepted when already available.
+compact moniker that can be passed directly to other symbol tools. Prefer this
+exact value when it is already available. For direct intent, symbol tools also
+resolve unique bare names and unambiguous `lang:path.kind:name` references;
+an ambiguous form returns concrete candidates rather than choosing silently.
 
 ## Inspect dependencies
 

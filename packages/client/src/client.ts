@@ -84,13 +84,16 @@ export interface SymbolGraphOptions {
 	relation?: string[];
 	minCount?: number;
 	includeInternal?: boolean;
+	limit?: number;
 }
 
 export interface IdentityChildrenOptions {
 	workspace?: string | null;
+	limit?: number;
 }
 
-export interface IdentityGraphOptions extends IdentityChildrenOptions {
+export interface IdentityGraphOptions {
+	workspace?: string | null;
 	path?: string[];
 	minCount?: number;
 }
@@ -362,6 +365,7 @@ export class GraphClient {
 				relation: options.relation ?? [],
 				min_count: options.minCount ?? 1,
 				include_internal: options.includeInternal ?? true,
+				limit: options.limit ?? 40,
 			},
 			"symbol_graph",
 			queryOptions,
@@ -378,6 +382,7 @@ export class GraphClient {
 				op: "identity_children",
 				workspace: options.workspace ?? null,
 				prefix,
+				limit: options.limit ?? 80,
 			},
 			"identity_children",
 			queryOptions,

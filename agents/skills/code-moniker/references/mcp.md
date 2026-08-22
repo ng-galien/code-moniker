@@ -37,7 +37,7 @@ needed.
 | Intent | Tool | Notes |
 |---|---|---|
 | Orient / expand tree / read code or AST | `code_moniker_read` | `uri:"workspace"` for the summary + explorer; a returned compact moniker reads its source zone. Add `ast:true` to a relative or absolute file or returned moniker for a bounded on-demand syntax tree; absolute paths disambiguate duplicate multi-root paths. |
-| Read project-defined contextual views | `code_moniker_read` | `uri:"workspace/views"` lists views; follow a returned `workspace/views/<id>` call for intent, boundaries, ownership, prohibitions, rules, gotchas and current indexed evidence. |
+| Read project-defined contextual views | `code_moniker_read` | `uri:"workspace/views"` lists views; follow a returned `workspace/views/<view.id>` call. That leaf is the view id, not the fragment name. Symbol selectors in the view are identity suffixes, not compact monikers. See `fragments.md`. |
 | List/filter symbols, workspace metrics | `code_moniker_symbols` | `action:"list"` with `path`/`lang`/`kind`/`shape`/`name` (name is a regex here); `action:"insights"` |
 | Who uses it / what it uses | `code_moniker_usages` | `direction:"incoming"\|"outgoing"\|"both"`; `include_descendants:true` explicitly rolls member activity into an owner while excluding internal relations; compact mode groups references by symbolic context |
 | Ego neighborhood before editing | `code_moniker_graph` | `focus` = returned moniker or workspace-relative path; filter with `direction`, `relation`, `min_count`, `include_internal`; coverage distinguishes total, matching and returned neighbors |
@@ -63,12 +63,14 @@ needed.
    the relevant returned view before interpreting the graph. A view declares
    context and resolves evidence against the index; it does not replace graph,
    rule, change, resolution, or coverage facts.
-3. **Monikers only from tool output.** `code_moniker_symbols` result rows
-   include reusable compact monikers. Copy generated calls as-is: they
-   preserve the active compact or canonical mode. Compact symbol rows may have
-   no pre-built usages call, so pass their moniker to `code_moniker_usages`.
-   A hand-built moniker fails with `symbol_not_found` on the first signature
-   nuance.
+3. **Prefer exact returned monikers, accept natural intent.**
+   `code_moniker_symbols` result rows include reusable compact monikers, and
+   generated calls preserve the active compact or canonical mode. Symbol tools
+   also accept unique bare names and unambiguous `lang:path.kind:name`
+   references. If a natural form matches several symbols, the tool returns
+   concrete candidates and requires an explicit choice. Compact symbol rows may
+   have no pre-built usages call, so pass their moniker to
+   `code_moniker_usages`.
 4. **Respect paging**: `completeness: partial (usages 0-5 of 14, next cursor
    5)` tells you exactly what you have; when more rows exist, the optional
    `next` section carries the cursor call. Usage pages may exceed `limit` to

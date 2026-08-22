@@ -6,7 +6,7 @@ use crate::linkage::catalog::{
 use crate::snapshot::{
 	LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration,
 };
-use crate::source::{CodeIndexMaterial, LocalIdentityResolver};
+use crate::source::CodeIndexMaterial;
 use rustc_hash::FxHashMap;
 
 use super::indexes::{LinkageStoreIndexes, ReferenceOrdinalRebase};
@@ -66,18 +66,25 @@ impl LinkageStore {
 	pub(in crate::linkage) fn project_snapshot(
 		&self,
 		references: &RecordTable<ReferenceRecord>,
-		identity: &LocalIdentityResolver,
+		material: &CodeIndexMaterial,
 		symbols: std::sync::Arc<SymbolOrdinalCatalog>,
 	) -> LinkageSnapshot {
 		let mut snapshot = crate::linkage::binding::project_decisions(
 			&self.decisions,
 			references,
-			identity,
+			&material.identity,
 			&symbols,
 		)
 		.into_snapshot(self.generation, self.index_generation);
 		snapshot.read_index = crate::snapshot::LinkageReadIndexHandle::from_snapshot_with_catalog(
-			&snapshot, references, symbols,
+			&snapshot,
+			references,
+			symbols,
+			material
+				.files
+				.iter()
+				.map(|file| file.source_root as u32)
+				.collect(),
 		);
 		snapshot
 	}

@@ -9,7 +9,7 @@ use code_moniker_workspace::snapshot::{
 use code_moniker_check as check;
 
 use super::model::RenderOptions;
-use crate::DEFAULT_SCHEME;
+use crate::helpers::DEFAULT_SCHEME;
 
 pub type SourceSlice = Option<(usize, usize)>;
 pub type CodeExcerpt = Vec<(usize, String)>;

@@ -40,11 +40,8 @@ pub(in crate::linkage) fn run_full_linkage_with_timings(
 		candidate_index,
 	);
 	let report_timer = Instant::now();
-	let snapshot = store.project_snapshot(
-		&index.references,
-		&material.identity,
-		candidates.symbol_catalog(),
-	);
+	let snapshot =
+		store.project_snapshot(&index.references, &material, candidates.symbol_catalog());
 	let memory = store.memory_metrics(candidates.symbols());
 	timings.project_snapshot = report_timer.elapsed();
 	timings.total = total_timer.elapsed();

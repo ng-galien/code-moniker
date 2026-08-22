@@ -742,8 +742,11 @@ pub struct LinkageReadIndex {
 	pub(crate) target_ordinals: Vec<Option<super::SymbolOrdinal>>,
 	pub(crate) references_without_source: ReferenceSet,
 	pub(crate) references_without_target: ReferenceSet,
+	pub(crate) source_roots_by_file: Vec<u32>,
 	pub(crate) references_by_source_file: rustc_hash::FxHashMap<u32, ReferenceSet>,
 	pub(crate) references_by_target_file: rustc_hash::FxHashMap<u32, ReferenceSet>,
+	pub(crate) references_by_source_root: rustc_hash::FxHashMap<u32, ReferenceSet>,
+	pub(crate) references_by_target_root: rustc_hash::FxHashMap<u32, ReferenceSet>,
 	pub(crate) outgoing: TraversalReferenceIndex,
 	pub(crate) incoming_by_ordinal: TraversalReferenceIndex,
 	pub(crate) classifications: ReferenceClassificationIndex,
@@ -785,16 +788,21 @@ impl LinkageReadIndex {
 		let reference_catalog = self.reference_ids.capacity() * size_of::<ReferenceId>()
 			+ self.source_ordinals.capacity() * size_of::<Option<super::SymbolOrdinal>>()
 			+ self.target_ordinals.capacity() * size_of::<Option<super::SymbolOrdinal>>()
+			+ self.source_roots_by_file.capacity() * size_of::<u32>()
 			+ self.references_without_source.serialized_size()
 			+ self.references_without_target.serialized_size();
 		let endpoint_postings = self
 			.references_by_source_file
 			.values()
 			.chain(self.references_by_target_file.values())
+			.chain(self.references_by_source_root.values())
+			.chain(self.references_by_target_root.values())
 			.map(ReferenceSet::serialized_size)
 			.sum::<usize>()
 			+ (self.references_by_source_file.capacity()
-				+ self.references_by_target_file.capacity())
+				+ self.references_by_target_file.capacity()
+				+ self.references_by_source_root.capacity()
+				+ self.references_by_target_root.capacity())
 				* (size_of::<u32>() + size_of::<ReferenceSet>());
 		let traversal = traversal_reference_index_bytes(&self.outgoing)
 			+ traversal_reference_index_bytes(&self.incoming_by_ordinal);
@@ -825,8 +833,11 @@ impl LinkageReadIndex {
 			target_ordinals: Vec::new(),
 			references_without_source: ReferenceSet::new(),
 			references_without_target: ReferenceSet::new(),
+			source_roots_by_file: Vec::new(),
 			references_by_source_file: rustc_hash::FxHashMap::default(),
 			references_by_target_file: rustc_hash::FxHashMap::default(),
+			references_by_source_root: rustc_hash::FxHashMap::default(),
+			references_by_target_root: rustc_hash::FxHashMap::default(),
 			outgoing: rustc_hash::FxHashMap::default(),
 			incoming_by_ordinal: rustc_hash::FxHashMap::default(),
 			classifications: ReferenceClassificationIndex::default(),
@@ -839,10 +850,20 @@ impl LinkageReadIndex {
 		references: &RecordTable<ReferenceRecord>,
 		ordinals: impl IntoIterator<Item = (u32, SymbolId)>,
 	) -> Self {
+		let ordinals = ordinals.into_iter().collect::<Vec<_>>();
+		let mut source_roots_by_file = Vec::new();
+		for (_, symbol) in &ordinals {
+			let file = symbol.file();
+			if source_roots_by_file.len() <= file {
+				source_roots_by_file.resize(file + 1, 0);
+			}
+			source_roots_by_file[file] = file as u32;
+		}
 		Self::from_snapshot_with_catalog(
 			linkage,
 			references,
 			Arc::new(super::SymbolOrdinalCatalog::from_active_ordinals(ordinals)),
+			source_roots_by_file,
 		)
 	}
 
@@ -850,9 +871,11 @@ impl LinkageReadIndex {
 		linkage: &LinkageSnapshot,
 		references: &RecordTable<ReferenceRecord>,
 		symbols: Arc<super::SymbolOrdinalCatalog>,
+		source_roots_by_file: Vec<u32>,
 	) -> Self {
 		let mut index = Self::empty();
 		index.symbols = symbols;
+		index.source_roots_by_file = source_roots_by_file;
 		index.index_references(references);
 		index.index_resolved_edges(&linkage.resolved, references);
 		index.index_missing_endpoints();
@@ -887,6 +910,13 @@ impl LinkageReadIndex {
 				.entry(file)
 				.or_default()
 				.insert(ReferenceOrdinal::from_index(index));
+			let Some(root) = self.source_roots_by_file.get(file as usize).copied() else {
+				continue;
+			};
+			self.references_by_source_root
+				.entry(root)
+				.or_default()
+				.insert(ReferenceOrdinal::from_index(index));
 		}
 		for (index, target) in self.target_ordinals.iter().copied().enumerate() {
 			let Some(file) = target
@@ -897,6 +927,13 @@ impl LinkageReadIndex {
 			};
 			self.references_by_target_file
 				.entry(file)
+				.or_default()
+				.insert(ReferenceOrdinal::from_index(index));
+			let Some(root) = self.source_roots_by_file.get(file as usize).copied() else {
+				continue;
+			};
+			self.references_by_target_root
+				.entry(root)
 				.or_default()
 				.insert(ReferenceOrdinal::from_index(index));
 		}
@@ -983,20 +1020,20 @@ impl LinkageReadIndex {
 		self.symbols.id(ordinal).copied()
 	}
 
-	pub(crate) fn outgoing_postings(
-		&self,
-		ordinal: super::SymbolOrdinal,
-		relations: &[&str],
-	) -> Vec<&ReferenceSet> {
-		postings_for_relations(&self.outgoing, ordinal, relations)
-	}
-
 	pub(crate) fn incoming_postings(
 		&self,
 		ordinal: super::SymbolOrdinal,
 		relations: &[&str],
 	) -> Vec<&ReferenceSet> {
 		postings_for_relations(&self.incoming_by_ordinal, ordinal, relations)
+	}
+
+	pub(crate) fn outgoing_postings(
+		&self,
+		ordinal: super::SymbolOrdinal,
+		relations: &[&str],
+	) -> Vec<&ReferenceSet> {
+		postings_for_relations(&self.outgoing, ordinal, relations)
 	}
 
 	pub(crate) fn reference_id(&self, ordinal: ReferenceOrdinal) -> Option<ReferenceId> {
@@ -1182,6 +1219,13 @@ fn postings_for_relations<'a>(
 	let Some(by_relation) = index.get(&symbol) else {
 		return Vec::new();
 	};
+	reference_postings_for_relations(by_relation, relations)
+}
+
+fn reference_postings_for_relations<'a>(
+	by_relation: &'a rustc_hash::FxHashMap<Arc<str>, ReferenceSet>,
+	relations: &[&str],
+) -> Vec<&'a ReferenceSet> {
 	if relations.is_empty() {
 		return by_relation.values().collect();
 	}
@@ -1246,9 +1290,15 @@ impl LinkageReadIndexHandle {
 		linkage: &LinkageSnapshot,
 		references: &RecordTable<ReferenceRecord>,
 		symbols: Arc<super::SymbolOrdinalCatalog>,
+		source_roots_by_file: Vec<u32>,
 	) -> Self {
 		Self(Some(Arc::new(
-			LinkageReadIndex::from_snapshot_with_catalog(linkage, references, symbols),
+			LinkageReadIndex::from_snapshot_with_catalog(
+				linkage,
+				references,
+				symbols,
+				source_roots_by_file,
+			),
 		)))
 	}
 
