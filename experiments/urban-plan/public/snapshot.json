@@ -3,7 +3,7 @@
 	"version": 1,
 	"generation": 1,
 	"prefix": "lang:rs/dir:crates",
-	"capturedAt": "2026-08-22T10:00:00.000Z",
+	"capturedAt": "2026-08-22T13:11:32.219Z",
 	"heightMetric": "defs",
 	"footprintMetric": "defs",
 	"buildings": [
@@ -15,9 +15,9 @@
 			"hasChildren": true,
 			"u": 0,
 			"v": 0,
-			"width": 2.68,
-			"depth": 2.68,
-			"height": 4.21
+			"width": 2.683977509823425,
+			"depth": 2.683977509823425,
+			"height": 4.209943774558562
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:cli",
@@ -27,9 +27,9 @@
 			"hasChildren": true,
 			"u": 1,
 			"v": 0,
-			"width": 2.74,
-			"depth": 2.74,
-			"height": 4.35
+			"width": 2.7374869931599193,
+			"depth": 2.7374869931599193,
+			"height": 4.343717482899798
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:core",
@@ -39,21 +39,21 @@
 			"hasChildren": true,
 			"u": 2,
 			"v": 0,
-			"width": 2.8,
-			"depth": 2.8,
-			"height": 4.51
+			"width": 2.803397941711154,
+			"depth": 2.803397941711154,
+			"height": 4.508494854277885
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:daemon",
 			"label": "daemon",
 			"kind": "dir",
-			"defs": 763,
+			"defs": 715,
 			"hasChildren": true,
 			"u": 0,
 			"v": 1,
-			"width": 2.46,
-			"depth": 2.46,
-			"height": 3.65
+			"width": 2.446209636731342,
+			"depth": 2.446209636731342,
+			"height": 3.6155240918283553
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:daemon-client",
@@ -63,107 +63,226 @@
 			"hasChildren": true,
 			"u": 1,
 			"v": 1,
-			"width": 2.01,
-			"depth": 2.01,
-			"height": 2.53
+			"width": 2.01092636702961,
+			"depth": 2.01092636702961,
+			"height": 2.5273159175740245
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:query",
 			"label": "query",
 			"kind": "dir",
-			"defs": 1408,
+			"defs": 1441,
 			"hasChildren": true,
 			"u": 2,
 			"v": 1,
-			"width": 2.59,
-			"depth": 2.59,
-			"height": 3.99
+			"width": 2.600232989925877,
+			"depth": 2.600232989925877,
+			"height": 4.000582474814692
 		},
 		{
 			"id": "lang:rs/dir:crates/dir:workspace",
 			"label": "workspace",
 			"kind": "dir",
-			"defs": 4639,
+			"defs": 4705,
 			"hasChildren": true,
 			"u": 0,
 			"v": 2,
-			"width": 2.86,
-			"depth": 2.86,
-			"height": 4.65
+			"width": 2.860450585243208,
+			"depth": 2.860450585243208,
+			"height": 4.65112646310802
 		}
 	],
 	"roads": [
 		{
+			"from": "lang:rs/dir:crates/dir:workspace",
+			"to": "lang:rs/dir:crates/dir:core",
+			"count": 831,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
+		},
+		{
 			"from": "lang:rs/dir:crates/dir:daemon",
 			"to": "lang:rs/dir:crates/dir:query",
-			"count": 1305,
-			"kinds": ["calls", "implements", "imports_symbol", "uses_type"]
+			"count": 816,
+			"kinds": [
+				"calls",
+				"implements",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:check",
 			"to": "lang:rs/dir:crates/dir:core",
 			"count": 724,
-			"kinds": ["calls", "uses_type"]
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:check",
 			"to": "lang:rs/dir:crates/dir:workspace",
 			"count": 613,
-			"kinds": ["calls", "uses_type"]
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:daemon",
 			"to": "lang:rs/dir:crates/dir:workspace",
-			"count": 406,
-			"kinds": ["calls", "uses_type"]
+			"count": 402,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:cli",
 			"to": "lang:rs/dir:crates/dir:core",
 			"count": 361,
-			"kinds": ["calls", "imports_symbol", "uses_type"]
+			"kinds": [
+				"calls",
+				"imports_symbol",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:cli",
 			"to": "lang:rs/dir:crates/dir:query",
-			"count": 249,
-			"kinds": ["calls", "uses_type"]
+			"count": 253,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:cli",
 			"to": "lang:rs/dir:crates/dir:workspace",
 			"count": 233,
-			"kinds": ["calls", "uses_type"]
-		},
-		{
-			"from": "lang:rs/dir:crates/dir:cli",
-			"to": "lang:rs/dir:crates/dir:check",
-			"count": 39,
-			"kinds": ["calls", "uses_type"]
-		},
-		{
-			"from": "lang:rs/dir:crates/dir:daemon",
-			"to": "lang:rs/dir:crates/dir:check",
-			"count": 30,
-			"kinds": ["calls", "uses_type"]
-		},
-		{
-			"from": "lang:rs/dir:crates/dir:cli",
-			"to": "lang:rs/dir:crates/dir:daemon",
-			"count": 23,
-			"kinds": ["calls", "uses_type"]
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
 		},
 		{
 			"from": "lang:rs/dir:crates/dir:daemon-client",
 			"to": "lang:rs/dir:crates/dir:query",
 			"count": 44,
-			"kinds": ["calls", "uses_type"]
+			"kinds": [
+				"calls",
+				"instantiates",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:check",
+			"count": 39,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"returns_type",
+				"typed_as",
+				"uses_type"
+			]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:daemon",
+			"to": "lang:rs/dir:crates/dir:core",
+			"count": 33,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"uses_type"
+			]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:daemon",
+			"to": "lang:rs/dir:crates/dir:check",
+			"count": 29,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"reads",
+				"typed_as",
+				"uses_type"
+			]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:daemon",
+			"count": 23,
+			"kinds": [
+				"calls",
+				"instantiates",
+				"method_call",
+				"typed_as",
+				"uses_type"
+			]
+		},
+		{
+			"from": "lang:rs/dir:crates/dir:cli",
+			"to": "lang:rs/dir:crates/dir:daemon-client",
+			"count": 17,
+			"kinds": [
+				"calls",
+				"uses_type"
+			]
 		}
 	],
 	"coverage": {
 		"nodes": 7,
 		"edgesTotal": 14,
-		"edgesEmitted": 11,
-		"roadsOmitted": 3
+		"edgesEmitted": 14,
+		"roadsOmitted": 0
 	}
 }
