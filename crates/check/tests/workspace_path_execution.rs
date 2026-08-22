@@ -317,7 +317,7 @@ min_coverage = 100
 }
 
 #[test]
-fn aggregate_symbol_budget_is_exposed_as_a_limit_flag() {
+fn aggregate_symbol_limit_is_exposed_as_a_limit_flag() {
 	let fixture = tempfile::tempdir().expect("workspace fixture");
 	write(
 		fixture.path(),
@@ -353,7 +353,7 @@ min_coverage = 100
 	)
 	.with_report(true)
 	.run()
-	.expect("budgeted path check");
+	.expect("limited path check");
 	let report = run
 		.reports
 		.iter()
@@ -434,7 +434,7 @@ max_pairs = 20
 min_coverage = 100
 
 [[workspace.path]]
-id = "proof-budget-exhausted"
+id = "proof-limit-reached"
 severity = "warn"
 from = "shape = 'callable' AND name =~ ^protected_entry"
 to = "shape = 'callable' AND name =~ ^sink"
@@ -462,7 +462,7 @@ max_pairs = 20
 min_coverage = 100
 
 [[workspace.path]]
-id = "symbol-budget-exhausted"
+id = "symbol-limit-reached"
 severity = "warn"
 from = "shape = 'callable' AND name =~ ^protected_entry"
 to = "shape = 'callable' AND name =~ ^sink"
@@ -545,8 +545,8 @@ fn unreachable() {}
 	);
 	let exhausted = reports
 		.iter()
-		.find(|report| report.rule_id == "workspace.path.proof-budget-exhausted")
-		.expect("proof budget report");
+		.find(|report| report.rule_id == "workspace.path.proof-limit-reached")
+		.expect("proof limit report");
 	assert_eq!(
 		exhausted.verdict,
 		Some(RuleVerdict::Inconclusive),
@@ -578,8 +578,8 @@ fn unreachable() {}
 	);
 	let symbol_exhausted = reports
 		.iter()
-		.find(|report| report.rule_id == "workspace.path.symbol-budget-exhausted")
-		.expect("symbol budget report");
+		.find(|report| report.rule_id == "workspace.path.symbol-limit-reached")
+		.expect("symbol limit report");
 	assert_eq!(
 		symbol_exhausted.verdict,
 		Some(RuleVerdict::Inconclusive),

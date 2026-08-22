@@ -2308,7 +2308,8 @@ export interface QueryCapabilityDto {
   read_only: boolean;
 }
 export interface QueryFieldDto {
-  default?: string | null;
+  allowed: string;
+  default: string;
   multiple: boolean;
   name: string;
   required: boolean;

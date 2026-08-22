@@ -1302,7 +1302,7 @@ mod tests {
 	}
 
 	#[test]
-	fn edge_budget_stops_inside_a_large_indexed_adjacency() {
+	fn edge_limit_stops_inside_a_large_indexed_adjacency() {
 		let source = SourceId::at(0);
 		let from = SymbolId::at(0, 0);
 		let sink = SymbolId::at(0, 1);
@@ -1340,14 +1340,14 @@ mod tests {
 				},
 				&BoundedPathScope::from_sources([source]),
 			)
-			.expect("budgeted path search");
+			.expect("limited path search");
 		assert_eq!(search.coverage.total, 3, "{search:?}");
 		assert_eq!(search.explored_edges, 3, "{search:?}");
 		assert!(search.edge_limit_reached, "{search:?}");
 	}
 
 	#[test]
-	fn corridor_reuses_seen_edges_after_a_lower_unseen_ordinal_exhausts_the_budget() {
+	fn corridor_reuses_seen_edges_after_a_lower_unseen_ordinal_reaches_the_limit() {
 		let source = SourceId::at(0);
 		let outsider = SymbolId::at(0, 0);
 		let from = SymbolId::at(0, 1);

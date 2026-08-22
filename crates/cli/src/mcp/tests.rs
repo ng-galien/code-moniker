@@ -440,6 +440,20 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 		"{}",
 		described.text
 	);
+	assert!(
+		described.text.contains(
+			"- min_count: type=unsigned_integer required=false multiple=false default=1 allowed=0..unbounded; effective minimum=1"
+		),
+		"{}",
+		described.text
+	);
+	assert!(
+		described.text.contains(
+			"- limit: type=unsigned_integer required=false multiple=false default=80 allowed=0..unbounded"
+		),
+		"{}",
+		described.text
+	);
 	let metrics = registry
 		.call(
 			&context,
@@ -455,7 +469,13 @@ fn generic_query_tool_exposes_live_read_only_daemon_capabilities() {
 	);
 	assert!(metrics.text.contains("from"), "{}", metrics.text);
 	assert!(metrics.text.contains("to"), "{}", metrics.text);
-	assert!(metrics.text.contains("export"), "{}", metrics.text);
+	assert!(
+		metrics.text.contains(
+			"- export: type=boolean required=false multiple=false default=false allowed=true|false"
+		),
+		"{}",
+		metrics.text
+	);
 
 	let bad_prefix = registry.call(
 		&context,
@@ -588,7 +608,7 @@ fn read_tool_returns_a_bounded_ast_only_when_requested() {
 }
 
 #[test]
-fn read_tool_schema_and_parser_leave_syntax_budgets_to_the_client() {
+fn read_tool_schema_and_parser_leave_syntax_limits_to_the_client() {
 	let descriptor = tools::read::ReadTool.descriptor();
 	let properties = descriptor.input_schema["properties"]
 		.as_object()
@@ -621,7 +641,7 @@ fn read_tool_schema_and_parser_leave_syntax_budgets_to_the_client() {
 	] {
 		let result = registry
 			.call(&context, "code_moniker_read", &arguments)
-			.expect("client-selected MCP syntax budget");
+			.expect("client-selected MCP syntax limit");
 		assert!(!result.is_error, "{}", result.text);
 	}
 }

@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 19;
+pub const PROTOCOL_VERSION: u32 = 20;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -599,12 +599,22 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 				.into_iter()
 				.flatten(),
 		)
-		.map(|name| QueryFieldDto {
-			name: (*name).to_string(),
-			value_type: query_field_type(name).to_string(),
-			multiple: MULTI_VALUE_FIELDS.contains(name),
-			required: spec.required_fields.contains(name),
-			default: query_field_default(spec.name, name).map(ToOwned::to_owned),
+		.map(|name| {
+			let required = spec.required_fields.contains(name);
+			QueryFieldDto {
+				name: (*name).to_string(),
+				value_type: query_field_type(name).to_string(),
+				multiple: MULTI_VALUE_FIELDS.contains(name),
+				required,
+				default: (!required)
+					.then(|| query_field_default(spec.name, name))
+					.flatten()
+					.unwrap_or("none")
+					.to_string(),
+				allowed: query_field_allowed(spec.name, name)
+					.unwrap_or("any")
+					.to_string(),
+			}
 		})
 		.collect();
 	QueryCapabilityDto {
@@ -630,6 +640,10 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 
 fn query_constraints(name: &str) -> &'static [&'static str] {
 	match name {
+		"syntax.parse" => &[
+			"language must be one of ts, rs, java, python, go, c, cs, sql, or plpgsql",
+			"source must not exceed 1048576 UTF-8 bytes",
+		],
 		"graph.path" => &["relation requires 1..16 non-blank values of at most 64 characters"],
 		"graph.corridor" => &[
 			"requires at least one semantic scope facet: path, lang, kind, shape, or srcset",
@@ -655,7 +669,8 @@ fn query_field_type(name: &str) -> &'static str {
 		| "named_only"
 		| "report"
 		| "orphan"
-		| "include_done" => "boolean",
+		| "include_done"
+		| "export" => "boolean",
 		"direction" => "enum:incoming|outgoing|both",
 		"expect" => "enum:reachable|no_path",
 		"consistency" => "enum:current|refresh-if-stale|stale-ok",
@@ -683,6 +698,7 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("symbol.graph", "direction") => Some("both"),
 		("symbol.graph", "min_count") => Some("1"),
 		("symbol.graph", "include_internal") => Some("true"),
+		("identity.graph", "min_count") => Some("1"),
 		("graph.path", "expect") => Some("reachable"),
 		("graph.path", "relation") => Some("calls,method_call"),
 		("graph.path", "max_depth") => Some("12"),
@@ -696,9 +712,48 @@ fn query_field_default(verb: &str, name: &str) -> Option<&'static str> {
 		("rules.check", "report") => Some("true"),
 		("change.context", "max_items") => Some("20"),
 		("notes", "action") => Some("list"),
-		(_, "include_non_navigable" | "include_code" | "include_descendants" | "include_done") => {
-			Some("false")
+		(
+			_,
+			"include_non_navigable"
+			| "include_code"
+			| "include_descendants"
+			| "include_done"
+			| "export",
+		) => Some("false"),
+		(_, field) if MULTI_VALUE_FIELDS.contains(&field) => Some("[]"),
+		_ => None,
+	}
+}
+
+fn query_field_allowed(verb: &str, name: &str) -> Option<&'static str> {
+	match (verb, name) {
+		(_, "consistency") => Some("current|refresh-if-stale|stale-ok"),
+		(_, "limit" | "depth" | "context_lines" | "max_items") => Some("0..unbounded"),
+		("syntax.tree" | "syntax.parse", "max_depth") => Some("0..unbounded"),
+		("syntax.tree" | "syntax.parse", "max_nodes") => Some("1..unbounded"),
+		("syntax.tree" | "syntax.parse", "max_text_chars") => Some("0..1000"),
+		("syntax.parse", "language") => Some("ts|rs|java|python|go|c|cs|sql|plpgsql"),
+		("syntax.parse", "source") => Some("<=1048576 UTF-8 bytes"),
+		("symbol.graph" | "identity.graph", "min_count") => {
+			Some("0..unbounded; effective minimum=1")
 		}
+		("symbol.usages" | "symbol.graph", "direction") => Some("incoming|outgoing|both"),
+		("graph.path", "expect") => Some("reachable|no_path"),
+		("graph.path" | "graph.corridor", "relation") => {
+			Some("1..16 non-blank values; each <=64 characters")
+		}
+		("graph.corridor", "path" | "lang" | "kind" | "shape" | "srcset") => {
+			Some("0..16 non-blank values; each <=256 characters")
+		}
+		("graph.path" | "graph.corridor", "max_depth") => Some("0..64"),
+		("graph.path" | "graph.corridor", "max_symbols") => Some("1..100000"),
+		("graph.path" | "graph.corridor", "max_edges") => Some("1..500000"),
+		("graph.path" | "graph.corridor", "min_coverage") => Some("0..100"),
+		("notes", "action") => Some("list|get|create|update|transition|delete"),
+		("notes", "kind") => Some("note|todo|gotcha|request"),
+		("notes", "status") => Some("pending|ongoing|done"),
+		("notes", "created_by") => Some("user|agent"),
+		(_, name) if query_field_type(name) == "boolean" => Some("true|false"),
 		_ => None,
 	}
 }
@@ -922,7 +977,8 @@ pub struct QueryFieldDto {
 	pub value_type: String,
 	pub multiple: bool,
 	pub required: bool,
-	pub default: Option<String>,
+	pub default: String,
+	pub allowed: String,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -3908,24 +3964,19 @@ fn format_query_describe(out: &mut String, result: &QueryDescribeResult) {
 			capability.projection,
 			capability.paginated
 		);
-		let fields = capability
-			.fields
-			.iter()
-			.map(|field| {
-				let required = if field.required { "!" } else { "" };
-				let multiple = if field.multiple { "[]" } else { "" };
-				let default = field
-					.default
-					.as_deref()
-					.map_or(String::new(), |value| format!("={value}"));
-				format!(
-					"{}{}:{}{}{}",
-					field.name, required, field.value_type, multiple, default
-				)
-			})
-			.collect::<Vec<_>>()
-			.join(", ");
-		let _ = writeln!(out, "  fields: {fields}");
+		let _ = writeln!(out, "  fields:");
+		for field in &capability.fields {
+			let _ = writeln!(
+				out,
+				"    - {}: type={} required={} multiple={} default={} allowed={}",
+				field.name,
+				field.value_type,
+				field.required,
+				field.multiple,
+				field.default,
+				field.allowed,
+			);
+		}
 		for constraint in &capability.constraints {
 			let _ = writeln!(out, "  requires: {constraint}");
 		}
@@ -5090,6 +5141,46 @@ mod tests {
 			CapabilitySet::default().query_mcp_tools["symbol.usages"],
 			"code_moniker_usages"
 		);
+
+		for capability in describe_query_capabilities(None)
+			.expect("all capabilities")
+			.capabilities
+		{
+			for field in capability.fields {
+				if field.value_type == "unsigned_integer" {
+					assert!(
+						field.allowed != "any",
+						"{}.{} has no explicit accepted range",
+						capability.name,
+						field.name,
+					);
+				}
+			}
+		}
+
+		let corridor =
+			describe_query_capabilities(Some("graph.corridor")).expect("corridor capability");
+		let response = QueryResponse {
+			generation: None,
+			result: QueryResult::QueryDescribe(corridor),
+			next_cursor: None,
+		};
+		let formatted = format_query_response(&response);
+		assert!(formatted.contains(
+			"- max_depth: type=unsigned_integer required=false multiple=false default=12 allowed=0..64"
+		));
+		assert!(formatted.contains(
+			"- max_symbols: type=unsigned_integer required=false multiple=false default=256 allowed=1..100000"
+		));
+		assert!(formatted.contains(
+			"- max_edges: type=unsigned_integer required=false multiple=false default=1024 allowed=1..500000"
+		));
+		assert!(
+			formatted.contains(
+				"- relation: type=string_list required=true multiple=true default=none allowed=1..16 non-blank values; each <=64 characters"
+			)
+		);
+		assert!(!formatted.contains("unsigned_integer=12"));
 	}
 
 	#[test]
@@ -5136,7 +5227,7 @@ mod tests {
 		let request = parse_query(
 			"syntax.parse language:\"sql\" source:\"SELECT 1\" max_depth:1000 max_nodes:20000",
 		)
-		.expect("client-selected syntax budgets");
+		.expect("client-selected syntax limits");
 		let Query::SyntaxParse(query) = request.query else {
 			panic!("expected syntax.parse query");
 		};
@@ -5292,7 +5383,7 @@ mod tests {
 			.find(|field| field.name == "include_descendants")
 			.expect("descendant scope field");
 		assert_eq!(field.value_type, "boolean");
-		assert_eq!(field.default.as_deref(), Some("false"));
+		assert_eq!(field.default, "false");
 	}
 
 	#[test]
@@ -5863,7 +5954,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 19);
+		assert_eq!(PROTOCOL_VERSION, 20);
 	}
 
 	#[test]

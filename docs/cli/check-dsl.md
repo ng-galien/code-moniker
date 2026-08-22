@@ -185,7 +185,7 @@ Executable catalog coverage:
 - [`workspace-path.cm.md`](../../samples/catalog/workspace-path.cm.md)
   exercises a transitive violation with a witness, a proven reachable path,
   a proven absence, a mandatory boundary with a bypass witness, and a
-  deliberately inconclusive traversal budget.
+  deliberately inconclusive traversal limit.
 
 ## Grammar
 

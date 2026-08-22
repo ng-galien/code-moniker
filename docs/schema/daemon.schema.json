@@ -4106,17 +4106,19 @@
     "QueryFieldDto": {
       "type": "object",
       "required": [
+        "allowed",
+        "default",
         "multiple",
         "name",
         "required",
         "value_type"
       ],
       "properties": {
+        "allowed": {
+          "type": "string"
+        },
         "default": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "multiple": {
           "type": "boolean"
@@ -6894,5 +6896,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 19
+  "x-code-moniker-protocol-version": 20
 }

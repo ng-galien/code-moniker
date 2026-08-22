@@ -2015,7 +2015,7 @@ fn graph_path_response(
 	let found = from.id == to.id || !search.path.is_empty();
 	let assessment = graph_search_assessment(
 		&search.coverage,
-		GraphSearchBudgetStatus {
+		GraphSearchLimitStatus {
 			operation: GraphSearchOperation::Path,
 			max_depth: query.max_depth,
 			depth_reached: search.depth_reached,
@@ -2116,7 +2116,7 @@ enum GraphSearchOperation {
 }
 
 #[derive(Clone, Copy)]
-struct GraphSearchBudgetStatus {
+struct GraphSearchLimitStatus {
 	operation: GraphSearchOperation,
 	max_depth: usize,
 	depth_reached: usize,
@@ -2131,7 +2131,7 @@ struct GraphSearchBudgetStatus {
 
 fn graph_search_assessment(
 	coverage: &BoundedPathCoverage,
-	budget: GraphSearchBudgetStatus,
+	limits: GraphSearchLimitStatus,
 	min_coverage: usize,
 ) -> GraphSearchAssessment {
 	let coverage_percent = coverage.percent();
@@ -2139,16 +2139,16 @@ fn graph_search_assessment(
 		|| coverage
 			.gap_reasons
 			.contains_key("missing_reference_record");
-	let complete = !budget.depth_limit_reached
-		&& !budget.symbol_limit_reached
-		&& !budget.edge_limit_reached
+	let complete = !limits.depth_limit_reached
+		&& !limits.symbol_limit_reached
+		&& !limits.edge_limit_reached
 		&& !internal_gap
 		&& coverage_percent >= min_coverage;
 	let mut reasons = Vec::new();
-	if budget.depth_limit_reached {
+	if limits.depth_limit_reached {
 		let next = match (
-			budget.operation,
-			budget.max_depth >= code_moniker_query::MAX_GRAPH_DEPTH,
+			limits.operation,
+			limits.max_depth >= code_moniker_query::MAX_GRAPH_DEPTH,
 		) {
 			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
 			(GraphSearchOperation::Path, false) => {
@@ -2161,13 +2161,13 @@ fn graph_search_assessment(
 		};
 		reasons.push(format!(
 			"depth_limit:reached={},max={},next={next}",
-			budget.depth_reached, budget.max_depth,
+			limits.depth_reached, limits.max_depth,
 		));
 	}
-	if budget.symbol_limit_reached {
+	if limits.symbol_limit_reached {
 		let next = match (
-			budget.operation,
-			budget.max_symbols >= code_moniker_query::MAX_GRAPH_SYMBOLS,
+			limits.operation,
+			limits.max_symbols >= code_moniker_query::MAX_GRAPH_SYMBOLS,
 		) {
 			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
 			(GraphSearchOperation::Path, false) => {
@@ -2180,13 +2180,13 @@ fn graph_search_assessment(
 		};
 		reasons.push(format!(
 			"symbol_limit:used={},max={},next={next}",
-			budget.explored_symbols, budget.max_symbols,
+			limits.explored_symbols, limits.max_symbols,
 		));
 	}
-	if budget.edge_limit_reached {
+	if limits.edge_limit_reached {
 		let next = match (
-			budget.operation,
-			budget.max_edges >= code_moniker_query::MAX_GRAPH_EDGES,
+			limits.operation,
+			limits.max_edges >= code_moniker_query::MAX_GRAPH_EDGES,
 		) {
 			(GraphSearchOperation::Path, true) => "narrow relation/workspace",
 			(GraphSearchOperation::Path, false) => {
@@ -2196,7 +2196,7 @@ fn graph_search_assessment(
 		};
 		reasons.push(format!(
 			"edge_limit:used={},max={},next={next}",
-			budget.admitted_references, budget.max_edges,
+			limits.admitted_references, limits.max_edges,
 		));
 	}
 	if coverage_percent < min_coverage {
@@ -2313,7 +2313,7 @@ fn graph_corridor_response(
 		})?;
 	let assessment = graph_search_assessment(
 		&search.coverage,
-		GraphSearchBudgetStatus {
+		GraphSearchLimitStatus {
 			operation: GraphSearchOperation::Corridor,
 			max_depth: query.max_depth,
 			depth_reached: search
@@ -7524,7 +7524,7 @@ message = "every selected function is observable"
 	}
 
 	#[test]
-	fn stateless_syntax_parse_accepts_client_owned_budgets_for_deep_postgres_lists() {
+	fn stateless_syntax_parse_accepts_client_owned_limits_for_deep_postgres_lists() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let source = r#"SELECT
@@ -7561,7 +7561,7 @@ FROM
 			}),
 		))));
 		let ProtocolResponse::Query(response) = response else {
-			panic!("client-selected syntax budgets must be accepted, got {response:?}");
+			panic!("client-selected syntax limits must be accepted, got {response:?}");
 		};
 		let QueryResult::SyntaxTree(tree) = response.result else {
 			panic!("expected syntax tree result");
@@ -7575,7 +7575,7 @@ FROM
 	}
 
 	#[test]
-	fn stateless_syntax_parse_accepts_large_explicit_client_budgets() {
+	fn stateless_syntax_parse_accepts_large_explicit_client_limits() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		for (max_depth, max_nodes) in [(1_000, 100), (6, 20_000)] {
@@ -7599,7 +7599,7 @@ FROM
 	}
 
 	#[test]
-	fn stateless_syntax_parse_rejects_zero_node_budget() {
+	fn stateless_syntax_parse_rejects_zero_node_limit() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
@@ -7621,7 +7621,7 @@ FROM
 	}
 
 	#[test]
-	fn stateless_syntax_parse_applies_small_client_budget_deterministically() {
+	fn stateless_syntax_parse_applies_small_client_limit_deterministically() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let query = code_moniker_query::SyntaxParseQuery {
@@ -7641,7 +7641,7 @@ FROM
 				QueryRequest::new(Query::SyntaxParse(query.clone())),
 			)));
 			let ProtocolResponse::Query(response) = response else {
-				panic!("small client-selected budget must be accepted, got {response:?}");
+				panic!("small client-selected limit must be accepted, got {response:?}");
 			};
 			let QueryResult::SyntaxTree(tree) = response.result else {
 				panic!("expected syntax tree result");
@@ -7657,7 +7657,7 @@ FROM
 	}
 
 	#[test]
-	fn stateless_syntax_parse_handles_realistic_postgres_with_client_owned_budgets() {
+	fn stateless_syntax_parse_handles_realistic_postgres_with_client_owned_limits() {
 		let temp = tempfile::tempdir().expect("tempdir");
 		let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 		let source = r#"WITH recent_orders AS (
@@ -7703,7 +7703,7 @@ ORDER BY recent_orders.positive_total DESC;"#;
 			}),
 		))));
 		let ProtocolResponse::Query(response) = response else {
-			panic!("realistic PostgreSQL budgets must be accepted, got {response:?}");
+			panic!("realistic PostgreSQL limits must be accepted, got {response:?}");
 		};
 		let QueryResult::SyntaxTree(tree) = response.result else {
 			panic!("expected syntax tree result");
@@ -7712,7 +7712,7 @@ ORDER BY recent_orders.positive_total DESC;"#;
 			!tree.has_error,
 			"realistic PostgreSQL must parse: {tree:#?}"
 		);
-		assert!(!tree.truncated, "client budget must retain the full tree");
+		assert!(!tree.truncated, "client limit must retain the full tree");
 		assert_eq!(tree.emitted_nodes, tree.total_nodes);
 	}
 
@@ -8521,7 +8521,7 @@ END;"#;
 	}
 
 	#[test]
-	fn graph_path_bounds_cycles_and_exploration_budgets() {
+	fn graph_path_bounds_cycles_and_exploration_limits() {
 		let mut fixture = graph_path_fixture();
 		let callback = fixture.uri("callback");
 		let repository = fixture.uri("repository");
@@ -8538,7 +8538,7 @@ END;"#;
 		assert!(!cycle.search.depth_limit_reached, "{cycle:?}");
 		assert!(cycle.search.explored_symbols <= 3, "{cycle:?}");
 
-		let budgeted = graph_path_with_limits(
+		let limited = graph_path_with_limits(
 			&mut fixture.daemon,
 			&callback,
 			&repository,
@@ -8550,25 +8550,25 @@ END;"#;
 			},
 		);
 		assert_eq!(
-			budgeted.verdict,
+			limited.verdict,
 			GraphPathVerdict::Inconclusive,
-			"{budgeted:?}"
+			"{limited:?}"
 		);
-		assert!(budgeted.search.symbol_limit_reached, "{budgeted:?}");
+		assert!(limited.search.symbol_limit_reached, "{limited:?}");
 		assert!(
-			budgeted.reasons.iter().any(|reason| reason.contains(
+			limited.reasons.iter().any(|reason| reason.contains(
 				"symbol_limit:used=1,max=1,next=increase max_symbols or narrow relation/workspace"
 			)),
-			"{budgeted:?}"
+			"{limited:?}"
 		);
 		assert!(
-			budgeted
+			limited
 				.reasons
 				.iter()
 				.all(|reason| !reason.contains("path/lang/kind/shape/srcset")),
-			"graph.path must not suggest graph.corridor-only facets: {budgeted:?}"
+			"graph.path must not suggest graph.corridor-only facets: {limited:?}"
 		);
-		let edge_budgeted = graph_path_with_limits(
+		let edge_limited = graph_path_with_limits(
 			&mut fixture.daemon,
 			&callback,
 			&repository,
@@ -8580,22 +8580,22 @@ END;"#;
 			},
 		);
 		assert_eq!(
-			edge_budgeted.verdict,
+			edge_limited.verdict,
 			GraphPathVerdict::Inconclusive,
-			"{edge_budgeted:?}"
+			"{edge_limited:?}"
 		);
-		assert!(edge_budgeted.search.edge_limit_reached, "{edge_budgeted:?}");
-		assert_eq!(edge_budgeted.search.admitted_references, 1);
+		assert!(edge_limited.search.edge_limit_reached, "{edge_limited:?}");
+		assert_eq!(edge_limited.search.admitted_references, 1);
 		assert!(
-			edge_budgeted.reasons.iter().any(|reason| reason.contains(
+			edge_limited.reasons.iter().any(|reason| reason.contains(
 				"edge_limit:used=1,max=1,next=increase max_edges or narrow relation/workspace"
 			)),
-			"{edge_budgeted:?}"
+			"{edge_limited:?}"
 		);
 	}
 
 	#[test]
-	fn graph_path_budget_hints_remain_executable_at_protocol_ceilings() {
+	fn graph_path_limit_hints_remain_executable_at_protocol_ceilings() {
 		let coverage = BoundedPathCoverage {
 			total: code_moniker_query::MAX_GRAPH_EDGES,
 			decided: code_moniker_query::MAX_GRAPH_EDGES,
@@ -8603,7 +8603,7 @@ END;"#;
 		};
 		let assessment = graph_search_assessment(
 			&coverage,
-			GraphSearchBudgetStatus {
+			GraphSearchLimitStatus {
 				operation: GraphSearchOperation::Path,
 				max_depth: code_moniker_query::MAX_GRAPH_DEPTH,
 				depth_reached: code_moniker_query::MAX_GRAPH_DEPTH,
@@ -8718,7 +8718,7 @@ END;"#;
 		assert_eq!(bounded.connected, None, "{bounded:?}");
 		assert!(!bounded.complete, "{bounded:?}");
 		assert!(bounded.search.depth_limit_reached, "{bounded:?}");
-		let edge_budgeted = graph_corridor(
+		let edge_limited = graph_corridor(
 			&mut fixture.daemon,
 			&callback,
 			&repository,
@@ -8728,22 +8728,22 @@ END;"#;
 				max_edges: 1,
 			},
 		);
-		assert_eq!(edge_budgeted.connected, None, "{edge_budgeted:?}");
+		assert_eq!(edge_limited.connected, None, "{edge_limited:?}");
 		assert!(
-			edge_budgeted.search.edge_limit_reached
-				&& edge_budgeted
+			edge_limited.search.edge_limit_reached
+				&& edge_limited
 					.reasons
 					.iter()
 					.any(|reason| reason.starts_with("edge_limit:")),
-			"{edge_budgeted:?}"
+			"{edge_limited:?}"
 		);
-		assert_eq!(edge_budgeted.search.max_edges, 1);
-		assert_eq!(edge_budgeted.search.admitted_references, 1);
+		assert_eq!(edge_limited.search.max_edges, 1);
+		assert_eq!(edge_limited.search.admitted_references, 1);
 		assert!(
-			edge_budgeted.reasons.iter().any(|reason| reason.contains(
+			edge_limited.reasons.iter().any(|reason| reason.contains(
 				"edge_limit:used=1,max=1,next=narrow relation or path/lang/kind/shape/srcset"
 			)),
-			"{edge_budgeted:?}"
+			"{edge_limited:?}"
 		);
 
 		let same = graph_corridor(
@@ -8889,7 +8889,7 @@ END;"#;
 		assert_eq!(result.search.max_symbols, 256);
 		assert_eq!(result.search.max_edges, 1_024);
 
-		let endpoints_exceed_budget = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+		let endpoints_exceed_limit = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
 			workspace: None,
 			from: callback.clone(),
 			to: repository.clone(),
@@ -8905,7 +8905,7 @@ END;"#;
 		}));
 		let ProtocolResponse::Error(error) = fixture
 			.daemon
-			.handle_protocol(ProtocolRequest::Query(Box::new(endpoints_exceed_budget)))
+			.handle_protocol(ProtocolRequest::Query(Box::new(endpoints_exceed_limit)))
 		else {
 			panic!("endpoint floor exceeded max_symbols without an error");
 		};
@@ -8972,7 +8972,7 @@ END;"#;
 
 		let scoped_entry = fixture.uri("scoped_entry");
 		let scoped_target = fixture.uri("scoped_target");
-		let scoped_budget = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
+		let scoped_limits = QueryRequest::new(Query::GraphCorridor(GraphCorridorQuery {
 			workspace: None,
 			from: scoped_entry,
 			to: scoped_target,
@@ -8988,9 +8988,9 @@ END;"#;
 		}));
 		let ProtocolResponse::Query(response) = fixture
 			.daemon
-			.handle_protocol(ProtocolRequest::Query(Box::new(scoped_budget)))
+			.handle_protocol(ProtocolRequest::Query(Box::new(scoped_limits)))
 		else {
-			panic!("expected bitmap-scoped budget response");
+			panic!("expected bitmap-scoped limit response");
 		};
 		let QueryResult::GraphCorridor(result) = response.result else {
 			panic!("expected graph corridor result");
@@ -11164,7 +11164,7 @@ message = "the indexed rule must observe the memory source"
 			}],
 		};
 		let error = validate_memory_source_set_limits(&cache, &second, limits)
-			.expect_err("global active-set budget");
+			.expect_err("global active-set limit");
 		assert_eq!(error.code, "workspace_source_set_limit_exceeded");
 
 		let oversized = MemorySourceSet {
@@ -11177,7 +11177,7 @@ message = "the indexed rule must observe the memory source"
 			}],
 		};
 		let error = validate_memory_source_set_limits(&cache, &oversized, limits)
-			.expect_err("per-publication budget");
+			.expect_err("per-publication limit");
 		assert_eq!(error.code, "workspace_source_set_limit_exceeded");
 	}
 

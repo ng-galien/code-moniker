@@ -59,8 +59,8 @@ smallest matching declaration.
 | `source` | string | none | direct source text; requires `language` and implies `syntax.parse` |
 | `language` | string | none | parser tag for `source`; requires `source` |
 | `ast` | boolean | `false` | required only when `uri` selects indexed source |
-| `max_depth` | integer | `6` | `>= 0`; client-selected traversal budget |
-| `max_nodes` | integer | `100` | `>= 1`; client-selected emission budget |
+| `max_depth` | integer | `6` | `>= 0`; client-selected traversal limit |
+| `max_nodes` | integer | `100` | `>= 1`; client-selected emission limit |
 | `named_only` | boolean | `true` | `false` includes punctuation and anonymous grammar nodes |
 | `include_text` | boolean | `false` | attaches normalized source text to leaf nodes |
 | `max_text_chars` | integer | `80` | `0..=1000`, used only with `include_text:true` |

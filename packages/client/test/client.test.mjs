@@ -142,7 +142,7 @@ test("symbol and graph facades map ergonomic options to the public query protoco
 	client.close();
 });
 
-test("syntax facades forward client-selected parse and tree budgets without clamping", async () => {
+test("syntax facades forward client-selected parse and tree limits without clamping", async () => {
 	const daemon = new FakeDaemon();
 	const client = await connect(daemon);
 

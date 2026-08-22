@@ -175,10 +175,12 @@ previous publication, so retrying the same payload is never mistaken for a
 successful no-op.
 
 `query.describe [verb:"..."]` is generated from the canonical capability
-registry. It reports fields, defaults, required values, pagination and
-projectable result fields. MCP agents normally reach this through the
-read-only `code_moniker_query` escape hatch; direct daemon queries remain a
-developer and protocol-diagnostic surface.
+registry. Every field reports its type, whether it is required or repeatable,
+its explicit `default` value (or `none`), and its accepted range or enum values
+when constrained. The result also reports pagination and projectable result
+fields. MCP agents normally reach this through the read-only
+`code_moniker_query` escape hatch; direct daemon queries remain a developer and
+protocol-diagnostic surface.
 
 `graph.corridor from:"<symbol>" to:"<symbol>" relation:calls shape:callable`
 returns the bounded directed subgraph that participates in connectivity between
@@ -204,13 +206,13 @@ traversal directions and during final edge projection.
 frontiers and relation-specific reference postings are Roaring bitmaps; unions,
 intersections and differences stay in bitmap form. The engine admits references
 with an ordered merge capped by `max_edges`, so it does not materialize a large
-adjacency before enforcing the request budget. Both DSL and direct protocol
+adjacency before enforcing the request limits. Both DSL and direct protocol
 requests enforce `max_depth <= 64`, `1 <= max_symbols <= 100000`,
 `1 <= max_edges <= 500000`, and `min_coverage <= 100`.
 
 `connected` is `true` once any corridor is established, `false` only after a
 complete disconnected search, and `null` when linkage coverage or a traversal
-budget prevents that conclusion. `complete:false` and stable `reasons` identify
+limit prevents that conclusion. `complete:false` and stable `reasons` identify
 partial member/edge results. Coverage and explored-edge counts deduplicate a
 reference observed by both the forward and reverse scans. When `from == to`,
 the result is the deterministic zero-length corridor containing that symbol and
@@ -222,7 +224,7 @@ returns a cursor. `member_count` and `edge_count` therefore match the returned
 `members` and `edges`. When `complete:false`, the agent narrows the scope or
 adjusts the explicit bounds and submits a new independent request. Search stats
 report explored/maximum symbols, admitted/maximum references, and resolved edge
-counts separately. Each limit reason names the saturated budget, its exact
+counts separately. Each limit reason names the reached limit, its exact
 used/max values, and a concrete next action valid for `graph.path` or
 `graph.corridor` respectively.
 
