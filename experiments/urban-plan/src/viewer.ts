@@ -56,6 +56,26 @@ function colorFor(kind: string): number {
 	return KIND_COLOR[kind] ?? 0x8aa4b8;
 }
 
+function labelSprite(text: string): THREE.Sprite {
+	const canvas = document.createElement("canvas");
+	canvas.width = 256;
+	canvas.height = 64;
+	const ctx = canvas.getContext("2d")!;
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	ctx.fillStyle = "rgba(14, 20, 27, 0.72)";
+	ctx.fillRect(8, 12, 240, 40);
+	ctx.fillStyle = "#e8eef4";
+	ctx.font = "28px ui-sans-serif, system-ui, sans-serif";
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.fillText(text, 128, 32);
+	const sprite = new THREE.Sprite(
+		new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }),
+	);
+	sprite.scale.set(2.4, 0.6, 1);
+	return sprite;
+}
+
 function rebuild(data: SceneSnapshot) {
 	for (const object of pickables.splice(0)) {
 		scene.remove(object);
@@ -77,7 +97,9 @@ function rebuild(data: SceneSnapshot) {
 		const { x, z } = buildingPosition(building);
 		mesh.position.set(x, building.height / 2, z);
 		mesh.userData.building = building;
-		group.add(mesh);
+		const label = labelSprite(building.label);
+		label.position.set(x, building.height + 0.45, z);
+		group.add(mesh, label);
 		pickables.push(mesh);
 	}
 
@@ -89,19 +111,28 @@ function rebuild(data: SceneSnapshot) {
 		}
 		const a = buildingPosition(from);
 		const b = buildingPosition(to);
-		const start = new THREE.Vector3(a.x, 0.04, a.z);
-		const end = new THREE.Vector3(b.x, 0.04, b.z);
-		const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-		const line = new THREE.Line(
-			geometry,
-			new THREE.LineBasicMaterial({
-				color: 0xd7c4a3,
-				transparent: true,
-				opacity: 0.35 + (road.count / maxCount) * 0.5,
+		const start = new THREE.Vector3(a.x, 0.08, a.z);
+		const end = new THREE.Vector3(b.x, 0.08, b.z);
+		const direction = end.clone().sub(start);
+		const length = direction.length();
+		if (length < 0.01) {
+			continue;
+		}
+		const roadMesh = new THREE.Mesh(
+			new THREE.BoxGeometry(0.1 + (road.count / maxCount) * 0.32, 0.07, length),
+			new THREE.MeshStandardMaterial({
+				color: 0xe2c48a,
+				emissive: 0x3a2e16,
+				roughness: 0.7,
 			}),
 		);
-		line.userData.road = road;
-		group.add(line);
+		roadMesh.position.copy(start).lerp(end, 0.5);
+		roadMesh.quaternion.setFromUnitVectors(
+			new THREE.Vector3(0, 0, 1),
+			direction.normalize(),
+		);
+		roadMesh.userData.road = road;
+		group.add(roadMesh);
 	}
 
 	const centroid = data.buildings.reduce(
