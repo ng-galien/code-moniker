@@ -356,7 +356,9 @@ pub enum RulesCommand {
 	Disable(RulesFileArgs),
 	#[command(about = "Enable embedded default rules in .code-moniker.toml.")]
 	Enable(RulesFileArgs),
-	#[command(about = "Show the effective compiled rules after defaults, overlay, and profile.")]
+	#[command(
+		about = "Summarize or inspect effective rules after defaults, overlays, and profile."
+	)]
 	Show(RulesShowArgs),
 	#[command(about = "Print focused DSL documentation and copyable rule snippets.")]
 	Learn(RulesLearnArgs),
@@ -412,6 +414,68 @@ pub struct RulesShowArgs {
 		help = "filter rules through a named profile from .code-moniker.toml"
 	)]
 	pub profile: Option<String>,
+
+	#[arg(
+		long = "rules-inline",
+		value_name = "TOML",
+		action = ArgAction::Append,
+		help = "inline TOML rules overlay; repeatable and merged after project fragments"
+	)]
+	pub rules_inline: Vec<String>,
+
+	#[arg(
+		long,
+		value_name = "PATTERN",
+		help = "keep rules classified with this declared pattern; repeatable"
+	)]
+	pub pattern: Vec<String>,
+
+	#[arg(
+		long,
+		value_name = "COMPONENT",
+		help = "keep rules classified with this declared component; repeated filters are AND-combined"
+	)]
+	pub component: Vec<String>,
+
+	#[arg(
+		long = "rule",
+		value_name = "ID",
+		help = "inspect one effective full or declared rule id"
+	)]
+	pub rule_id: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "ORIGIN",
+		help = "keep one origin: project, fragment, embedded_default, external, or inline; repeatable"
+	)]
+	pub origin: Vec<String>,
+
+	#[arg(long, help = "include a paginated list of distinct effective rules")]
+	pub details: bool,
+
+	#[arg(
+		long,
+		requires = "details",
+		help = "include the compiled language projections for each detailed rule"
+	)]
+	pub by_language: bool,
+
+	#[arg(
+		long,
+		value_name = "N",
+		requires = "details",
+		help = "maximum distinct rules returned with --details (default 50, maximum 200)"
+	)]
+	pub limit: Option<usize>,
+
+	#[arg(
+		long,
+		value_name = "N",
+		requires = "details",
+		help = "number of distinct rules skipped before the --details page"
+	)]
+	pub offset: Option<usize>,
 }
 
 #[derive(Debug, ClapArgs)]

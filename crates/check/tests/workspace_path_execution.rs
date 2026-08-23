@@ -240,13 +240,12 @@ fn one_shot_check_builds_linkage_for_workspace_path_rules() {
 	.with_files(vec!["src/lib.rs".into()])
 	.run()
 	.expect("file-scoped path check");
+	assert!(file_scoped.errors.is_empty(), "{:#?}", file_scoped.errors);
 	assert!(
 		file_scoped
-			.errors
-			.iter()
-			.any(|error| error.error.contains("workspace rules were not run")),
-		"{:#?}",
-		file_scoped.errors
+			.file_violations()
+			.all(|(_, violation)| violation.rule_id != FORBIDDEN),
+		"workspace path rules must be out of scope for file-scoped checks"
 	);
 }
 

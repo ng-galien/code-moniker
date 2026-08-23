@@ -8,7 +8,7 @@ code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--rules-inline <T
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
-code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
+code-moniker rules show [ROOT] [--rules <PATH>] [--rules-inline <TOML>]... [--profile <NAME>] [--default-rules on|off] [--pattern <PATTERN>]... [--component <COMPONENT>]... [--origin <ORIGIN>]... [--rule <ID>] [--details [--by-language] [--limit <N>] [--offset <N>]] [--format text|json]
 code-moniker rules learn [TOPIC] [--format text|json]
 code-moniker rules eval --rules <PATH> --lang <TAG> [--profile <NAME>] [--default-rules on|off] [--format text|json] [FILE]
 code-moniker agent install --client <codex|claude|gemini> [ROOT] --components hooks [--profile <NAME>] [--check-scope <PATH>] [--max-violations <N>]
@@ -27,6 +27,89 @@ narrower edit-time rule set.
 
 See [Agent integration, hooks, and CI](agent.md) for the complete installation
 lifecycle.
+
+## Rule taxonomy and corpus map
+
+A project can declare the closed vocabulary used by its architectural rule ids
+in the canonical root `.code-moniker.toml`:
+
+```toml
+[rules.taxonomy]
+patterns = ["ownership", "dependency", "call-flow", "hygiene"]
+components = ["workspace", "daemon", "query", "check", "code", "mcp"]
+
+[[refs.where]]
+id = "dependency-query-use-contract-only"
+expr = "$query_source => NOT $workspace_target"
+```
+
+Patterns and components are semantic anchors in a natural rule id. A classified
+id contains exactly one declared pattern and at least one declared component,
+at any positions and without requiring adjacent components. Both vocabularies
+use lowercase kebab-case terms; a term such as `dependency-injection` or
+`roaring-bitmap` can span several id words. The most specific nested pattern
+wins at one occurrence, so `dependency-injection` does not also count as
+`dependency`. For example, `mcp-runtime-ownership-is-on-server` is classified
+with pattern `ownership` and component `mcp`. The taxonomy is structural project
+vocabulary: fragments and external `--rules` files cannot redefine it.
+
+The static corpus also analyzes alias names directly referenced by each raw rule
+expression, before alias expansion. Taxonomy terms are normalized from kebab-case
+to snake_case for this comparison, so `roaring-bitmap` matches
+`$roaring_bitmap_index`. Matching uses complete name segments: `mcp` matches
+`$mcp_server`, but not `$xmcp_server`. Fragment-local aliases are reported under
+their declared name while their namespaced effective name remains available in
+JSON.
+
+The report separates id classification from alias alignment and migration
+suggestions. It uses these stable diagnostic codes:
+
+- `missing-pattern-anchor`, `ambiguous-pattern-anchors` and
+  `missing-component-anchor` describe structural id conformance;
+- `rule-uses-no-alias`, `alias-has-no-taxonomy-anchor`,
+  `alias-anchor-missing-from-rule-id` and
+  `rule-component-not-represented-by-used-alias` identify alignment work;
+- `inline-project-selector-candidate` highlights raw moniker, URI or path
+  selectors, including source/target path matches, that may deserve a named
+  alias. Alias references, string literals and generic field predicates such as
+  `source.kind` are excluded.
+
+Alias-alignment and selector diagnostics have `needs_review` level. They never
+make the rule configuration invalid and do not prevent rule execution. The
+reported migration actions state what should be reviewed or extracted, but do
+not generate a replacement id or rewrite the corpus.
+
+`rules show` reports a compact summary of the effective corpus after defaults,
+root configuration, fragments, inline overrides and profile filtering. Counts
+are deduplicated by effective rule declaration rather than by compiled language
+projection. Pattern/component counts, unused terms and the cross-tab include
+only conforming `classified` rules. Terms merely detected in historical ids are
+reported separately as migration candidates. Summary id samples are bounded;
+their `*_truncated` counters state how many ids were omitted. The compact
+`diagnostics` map reports affected rule and occurrence counts for every stable
+code, plus bounded examples. Detailed pages include aliases, the anchors found
+in each name, diagnostics and migration actions.
+
+Filter or inspect the static corpus without starting a daemon:
+
+```sh
+code-moniker rules show . --pattern ownership
+code-moniker rules show . --component query --component daemon
+code-moniker rules show . --origin fragment
+code-moniker rules show . --rule dependency-query-use-contract-only --format json
+code-moniker rules show . --details --limit 50 --offset 0
+code-moniker rules show . --details --by-language --limit 20
+```
+
+Repeated component filters are AND-combined. Pattern filters accept any of the
+selected patterns. `--rule` accepts either the declared id or the full compiled
+id such as `refs.dependency-query-use-contract-only` and includes its detail.
+`--details` returns a bounded page of distinct rules (50 by default, 200
+maximum); `--by-language` explicitly adds the compiled projections for that
+page. Static classification is configuration evidence; it does not claim that
+a selector evaluated symbols or that a zone has indexed coverage. Loading also
+rejects unknown or ambiguous rule references from view `rules` and
+`forbid_rules` lists.
 
 ## Mental model
 

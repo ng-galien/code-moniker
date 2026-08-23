@@ -62,10 +62,12 @@ pub struct WorkspaceGroupResult {
 #[derive(Debug)]
 pub(super) struct CompiledWorkspaceGroupRule {
 	rule_id: String,
+	members_raw: String,
 	members_expr: String,
 	members: Node,
 	group_by: Vec<GroupProjection>,
 	group_by_exprs: Vec<String>,
+	predicate_raw: String,
 	expr: String,
 	predicate: GroupPredicate,
 	severity: crate::check::config::RuleSeverity,
@@ -158,10 +160,12 @@ fn compile_group_rule(
 	}
 	Ok(CompiledWorkspaceGroupRule {
 		rule_id: at,
+		members_raw: entry.members.clone(),
 		members_expr,
 		members: members.root,
 		group_by,
 		group_by_exprs: entry.group_by.clone(),
+		predicate_raw: entry.expr.clone(),
 		expr,
 		predicate,
 		severity: entry.severity,
@@ -290,8 +294,12 @@ pub(super) fn append_group_specs(
 		group_by: rule.group_by_exprs.clone(),
 		domain: "workspace groups".to_string(),
 		kind: None,
-		expr: rule.expr.clone(),
+		expr: format!(
+			"members: {}; assert: {}",
+			rule.members_raw, rule.predicate_raw
+		),
 		expanded_expr: format!("members: {}; assert: {}", rule.members_expr, rule.expr),
+		analysis_exprs: vec![rule.members_raw.clone(), rule.predicate_raw.clone()],
 		message: rule.message.clone(),
 		rationale: rule.rationale.clone(),
 		require_doc_comment: None,
@@ -720,6 +728,34 @@ mod tests {
 			Some(false),
 		)
 		.expect("statistic group config")
+	}
+
+	#[test]
+	fn compiled_specs_preserve_group_aliases_before_expansion() {
+		let cfg = crate::check::config::load_from_str(
+			r#"
+			[aliases]
+			workspace_members = "name = 'Invoice'"
+			workspace_limit = "count(member) <= 1"
+
+			[[workspace.group.where]]
+			id = "workspace-group"
+			members = "$workspace_members"
+			group_by = ["lang"]
+			expr = "$workspace_limit"
+			"#,
+			"<test>",
+			Some(false),
+		)
+		.expect("group config");
+		let compiled = super::super::compile_workspace_rules(&cfg, "code+moniker://")
+			.expect("workspace rules compile");
+		let spec = compiled.specs().pop().expect("group spec");
+		assert_eq!(
+			spec.expr,
+			"members: $workspace_members; assert: $workspace_limit"
+		);
+		assert!(!spec.expanded_expr.contains('$'));
 	}
 
 	fn statistic_inventory(line_ranges: &[Option<(u32, u32)>]) -> SymbolInventoryIndex {

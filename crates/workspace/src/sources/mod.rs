@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
 
+use code_moniker_core::lang::Lang;
+
 use crate::extract;
 use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
@@ -52,6 +54,12 @@ struct SourceScope {
 	root_is_dir: bool,
 	c_header_provenance_loaded: bool,
 	root: SourceRoot,
+}
+
+#[derive(Clone, Copy)]
+struct SourceContextNeeds {
+	ts: bool,
+	c: bool,
 }
 
 impl SourceSet {
@@ -130,7 +138,14 @@ fn discover_cancellable_with_context(
 	load_c_context: bool,
 ) -> anyhow::Result<SourceSet> {
 	ensure_not_cancelled(cancellation)?;
-	let scopes = discover_scopes(paths, project, load_c_context)?;
+	let scopes = discover_scopes(
+		paths,
+		project,
+		SourceContextNeeds {
+			ts: true,
+			c: load_c_context,
+		},
+	)?;
 	let multi = scopes.len() > 1;
 	let mut files = Vec::new();
 	for scope in &scopes {
@@ -180,10 +195,21 @@ pub fn discover_files(
 			root.display()
 		));
 	}
-	let needs_c_context = files
+	let needs = files
 		.iter()
-		.any(|file| path_to_lang(file).ok() == Some(code_moniker_core::lang::Lang::C));
-	let scopes = discover_scopes(&[root.to_path_buf()], project, needs_c_context)?;
+		.filter_map(|file| path_to_lang(file).ok())
+		.fold(
+			SourceContextNeeds {
+				ts: false,
+				c: false,
+			},
+			|mut needs, lang| {
+				needs.ts |= lang == Lang::Ts;
+				needs.c |= lang == Lang::C;
+				needs
+			},
+		);
+	let scopes = discover_scopes(&[root.to_path_buf()], project, needs)?;
 	let Some(scope) = scopes.first() else {
 		return Err(anyhow::anyhow!(
 			"discover_scopes returned no scope for {}",
@@ -228,7 +254,7 @@ pub fn discover_files(
 fn discover_scopes(
 	paths: &[PathBuf],
 	project: Option<String>,
-	load_c_context: bool,
+	needs: SourceContextNeeds,
 ) -> anyhow::Result<Vec<SourceScope>> {
 	if paths.is_empty() {
 		return Err(anyhow::anyhow!("at least one source path is required"));
@@ -250,8 +276,12 @@ fn discover_scopes(
 		let label = labels[source_idx].clone();
 		let source_project = project.clone();
 		let source_groups = DeclaredSourceGroups::load(&root)?;
-		let mut ts = tsconfig::load(&root);
-		let c = if load_c_context {
+		let mut ts = if needs.ts {
+			tsconfig::load(&root)
+		} else {
+			TsResolution::default()
+		};
+		let c = if needs.c {
 			CBuildContext::load(&root)
 		} else {
 			CBuildContext::default()
@@ -262,7 +292,7 @@ fn discover_scopes(
 		scopes.push(SourceScope {
 			source: source_idx,
 			root_is_dir,
-			c_header_provenance_loaded: load_c_context,
+			c_header_provenance_loaded: needs.c,
 			root: SourceRoot {
 				input: path.clone(),
 				path: root,
@@ -581,6 +611,78 @@ mod tests {
 		assert_eq!(set.display_path(), tmp.path().display().to_string());
 		assert_eq!(set.files[0].rel_path, PathBuf::from("src/A.java"));
 		assert_eq!(set.files[0].anchor, PathBuf::from("src/A.java"));
+	}
+
+	#[test]
+	fn explicit_rust_file_does_not_load_typescript_resolution() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"tsconfig.json",
+			r#"{"compilerOptions": {"paths": {"@app/*": ["./web/*"]}}}"#,
+		);
+		write(tmp.path(), "src/lib.rs", "pub fn answer() -> u8 { 42 }\n");
+
+		let set = discover_files(tmp.path(), &[PathBuf::from("src/lib.rs")], None).unwrap();
+
+		assert!(set.roots[0].ctx.ts.aliases.is_empty());
+		assert_eq!(set.files.len(), 1);
+		assert_eq!(set.files[0].lang, Lang::Rs);
+	}
+
+	#[test]
+	fn explicit_typescript_file_loads_typescript_resolution() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"tsconfig.json",
+			r#"{"compilerOptions": {"paths": {"@app/*": ["./web/*"]}}}"#,
+		);
+		write(tmp.path(), "web/app.ts", "export const answer = 42;\n");
+
+		let set = discover_files(tmp.path(), &[PathBuf::from("web/app.ts")], None).unwrap();
+
+		assert!(
+			set.roots[0]
+				.ctx
+				.ts
+				.aliases
+				.iter()
+				.any(|alias| alias.pattern == "@app/*")
+		);
+		assert_eq!(set.files.len(), 1);
+		assert_eq!(set.files[0].lang, Lang::Ts);
+	}
+
+	#[test]
+	fn explicit_mixed_files_load_union_of_language_context_needs() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"tsconfig.json",
+			r#"{"compilerOptions": {"paths": {"@app/*": ["./web/*"]}}}"#,
+		);
+		write(tmp.path(), "src/lib.rs", "pub fn answer() -> u8 { 42 }\n");
+		write(tmp.path(), "web/app.ts", "export const answer = 42;\n");
+
+		let set = discover_files(
+			tmp.path(),
+			&[PathBuf::from("src/lib.rs"), PathBuf::from("web/app.ts")],
+			None,
+		)
+		.unwrap();
+
+		assert!(
+			set.roots[0]
+				.ctx
+				.ts
+				.aliases
+				.iter()
+				.any(|alias| alias.pattern == "@app/*")
+		);
+		assert_eq!(set.files.len(), 2);
+		assert!(set.files.iter().any(|file| file.lang == Lang::Rs));
+		assert!(set.files.iter().any(|file| file.lang == Lang::Ts));
 	}
 
 	#[test]

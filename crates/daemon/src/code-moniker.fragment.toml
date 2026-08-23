@@ -32,7 +32,7 @@ daemon_internal_ref = """
 """
 
 [[rust.shape.callable.where]]
-id       = "lib-is-composition-only"
+id       = "composition-root-daemon-lib"
 severity = "error"
 expr     = "$daemon_lib => name = 'set_telemetry_export_enabled'"
 message  = "Daemon `lib.rs` callable `{name}` is implementation logic; keep the crate root limited to module wiring and the telemetry switch."
@@ -66,7 +66,7 @@ evaluation belong to the daemon orchestration boundary so transport remains repl
 """
 
 [[refs.where]]
-id       = "lifecycle-is-independent-from-transport-and-queries"
+id       = "dependency-daemon-refresh-independent-query"
 severity = "error"
 expr     = "$daemon_lifecycle AND ($daemon_internal_ref) => NOT ($runtime_target OR $daemon_query_target)"
 message  = "Daemon lifecycle must not depend on RPC transport or query implementations."
@@ -76,7 +76,7 @@ usable without an RPC server and must not trigger product queries as side effect
 """
 
 [[refs.where]]
-id       = "queries-do-not-depend-on-runtime-or-lifecycle"
+id       = "dependency-query-independent-daemon-runtime-refresh"
 severity = "error"
 expr     = "$daemon_query AND ($daemon_internal_ref) => NOT ($runtime_target OR $lifecycle_target)"
 message  = "Daemon query code must be independent from RPC transport and refresh lifecycle."
@@ -139,7 +139,7 @@ endpoint loops would duplicate graph work and make owner expansion explosive.
 """
 
 [[rust.shape.callable.where]]
-id       = "graph-corridor-uses-bounded-set-algebra"
+id       = "call-flow-graph-corridor-use-roaring-bitmap-index"
 severity = "error"
 expr     = """
   $daemon_query AND name = 'graph_corridor_response'
@@ -168,7 +168,7 @@ owns = ["module wiring", "public reexports", "telemetry switch"]
 forbids = ["request handling", "workspace lifecycle", "query evaluation", "graph traversal"]
 rationale = "`lib.rs` is a composition root, not an implementation module."
 symbols = ["module:lib"]
-rules = ["daemon.lib-is-composition-only"]
+rules = ["daemon.composition-root-daemon-lib"]
 
 [[views.boundaries]]
 id = "rpc-runtime"
@@ -191,7 +191,7 @@ owns = ["live event draining", "refresh plans", "workspace status", "failure pro
 forbids = ["RPC transport", "query execution"]
 rationale = "Lifecycle transitions remain usable and testable without starting the server."
 symbols = ["module:lifecycle/fn:drain_live_events", "module:lifecycle/fn:workspace_status_result"]
-rules = ["refs.daemon.lifecycle-is-independent-from-transport-and-queries"]
+rules = ["refs.daemon.dependency-daemon-refresh-independent-query"]
 
 [[views.boundaries]]
 id = "memory-source-commands"
@@ -207,7 +207,7 @@ owns = ["endpoint resolution", "Roaring endpoint sets", "bounded path and corrid
 forbids = ["pairwise endpoint traversal", "transport", "refresh lifecycle"]
 rationale = "Path and corridor share bounded set algebra over immutable snapshots."
 symbols = ["module:query/module:graph/fn:graph_path_response", "module:query/module:graph/fn:graph_corridor_response"]
-rules = ["daemon.graph-path-uses-bounded-set-algebra", "daemon.graph-corridor-uses-bounded-set-algebra"]
+rules = ["daemon.graph-path-uses-bounded-set-algebra", "daemon.call-flow-graph-corridor-use-roaring-bitmap-index"]
 
 [[views.boundaries]]
 id = "query-projections"
@@ -215,7 +215,7 @@ owns = ["changes", "context", "graph", "notes", "rules", "symbols", "query model
 forbids = ["RPC transport", "refresh lifecycle"]
 rationale = "Each query family owns its DTO projection and consumes explicit snapshot/context inputs."
 symbols = ["module:query"]
-rules = ["refs.daemon.queries-do-not-depend-on-runtime-or-lifecycle"]
+rules = ["refs.daemon.dependency-query-independent-daemon-runtime-refresh"]
 
 [[views.boundaries]]
 id = "stateless-syntax"

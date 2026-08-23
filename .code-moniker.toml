@@ -12,6 +12,33 @@ enabled = true
 endpoint = "http://127.0.0.1:4318"
 metric_export_interval_ms = 5000
 
+# Closed vocabulary carried by rule ids. Each rule id names exactly one
+# architectural pattern and at least one project component.
+[rules.taxonomy]
+patterns = [
+  "call-flow",
+  "composition-root",
+  "dependency",
+  "dependency-injection",
+  "hygiene",
+  "lifecycle",
+  "ownership",
+]
+components = [
+  "cli",
+  "code",
+  "daemon",
+  "dsl",
+  "index",
+  "mcp",
+  "query",
+  "roaring-bitmap",
+  "rules",
+  "sdk",
+  "vscode",
+  "workspace",
+]
+
 [aliases]
 # Standalone crates (each at `crates/<name>/`). The crate dirs are unique
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
@@ -284,7 +311,7 @@ message   = "Descendant usage roll-up should deduplicate reference facts before 
 rationale = "One reference may be discovered through several owned members or alias paths; owner-level coupling must not double count it."
 
 [[rust.shape.callable.where]]
-id        = "descendant-usage-rollup-uses-symbol-ownership"
+id        = "ownership-index-descendant-usage-rollup"
 severity  = "warn"
 expr      = "name !~ ^symbol_usages_response OR any(out_refs, kind = 'calls' AND target.name = 'symbol_is_owned_by')"
 message   = "Descendant usage roll-up should follow indexed symbol ownership instead of matching identity strings."
@@ -293,7 +320,7 @@ rationale = "Textual identity prefixes can collide across source sets or roots; 
 # ─── On-demand syntax tree boundary ─────────────────────────────────
 
 [[rust.shape.type.where]]
-id        = "language-sdk-owns-shared-parsed-document"
+id        = "ownership-sdk-parsed-document"
 severity  = "error"
 expr      = "NOT $language_extractor_contract OR text =~ '(?s)fn parse\\(.*-> ParsedDocument.*fn extract_parsed\\(.*document: &ParsedDocument.*let document = Self::parse\\(.*Self::extract_parsed\\('"
 message   = "`LangExtractor` must parse once into `ParsedDocument` and pass that document to semantic extraction."
@@ -346,7 +373,7 @@ message   = "The MCP in-process runtime must consult the query snapshot contract
 rationale = "Otherwise source-plus-language parsing can block on or fail because of an unrelated workspace index."
 
 [[rust.shape.callable.where]]
-id        = "daemon-dispatches-syntax-parse-before-live-index-work"
+id        = "call-flow-daemon-syntax-parse-before-index"
 severity  = "error"
 expr      = "NOT $daemon_handle_query OR text =~ '(?s)SyntaxParse.*syntax_parse_response.*drain_live_events'"
 message   = "The daemon must dispatch `SyntaxParse` before draining live events or refreshing the workspace."
@@ -490,7 +517,7 @@ message   = "`DaemonRegistryEntry` must contain process-discovery data only; wor
 rationale = "Duplicating loading/ready in the registry makes clients gate transport on index duration and recreates startup timeout loops."
 
 [[rust.struct.where]]
-id        = "workspace-status-owns-typed-lifecycle"
+id        = "lifecycle-workspace-status-is-typed"
 severity  = "error"
 expr      = "NOT $workspace_status_contract OR (text =~ 'phase\\s*:\\s*WorkspacePhase' AND text =~ 'failure\\s*:\\s*Option<WorkspaceFailureDto>')"
 message   = "`WorkspaceStatus` must keep the canonical typed phase and failure cause."
@@ -525,14 +552,14 @@ message   = "MCP preload handling must project the canonical workspace phase wit
 rationale = "Stdio MCP must answer loading or failed immediately while its background index continues."
 
 [[rust.method.where]]
-id        = "mcp-runtime-projects-one-lifecycle-to-status-and-data"
+id        = "lifecycle-mcp-workspace-status-data-projection"
 severity  = "error"
 expr      = "NOT $mcp_daemon_runtime_query OR text =~ '(?s)current_lifecycle.*ensure_workspace_available.*project_workspace_lifecycle'"
 message   = "The in-process MCP runtime must use one `WorkspaceLifecycle` for snapshot gates and `workspace.status`."
 rationale = "A separate preload gate without status projection lets data queries report failed while workspace.status remains loading."
 
 [[rust.fn.where]]
-id        = "mcp-workspace-status-projects-typed-lifecycle"
+id        = "lifecycle-mcp-workspace-status-projection"
 severity  = "error"
 expr      = "NOT $mcp_lifecycle_projection OR (text =~ 'QueryResult::WorkspaceStatus' AND text =~ 'status.phase = lifecycle.phase' AND text =~ 'status.failure = lifecycle.failure')"
 message   = "MCP `workspace.status` must project the same typed phase and failure used by data-query availability checks."
@@ -588,7 +615,7 @@ message   = "The source-group owner must be the analyzed root's exact `.code-mon
 rationale = "A borrowed `--rules /other/.code-moniker.toml` must not silently contribute structural configuration to another workspace."
 
 [[rust.method.where]]
-id        = "ruleset-config-loads-with-explicit-project-root"
+id        = "ownership-workspace-rules-project-root"
 severity  = "error"
 expr      = "NOT $ruleset_config_loader OR text =~ 'load_project_with_cli_sources'"
 message   = "Ruleset loading must pass its explicit project root to structural config validation."
@@ -739,7 +766,7 @@ consume classifier internals or helper functions that would duplicate workspace 
 """
 
 [[refs.where]]
-id        = "query-crate-contract-only"
+id        = "dependency-query-contract-only"
 severity  = "error"
 expr      = "$crate_query AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($workspace_crate_target OR target ~ '**/external_pkg:code_moniker_check/**' OR target ~ '**/external_pkg:code_moniker_cli/**' OR $daemon_target OR $daemon_client_target)"
 message   = "`code-moniker-query` owns only the daemon query contract and must not depend on workspace, check, CLI, daemon, or daemon-client."
@@ -808,7 +835,7 @@ The cap only stops one callable from consuming a substantial part of the 600-lin
 """
 
 [[rust.fn.where]]
-id      = "no-placeholder-names"
+id      = "hygiene-code-avoid-placeholder-names"
 expr    = "NOT name =~ ^(helper|helpers|do_thing|manage|process)$"
 message = "`{name}` is a placeholder. Pick a verb that names the actual behaviour (`extract_*`, `parse_*`, `walk_*`, …)."
 

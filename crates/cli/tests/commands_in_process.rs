@@ -746,17 +746,17 @@ fn rules_show_reports_exclude_uri_globs() {
 		"off",
 		"--format",
 		"json",
+		"--details",
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
 	assert_eq!(json["exclude"]["uris"][0], "**/fixtures/**");
 	assert!(
-		json["langs"]
+		json["details"]["rules"]
 			.as_array()
 			.unwrap()
 			.iter()
-			.flat_map(|lang| lang["rules"].as_array().unwrap())
-			.any(|rule| rule["rule_id"] == "ts.class.soft-name" && rule["severity"] == "warn"),
+			.any(|rule| rule["effective_id"] == "ts.class.soft-name" && rule["severity"] == "warn"),
 		"{json:#}"
 	);
 }
@@ -799,15 +799,12 @@ fn rules_show_explains_workspace_inventory_plan() {
 		"off",
 		"--format",
 		"json",
+		"--details",
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
-	let rules = json["langs"]
+	let rules = json["details"]["rules"]
 		.as_array()
-		.expect("langs")
-		.iter()
-		.find(|lang| lang["lang"] == "workspace")
-		.and_then(|lang| lang["rules"].as_array())
 		.expect("workspace rules");
 	let rule = rules
 		.iter()
@@ -2375,6 +2372,67 @@ fn check_inline_rules_override_project_rule_by_same_id() {
 }
 
 #[test]
+fn codex_hook_file_scope_runs_local_rules_and_ignores_workspace_rules() {
+	let dir = write_fixture("lib.rs", "pub fn good() {}\n");
+	let path = dir.path().join("lib.rs");
+	let rules = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules,
+		r#"
+		default_rules = false
+
+		[[rust.fn.where]]
+		id = "local-name"
+		expr = "name != 'bad'"
+
+		[[workspace.symbol.where]]
+		id = "workspace-name"
+		expr = "(shape = 'callable') => (name =~ ^Never$)"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules.to_str().unwrap(),
+		"--file",
+		path.to_str().unwrap(),
+		"--format",
+		"codex-hook",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(
+		out.is_empty(),
+		"workspace-only failures must not block: {out}"
+	);
+	assert!(
+		err.is_empty(),
+		"workspace rules must not add file errors: {err}"
+	);
+
+	std::fs::write(&path, "pub fn bad() {}\n").unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules.to_str().unwrap(),
+		"--file",
+		path.to_str().unwrap(),
+		"--format",
+		"codex-hook",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(out.contains("\"decision\":\"block\""), "{out}");
+	assert!(out.contains("rust.fn.local-name"), "{out}");
+	assert!(!out.contains("workspace.symbol.workspace-name"), "{out}");
+	assert!(err.is_empty(), "{err}");
+}
+
+#[test]
 fn check_inline_rules_reports_toml_errors_with_inline_label() {
 	let dir = write_fixture("a.ts", "class GoodName {}\n");
 	let path = dir.path().join("a.ts");
@@ -2471,6 +2529,7 @@ fn check_ignores_disabled_fragment_rules_but_rules_show_reports_them() {
 		dir.path().to_str().unwrap(),
 		"--format",
 		"json",
+		"--details",
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
@@ -2480,12 +2539,11 @@ fn check_ignores_disabled_fragment_rules_but_rules_show_reports_them() {
 	assert_eq!(fragment["declared_rules"], 1);
 	assert_eq!(fragment["active_rules"], 0);
 	assert!(
-		!json["langs"]
+		!json["details"]["rules"]
 			.as_array()
 			.unwrap()
 			.iter()
-			.flat_map(|lang| lang["rules"].as_array().unwrap())
-			.any(|rule| rule["rule_id"] == "ts.class.local.class-name-x"),
+			.any(|rule| rule["effective_id"] == "ts.class.local.class-name-x"),
 		"{json:#}"
 	);
 }
@@ -2531,7 +2589,7 @@ fn rules_show_profile_recomputes_fragment_active_rules() {
 	let fragment = &json["fragments"].as_array().unwrap()[0];
 	assert_eq!(fragment["declared_rules"], 1);
 	assert_eq!(fragment["active_rules"], 0);
-	assert_eq!(json["total_rules"], 0);
+	assert_eq!(json["compiled_rows"], 0);
 }
 
 #[test]

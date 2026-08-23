@@ -16,7 +16,7 @@ eval_metrics = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:metr
 config     = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:config/**'"
 
 [[refs.where]]
-id      = "expr-parser-only"
+id      = "dependency-dsl-parser-syntax-only"
 expr    = """
   $expr AND kind = 'imports_symbol'
   => NOT target ~ '**/*:/^(eval|config|workspace)$/**'

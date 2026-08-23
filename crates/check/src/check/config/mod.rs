@@ -24,6 +24,8 @@ pub struct Config {
 	#[serde(default)]
 	pub default_rules: Option<bool>,
 	#[serde(default)]
+	pub rules: RulesConfig,
+	#[serde(default)]
 	pub telemetry: Option<code_moniker_workspace::environment::TelemetryConfig>,
 	#[serde(default)]
 	pub aliases: HashMap<String, String>,
@@ -59,6 +61,50 @@ pub struct Config {
 	pub views: Vec<toml::Value>,
 	#[serde(skip)]
 	pub fragments: Vec<FragmentInfo>,
+	#[serde(skip)]
+	pub(crate) rule_sources: HashMap<String, RuleSource>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RuleSourceKind {
+	EmbeddedDefault,
+	Project,
+	Fragment,
+	External,
+	Inline,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RuleSource {
+	pub kind: RuleSourceKind,
+	pub source: Option<String>,
+	pub fragment: Option<String>,
+	pub declared_id: String,
+	pub local_aliases: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RuleSourceMarker {
+	kind: RuleSourceKind,
+	source: Option<String>,
+	fragment: Option<String>,
+	local_aliases: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RulesConfig {
+	#[serde(default)]
+	pub taxonomy: Option<RuleTaxonomy>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleTaxonomy {
+	#[serde(default)]
+	pub patterns: Vec<String>,
+	#[serde(default)]
+	pub components: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -132,6 +178,8 @@ pub struct WorkspaceGroupRuleEntry {
 	pub rationale: Option<String>,
 	#[serde(default)]
 	pub suppress: Vec<WorkspaceGroupSuppression>,
+	#[serde(skip)]
+	source: Option<RuleSourceMarker>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -170,6 +218,8 @@ pub struct WorkspacePathRuleEntry {
 	pub message: Option<String>,
 	#[serde(default)]
 	pub rationale: Option<String>,
+	#[serde(skip)]
+	source: Option<RuleSourceMarker>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -214,6 +264,8 @@ pub struct KindRules {
 	#[serde(default, rename = "where")]
 	pub rules: Vec<RuleEntry>,
 	pub require_doc_comment: Option<String>,
+	#[serde(skip)]
+	require_doc_source: Option<RuleSourceMarker>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -228,6 +280,8 @@ pub struct RuleEntry {
 	pub message: Option<String>,
 	#[serde(default)]
 	pub rationale: Option<String>,
+	#[serde(skip)]
+	source: Option<RuleSourceMarker>,
 }
 
 #[derive(
@@ -312,6 +366,25 @@ pub enum ConfigError {
 	)]
 	SourceGroupOutsideProjectRoot { path: String },
 	#[error(
+		"`rules.taxonomy` in `{path}` is project vocabulary and may be declared only in the canonical `.code-moniker.toml` project file"
+	)]
+	RuleTaxonomyOutsideProjectRoot { path: String },
+	#[error("invalid rules taxonomy in `{path}`: {message}")]
+	InvalidRuleTaxonomy { path: String, message: String },
+	#[error("view `{view}` {section} references unknown rule `{rule_id}`")]
+	UnknownViewRuleReference {
+		view: String,
+		section: String,
+		rule_id: String,
+	},
+	#[error("view `{view}` {section} references ambiguous rule `{rule_id}`; matches: {matches}")]
+	AmbiguousViewRuleReference {
+		view: String,
+		section: String,
+		rule_id: String,
+		matches: String,
+	},
+	#[error(
 		"require_doc_comment = `{value}` under `[{section}.{kind}]` is not a recognised visibility for that language (allowed: {allowed})"
 	)]
 	UnknownDocVisibility {
@@ -392,8 +465,10 @@ pub enum ConfigError {
 }
 
 pub(crate) fn load_default() -> Result<Config, ConfigError> {
-	let cfg: Config = toml::from_str(DEFAULT_PRESET).map_err(ConfigError::DefaultPresetInvalid)?;
+	let mut cfg: Config =
+		toml::from_str(DEFAULT_PRESET).map_err(ConfigError::DefaultPresetInvalid)?;
 	validate(&cfg, "<embedded preset>")?;
+	seed_rule_sources(&mut cfg, RuleSourceKind::EmbeddedDefault, None, None);
 	Ok(cfg)
 }
 
@@ -449,7 +524,12 @@ fn load_with_cli_sources_for_project(
 			.iter()
 			.rev()
 			.find_map(|cfg| cfg.default_rules)
-			.or_else(|| project.root.as_ref().and_then(|cfg| cfg.default_rules))
+			.or_else(|| {
+				project
+					.root
+					.as_ref()
+					.and_then(|loaded| loaded.config.default_rules)
+			})
 			.unwrap_or(true)
 	});
 	load_with_project(project, include_defaults, inline)
@@ -470,6 +550,7 @@ fn parse_inline_config(raw: &str, index: usize) -> Result<Config, ConfigError> {
 		error,
 	})?;
 	ensure_source_groups_owned_by_project_root(&user, &path, false)?;
+	ensure_rule_taxonomy_owned_by_project_root(&user, &path, false)?;
 	validate(&user, &path)?;
 	Ok(user)
 }
@@ -483,7 +564,7 @@ fn include_defaults_from_project(project: &ProjectConfig, include_defaults: bool
 		&& project
 			.root
 			.as_ref()
-			.and_then(|cfg| cfg.default_rules)
+			.and_then(|loaded| loaded.config.default_rules)
 			.unwrap_or(true)
 }
 
@@ -497,11 +578,16 @@ pub fn load_from_str(
 		error,
 	})?;
 	ensure_source_groups_owned_by_project_root(&user, path, false)?;
+	ensure_rule_taxonomy_owned_by_project_root(&user, path, false)?;
 	validate(&user, path)?;
 	let include_defaults = default_rules.unwrap_or_else(|| user.default_rules.unwrap_or(true));
 	load_with_project(
 		ProjectConfig {
-			root: Some(user),
+			root: Some(LoadedConfig {
+				config: user,
+				source_kind: RuleSourceKind::External,
+				source: Some(path.to_string()),
+			}),
 			fragments: Vec::new(),
 		},
 		include_defaults,
@@ -523,8 +609,14 @@ pub(crate) fn load_with_options(
 }
 
 struct ProjectConfig {
-	root: Option<Config>,
+	root: Option<LoadedConfig>,
 	fragments: Vec<fragments::FragmentFile>,
+}
+
+struct LoadedConfig {
+	config: Config,
+	source_kind: RuleSourceKind,
+	source: Option<String>,
 }
 
 fn load_with_project(
@@ -538,13 +630,21 @@ fn load_with_project(
 		Config::default()
 	};
 	cfg.default_rules = Some(include_defaults);
-	if let Some(user) = project.root {
-		merge_into(&mut cfg, user);
+	if let Some(mut user) = project.root {
+		seed_rule_sources(&mut user.config, user.source_kind, user.source, None);
+		merge_into(&mut cfg, user.config);
 	}
 	fragments::merge_into(&mut cfg, project.fragments)?;
-	for inline in inline {
+	for (index, mut inline) in inline.into_iter().enumerate() {
+		seed_rule_sources(
+			&mut inline,
+			RuleSourceKind::Inline,
+			Some(inline_rules_label(index)),
+			None,
+		);
 		merge_into(&mut cfg, inline);
 	}
+	rebuild_rule_sources(&mut cfg);
 	Ok(cfg)
 }
 
@@ -564,7 +664,7 @@ fn read_project_config(
 fn read_user_config(
 	user_path: Option<&Path>,
 	project_root: Option<&Path>,
-) -> Result<Option<Config>, ConfigError> {
+) -> Result<Option<LoadedConfig>, ConfigError> {
 	let Some(p) = user_path else {
 		return Ok(None);
 	};
@@ -584,8 +684,22 @@ fn read_user_config(
 		&p.display().to_string(),
 		is_project_root_config(p, project_root),
 	)?;
+	ensure_rule_taxonomy_owned_by_project_root(
+		&user,
+		&p.display().to_string(),
+		is_project_root_config(p, project_root),
+	)?;
 	validate(&user, &p.display().to_string())?;
-	Ok(Some(user))
+	let project = is_project_root_config(p, project_root);
+	Ok(Some(LoadedConfig {
+		config: user,
+		source_kind: if project {
+			RuleSourceKind::Project
+		} else {
+			RuleSourceKind::External
+		},
+		source: Some(p.display().to_string()),
+	}))
 }
 
 fn project_root_from_config_path(path: &Path) -> &Path {
@@ -618,7 +732,100 @@ fn ensure_source_groups_owned_by_project_root(
 	})
 }
 
+fn ensure_rule_taxonomy_owned_by_project_root(
+	config: &Config,
+	path: &str,
+	project_root: bool,
+) -> Result<(), ConfigError> {
+	if project_root || config.rules.taxonomy.is_none() {
+		return Ok(());
+	}
+	Err(ConfigError::RuleTaxonomyOutsideProjectRoot {
+		path: path.to_string(),
+	})
+}
+
+pub(crate) fn validate_view_rule_references(
+	cfg: &Config,
+	known: &HashMap<String, String>,
+) -> Result<(), ConfigError> {
+	for view in &cfg.views {
+		let Some(table) = view.as_table() else {
+			continue;
+		};
+		let view_id = table
+			.get("id")
+			.and_then(toml::Value::as_str)
+			.unwrap_or("<unnamed>");
+		for (section_name, fields) in [
+			("boundaries", &["rules", "forbid_rules"][..]),
+			("gotchas", &["rules"][..]),
+		] {
+			let Some(items) = table.get(section_name).and_then(toml::Value::as_array) else {
+				continue;
+			};
+			for item in items.iter().filter_map(toml::Value::as_table) {
+				let item_id = item
+					.get("id")
+					.and_then(toml::Value::as_str)
+					.unwrap_or("<unnamed>");
+				for field in fields {
+					let Some(rule_ids) = item.get(*field).and_then(toml::Value::as_array) else {
+						continue;
+					};
+					for rule_id in rule_ids.iter().filter_map(toml::Value::as_str) {
+						validate_view_rule_reference(
+							known,
+							view_id,
+							&format!("{section_name}.{item_id}.{field}"),
+							rule_id,
+						)?;
+					}
+				}
+			}
+		}
+	}
+	Ok(())
+}
+
+fn validate_view_rule_reference(
+	known: &HashMap<String, String>,
+	view: &str,
+	section: &str,
+	rule_id: &str,
+) -> Result<(), ConfigError> {
+	if known.contains_key(rule_id) || known.values().any(|effective_id| effective_id == rule_id) {
+		return Ok(());
+	}
+	let suffix = format!(".{rule_id}");
+	let mut matches = known
+		.iter()
+		.filter(|(compiled_id, _)| compiled_id.ends_with(&suffix))
+		.map(|(_, effective_id)| effective_id.clone())
+		.collect::<HashSet<_>>()
+		.into_iter()
+		.collect::<Vec<_>>();
+	matches.sort();
+	match matches.as_slice() {
+		[_] => Ok(()),
+		[] => Err(ConfigError::UnknownViewRuleReference {
+			view: view.to_string(),
+			section: section.to_string(),
+			rule_id: rule_id.to_string(),
+		}),
+		_ => Err(ConfigError::AmbiguousViewRuleReference {
+			view: view.to_string(),
+			section: section.to_string(),
+			rule_id: rule_id.to_string(),
+			matches: matches.join(", "),
+		}),
+	}
+}
+
 fn merge_into(base: &mut Config, ov: Config) {
+	if ov.rules.taxonomy.is_some() {
+		base.rules.taxonomy = ov.rules.taxonomy;
+	}
 	if ov.telemetry.is_some() {
 		base.telemetry = ov.telemetry;
 	}
@@ -730,6 +937,7 @@ fn merge_kind(base: &mut KindRules, ov: KindRules) {
 	}
 	if ov.require_doc_comment.is_some() {
 		base.require_doc_comment = ov.require_doc_comment;
+		base.require_doc_source = ov.require_doc_source;
 	}
 }
 
@@ -853,6 +1061,9 @@ fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 }
 
 fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
+	if let Some(taxonomy) = &cfg.rules.taxonomy {
+		validate_rule_taxonomy(taxonomy, path)?;
+	}
 	if let Some(value) = cfg.workspace.min_linkage_coverage
 		&& value > 100
 	{
@@ -900,6 +1111,54 @@ fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 		)?;
 	}
 	Ok(())
+}
+
+fn validate_rule_taxonomy(taxonomy: &RuleTaxonomy, path: &str) -> Result<(), ConfigError> {
+	if taxonomy.patterns.is_empty() {
+		return Err(ConfigError::InvalidRuleTaxonomy {
+			path: path.to_string(),
+			message: "`patterns` must contain at least one term".to_string(),
+		});
+	}
+	if taxonomy.components.is_empty() {
+		return Err(ConfigError::InvalidRuleTaxonomy {
+			path: path.to_string(),
+			message: "`components` must contain at least one term".to_string(),
+		});
+	}
+	let mut seen = HashSet::new();
+	for (kind, terms) in [
+		("pattern", taxonomy.patterns.as_slice()),
+		("component", taxonomy.components.as_slice()),
+	] {
+		for term in terms {
+			if !is_canonical_taxonomy_term(term) {
+				return Err(ConfigError::InvalidRuleTaxonomy {
+					path: path.to_string(),
+					message: format!(
+						"{kind} `{term}` is not canonical kebab-case (lowercase ASCII letters and digits separated by single hyphens)"
+					),
+				});
+			}
+			if !seen.insert(term.as_str()) {
+				return Err(ConfigError::InvalidRuleTaxonomy {
+					path: path.to_string(),
+					message: format!("taxonomy term `{term}` is duplicated or ambiguous"),
+				});
+			}
+		}
+	}
+	Ok(())
+}
+
+pub(crate) fn is_canonical_taxonomy_term(value: &str) -> bool {
+	!value.is_empty()
+		&& value.split('-').all(|part| {
+			!part.is_empty()
+				&& part
+					.bytes()
+					.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+		})
 }
 
 fn is_stable_group_rule_id(id: &str) -> bool {
@@ -1137,6 +1396,7 @@ impl Config {
 			);
 		}
 		self.refresh_fragment_active_rules();
+		rebuild_rule_sources(self);
 		Ok(())
 	}
 
@@ -1287,43 +1547,175 @@ fn filter_path_rules(
 }
 
 fn collect_rule_keys(cfg: &Config) -> HashSet<String> {
-	let mut out = HashSet::new();
-	collect_rule_list_keys("refs", &cfg.refs.rules, &mut out);
-	collect_rule_list_keys("workspace.symbol", &cfg.workspace.symbol.rules, &mut out);
-	for rule in &cfg.workspace.group.rules {
-		if let Some(id) = &rule.id {
-			out.insert(format!("workspace.group.{id}"));
-		}
+	collect_rule_declarations(cfg)
+		.into_iter()
+		.map(|(key, _, _)| key)
+		.collect()
+}
+
+pub(crate) fn rule_source_for_compiled_id<'a>(
+	cfg: &'a Config,
+	compiled_rule_id: &str,
+) -> Option<(String, &'a RuleSource)> {
+	if let Some(source) = cfg.rule_sources.get(compiled_rule_id) {
+		return Some((compiled_rule_id.to_string(), source));
 	}
-	for rule in &cfg.workspace.path {
-		if let Some(id) = &rule.id {
-			out.insert(format!("workspace.path.{id}"));
+	let (_, suffix) = compiled_rule_id.split_once('.')?;
+	let default_key = format!("default.{suffix}");
+	cfg.rule_sources
+		.get(&default_key)
+		.map(|source| (default_key, source))
+}
+
+pub(crate) fn seed_rule_sources(
+	cfg: &mut Config,
+	kind: RuleSourceKind,
+	source: Option<String>,
+	fragment: Option<String>,
+) {
+	seed_rule_sources_with_local_aliases(cfg, kind, source, fragment, Vec::new());
+}
+
+pub(crate) fn seed_rule_sources_with_local_aliases(
+	cfg: &mut Config,
+	kind: RuleSourceKind,
+	source: Option<String>,
+	fragment: Option<String>,
+	local_aliases: Vec<String>,
+) {
+	let marker = RuleSourceMarker {
+		kind,
+		source,
+		fragment,
+		local_aliases,
+	};
+	mark_rule_sources(cfg, &marker);
+	rebuild_rule_sources(cfg);
+}
+
+pub(crate) fn rebuild_rule_sources(cfg: &mut Config) {
+	let declarations = collect_rule_declarations(cfg);
+	cfg.rule_sources.clear();
+	for (key, mut declared_id, marker) in declarations {
+		let Some(marker) = marker else {
+			continue;
+		};
+		if let Some(fragment) = marker.fragment.as_deref()
+			&& let Some(local_id) = declared_id.strip_prefix(&format!("{fragment}."))
+		{
+			declared_id = local_id.to_string();
 		}
+		cfg.rule_sources.insert(
+			key,
+			RuleSource {
+				kind: marker.kind,
+				source: marker.source,
+				fragment: marker.fragment,
+				declared_id,
+				local_aliases: marker.local_aliases,
+			},
+		);
+	}
+}
+
+fn mark_rule_sources(cfg: &mut Config, marker: &RuleSourceMarker) {
+	mark_rule_list_sources(&mut cfg.refs.rules, marker);
+	mark_kind_sources(&mut cfg.workspace.symbol, marker);
+	for rule in &mut cfg.workspace.group.rules {
+		rule.source = Some(marker.clone());
+	}
+	for rule in &mut cfg.workspace.path {
+		rule.source = Some(marker.clone());
+	}
+	for rules in cfg.shape.values_mut() {
+		mark_kind_sources(rules, marker);
+	}
+	mark_lang_rule_sources(&mut cfg.default, marker);
+	for lang in Lang::ALL {
+		mark_lang_rule_sources(cfg.for_lang_mut(*lang), marker);
+	}
+}
+
+fn mark_lang_rule_sources(rules: &mut LangRules, marker: &RuleSourceMarker) {
+	for kind_rules in rules.shape.values_mut() {
+		mark_kind_sources(kind_rules, marker);
+	}
+	for kind_rules in rules.kinds.values_mut() {
+		mark_kind_sources(kind_rules, marker);
+	}
+}
+
+fn mark_kind_sources(rules: &mut KindRules, marker: &RuleSourceMarker) {
+	mark_rule_list_sources(&mut rules.rules, marker);
+	if rules.require_doc_comment.is_some() {
+		rules.require_doc_source = Some(marker.clone());
+	}
+}
+
+fn mark_rule_list_sources(rules: &mut [RuleEntry], marker: &RuleSourceMarker) {
+	for rule in rules {
+		rule.source = Some(marker.clone());
+	}
+}
+
+fn collect_rule_declarations(cfg: &Config) -> Vec<(String, String, Option<RuleSourceMarker>)> {
+	let mut out = Vec::new();
+	collect_rule_list_declarations("refs", &cfg.refs.rules, &mut out);
+	collect_kind_declarations("workspace.symbol", &cfg.workspace.symbol, &mut out);
+	for (index, rule) in cfg.workspace.group.rules.iter().enumerate() {
+		let id = rule.fallback_id(index);
+		out.push((format!("workspace.group.{id}"), id, rule.source.clone()));
+	}
+	for (index, rule) in cfg.workspace.path.iter().enumerate() {
+		let id = rule.fallback_id(index);
+		out.push((format!("workspace.path.{id}"), id, rule.source.clone()));
 	}
 	for (shape, rules) in &cfg.shape {
-		collect_rule_list_keys(&format!("shape.{shape}"), &rules.rules, &mut out);
+		collect_kind_declarations(&format!("shape.{shape}"), rules, &mut out);
 	}
-	collect_lang_rule_keys("default", &cfg.default, &mut out);
+	collect_lang_rule_declarations("default", &cfg.default, &mut out);
 	for lang in Lang::ALL {
-		collect_lang_rule_keys(config_section(*lang), cfg.for_lang(*lang), &mut out);
+		collect_lang_rule_declarations(config_section(*lang), cfg.for_lang(*lang), &mut out);
 	}
 	out
 }
 
-fn collect_lang_rule_keys(section: &str, rules: &LangRules, out: &mut HashSet<String>) {
+fn collect_lang_rule_declarations(
+	section: &str,
+	rules: &LangRules,
+	out: &mut Vec<(String, String, Option<RuleSourceMarker>)>,
+) {
 	for (shape, kind_rules) in &rules.shape {
-		collect_rule_list_keys(&format!("{section}.shape.{shape}"), &kind_rules.rules, out);
+		collect_kind_declarations(&format!("{section}.shape.{shape}"), kind_rules, out);
 	}
 	for (kind, kind_rules) in &rules.kinds {
-		collect_rule_list_keys(&format!("{section}.{kind}"), &kind_rules.rules, out);
+		collect_kind_declarations(&format!("{section}.{kind}"), kind_rules, out);
 	}
 }
 
-fn collect_rule_list_keys(prefix: &str, rules: &[RuleEntry], out: &mut HashSet<String>) {
-	for rule in rules {
-		if let Some(id) = &rule.id {
-			out.insert(format!("{prefix}.{id}"));
-		}
+fn collect_kind_declarations(
+	prefix: &str,
+	rules: &KindRules,
+	out: &mut Vec<(String, String, Option<RuleSourceMarker>)>,
+) {
+	collect_rule_list_declarations(prefix, &rules.rules, out);
+	if rules.require_doc_comment.is_some() {
+		out.push((
+			format!("{prefix}.require_doc_comment"),
+			"require_doc_comment".to_string(),
+			rules.require_doc_source.clone(),
+		));
+	}
+}
+
+fn collect_rule_list_declarations(
+	prefix: &str,
+	rules: &[RuleEntry],
+	out: &mut Vec<(String, String, Option<RuleSourceMarker>)>,
+) {
+	for (index, rule) in rules.iter().enumerate() {
+		let id = rule.fallback_id(index);
+		out.push((format!("{prefix}.{id}"), id, rule.source.clone()));
 	}
 }
 
@@ -1345,6 +1737,39 @@ mod tests {
 		let cfg = load_default().expect("default preset must parse");
 		assert!(cfg.ts.kinds.contains_key("class"));
 		assert!(cfg.ts.kinds.contains_key("function"));
+	}
+
+	#[test]
+	fn validates_rule_taxonomy_terms() {
+		let error = parse(
+			r#"
+			[rules.taxonomy]
+			patterns = ["CallFlow"]
+			components = ["query"]
+			"#,
+		)
+		.expect_err("non-canonical taxonomy terms must fail");
+		assert!(
+			error
+				.to_string()
+				.contains("pattern `CallFlow` is not canonical kebab-case"),
+			"{error}"
+		);
+
+		let error = parse(
+			r#"
+			[rules.taxonomy]
+			patterns = ["query"]
+			components = ["query"]
+			"#,
+		)
+		.expect_err("a term cannot be both a pattern and component");
+		assert!(
+			error
+				.to_string()
+				.contains("taxonomy term `query` is duplicated or ambiguous"),
+			"{error}"
+		);
 	}
 
 	#[test]
@@ -1455,6 +1880,216 @@ roots = ["src"]
 			inline,
 			ConfigError::SourceGroupOutsideProjectRoot { .. }
 		));
+	}
+
+	#[test]
+	fn rule_taxonomy_is_rejected_outside_the_canonical_project_file() {
+		let taxonomy = r#"
+[rules.taxonomy]
+patterns = ["ownership"]
+components = ["workspace"]
+"#;
+		let standalone = load_from_str(taxonomy, "rules.toml", Some(false))
+			.expect_err("standalone rules must not redefine the project taxonomy");
+		assert!(matches!(
+			standalone,
+			ConfigError::RuleTaxonomyOutsideProjectRoot { .. }
+		));
+
+		let inline = load_with_cli_sources(None, &[taxonomy.to_string()], Some(false))
+			.expect_err("inline rules must not redefine the project taxonomy");
+		assert!(matches!(
+			inline,
+			ConfigError::RuleTaxonomyOutsideProjectRoot { .. }
+		));
+	}
+
+	#[test]
+	fn project_views_reject_unknown_rule_references() {
+		let project = tempfile::tempdir().expect("project");
+		let rules = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&rules,
+			r#"
+			default_rules = false
+
+			[[rust.fn.where]]
+			id = "known-rule"
+			expr = "name != 'forbidden'"
+
+			[[views]]
+			id = "architecture"
+
+			[[views.boundaries]]
+			id = "runtime"
+			rules = ["known-rule"]
+			forbid_rules = ["missing-rule"]
+			"#,
+		)
+		.expect("write rules");
+
+		let error = crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+			.with_project_root(project.path())
+			.load_config()
+			.expect_err("unknown view rule references must fail ruleset loading");
+		let error = error
+			.downcast_ref::<ConfigError>()
+			.expect("config error must be preserved");
+		assert!(matches!(
+			error,
+			ConfigError::UnknownViewRuleReference {
+				view,
+				section,
+				rule_id
+			} if view == "architecture"
+				&& section == "boundaries.runtime.forbid_rules"
+				&& rule_id == "missing-rule"
+		));
+	}
+
+	#[test]
+	fn project_views_reject_ambiguous_local_rule_references() {
+		let project = tempfile::tempdir().expect("project");
+		let rules = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&rules,
+			r#"
+			default_rules = false
+
+			[[rust.fn.where]]
+			id = "shared-rule"
+			expr = "name != 'forbidden'"
+
+			[[ts.function.where]]
+			id = "shared-rule"
+			expr = "name != 'forbidden'"
+
+			[[views]]
+			id = "architecture"
+
+			[[views.gotchas]]
+			id = "shared"
+			rationale = "The reference must resolve uniquely."
+			rules = ["shared-rule"]
+			"#,
+		)
+		.expect("write rules");
+
+		let error = crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+			.with_project_root(project.path())
+			.load_config()
+			.expect_err("ambiguous local view rule references must fail ruleset loading");
+		let error = error
+			.downcast_ref::<ConfigError>()
+			.expect("config error must be preserved");
+		assert!(matches!(
+			error,
+			ConfigError::AmbiguousViewRuleReference { rule_id, .. }
+				if rule_id == "shared-rule"
+		));
+	}
+
+	#[test]
+	fn project_views_accept_local_reference_to_one_generic_rule() {
+		let project = tempfile::tempdir().expect("project");
+		let rules = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&rules,
+			r#"
+			default_rules = false
+
+			[[default.class.where]]
+			id = "shared-rule"
+			expr = "name != 'forbidden'"
+
+			[[views]]
+			id = "architecture"
+
+			[[views.gotchas]]
+			id = "shared"
+			rationale = "All language projections belong to one effective rule."
+			rules = ["shared-rule"]
+			"#,
+		)
+		.expect("write rules");
+
+		crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+			.with_project_root(project.path())
+			.load_config()
+			.expect("one generic rule must resolve as one effective declaration");
+	}
+
+	#[test]
+	fn project_views_validate_compiled_default_projections() {
+		let project = tempfile::tempdir().expect("project");
+		let rules = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&rules,
+			r#"
+			default_rules = false
+
+			[[default.fn.where]]
+			id = "default-rule"
+			expr = "name != 'forbidden'"
+
+			[[rust.fn.where]]
+			id = "rust-override"
+			expr = "name != 'forbidden'"
+
+			[[views]]
+			id = "architecture"
+
+			[[views.boundaries]]
+			id = "runtime"
+			rules = ["rust.fn.default-rule"]
+			"#,
+		)
+		.expect("write rules");
+
+		let error = crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+			.with_project_root(project.path())
+			.load_config()
+			.expect_err("a suppressed default projection must not validate a view reference");
+		assert!(
+			error
+				.to_string()
+				.contains("unknown rule `rust.fn.default-rule`")
+		);
+	}
+
+	#[test]
+	fn project_views_validate_references_after_profile_filtering() {
+		let project = tempfile::tempdir().expect("project");
+		let rules = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&rules,
+			r#"
+			default_rules = false
+
+			[[rust.fn.where]]
+			id = "profiled-rule"
+			expr = "name != 'forbidden'"
+
+			[profiles.none]
+			disable = ["^rust\\.fn\\.profiled-rule$"]
+
+			[[views]]
+			id = "architecture"
+
+			[[views.gotchas]]
+			id = "profiled"
+			rationale = "The active profile controls the effective corpus."
+			rules = ["profiled-rule"]
+			"#,
+		)
+		.expect("write rules");
+
+		let error = crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+			.with_project_root(project.path())
+			.with_profile(Some("none".to_string()))
+			.load_config()
+			.expect_err("profile-filtered view references must fail ruleset loading");
+		assert!(error.to_string().contains("unknown rule `profiled-rule`"));
 	}
 
 	#[test]
@@ -2386,6 +3021,9 @@ roots = ["src"]
 			.iter()
 			.find(|rule| rule.rule_id == "rust.fn.local.uses-local")
 			.expect("fragment rule is compiled");
+		let (_, source) = rule_source_for_compiled_id(&cfg, &rule.rule_id)
+			.expect("fragment rule source is retained");
+		assert_eq!(source.local_aliases, vec!["local_name"]);
 		assert!(
 			rule.expanded_expr.contains("name = 'Ok'"),
 			"{}",

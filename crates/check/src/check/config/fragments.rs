@@ -8,8 +8,9 @@ use serde::Deserialize;
 use code_moniker_core::lang::Lang;
 
 use super::{
-	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry,
+	Config, ConfigError, FragmentInfo, KindRules, LangRules, RefsRules, RuleEntry, RuleSourceKind,
 	WorkspaceGroupRuleEntry, WorkspacePathRuleEntry, WorkspaceRules, config_section,
+	seed_rule_sources_with_local_aliases,
 };
 
 const FRAGMENT_FILE_NAME: &str = "code-moniker.fragment.toml";
@@ -69,6 +70,7 @@ impl RawFragmentConfig {
 	fn into_config(self) -> Config {
 		Config {
 			default_rules: None,
+			rules: Default::default(),
 			telemetry: None,
 			aliases: self.aliases,
 			exclude: Default::default(),
@@ -87,6 +89,7 @@ impl RawFragmentConfig {
 			views: self.views,
 			profiles: HashMap::new(),
 			fragments: Vec::new(),
+			rule_sources: HashMap::new(),
 		}
 	}
 }
@@ -130,7 +133,7 @@ pub(super) fn merge_into(
 		.keys()
 		.map(|alias| (alias.clone(), "<effective config>".to_string()))
 		.collect();
-	for fragment in fragments {
+	for mut fragment in fragments {
 		base.fragments.push(FragmentInfo {
 			id: fragment.id.clone(),
 			path: fragment.path.clone(),
@@ -153,6 +156,13 @@ pub(super) fn merge_into(
 		for alias in &fragment.alias_keys {
 			alias_origins.insert(alias.clone(), fragment.path.display().to_string());
 		}
+		seed_rule_sources_with_local_aliases(
+			&mut fragment.config,
+			RuleSourceKind::Fragment,
+			Some(fragment.path.display().to_string()),
+			Some(fragment.id.clone()),
+			fragment.local_aliases.clone(),
+		);
 		super::merge_into(base, fragment.config);
 	}
 	Ok(())

@@ -44,6 +44,10 @@ const SKILL_FILES: &[(&str, &str)] = &[
 		"references/query-dsl.md",
 		include_str!("../../assets/agent/code-moniker/references/query-dsl.md"),
 	),
+	(
+		"references/rules.md",
+		include_str!("../../assets/agent/code-moniker/references/rules.md"),
+	),
 ];
 
 #[derive(Debug, Default, Deserialize, Serialize)]

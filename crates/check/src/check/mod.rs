@@ -2,6 +2,7 @@
 
 pub(crate) mod command;
 pub(crate) mod config;
+pub(crate) mod corpus;
 pub(crate) mod eval;
 pub(crate) mod exclude;
 pub(crate) mod expr;

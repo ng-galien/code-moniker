@@ -11,9 +11,16 @@ pub use check::command::{
 	FailedRuleSummary, FileError, FileReport, FsCheckWorkspace, IndexedCheckWorkspace,
 	MemoryCheckWorkspace, RuleSetRequest, SourceReport, ViolationCounts, check_graph_with_config,
 	check_one_file, check_project, check_project_files, check_project_files_workspace,
-	check_project_workspace, check_source_with_config, compiled_specs_with_config,
+	check_project_workspace, check_source_with_config, compiled_rule_corpus,
+	compiled_specs_with_config,
 };
+pub use check::config::RuleTaxonomy;
 pub use check::config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};
+pub use check::corpus::{
+	RuleAliasUsage, RuleClassification, RuleClassificationStatus, RuleCorpusAnalysis,
+	RuleCorpusDiagnostic, RuleCorpusDiagnosticCategory, RuleCorpusDiagnosticCode,
+	RuleCorpusDiagnosticLevel, RuleCorpusEntry, RuleOrigin, RuleOriginKind, classify_rule_id,
+};
 pub use check::eval::{
 	CompiledRuleSpec, CompiledRules, RuleCoverage, RulePathReport, RulePathStep, RuleReport,
 	RuleVerdict, Violation, compile_rules, evaluate_compiled, rule_report_compiled,

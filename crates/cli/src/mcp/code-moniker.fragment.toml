@@ -61,7 +61,7 @@ be documented.
 """
 
 [[refs.where]]
-id       = "mcp-server-owns-runtime-wiring"
+id       = "ownership-mcp-server-runtime"
 severity = "error"
 expr     = """
   $mcp_root
@@ -94,7 +94,7 @@ workspace read paths. Tool modules shape MCP presentation; workspace facts come 
 """
 
 [[refs.where]]
-id       = "mcp-does-not-own-workspace-runtime"
+id       = "ownership-workspace-daemon-runtime-mcp-consumer"
 severity = "error"
 expr     = """
   $mcp_root
@@ -111,7 +111,7 @@ daemon contract becomes optional and feature parity cannot be enforced.
 """
 
 [[refs.where]]
-id       = "mcp-daemon-contract-is-context-only"
+id       = "dependency-injection-mcp-daemon-context"
 severity = "error"
 expr     = """
   $mcp_root
@@ -158,13 +158,13 @@ symbols = [
   "module:server/struct:CodeMonikerMcp",
 ]
 rules = [
- "mcp-does-not-own-workspace-runtime",
- "mcp-server-owns-runtime-wiring",
- "mcp-shared-index-contract-is-context-only",
+ "ownership-workspace-daemon-runtime-mcp-consumer",
+ "ownership-mcp-server-runtime",
+ "dependency-injection-mcp-daemon-context",
  "mcp-workspace-access-is-tool-owned",
 ]
 forbid_rules = [
- "mcp-does-not-own-workspace-runtime",
+ "ownership-workspace-daemon-runtime-mcp-consumer",
  "mcp-workspace-access-is-tool-owned",
 ]
 
@@ -188,8 +188,8 @@ symbols = [
   "module:tools/module:rules/struct:RulesTool",
 ]
 rules = [
-  "mcp-does-not-own-workspace-runtime",
-  "mcp-shared-index-contract-is-context-only",
+  "ownership-workspace-daemon-runtime-mcp-consumer",
+  "dependency-injection-mcp-daemon-context",
   "mcp-workspace-access-is-tool-owned",
 ]
 
