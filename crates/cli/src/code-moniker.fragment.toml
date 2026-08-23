@@ -3,32 +3,95 @@ fragment = "cli"
 # CLI command dispatcher boundary.
 
 [aliases]
-lib = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
+cli_lib = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
+cli_command_registry = "uri ~ '**/dir:crates/dir:cli/dir:src/module:args/enum:Command'"
+cli_public_export = "require('**/dir:crates/dir:cli/dir:src/module:lib/path:{name}')"
+cli_internal_consumer = "source ~ '**/dir:crates/dir:cli/dir:src/**'"
+cli_opaque_assertion_macro = "target ~ '**/sdk:rs/path:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'"
+cli_command_runtime_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/**'"
+cli_peer_command_entrypoint = "target ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/fn:/^(run|run_daemon)$/'"
+cli_args_contract_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:args/**'"
+cli_extract_runtime_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:extract/**'"
+mcp_command_module_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:mcp_command/**'"
+cli_exit_conversion = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/struct:ExitCode/method:/^from[(]e:Exit[)]$/'"
 
 [[rust.enum.where]]
-id       = "command-variants-have-command-modules"
+id       = "cli-command-registry-composition-root-requires-feature-modules"
 severity = "error"
 expr     = """
-uri ~ '**/dir:crates/dir:cli/dir:src/module:args/enum:Command' => all(enum_constant,
+$cli_command_registry => all(enum_constant,
   require("**/dir:crates/dir:cli/dir:src/module:{name.snake}")
 )
 """
-message  = "CLI command variant `{name}` must have an owning module at `crates/cli/src/{name.snake}/mod.rs`."
+message  = "CLI command variant `{name}` must have a corresponding feature module under `crates/cli/src/{name.snake}`."
 rationale = """
-`args::Command` is the command registry. Each variant declares a user-facing command and
-must resolve to the command module that owns its runtime.
+`args::Command` is the feature registry at the CLI composition root. Each variant declares a
+user-facing capability and must keep the crate module graph in step with that public surface.
+Runtime dispatch ownership is a separate invariant enforced at `lib::run`.
+"""
+
+# Negotiation sentinels. Warning severity records a concrete architectural
+# boundary that is either provisional or already crossed without blocking
+# unrelated work. Each rationale states the decision needed to retire or
+# promote the warning.
+
+[[refs.where]]
+id       = "cli-command-runtime-dependency-avoids-peer-entrypoints"
+severity = "warn"
+expr     = """
+  $cli_command_runtime_source
+  AND kind = 'calls'
+  AND source.kind != 'test'
+  => NOT $cli_peer_command_entrypoint
+"""
+message  = "CLI command runtime `{source.moniker}` calls peer command entrypoint `{target.moniker}`; shared behavior needs a neutral owner."
+rationale = """
+Command runtimes should not become APIs for one another. The historical CLI fragment protected
+this separation before that rule disappeared during a DSL migration. This warning restores the
+executable part of the decision without treating support modules such as `hooks`, `tree`, or
+`mcp` as commands. Promote it to error once the command-runtime set and adapter exceptions are
+confirmed; refine the aliases if a legitimate peer call is identified.
+"""
+
+[[refs.where]]
+id       = "cli-extract-runtime-dependency-remains-downstream-of-command-contract"
+severity = "warn"
+expr     = """
+  $cli_args_contract_source
+  AND kind = 'imports_module'
+  => NOT $cli_extract_runtime_target
+"""
+message  = "The CLI command contract in `args` imports the `extract` runtime; decide which layer owns the shared parsing vocabulary."
+rationale = """
+`args` declares the command surface consumed by every runtime, while `extract` implements one
+command. The current `args -> extract::Predicate` edge reverses that general direction. Resolve
+the warning by moving the predicate contract to `args` or a neutral module, or by documenting
+`extract::Predicate` as an intentional command-contract owner and replacing this proposed
+boundary with that explicit dependency rule.
+"""
+
+[[rust.shape.callable.where]]
+id       = "cli-mcp-call-flow-does-not-enter-mcp-command-module"
+severity = "warn"
+expr     = "$cli_lib AND name = 'run' => none(out_refs, kind = 'calls' AND $mcp_command_module_target)"
+message  = "`lib::run` enters the `mcp_command` module; clarify whether it is a CLI adapter or owns MCP runtime policy."
+rationale = """
+The command registry requires the `mcp` feature module, but the composition root dispatches its
+variant through the sibling `mcp_command` module. This may be the correct process adapter, yet
+the ownership split is currently implicit. Replace this sentinel with a stable call-flow rule
+once `mcp_command` is explicitly accepted as the adapter boundary, or move the dispatch to the
+decided owner and promote the resulting ownership rule.
 """
 
 [[rust.shape.type.where]]
-id       = "public-type-needs-external-consumer"
+id       = "cli-referenced-public-type-encapsulation-requires-crate-export-or-external-consumer"
 severity = "error"
 expr     = """
   $crate_cli
-  AND NOT uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/*'
+  AND NOT $cli_lib
   AND visibility = 'public'
   AND count(in_refs) > 0
-  => require("**/dir:crates/dir:cli/dir:src/module:lib/path:{name}")
-     OR count(in_refs, NOT source ~ '**/dir:crates/dir:cli/dir:src/**') > 0
+  => $cli_public_export OR count(in_refs, NOT $cli_internal_consumer) > 0
 """
 message  = "`{name}` is `pub` but it is neither exposed by the crate root nor consumed outside `crates/cli/src`; narrow it to `pub(crate)` (or `pub(in …)`)."
 rationale = """
@@ -41,15 +104,15 @@ time; the crate-root reexport lives in `lib.rs`, not in the defining file.
 """
 
 [[refs.where]]
-id       = "production-macros-must-not-hide-domain-calls"
+id       = "cli-production-call-flow-avoids-opaque-assertion-macros"
 severity = "error"
 expr     = """
   $crate_cli
   AND kind = 'calls'
   AND source.kind != 'test'
-  => NOT target ~ '**/sdk:rs/path:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'
+  => NOT $cli_opaque_assertion_macro
 """
-message  = "Macro `{target}` outside tests can hide domain calls from the Rust extractor; bind the value first or use explicit control flow."
+message  = "Assertion macro `{target.name}` outside tests can hide domain calls from the Rust extractor; bind the value first or use explicit control flow."
 rationale = """
 Architecture rules depend on a graph-readable production surface. Rust macros can hide calls
 inside token arguments, so a rule based on references may under-count real dependencies. Tests
@@ -59,20 +122,20 @@ control flow when the call matters structurally.
 """
 
 [[rust.shape.callable.where]]
-id       = "lib-only-dispatches-commands"
+id       = "cli-lib-composition-root-limits-callables-to-dispatch-and-process-exit-conversion"
 severity = "error"
-expr     = "$lib => name =~ ^(run|from)$"
-message  = "`lib.rs` callable `{name}` is not part of the CLI dispatch surface. Keep command runtime in the owning command module's `run`."
+expr     = "$cli_lib => name = 'run' OR $cli_exit_conversion"
+message  = "`lib.rs` callable `{name}` is neither command dispatch nor the `Exit` to `ExitCode` conversion."
 rationale = """
-`lib.rs` is the crate surface that routes `Command::*` to command modules. Allowing extra
-helpers or command runtime there turns the crate root back into a hidden command
-implementation.
+`lib.rs` routes `Command::*` to command modules and converts the public command result into the
+process exit contract. Only `run` and `ExitCode::from(Exit)` belong on that composition surface;
+extra helpers or command runtime would turn the crate root into a hidden implementation.
 """
 
 [[rust.shape.callable.where]]
-id       = "lib-has-no-inline-tests"
+id       = "cli-lib-hygiene-keeps-inline-tests-out"
 severity = "error"
-expr     = "$lib => kind != 'test'"
+expr     = "$cli_lib => kind != 'test'"
 message  = "`lib.rs` must not host inline test `{name}`; test command behavior through command modules or integration tests."
 rationale = """
 The crate root is a dispatch surface. Inline tests there tend to lock helper functions and
@@ -80,9 +143,9 @@ make command relocation harder.
 """
 
 [[rust.shape.callable.where]]
-id       = "lib-run-has-no-local-state"
+id       = "cli-run-single-responsibility-keeps-command-dispatch-stateless"
 severity = "error"
-expr     = "$lib AND name = 'run' => count(shape:value) = 3"
+expr     = "$cli_lib AND name = 'run' => count(shape:value) = 3"
 message  = "`lib::run` must not introduce local state; delegate each `Command::*` branch directly to the owning command module."
 rationale = """
 `lib::run` owns the command dispatch boundary only. Its stable symbol shape is the three

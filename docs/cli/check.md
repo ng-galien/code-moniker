@@ -36,7 +36,7 @@ in the canonical root `.code-moniker.toml`:
 ```toml
 [rules.taxonomy]
 patterns = ["ownership", "dependency", "call-flow", "hygiene"]
-components = ["workspace", "daemon", "query", "check", "code", "mcp"]
+components = ["workspace", "daemon", "query", "check", "code", "mcp", "index@workspace"]
 
 [[refs.where]]
 id = "dependency-query-use-contract-only"
@@ -45,21 +45,32 @@ expr = "$query_source => NOT $workspace_target"
 
 Patterns and components are semantic anchors in a natural rule id. A classified
 id contains exactly one declared pattern and at least one declared component,
-at any positions and without requiring adjacent components. Both vocabularies
-use lowercase kebab-case terms; a term such as `dependency-injection` or
-`roaring-bitmap` can span several id words. The most specific nested pattern
-wins at one occurrence, so `dependency-injection` does not also count as
-`dependency`. For example, `mcp-runtime-ownership-is-on-server` is classified
-with pattern `ownership` and component `mcp`. The taxonomy is structural project
-vocabulary: fragments and external `--rules` files cannot redefine it.
+at any positions and without requiring adjacent components. Patterns use
+lowercase kebab-case. Components use either lowercase kebab-case or one explicit
+`component@scope` pair. For example, `index@workspace` names the Workspace Index
+as one atomic component: direct filters and metrics do not also count it as the
+independent `index` or `workspace` components. A future parent roll-up would be
+a separate, explicit operation.
+
+A term such as `dependency-injection` or `roaring-bitmap` can span several id
+words. The most specific nested term wins at one occurrence, so
+`dependency-injection` does not also count as `dependency`, and `source-index`
+does not also count as `index`. For example,
+`mcp-runtime-ownership-is-on-server` is classified with pattern `ownership` and
+component `mcp`. The taxonomy is structural project vocabulary: fragments and
+inline overlays inherit it but cannot redefine it. Standalone external
+`--rules` files cannot declare or inherit the project taxonomy and therefore
+cannot use scoped `@` components.
 
 The static corpus also analyzes alias names directly referenced by each raw rule
-expression, before alias expansion. Taxonomy terms are normalized from kebab-case
-to snake_case for this comparison, so `roaring-bitmap` matches
-`$roaring_bitmap_index`. Matching uses complete name segments: `mcp` matches
-`$mcp_server`, but not `$xmcp_server`. Fragment-local aliases are reported under
-their declared name while their namespaced effective name remains available in
-JSON.
+expression, before alias expansion. Taxonomy terms are normalized from
+kebab-case to snake_case for this comparison, while a scoped component uses
+`_at_`: `roaring-bitmap` matches `$roaring_bitmap_index` and `index@workspace`
+matches `$index_at_workspace_target`. The taxonomy rejects terms that would
+normalize to the same alias anchor. Matching uses complete name segments: `mcp`
+matches `$mcp_server`, but not `$xmcp_server`. Fragment-local aliases are
+reported under their declared name while their namespaced effective name
+remains available in JSON.
 
 The report separates id classification from alias alignment and migration
 suggestions. It uses these stable diagnostic codes:

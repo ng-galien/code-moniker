@@ -3,37 +3,54 @@ fragment = "check"
 # Check DSL module boundaries.
 
 [aliases]
-expr       = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/**'"
-expr_collection = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:collection/**'"
-expr_pairs  = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:pairs/**'"
-expr_metrics = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:metrics/**'"
-eval       = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/**'"
-eval_local = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:local/**'"
-eval_value = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:value/**'"
-eval_collection = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:collection/**'"
-eval_pairs = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:pairs/**'"
-eval_metrics = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:metrics/**'"
-config     = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:config/**'"
+dsl_parser = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/**'"
+dsl_parser_corpus_tests = "moniker ~ '**/module:/^(snapshots|fuzz)$/**'"
+dsl_parser_snapshots = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:snapshots/**'"
+dsl_parser_fuzz_module = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:fuzz'"
+dsl_parser_fuzz_tests = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:fuzz/**'"
+dsl_evaluation = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/**'"
+dsl_local_evaluation = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:local/**'"
+dsl_value_evaluation = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:eval/*:value/**'"
+rules_config = "moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:config/**'"
+
+dsl_evaluation_target = "target ~ '**/*:/^eval$/**'"
+rules_config_target = "target ~ '**/*:/^config$/**'"
+workspace_runtime_target = """
+  target ~ '**/*:/^workspace$/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(code|linkage|registry|snapshot|source)$/**'
+"""
+index_at_workspace_target = """
+  target ~ '**/external_pkg:code_moniker_workspace/path:/^(code|linkage|registry|snapshot|source)$/**'
+  OR target ~ '**/path:/^(WorkspaceSnapshot|CodeIndex|LinkageSnapshot|SymbolInventoryIndex|CodeIndexMaterial)$/'
+"""
+dsl_graph_record_target = "target ~ '**/path:/^(CodeGraph|DefRecord|RefRecord)$/'"
+rules_fragment_loader_target = "target ~ '**/*:check/*:config/*:fragments/**'"
+dsl_multiset_algebra_target = "target ~ '**/method:/^(unique|intersect|union|difference|is_subset)$/'"
+dsl_pair_iteration_target = "target ~ '**/method:/^(eval_pair_count|eval_pair_quantifier)$/'"
+dsl_named_metric_target = "target ~ '**/method:/^(eval_metric|lcom4|cbo|rfc|wmc|dit|noc|fan_in|fan_out)$/'"
+dsl_proptest_macro_target = "target ~ '**/macro:proptest'"
 
 [[refs.where]]
-id      = "dependency-dsl-parser-syntax-only"
+id      = "dsl-parser-separation-of-concerns-preserves-syntax-before-evaluation-rules-config-and-workspace"
 expr    = """
-  $expr AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(eval|config|workspace)$/**'
+  $dsl_parser AND kind = 'imports_symbol'
+  => NOT ($dsl_evaluation_target OR $rules_config_target OR $workspace_runtime_target)
 """
-message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
+message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project runtime state stay outside the parser."
 rationale = """
 The parser should produce syntax and AST shapes that are deterministic from the rule text.
-Pulling runtime evaluation or workspace data into parsing would make rule loading stateful
-and harder to test in isolation.
+Pulling runtime evaluation, rules configuration, or workspace data into parsing would make
+rule loading stateful and harder to test in isolation. This boundary covers collection,
+pair, and named-metric syntax as parts of the same DSL parser. Pair bindings and metric calls
+remain syntax here; iterating data and computing formulas belong to evaluation.
 """
 
 [[rust.shape.callable.where]]
-id       = "expr-parser-tests-use-corpus-snapshots"
+id       = "dsl-parser-test-hygiene-uses-corpus-modules"
 severity = "error"
 expr     = """
-  $expr AND kind = 'test'
-  => moniker ~ '**/module:/^(snapshots|fuzz)$/**'
+  $dsl_parser AND kind = 'test'
+  => $dsl_parser_corpus_tests
 """
 message  = "`check::expr` parser test `{name}` is an internal unit test; parser behavior should be covered by corpus/snapshot tests or parser fuzz properties."
 rationale = """
@@ -43,11 +60,10 @@ coupling to parser internals.
 """
 
 [[rust.shape.callable.where]]
-id       = "expr-parser-snapshot-tests-use-insta"
+id       = "dsl-parser-snapshot-hygiene-uses-insta"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:snapshots/**'
-  AND kind = 'test'
+  $dsl_parser_snapshots AND kind = 'test'
   => any(out_refs, kind = 'calls' AND target.name = 'assert_json_snapshot')
 """
 message  = "`check::expr::snapshots` test `{name}` must use `insta::assert_json_snapshot!`."
@@ -58,11 +74,11 @@ internals.
 """
 
 [[rust.module.where]]
-id       = "expr-parser-fuzz-tests-use-proptest"
+id       = "dsl-parser-fuzz-hygiene-uses-proptest"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:fuzz'
-  => any(out_refs, kind = 'calls' AND target ~ '**/macro:proptest')
+  $dsl_parser_fuzz_module
+  => any(out_refs, kind = 'calls' AND $dsl_proptest_macro_target)
 """
 message  = "`check::expr::fuzz` must define parser fuzz properties through `proptest!`."
 rationale = """
@@ -72,11 +88,10 @@ unit tests.
 """
 
 [[rust.shape.callable.where]]
-id       = "expr-parser-fuzz-tests-are-robustness-properties"
+id       = "dsl-parser-fuzz-hygiene-covers-robustness"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:check/dir:src/*:check/*:expr/*:fuzz/**'
-  AND kind = 'test'
+  $dsl_parser_fuzz_tests AND kind = 'test'
   => name =~ never_panics
 """
 message  = "`check::expr::fuzz` test `{name}` should assert parser robustness, not parser internals."
@@ -86,26 +101,27 @@ robustness checks. Expected AST shape and diagnostics belong in the snapshot cor
 """
 
 [[refs.where]]
-id      = "eval-local-graph-only"
+id      = "dsl-and-index@workspace-separation-of-concerns-preserves-local-evaluation"
 expr    = """
-  $eval AND kind = 'imports_symbol'
-  => NOT (target ~ '**/*:/^(workspace|linkage)$/**'
-       OR target ~ '**/path:/^(SessionIndex|LinkageIndex)$/')
+  $dsl_evaluation AND kind = 'imports_symbol'
+  => NOT $index_at_workspace_target
 """
 message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
 rationale = """
 Rule expressions currently evaluate against one local graph item at a time. Keeping project
 indexes out of this layer preserves predictable cost and leaves cross-file semantics to
-explicit higher-level features.
+explicit higher-level features. Collection algebra, pair iteration, and named metrics all
+inherit this local evaluation boundary. In particular, pair scans remain local and bounded
+for hook latency, while named metrics keep the same meaning in file and project checks.
 """
 
 [[refs.where]]
-id      = "config-no-runtime-eval"
+id      = "rules-config-single-responsibility-preserves-static-compilation-before-dsl-evaluation-and-workspace-runtime"
 expr    = """
-  $config AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(eval|workspace)$/**'
+  $rules_config AND kind = 'imports_symbol'
+  => NOT ($dsl_evaluation_target OR $workspace_runtime_target)
 """
-message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
+message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace runtime state."
 rationale = """
 Config loading must stay a pure compilation step from TOML to rule specs. If it starts
 evaluating against workspaces, `rules show`, hooks, and tests inherit runtime dependencies
@@ -113,27 +129,27 @@ they do not need.
 """
 
 [[refs.where]]
-id      = "config-fragments-private"
+id      = "rules-fragment-loader-encapsulation-keeps-merge-internals-private"
 expr    = """
   (kind = 'imports_symbol' OR kind = 'imports_module')
-  AND target ~ '**/*:check/*:config/*:fragments/**'
-  => $config OR $rust_inline_tests
+  AND $rules_fragment_loader_target
+  => $rules_config OR $rust_inline_tests
 """
 message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
 rationale = """
 Fragment discovery and namespacing are merge internals. Keeping callers on the public config
 API lets the loader change fragment mechanics without leaking partial or unmerged rule
-state.
+state. Rust inline tests are the deliberate exception: they may exercise loader internals
+without widening the production API.
 """
 
-# Layer 1: local domain aggregators.
+# Projected values remain separate from graph traversal.
 
 [[refs.where]]
-id      = "dsl-layer1-eval-value-is-graph-free"
+id      = "dsl-value-and-index@workspace-separation-of-concerns-preserves-projected-values"
 expr    = """
-  $eval_value AND kind = 'imports_symbol'
-  => NOT (target ~ '**/path:/^(CodeGraph|DefRecord|RefRecord)$/'
-       OR target ~ '**/*:/^(workspace|linkage)$/**')
+  $dsl_value_evaluation AND kind = 'imports_symbol'
+  => NOT ($dsl_graph_record_target OR $index_at_workspace_target)
 """
 message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
 rationale = """
@@ -141,124 +157,38 @@ Value evaluation should compare and render already-projected values. Keeping raw
 traversal out of it avoids a second traversal owner beside `eval::local`.
 """
 
-# Layer 2: multisets and set operations.
-
 [[refs.where]]
-id      = "dsl-layer2-expr-collection-parser-isolated"
+id      = "dsl-local-evaluation-single-responsibility-excludes-multiset-algebra"
 expr    = """
-  $expr_collection AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(eval|config|workspace)$/**'
+  $dsl_local_evaluation AND kind = 'method_call'
+  => NOT $dsl_multiset_algebra_target
 """
-message = "`check::expr::collection` must remain syntax/AST only; multiset evaluation belongs outside the parser."
-rationale = """
-Collection syntax is part of rule parsing, but collection contents are runtime facts.
-Keeping the parser AST-only lets `rules show` and config validation run without workspace
-data.
-"""
-
-[[refs.where]]
-id      = "dsl-layer2-eval-collection-local-only"
-expr    = """
-  $eval_collection AND kind = 'imports_symbol'
-  => NOT (target ~ '**/*:/^(workspace|linkage)$/**'
-       OR target ~ '**/path:/^(SessionIndex|LinkageIndex)$/')
-"""
-message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
-rationale = """
-Multiset operators should be predictable local analytics over the current graph item.
-Project-wide linkage would change their cost model and blur the boundary with impact/linkage
-indexes.
-"""
-
-[[refs.where]]
-id      = "dsl-layer2-eval-local-does-not-own-multiset-algebra"
-expr    = """
-  $eval_local
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:/^(unique|intersect|union|difference|is_subset)$/'
-"""
-message = "`check::eval::local` owns domain traversal and numeric local metrics; multiset algebra belongs to `check::eval::collection`."
+message = "`check::eval::local` owns domain traversal and numeric local metrics; it must not absorb multiset algebra from `check::eval::collection`."
 rationale = """
 Local evaluation may enumerate domains, but set operations need their own algebra and
 equality semantics. Centralizing them in `eval::collection` avoids duplicate multiset
 behavior.
 """
 
-# Layer 3: local pair iteration.
-
 [[refs.where]]
-id      = "dsl-layer3-pairs-parser-isolated"
+id      = "dsl-local-evaluation-single-responsibility-excludes-pair-iteration"
 expr    = """
-  $expr_pairs AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(eval|config|workspace)$/**'
+  $dsl_local_evaluation AND kind = 'method_call'
+  => NOT $dsl_pair_iteration_target
 """
-message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
-rationale = """
-`pairs(D)` introduces binding syntax for `a.*` and `b.*`. Parsing those bindings separately
-keeps pair grammar explicit without making the parser depend on graph contents.
-"""
-
-[[refs.where]]
-id      = "dsl-layer3-eval-pairs-local-only"
-expr    = """
-  $eval_pairs AND kind = 'imports_symbol'
-  => NOT (target ~ '**/*:/^(workspace|linkage)$/**'
-       OR target ~ '**/path:/^(SessionIndex|LinkageIndex)$/')
-"""
-message = "`check::eval::pairs` must evaluate pair domains from the local `CodeGraph`; project-wide linkage stays outside local analysis."
-rationale = """
-Pair rules are combinatorial even when local. Keeping them local protects hook latency and
-avoids accidental all-project pair scans.
-"""
-
-[[refs.where]]
-id      = "dsl-layer3-eval-local-does-not-own-pair-iteration"
-expr    = """
-  $eval_local
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:/^(eval_pair_count|eval_pair_quantifier)$/'
-"""
-message = "`check::eval::local` owns domain traversal and numeric local metrics; pair iteration belongs to `check::eval::pairs`."
+message = "`check::eval::local` owns domain traversal and numeric local metrics; it must not absorb pair iteration from `check::eval::pairs`."
 rationale = """
 Pair iteration has different cardinality and binding rules from ordinary domain traversal.
 Isolating it makes cost and diagnostics easier to reason about.
 """
 
-# Layer 4: named local metrics.
-
 [[refs.where]]
-id      = "dsl-layer4-expr-metrics-parser-isolated"
+id      = "dsl-local-evaluation-single-responsibility-excludes-named-metric-formulas"
 expr    = """
-  $expr_metrics AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(eval|config|workspace)$/**'
+  $dsl_local_evaluation AND kind = 'method_call'
+  => NOT $dsl_named_metric_target
 """
-message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
-rationale = """
-Named metrics are syntax in the parser and algorithms in evaluation. Separating the two
-keeps metric parsing cheap and prevents formulas from affecting rule loading.
-"""
-
-[[refs.where]]
-id      = "dsl-layer4-metrics-local-only"
-expr    = """
-  $eval_metrics AND kind = 'imports_symbol'
-  => NOT (target ~ '**/*:/^(workspace|linkage)$/**'
-       OR target ~ '**/path:/^(SessionIndex|LinkageIndex)$/')
-"""
-message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
-rationale = """
-Current metrics are local structural signals. Keeping them project-index-free makes their
-meaning stable in per-file hooks and full project checks.
-"""
-
-[[refs.where]]
-id      = "dsl-layer4-eval-local-does-not-own-named-metrics"
-expr    = """
-  $eval_local
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:/^(eval_metric|lcom4|cbo|rfc|wmc|dit|noc|fan_in|fan_out)$/'
-"""
-message = "`check::eval::local` owns reusable local traversal/stat helpers; named metric formulas belong to `check::eval::metrics`."
+message = "`check::eval::local` owns reusable local traversal/stat helpers; it must not absorb named formulas from `check::eval::metrics`."
 rationale = """
 Named metrics have domain-specific formulas and should be discoverable in one module.
 Leaving them in `eval::local` would turn the shared traversal layer into a metrics grab bag.

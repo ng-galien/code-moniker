@@ -1,8 +1,9 @@
 use serde::Serialize;
 
 use super::config::{
-	Config, RuleSource, RuleSourceKind, RuleTaxonomy, is_canonical_taxonomy_term,
-	rule_source_for_compiled_id,
+	Config, RuleSource, RuleSourceKind, RuleTaxonomy, is_canonical_rule_id,
+	rule_source_for_compiled_id, scope_markers_belong_to_declared_components,
+	taxonomy_alias_anchor,
 };
 use super::eval::CompiledRuleSpec;
 
@@ -279,7 +280,7 @@ fn analyze_rule_expressions(
 			.map(|effective_name| {
 				let name = declared_alias_name(&effective_name, fragment, local_aliases);
 				let patterns = maximal_matching_alias_terms(&name, &taxonomy.patterns);
-				let components = matching_alias_terms(&name, &taxonomy.components);
+				let components = maximal_matching_alias_terms(&name, &taxonomy.components);
 				RuleAliasUsage {
 					effective_name: (name != effective_name).then_some(effective_name),
 					name,
@@ -519,6 +520,19 @@ fn rule_origin(source: &RuleSource) -> RuleOrigin {
 }
 
 pub fn classify_rule_id(id: &str, taxonomy: Option<&RuleTaxonomy>) -> RuleClassification {
+	if id.contains('@') && taxonomy.is_none() {
+		return RuleClassification {
+			id: id.to_string(),
+			status: RuleClassificationStatus::Invalid,
+			pattern: None,
+			components: Vec::new(),
+			diagnostics: vec![
+				"rule id uses `@` without a declared scoped component taxonomy".to_string(),
+			],
+			candidate_patterns: Vec::new(),
+			candidate_components: Vec::new(),
+		};
+	}
 	let Some(taxonomy) = taxonomy else {
 		return RuleClassification {
 			id: id.to_string(),
@@ -531,14 +545,28 @@ pub fn classify_rule_id(id: &str, taxonomy: Option<&RuleTaxonomy>) -> RuleClassi
 		};
 	};
 	let candidate_patterns = maximal_matching_terms(id, &taxonomy.patterns);
-	let candidate_components = matching_terms(id, &taxonomy.components);
-	if !is_canonical_taxonomy_term(id) {
+	let candidate_components = maximal_matching_terms_in_id_order(id, &taxonomy.components);
+	if !is_canonical_rule_id(id) {
 		return RuleClassification {
 			id: id.to_string(),
 			status: RuleClassificationStatus::Invalid,
 			pattern: None,
 			components: Vec::new(),
-			diagnostics: vec!["rule id is not canonical kebab-case".to_string()],
+			diagnostics: vec![
+				"rule id is not canonical kebab-case with optional component@scope anchors"
+					.to_string(),
+			],
+			candidate_patterns,
+			candidate_components,
+		};
+	}
+	if !scope_markers_belong_to_declared_components(id, &taxonomy.components) {
+		return RuleClassification {
+			id: id.to_string(),
+			status: RuleClassificationStatus::Invalid,
+			pattern: None,
+			components: Vec::new(),
+			diagnostics: vec!["rule id uses `@` outside a declared scoped component".to_string()],
 			candidate_patterns,
 			candidate_components,
 		};
@@ -576,51 +604,51 @@ pub fn classify_rule_id(id: &str, taxonomy: Option<&RuleTaxonomy>) -> RuleClassi
 	}
 }
 
-fn matching_terms(id: &str, terms: &[String]) -> Vec<String> {
-	matching_terms_in_words(&id.split('-').collect::<Vec<_>>(), terms)
-}
-
-fn matching_alias_terms(alias: &str, terms: &[String]) -> Vec<String> {
-	matching_terms_in_words(&alias.split('_').collect::<Vec<_>>(), terms)
-}
-
-fn matching_terms_in_words(words: &[&str], terms: &[String]) -> Vec<String> {
-	let mut matches = terms
-		.iter()
-		.filter_map(|term| {
-			let parts = term.split('-').collect::<Vec<_>>();
-			words
-				.windows(parts.len())
-				.position(|window| window == parts)
-				.map(|start| (start, parts.len(), term.clone()))
-		})
-		.collect::<Vec<_>>();
-	matches.sort_by(|left, right| {
-		left.0
-			.cmp(&right.0)
-			.then_with(|| right.1.cmp(&left.1))
-			.then_with(|| left.2.cmp(&right.2))
-	});
-	matches.into_iter().map(|(_, _, term)| term).collect()
-}
-
 fn maximal_matching_terms(id: &str, terms: &[String]) -> Vec<String> {
-	maximal_matching_terms_in_words(&id.split('-').collect::<Vec<_>>(), terms)
+	maximal_matching_terms_in_words_with(
+		&id.split('-').collect::<Vec<_>>(),
+		terms,
+		id_term_parts,
+		false,
+	)
+}
+
+fn maximal_matching_terms_in_id_order(id: &str, terms: &[String]) -> Vec<String> {
+	maximal_matching_terms_in_words_with(
+		&id.split('-').collect::<Vec<_>>(),
+		terms,
+		id_term_parts,
+		true,
+	)
 }
 
 fn maximal_matching_alias_terms(alias: &str, terms: &[String]) -> Vec<String> {
-	maximal_matching_terms_in_words(&alias.split('_').collect::<Vec<_>>(), terms)
+	maximal_matching_terms_in_words_with(
+		&alias.split('_').collect::<Vec<_>>(),
+		terms,
+		alias_term_parts,
+		false,
+	)
 }
 
-fn maximal_matching_terms_in_words(words: &[&str], terms: &[String]) -> Vec<String> {
+fn maximal_matching_terms_in_words_with(
+	words: &[&str],
+	terms: &[String],
+	term_parts: fn(&str) -> Vec<String>,
+	preserve_position: bool,
+) -> Vec<String> {
 	let mut occurrences = Vec::new();
 	for term in terms {
-		let parts = term.split('-').collect::<Vec<_>>();
+		let parts = term_parts(term);
 		if parts.len() > words.len() {
 			continue;
 		}
 		for start in 0..=words.len() - parts.len() {
-			if words[start..start + parts.len()] == parts {
+			if words[start..start + parts.len()]
+				.iter()
+				.copied()
+				.eq(parts.iter().map(String::as_str))
+			{
 				occurrences.push((term, start, start + parts.len()));
 			}
 		}
@@ -635,11 +663,29 @@ fn maximal_matching_terms_in_words(words: &[&str], terms: &[String]) -> Vec<Stri
 					&& other_end - other_start > end - start
 			})
 		})
-		.map(|(term, _, _)| (*term).clone())
+		.map(|(term, start, _)| (*start, (*term).clone()))
 		.collect::<Vec<_>>();
-	matches.sort();
-	matches.dedup();
+	if preserve_position {
+		matches.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+	} else {
+		matches.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+	}
+	let mut seen = std::collections::HashSet::new();
 	matches
+		.into_iter()
+		.filter_map(|(_, term)| seen.insert(term.clone()).then_some(term))
+		.collect()
+}
+
+fn id_term_parts(term: &str) -> Vec<String> {
+	term.split('-').map(str::to_string).collect()
+}
+
+fn alias_term_parts(term: &str) -> Vec<String> {
+	taxonomy_alias_anchor(term)
+		.split('_')
+		.map(str::to_string)
+		.collect()
 }
 
 #[cfg(test)]
@@ -796,6 +842,103 @@ mod tests {
 		assert_eq!(result.status, RuleClassificationStatus::Classified);
 		assert_eq!(result.pattern.as_deref(), Some("hygiene"));
 		assert_eq!(result.components, vec!["code", "index"]);
+	}
+
+	#[test]
+	fn prefers_the_most_specific_declared_component() {
+		let taxonomy = RuleTaxonomy {
+			patterns: vec!["ownership".to_string()],
+			components: vec!["index".to_string(), "source-index".to_string()],
+		};
+		let result = classify_rule_id(
+			"source-index-ownership-stays-with-workspace",
+			Some(&taxonomy),
+		);
+		assert_eq!(result.status, RuleClassificationStatus::Classified);
+		assert_eq!(result.components, vec!["source-index"]);
+		assert_eq!(result.candidate_components, vec!["source-index"]);
+	}
+
+	#[test]
+	fn scoped_components_are_atomic_in_rule_ids_and_aliases() {
+		let taxonomy = RuleTaxonomy {
+			patterns: vec!["separation-of-concerns".to_string()],
+			components: vec![
+				"dsl".to_string(),
+				"index".to_string(),
+				"workspace".to_string(),
+				"index@workspace".to_string(),
+			],
+		};
+		let classification = classify_rule_id(
+			"dsl-and-index@workspace-separation-of-concerns-preserves-local-evaluation",
+			Some(&taxonomy),
+		);
+		assert_eq!(classification.status, RuleClassificationStatus::Classified);
+		assert_eq!(classification.components, vec!["dsl", "index@workspace"]);
+
+		let analysis = analyze_rule(
+			"$dsl_evaluation AND $index_at_workspace_target",
+			&classification,
+			Some(&taxonomy),
+			None,
+			&[],
+		);
+		assert_eq!(analysis.used_aliases[0].components, vec!["dsl"]);
+		assert_eq!(analysis.used_aliases[1].components, vec!["index@workspace"]);
+		assert!(analysis.diagnostics.is_empty(), "{analysis:#?}");
+	}
+
+	#[test]
+	fn rejects_scope_markers_outside_declared_components() {
+		let taxonomy = RuleTaxonomy {
+			patterns: vec!["hygiene".to_string()],
+			components: vec![
+				"dsl".to_string(),
+				"index".to_string(),
+				"workspace".to_string(),
+			],
+		};
+		let classification =
+			classify_rule_id("dsl-index@workspace-hygiene-is-explicit", Some(&taxonomy));
+		assert_eq!(classification.status, RuleClassificationStatus::Invalid);
+		assert_eq!(
+			classification.diagnostics,
+			vec!["rule id uses `@` outside a declared scoped component"]
+		);
+	}
+
+	#[test]
+	fn rejects_scope_markers_without_a_taxonomy() {
+		let classification = classify_rule_id("index@workspace-ownership-is-explicit", None);
+		assert_eq!(classification.status, RuleClassificationStatus::Invalid);
+		assert_eq!(
+			classification.diagnostics,
+			vec!["rule id uses `@` without a declared scoped component taxonomy"]
+		);
+	}
+
+	#[test]
+	fn accepts_multiple_distinct_declared_scoped_components() {
+		let taxonomy = RuleTaxonomy {
+			patterns: vec!["ownership".to_string()],
+			components: vec!["index@workspace".to_string(), "cache@daemon".to_string()],
+		};
+		let classification = classify_rule_id(
+			"index@workspace-and-cache@daemon-ownership-is-explicit",
+			Some(&taxonomy),
+		);
+		assert_eq!(classification.status, RuleClassificationStatus::Classified);
+		assert_eq!(
+			classification.components,
+			vec!["index@workspace", "cache@daemon"]
+		);
+
+		let malformed = classify_rule_id(
+			"index@workspace@daemon-ownership-is-explicit",
+			Some(&taxonomy),
+		);
+		assert_eq!(malformed.status, RuleClassificationStatus::Invalid);
 	}
 
 	#[test]
@@ -1044,7 +1187,7 @@ mod tests {
 	fn alias_anchor_matching_uses_exact_snake_case_terms() {
 		let taxonomy = alignment_taxonomy();
 		assert_eq!(
-			matching_alias_terms("xmcp_server", &taxonomy.components),
+			maximal_matching_alias_terms("xmcp_server", &taxonomy.components),
 			Vec::<String>::new()
 		);
 		assert_eq!(

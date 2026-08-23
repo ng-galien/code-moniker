@@ -371,6 +371,12 @@ pub enum ConfigError {
 	RuleTaxonomyOutsideProjectRoot { path: String },
 	#[error("invalid rules taxonomy in `{path}`: {message}")]
 	InvalidRuleTaxonomy { path: String, message: String },
+	#[error("invalid scoped rule id `{id}` in `{path}`: {message}")]
+	InvalidScopedRuleId {
+		path: String,
+		id: String,
+		message: String,
+	},
 	#[error("view `{view}` {section} references unknown rule `{rule_id}`")]
 	UnknownViewRuleReference {
 		view: String,
@@ -441,7 +447,7 @@ pub enum ConfigError {
 		at: String,
 	},
 	#[error(
-		"invalid rule id `{id}` in fragment `{fragment}` at `{path}`; use ASCII letters, digits, `_`, or `-`"
+		"invalid rule id `{id}` in fragment `{fragment}` at `{path}`; use ASCII letters, digits, `_`, `-`, or a well-formed `@` component scope"
 	)]
 	InvalidFragmentRuleId {
 		path: String,
@@ -551,7 +557,8 @@ fn parse_inline_config(raw: &str, index: usize) -> Result<Config, ConfigError> {
 	})?;
 	ensure_source_groups_owned_by_project_root(&user, &path, false)?;
 	ensure_rule_taxonomy_owned_by_project_root(&user, &path, false)?;
-	validate(&user, &path)?;
+	resolve_aliases(&user.aliases)?;
+	validate_structure(&user, &path)?;
 	Ok(user)
 }
 
@@ -645,6 +652,7 @@ fn load_with_project(
 		merge_into(&mut cfg, inline);
 	}
 	rebuild_rule_sources(&mut cfg);
+	validate_scoped_rule_ids(&cfg, "<effective config>")?;
 	Ok(cfg)
 }
 
@@ -1057,7 +1065,8 @@ pub(crate) fn substitute_aliases(
 /// Aliases are resolved first so cycles surface before any kind / visibility check.
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	resolve_aliases(&cfg.aliases)?;
-	validate_structure(cfg, path)
+	validate_structure(cfg, path)?;
+	validate_scoped_rule_ids(cfg, path)
 }
 
 fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
@@ -1082,7 +1091,9 @@ fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 		if !is_stable_group_rule_id(id) {
 			return Err(ConfigError::InvalidWorkspaceGroup {
 				at: format!("workspace.group.{id}"),
-				message: "`id` may contain only ASCII letters, digits, `_` and `-`".to_string(),
+				message:
+					"`id` may contain ASCII letters, digits, `_`, `-`, and well-formed `@` component scopes"
+						.to_string(),
 			});
 		}
 	}
@@ -1127,28 +1138,64 @@ fn validate_rule_taxonomy(taxonomy: &RuleTaxonomy, path: &str) -> Result<(), Con
 		});
 	}
 	let mut seen = HashSet::new();
-	for (kind, terms) in [
-		("pattern", taxonomy.patterns.as_slice()),
-		("component", taxonomy.components.as_slice()),
-	] {
-		for term in terms {
-			if !is_canonical_taxonomy_term(term) {
-				return Err(ConfigError::InvalidRuleTaxonomy {
-					path: path.to_string(),
-					message: format!(
-						"{kind} `{term}` is not canonical kebab-case (lowercase ASCII letters and digits separated by single hyphens)"
-					),
-				});
-			}
-			if !seen.insert(term.as_str()) {
-				return Err(ConfigError::InvalidRuleTaxonomy {
-					path: path.to_string(),
-					message: format!("taxonomy term `{term}` is duplicated or ambiguous"),
-				});
-			}
+	let mut alias_anchors = HashMap::new();
+	for pattern in &taxonomy.patterns {
+		if !is_canonical_taxonomy_term(pattern) {
+			return Err(ConfigError::InvalidRuleTaxonomy {
+				path: path.to_string(),
+				message: format!(
+					"pattern `{pattern}` is not canonical kebab-case (lowercase ASCII letters and digits separated by single hyphens)"
+				),
+			});
 		}
+		if !seen.insert(pattern.as_str()) {
+			return Err(ConfigError::InvalidRuleTaxonomy {
+				path: path.to_string(),
+				message: format!("taxonomy term `{pattern}` is duplicated or ambiguous"),
+			});
+		}
+		validate_taxonomy_alias_anchor(&mut alias_anchors, "pattern", pattern, path)?;
+	}
+	for component in &taxonomy.components {
+		if !is_canonical_component_term(component) {
+			return Err(ConfigError::InvalidRuleTaxonomy {
+				path: path.to_string(),
+				message: format!(
+					"component `{component}` is not canonical kebab-case or a single `component@scope` pair"
+				),
+			});
+		}
+		if !seen.insert(component.as_str()) {
+			return Err(ConfigError::InvalidRuleTaxonomy {
+				path: path.to_string(),
+				message: format!("taxonomy term `{component}` is duplicated or ambiguous"),
+			});
+		}
+		validate_taxonomy_alias_anchor(&mut alias_anchors, "component", component, path)?;
 	}
 	Ok(())
+}
+
+fn validate_taxonomy_alias_anchor<'a>(
+	seen: &mut HashMap<String, (&'static str, &'a str)>,
+	kind: &'static str,
+	term: &'a str,
+	path: &str,
+) -> Result<(), ConfigError> {
+	let anchor = taxonomy_alias_anchor(term);
+	if let Some((existing_kind, existing_term)) = seen.insert(anchor.clone(), (kind, term)) {
+		return Err(ConfigError::InvalidRuleTaxonomy {
+			path: path.to_string(),
+			message: format!(
+				"{kind} `{term}` and {existing_kind} `{existing_term}` both normalize to alias anchor `{anchor}`"
+			),
+		});
+	}
+	Ok(())
+}
+
+pub(crate) fn taxonomy_alias_anchor(term: &str) -> String {
+	term.replace('@', "-at-").replace('-', "_")
 }
 
 pub(crate) fn is_canonical_taxonomy_term(value: &str) -> bool {
@@ -1161,11 +1208,116 @@ pub(crate) fn is_canonical_taxonomy_term(value: &str) -> bool {
 		})
 }
 
+pub(crate) fn is_canonical_component_term(value: &str) -> bool {
+	let mut parts = value.split('@');
+	let Some(component) = parts.next() else {
+		return false;
+	};
+	if !is_canonical_taxonomy_term(component) {
+		return false;
+	}
+	match parts.next() {
+		None => true,
+		Some(scope) => is_canonical_taxonomy_term(scope) && parts.next().is_none(),
+	}
+}
+
+pub(crate) fn is_canonical_rule_id(value: &str) -> bool {
+	if value.is_empty()
+		|| !value.bytes().all(|byte| {
+			byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'@')
+		}) {
+		return false;
+	}
+	let bytes = value.as_bytes();
+	bytes.iter().enumerate().all(|(index, byte)| match byte {
+		b'-' => {
+			index > 0
+				&& index + 1 < bytes.len()
+				&& bytes[index - 1] != b'-'
+				&& bytes[index + 1] != b'-'
+		}
+		b'@' => {
+			index > 0
+				&& index + 1 < bytes.len()
+				&& bytes[index - 1].is_ascii_alphanumeric()
+				&& bytes[index + 1].is_ascii_alphanumeric()
+		}
+		_ => true,
+	})
+}
+
 fn is_stable_group_rule_id(id: &str) -> bool {
 	!id.is_empty()
 		&& id
 			.bytes()
-			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'@'))
+		&& well_formed_scope_markers(id)
+}
+
+pub(crate) fn well_formed_scope_markers(id: &str) -> bool {
+	let bytes = id.as_bytes();
+	bytes.iter().enumerate().all(|(index, byte)| {
+		*byte != b'@'
+			|| (index > 0
+				&& index + 1 < bytes.len()
+				&& bytes[index - 1].is_ascii_alphanumeric()
+				&& bytes[index + 1].is_ascii_alphanumeric())
+	})
+}
+
+pub(crate) fn scope_markers_belong_to_declared_components(id: &str, components: &[String]) -> bool {
+	id.match_indices('@').all(|(marker, _)| {
+		components
+			.iter()
+			.filter(|component| component.contains('@'))
+			.any(|component| {
+				id.match_indices(component).any(|(start, _)| {
+					let end = start + component.len();
+					start <= marker
+						&& marker < end && (start == 0 || id.as_bytes()[start - 1] == b'-')
+						&& (end == id.len() || id.as_bytes()[end] == b'-')
+				})
+			})
+	})
+}
+
+fn validate_scoped_rule_ids(cfg: &Config, path: &str) -> Result<(), ConfigError> {
+	for (_, mut id, marker) in collect_rule_declarations(cfg) {
+		if !id.contains('@') {
+			continue;
+		}
+		if let Some(fragment) = marker
+			.as_ref()
+			.and_then(|source| source.fragment.as_deref())
+			&& let Some(local_id) = id.strip_prefix(&format!("{fragment}."))
+		{
+			id = local_id.to_string();
+		}
+		let source_path = marker
+			.as_ref()
+			.and_then(|source| source.source.as_deref())
+			.unwrap_or(path);
+		let Some(taxonomy) = cfg.rules.taxonomy.as_ref() else {
+			return Err(ConfigError::InvalidScopedRuleId {
+				path: source_path.to_string(),
+				id,
+				message: "`@` requires a scoped component declared in `rules.taxonomy.components`"
+					.to_string(),
+			});
+		};
+		if !well_formed_scope_markers(&id)
+			|| !scope_markers_belong_to_declared_components(&id, &taxonomy.components)
+		{
+			return Err(ConfigError::InvalidScopedRuleId {
+				path: source_path.to_string(),
+				id,
+				message: "each `@` must belong to an exact declared `component@scope` anchor"
+					.to_string(),
+			});
+		}
+	}
+	Ok(())
 }
 
 fn validate_workspace_path(rule: &WorkspacePathRuleEntry, index: usize) -> Result<(), ConfigError> {
@@ -1182,7 +1334,9 @@ fn validate_workspace_path(rule: &WorkspacePathRuleEntry, index: usize) -> Resul
 	if !is_stable_group_rule_id(id) {
 		return Err(ConfigError::InvalidWorkspacePath {
 			at,
-			message: "`id` may contain only ASCII letters, digits, `_` and `-`".to_string(),
+			message:
+				"`id` may contain ASCII letters, digits, `_`, `-`, and well-formed `@` component scopes"
+					.to_string(),
 		});
 	}
 	let invalid = if rule.from.trim().is_empty() {
@@ -1741,6 +1895,15 @@ mod tests {
 
 	#[test]
 	fn validates_rule_taxonomy_terms() {
+		parse(
+			r#"
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["index", "workspace", "index@workspace"]
+			"#,
+		)
+		.expect("one-level scoped components are canonical");
+
 		let error = parse(
 			r#"
 			[rules.taxonomy]
@@ -1768,6 +1931,81 @@ mod tests {
 			error
 				.to_string()
 				.contains("taxonomy term `query` is duplicated or ambiguous"),
+			"{error}"
+		);
+
+		for (patterns, components) in [
+			(
+				r#"["ownership"]"#,
+				r#"["index@workspace", "index-at-workspace"]"#,
+			),
+			(r#"["index-at-workspace"]"#, r#"["index@workspace"]"#),
+		] {
+			let error = parse(&format!(
+				r#"
+				[rules.taxonomy]
+				patterns = {patterns}
+				components = {components}
+				"#
+			))
+			.expect_err("taxonomy alias anchors must be unambiguous");
+			assert!(
+				error
+					.to_string()
+					.contains("both normalize to alias anchor `index_at_workspace`"),
+				"{error}"
+			);
+		}
+
+		for component in ["@workspace", "index@", "index@@workspace"] {
+			let error = parse(&format!(
+				r#"
+				[rules.taxonomy]
+				patterns = ["ownership"]
+				components = ["{component}"]
+				"#
+			))
+			.expect_err("malformed scoped components must fail");
+			assert!(
+				error.to_string().contains("single `component@scope` pair"),
+				"{error}"
+			);
+		}
+	}
+
+	#[test]
+	fn scoped_rule_ids_require_exact_declared_components() {
+		let error = parse(
+			r#"
+			[[rust.fn.where]]
+			id = "index@workspace-ownership-is-explicit"
+			expr = "name != 'forbidden'"
+			"#,
+		)
+		.expect_err("scoped IDs require a project taxonomy");
+		assert!(
+			error
+				.to_string()
+				.contains("`@` requires a scoped component declared"),
+			"{error}"
+		);
+
+		let error = parse(
+			r#"
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["index", "workspace"]
+
+			[[rust.fn.where]]
+			id = "index@workspace-ownership-is-explicit"
+			expr = "name != 'forbidden'"
+			"#,
+		)
+		.expect_err("unknown scoped components must fail");
+		assert!(
+			error
+				.to_string()
+				.contains("each `@` must belong to an exact declared"),
 			"{error}"
 		);
 	}
@@ -2685,6 +2923,65 @@ roots = ["src"]
 	}
 
 	#[test]
+	fn inline_scoped_rule_ids_use_the_effective_project_taxonomy() {
+		let project = tempfile::tempdir().unwrap();
+		let root = project.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["hygiene"]
+			components = ["index@workspace"]
+			"#,
+		)
+		.unwrap();
+		let inline = vec![
+			r#"
+			[[rust.fn.where]]
+			id = "index@workspace-hygiene-inline-probe"
+			expr = "name != 'forbidden'"
+			"#
+			.to_string(),
+		];
+
+		let cfg = load_project_with_cli_sources(project.path(), Some(&root), &inline, None)
+			.expect("the project taxonomy authorizes the inline scoped component");
+		assert!(
+			cfg.rules_for(Lang::Rs, "fn")
+				.unwrap()
+				.rules
+				.iter()
+				.any(|rule| rule.id.as_deref() == Some("index@workspace-hygiene-inline-probe"))
+		);
+	}
+
+	#[test]
+	fn inline_scoped_rule_ids_fail_without_an_effective_project_taxonomy() {
+		let project = tempfile::tempdir().unwrap();
+		let root = project.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		let inline = vec![
+			r#"
+			[[rust.fn.where]]
+			id = "index@workspace-hygiene-inline-probe"
+			expr = "name != 'forbidden'"
+			"#
+			.to_string(),
+		];
+
+		let error = load_project_with_cli_sources(project.path(), Some(&root), &inline, None)
+			.expect_err("an inline scope requires an effective project taxonomy");
+		assert!(
+			error
+				.to_string()
+				.contains("`@` requires a scoped component declared"),
+			"{error}"
+		);
+	}
+
+	#[test]
 	fn repeated_inline_rules_merge_in_order() {
 		let inline = vec![
 			r#"
@@ -2778,6 +3075,69 @@ roots = ["src"]
 		assert!(
 			ids.iter().any(|id| id == "rust.fn.check.parser-only"),
 			"{ids:?}"
+		);
+	}
+
+	#[test]
+	fn fragment_rules_accept_scoped_components_in_ids() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["index@workspace"]
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"crates/check/src/check",
+			r#"
+			fragment = "check"
+
+			[[rust.fn.where]]
+			id = "index@workspace-ownership-is-explicit"
+			expr = "name != 'forbidden'"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("scoped fragment rule loads");
+		let compiled = crate::check::compile_rules(&cfg, Lang::Rs, "code+moniker://").unwrap();
+		assert!(
+			compiled.specs(Lang::Rs).iter().any(|rule| {
+				rule.rule_id == "rust.fn.check.index@workspace-ownership-is-explicit"
+			})
+		);
+	}
+
+	#[test]
+	fn fragment_scoped_components_are_checked_against_project_taxonomy() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"crates/check/src/check",
+			r#"
+			fragment = "check"
+
+			[[rust.fn.where]]
+			id = "index@workspace-ownership-is-explicit"
+			expr = "name != 'forbidden'"
+			"#,
+		);
+
+		let error = load_with_overrides(Some(&root))
+			.expect_err("the effective project taxonomy must authorize fragment scopes");
+		assert!(
+			error
+				.to_string()
+				.contains("`@` requires a scoped component declared"),
+			"{error}"
 		);
 	}
 

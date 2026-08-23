@@ -246,7 +246,7 @@ fn validate_fragment_id(path: &Path, id: &str) -> Result<(), ConfigError> {
 }
 
 fn validate_rule_id(path: &Path, fragment: &str, id: &str) -> Result<(), ConfigError> {
-	if is_simple_id(id) {
+	if is_rule_id(id) {
 		return Ok(());
 	}
 	Err(ConfigError::InvalidFragmentRuleId {
@@ -272,6 +272,14 @@ fn is_simple_id(id: &str) -> bool {
 		&& id
 			.bytes()
 			.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn is_rule_id(id: &str) -> bool {
+	!id.is_empty()
+		&& id
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@'))
+		&& super::well_formed_scope_markers(id)
 }
 
 fn is_alias_id(id: &str) -> bool {

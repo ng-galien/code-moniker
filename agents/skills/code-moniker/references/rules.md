@@ -31,11 +31,14 @@ The canonical project `.code-moniker.toml` may declare closed vocabularies:
 ```toml
 [rules.taxonomy]
 patterns = ["ownership", "dependency", "call-flow", "lifecycle"]
-components = ["mcp", "daemon", "workspace", "roaring-bitmap", "index"]
+components = ["mcp", "daemon", "workspace", "index", "index@workspace"]
 ```
 
 A rule id is first a natural kebab-case statement. Patterns and components are
-semantic anchors inside that statement, not ordered syntax slots.
+semantic anchors inside that statement, not ordered syntax slots. A component
+may carry one explicit context as `component@scope`; for example,
+`index@workspace` identifies the Workspace Index without also classifying the
+rule as the independent `index` and `workspace` components.
 
 A classified project id should contain:
 
@@ -50,6 +53,7 @@ mechanical verb merely to satisfy a template.
 ```text
 mcp-runtime-ownership-is-on-server
 graph-corridor-call-flow-uses-roaring-bitmap-index
+index@workspace-lifecycle-is-ready
 workspace-status-lifecycle-is-typed
 code-hygiene-rejects-placeholder-names
 ```
@@ -59,6 +63,30 @@ opening the expression. A longer id is useful when it carries project memory;
 a short pile of nouns is not. Multiword anchors such as `call-flow`,
 `dependency-injection` and `roaring-bitmap` count as their most specific
 declared term. Two distinct pattern anchors are ambiguous.
+
+Scoped components are declared vocabulary, not inferred hierarchy. Use at most
+one `@` in a component term. It expresses context only, never ownership or
+dependency. Direct filters and metrics count the scoped component atomically;
+any future parent roll-up must be requested and reported separately.
+
+### Warning rules as negotiation sentinels
+
+Do not invent a `review`, `todo`, or `unclear` pattern for an architectural
+question. Keep the real architectural pattern and components in the id, then
+use `severity = "warn"` when the executable boundary is provisional, already
+crossed, or awaiting an explicit design decision.
+
+A negotiation warning must still detect a concrete code fact. Its rationale
+must state:
+
+- the proposed boundary and the evidence that made it worth preserving;
+- the unresolved choice or known exception;
+- the condition for promoting the rule to `error`, replacing it with the
+  accepted invariant, or removing it.
+
+Do not create an always-failing reminder or a warning with no executable
+architectural observation. A warning is queryable architectural debt, not a
+substitute for an issue description.
 
 The taxonomy belongs to the project, not to an individual rule. Do not add a
 pattern or component merely to make one historical id pass. Inspect the corpus
@@ -75,13 +103,15 @@ component anchor in snake_case:
 $mcp_server
 $mcp_runtime_wiring
 $workspace_runtime_target
+$index_at_workspace_target
 $daemon_graph_corridor_response
 $roaring_bitmap_index
 ```
 
 Normalize kebab-case taxonomy terms when reading alias names:
 `roaring-bitmap` maps to `roaring_bitmap`. Match complete terms, not accidental
-substrings.
+substrings. Preserve a scoped component with `_at_` in aliases:
+`index@workspace` maps to `index_at_workspace`.
 
 Do not manufacture an alias for every atomic predicate. Generic aliases such
 as `$public`, `$imports` or `$http_runtime_target` may legitimately have no

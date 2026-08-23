@@ -1616,6 +1616,75 @@ mod tests {
 	}
 
 	#[test]
+	fn rules_show_filters_scoped_components_without_lexical_rollup() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["separation-of-concerns"]
+			components = ["dsl", "index", "workspace", "index@workspace"]
+
+			[aliases]
+			dsl_evaluation = "name = 'evaluation'"
+			index_at_workspace_target = "name = 'snapshot'"
+
+			[[rust.fn.where]]
+			id = "dsl-and-index@workspace-separation-of-concerns-preserves-local-evaluation"
+			expr = "$dsl_evaluation AND $index_at_workspace_target"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--component",
+			"index@workspace",
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["distinct_rules"], 1);
+		assert_eq!(
+			out["details"]["rules"][0]["classification"]["components"],
+			serde_json::json!(["dsl", "index@workspace"])
+		);
+		assert_eq!(
+			out["taxonomy_summary"]["component_counts"],
+			serde_json::json!({"dsl": 1, "index@workspace": 1})
+		);
+		assert_eq!(out["taxonomy_summary"]["needs_review_rules"], 0);
+
+		for parent in ["index", "workspace"] {
+			let cli = Cli::parse_from([
+				"code-moniker",
+				"rules",
+				"show",
+				dir.path().to_str().unwrap(),
+				"--component",
+				parent,
+				"--format",
+				"json",
+			]);
+			stdout.clear();
+			stderr.clear();
+			assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+			let filtered: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+			assert_eq!(filtered["distinct_rules"], 0, "parent filter `{parent}`");
+			assert_eq!(filtered["compiled_rows"], 0, "parent filter `{parent}`");
+		}
+	}
+
+	#[test]
 	fn rules_show_reports_alias_alignment_and_migration_diagnostics() {
 		let dir = tempdir().unwrap();
 		std::fs::write(

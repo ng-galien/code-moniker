@@ -13,16 +13,26 @@ endpoint = "http://127.0.0.1:4318"
 metric_export_interval_ms = 5000
 
 # Closed vocabulary carried by rule ids. Each rule id names exactly one
-# architectural pattern and at least one project component.
+# architectural pattern and at least one project component. Name the decision
+# protected by the rule, not the DSL operator used to enforce it:
+# - dependency: the allowed direction of coupling is itself the invariant;
+# - separation-of-concerns: distinct layers or execution scopes must stay apart;
+# - single-responsibility: one module must not absorb a second architectural role;
+# - encapsulation: implementation internals stay behind their declared boundary.
+# Components may declare one contextual scope as `component@scope`. The scoped
+# term is atomic in direct metrics; it does not implicitly count either side.
 [rules.taxonomy]
 patterns = [
   "call-flow",
   "composition-root",
   "dependency",
   "dependency-injection",
+  "encapsulation",
   "hygiene",
   "lifecycle",
   "ownership",
+  "separation-of-concerns",
+  "single-responsibility",
 ]
 components = [
   "cli",
@@ -37,6 +47,7 @@ components = [
   "sdk",
   "vscode",
   "workspace",
+  "index@workspace",
 ]
 
 [aliases]
