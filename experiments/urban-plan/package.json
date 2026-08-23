@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"capture": "tsx src/capture.ts",
-		"dev": "vite",
+		"dev": "vite --host --port 5179 --open",
 		"build": "vite build"
 	},
 	"dependencies": {

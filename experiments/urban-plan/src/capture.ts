@@ -3,12 +3,28 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NodeDaemonRuntime } from "@code-moniker/client/node";
+import type { CodeMonikerClient, QueryCursor } from "@code-moniker/client";
 
-import { snapshotFromIdentityGraph, type IdentityEdge, type IdentityNode } from "./scene.ts";
+import { snapshotFromTree } from "./layout.ts";
+import type { IdentityEdge, IdentityTree } from "./scene.ts";
 
 const PREFIX = process.env.URBAN_PLAN_PREFIX ?? "lang:rs/dir:crates";
-const MIN_COUNT = Number(process.env.URBAN_PLAN_MIN_COUNT ?? "5");
-const MAX_ROADS = Number(process.env.URBAN_PLAN_MAX_ROADS ?? "24");
+const MIN_COUNT = Number(process.env.URBAN_PLAN_MIN_COUNT ?? "1");
+const MAX_DEPTH = Number(process.env.URBAN_PLAN_MAX_DEPTH ?? "5");
+const MIN_DEFS = Number(process.env.URBAN_PLAN_MIN_DEFS ?? "0");
+const CHILD_LIMIT = Number(process.env.URBAN_PLAN_CHILD_LIMIT ?? "200");
+
+const DISTRICT_KINDS = new Set(["dir", "module"]);
+const BUILDING_KINDS = new Set([
+	"struct",
+	"enum",
+	"trait",
+	"type",
+	"union",
+	"class",
+	"interface",
+	"impl",
+]);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outFile = join(here, "..", "public", "snapshot.json");
@@ -49,57 +65,111 @@ async function main() {
 		if (status.phase !== "ready" && status.phase !== "refreshing") {
 			throw new Error(`workspace phase is ${status.phase}`);
 		}
-		const nodes: IdentityNode[] = [];
-		const edges: IdentityEdge[] = [];
-		let cursor = undefined as string | number | null | undefined;
-		do {
-			const page = await client.graph.identity(
-				PREFIX,
-				{ minCount: MIN_COUNT },
-				{ consistency: "stale_ok", limit: 80, cursor: cursor ?? null },
-			);
-			nodes.push(
-				...page.data.nodes.map((node) => ({
-					identity: node.identity,
-					kind: node.kind,
-					name: node.name,
-					defs: node.defs,
-					has_children: node.has_children,
-				})),
-			);
-			edges.push(
-				...page.data.edges.map((edge) => ({
-					source: edge.source,
-					target: edge.target,
-					kinds: edge.kinds,
-					count: edge.count,
-				})),
-			);
-			cursor = page.nextCursor;
-		} while (cursor);
-		const snapshot = snapshotFromIdentityGraph({
-			generation: status.generation,
+		const tree = await walk(client, {
+			id: PREFIX,
+			name: lastSegment(PREFIX),
+			kind: "dir",
+			defs: 0,
+			hasChildren: true,
+		}, 0);
+		const edges = await collectCrateEdges(client);
+		const snapshot = snapshotFromTree({
+			generation: status.generation ?? null,
 			prefix: PREFIX,
-			nodes: dedupeNodes(nodes),
-			edges: mergeEdges(edges),
-			maxRoads: MAX_ROADS,
+			tree,
+			edges,
 		});
 		mkdirSync(dirname(outFile), { recursive: true });
 		writeFileSync(outFile, `${JSON.stringify(snapshot, null, "\t")}\n`);
 		console.log(
-			`wrote ${outFile} generation=${snapshot.generation} buildings=${snapshot.buildings.length} roads=${snapshot.roads.length}`,
+			`wrote ${outFile} generation=${snapshot.generation} districts=${snapshot.districts.length} buildings=${snapshot.buildings.length} streets=${snapshot.streets.length} roads=${snapshot.roads.length}`,
 		);
 	} finally {
 		client.close();
 	}
 }
 
-function dedupeNodes(nodes: IdentityNode[]): IdentityNode[] {
-	const byId = new Map<string, IdentityNode>();
-	for (const node of nodes) {
-		byId.set(node.identity, node);
+type Seed = {
+	id: string;
+	name: string;
+	kind: string;
+	defs: number;
+	hasChildren: boolean;
+};
+
+async function walk(client: CodeMonikerClient, seed: Seed, depth: number): Promise<IdentityTree> {
+	if (!seed.hasChildren || depth >= MAX_DEPTH || BUILDING_KINDS.has(seed.kind)) {
+		return { id: seed.id, name: seed.name, kind: seed.kind, defs: seed.defs, children: [] };
 	}
-	return [...byId.values()];
+	if (!DISTRICT_KINDS.has(seed.kind) && depth > 0) {
+		return { id: seed.id, name: seed.name, kind: seed.kind, defs: seed.defs, children: [] };
+	}
+	const page = await client.graph.children(
+		seed.id,
+		{ limit: CHILD_LIMIT },
+		{ consistency: "stale_ok" },
+	);
+	const nested: Seed[] = [];
+	const types: IdentityTree[] = [];
+	for (const child of page.children) {
+		const seedChild: Seed = {
+			id: child.identity,
+			name: child.name,
+			kind: child.kind,
+			defs: child.defs,
+			hasChildren: child.has_children,
+		};
+		if (DISTRICT_KINDS.has(child.kind) && child.has_children && depth + 1 < MAX_DEPTH) {
+			nested.push(seedChild);
+			continue;
+		}
+		if (BUILDING_KINDS.has(child.kind) && child.defs >= MIN_DEFS) {
+			types.push({
+				id: child.identity,
+				name: child.name,
+				kind: child.kind,
+				defs: Math.max(child.defs, 1),
+				children: [],
+			});
+		}
+	}
+	const walked = await mapPool(nested, 3, (child) => walk(client, child, depth + 1));
+	const children = [...walked, ...types];
+	if (children.length === 0) {
+		return { id: seed.id, name: seed.name, kind: seed.kind, defs: seed.defs, children: [] };
+	}
+	return {
+		id: seed.id,
+		name: seed.name,
+		kind: seed.kind,
+		defs: Math.max(
+			seed.defs,
+			children.reduce((sum, child) => sum + child.defs, 0),
+		),
+		children,
+	};
+}
+
+async function collectCrateEdges(client: CodeMonikerClient): Promise<IdentityEdge[]> {
+	const edges: IdentityEdge[] = [];
+	let cursor: QueryCursor | null | undefined;
+	do {
+		const page = await client.graph.identity(
+			PREFIX,
+			{ minCount: MIN_COUNT },
+			{ consistency: "stale_ok", limit: 80, cursor: cursor ?? null },
+		);
+		edges.push(
+			...page.data.edges.map((edge) => ({
+				source: edge.source,
+				target: edge.target,
+				kinds: edge.kinds,
+				count: edge.count,
+			})),
+		);
+		cursor = page.nextCursor;
+	} while (cursor);
+	return mergeEdges(edges);
 }
 
 function mergeEdges(edges: IdentityEdge[]): IdentityEdge[] {
@@ -115,6 +185,29 @@ function mergeEdges(edges: IdentityEdge[]): IdentityEdge[] {
 		current.kinds = [...new Set([...current.kinds, ...edge.kinds])];
 	}
 	return [...byPair.values()];
+}
+
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+	if (items.length === 0) {
+		return [];
+	}
+	const result: R[] = new Array(items.length);
+	let next = 0;
+	async function worker() {
+		while (next < items.length) {
+			const index = next;
+			next += 1;
+			result[index] = await fn(items[index]!);
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+	return result;
+}
+
+function lastSegment(identity: string): string {
+	const part = identity.split("/").at(-1) ?? identity;
+	const cut = part.indexOf(":");
+	return cut >= 0 ? part.slice(cut + 1) : part;
 }
 
 main().catch((error) => {

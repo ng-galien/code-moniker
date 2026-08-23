@@ -81,24 +81,25 @@ It must **not** reshuffle `u,v` unless aggregation or the zone set changed.
 Enough to render a city of crates:
 
 - `workspace.status` — generation, file/symbol counts
-- `identity.graph prefix:"lang:rs/dir:crates" min_count:5` — buildings + roads
-- later: `identity.children` to split a selected building
+- recursive `identity.children` — nested quartiers (crate → src/tests → module)
+  and buildings (struct/enum/trait)
+- `identity.graph prefix:"lang:rs/dir:crates" min_count:8` — coupling artères
 - later: fragment/view aliases as district masks (see `references/fragments.md`)
 - later: `metrics.coupling` for a selected pair of districts
 
 Do **not** start from `symbol.graph` of the whole repo.
 
-## Layout (v0, deliberately dumb)
+## Layout (v1, CodeCity)
 
-Issue 12 wants *stable geography*. First layout:
+Issue 12 wants *stable geography*. Current layout:
 
-- sort buildings by identity (deterministic)
-- place on a square grid (`ceil(sqrt(n))` columns)
-- spacing constant; footprint `1 + log1p(defs) * k`
-- height `log1p(defs) * h`
+- recursive identity tree, not a crate grid
+- squarified treemap with street gutters (padding grows at crate scale)
+- dirs/modules with children = quartiers; types = buildings packed in a block
+- height `log1p(defs) * h`; footprint scales inside the block
+- click-to-zoom a quartier in the viewer; geography does not reshuffle
 
-A treemap or force layout can wait. Force layout destroys the mental map
-when a zone is toggled.
+Force layout still waits: it destroys the mental map when a zone is toggled.
 
 ## Coupling (v0)
 
