@@ -11,6 +11,43 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-24
+
+This release turns project rules into queryable architectural memory for agents
+and maintainers. The VS Code extension keeps its separate version and release
+channel and is not published by the `v0.8.0` tag.
+
+### Added
+
+- **Project rule taxonomy and corpus mapping.** Canonical project rules can
+  declare closed pattern and component vocabularies, including scoped
+  components such as `index@workspace`. Static analysis classifies rule IDs,
+  maps aliases, reports migration diagnostics, and produces pattern-by-component
+  summaries without requiring a running daemon.
+- **Focused rule discovery.** `rules show` supports pattern, component, origin,
+  exact-rule and paginated detail filters in text or JSON, while preserving raw
+  aliases, expanded expressions, rationales and rule provenance.
+- **Agent guidance for architectural testimony.** The packaged Code Moniker
+  skill explains how to write rules as durable project decisions and how later
+  agents can use the corpus, indexed evidence and optional Git history to regain
+  project-specific context.
+
+### Changed
+
+- **Views validate their rule references against the project corpus.** Unknown
+  or ambiguous references fail configuration loading, while execution profiles
+  can select a narrower active rule set without invalidating the static project
+  map.
+- **Explicit-file checks load only required language context.** Rust-only and
+  other non-TypeScript file checks no longer inspect TypeScript configuration;
+  mixed file selections load the union of their language requirements.
+
+### Fixed
+
+- **Windows supervisor tests compile against the runtime owner.** The
+  process-handle test uses the crate-visible Windows runtime helper, and
+  platform-specific imports no longer produce a Windows warning.
+
 ## [0.7.1] - 2026-08-18
 
 This patch release improves memory-backed source ingestion for reusable clients
