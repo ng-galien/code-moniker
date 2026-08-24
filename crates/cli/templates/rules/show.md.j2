@@ -1,0 +1,202 @@
+# Project rules
+
+{% if focus %}
+## Focus
+
+{% for item in focus %}
+- {{ item.label | md_text }}: {{ item.value | md_text }}
+{% endfor %}
+{% else %}
+## Sources
+
+- rules file: {{ report.rules_file | inline_code }}
+{% if report.exclude.uris %}
+### Excluded URIs
+
+{% for uri in report.exclude.uris %}
+- {{ uri | inline_code }}
+{% endfor %}
+{% else %}
+exclude.uris: _none_
+{% endif %}
+
+### Fragments
+
+{% if report.fragments %}
+fragments: {{ report.fragments | length }}
+
+{% for fragment in report.fragments %}
+- {{ fragment.id | inline_code }} ({{ "enabled" if fragment.enabled else "disabled" }}): {{ fragment.active_rules }} active / {{ fragment.declared_rules }} declared rule(s) from {{ fragment.path | inline_code }}
+{% endfor %}
+{% else %}
+fragments: _none_
+{% endif %}
+{% endif %}
+
+## Corpus
+
+- default rules: {{ report.default_rules | lower }}
+- profile: {{ (report.profile or "none") | inline_code }}
+- compiled rows: {{ report.compiled_rows }}
+- distinct rules: {{ report.distinct_rules }}
+
+{% if report.taxonomy %}
+## Taxonomy
+
+taxonomy conformance: {{ report.taxonomy_summary.classified_rules }} classified; {{ report.taxonomy_summary.unclassified_rules }} unclassified; {{ report.taxonomy_summary.invalid_rules }} invalid
+
+{% if matrix.rows %}
+### Pattern × component
+
+| pattern |{% for component in matrix.components %} {{ component | table_cell }} |{% endfor %}{{ "\n" -}}
+|---|{% for component in matrix.components %}---:|{% endfor %}{{ "\n" -}}
+{% for row in matrix.rows %}
+| {{ row.pattern | table_cell }} |{% for count in row.counts %} {{ count if count else "·" }} |{% endfor %}{{ "\n" -}}
+{% endfor %}
+{% endif %}
+{% if report.taxonomy_summary.unused_patterns %}
+
+- unused patterns: {{ report.taxonomy_summary.unused_patterns | join(", ") | inline_code }}
+{% endif %}
+{% if report.taxonomy_summary.unused_components %}
+- unused components: {{ report.taxonomy_summary.unused_components | join(", ") | inline_code }}
+{% endif %}
+
+## Diagnostics
+
+{% if taxonomy_issues %}
+### taxonomy issues:
+
+{% for diagnostic in taxonomy_issues %}
+- {{ diagnostic.code | inline_code }} [{{ diagnostic.category | inline_code }}]: {{ diagnostic.rules }} rule(s), {{ diagnostic.occurrences }} occurrence(s)
+  - guidance: {{ diagnostic.guidance | md_text }}
+{% if diagnostic.examples %}
+  - examples: {{ diagnostic.examples | md_text }}{% if diagnostic.omitted %} (+{{ diagnostic.omitted }} more){% endif %}{{ "\n" -}}
+{% endif %}
+  - action: {{ diagnostic.action | md_text }}
+{% endfor %}
+{% endif %}
+
+### Review hints
+
+{% if review_hints %}
+review hints: {{ report.taxonomy_summary.needs_review_rules }} distinct rule(s) (advisory; zero is not a conformance target)
+
+{% for diagnostic in review_hints %}
+- {{ diagnostic.code | inline_code }} [{{ diagnostic.category | inline_code }}]: {{ diagnostic.rules }} rule(s), {{ diagnostic.occurrences }} occurrence(s)
+  - guidance: {{ diagnostic.guidance | md_text }}
+{% if diagnostic.examples %}
+  - examples: {{ diagnostic.examples | md_text }}{% if diagnostic.omitted %} (+{{ diagnostic.omitted }} more){% endif %}{{ "\n" -}}
+{% endif %}
+  - action: {{ diagnostic.action | md_text }}
+{% endfor %}
+{% else %}
+review hints: none
+{% endif %}
+
+{% if report.taxonomy_summary.unclassified_ids %}
+### Unclassified rules
+
+unclassified rules: {{ report.taxonomy_summary.unclassified_ids | join(", ") | inline_code }}
+{% if report.taxonomy_summary.unclassified_ids_truncated %}
+
+unclassified rules omitted from summary: {{ report.taxonomy_summary.unclassified_ids_truncated }}
+{% endif %}
+{% endif %}
+
+{% if report.taxonomy_summary.migration_candidates.rules %}
+### Migration candidates
+
+migration candidates: {{ report.taxonomy_summary.migration_candidates.rules }} rule(s)
+
+{% for pattern, count in report.taxonomy_summary.migration_candidates.pattern_counts | items %}
+- candidate pattern {{ pattern | inline_code }}: {{ count }}
+{% endfor %}
+{% for component, count in report.taxonomy_summary.migration_candidates.component_counts | items %}
+- candidate component {{ component | inline_code }}: {{ count }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if details %}
+## Rule testimonies
+
+details: {{ details.offset }}-{{ details.end }} of {{ details.total }} distinct rule(s)
+
+{% for item in details.rules %}
+### {{ item.rule.effective_id | inline_code }}
+
+- id: {{ item.rule.id | inline_code }}
+- origin: {{ item.rule.origin.kind | inline_code }}
+- domains: {{ item.rule.domains | join(", ") | inline_code }}
+- languages: {{ item.rule.languages | join(", ") | inline_code }}
+- compiled rows: {{ item.rule.compiled_rows }}
+{% if item.rule.classification.pattern %}
+- pattern: {{ item.rule.classification.pattern | inline_code }}
+{% endif %}
+{% if item.rule.classification.components %}
+- components: {{ item.rule.classification.components | join(", ") | inline_code }}
+{% endif %}
+{% if item.rule.classification.diagnostics %}
+- taxonomy: {{ item.rule.classification.status | inline_code }} ({{ item.rule.classification.diagnostics | join("; ") | md_text }})
+{% endif %}
+{% if item.rule.analysis.used_aliases %}
+- aliases:
+{% for alias in item.rule.analysis.used_aliases %}
+  - {{ ("$" ~ alias.name) | inline_code }}: patterns={{ (alias.patterns | join(", ") if alias.patterns else "none") | inline_code }}; components={{ (alias.components | join(", ") if alias.components else "none") | inline_code }}
+{% endfor %}
+{% else %}
+- aliases: _none_
+{% endif %}
+{% for diagnostic in item.diagnostics %}
+- {{ diagnostic.label | md_text }}: {{ diagnostic.code | inline_code }} [{{ diagnostic.category | inline_code }}]
+  - guidance: {{ diagnostic.guidance | md_text }}
+{% endfor %}
+{% if item.rule.analysis.migration_actions %}
+- migration actions: {{ item.rule.analysis.migration_actions | join(", ") | md_text }}
+{% endif %}
+- root: {{ item.rule.root | inline_code }}; subject: {{ item.rule.subject | inline_code }}; plan: {{ item.rule.plan | inline_code }}
+{% if item.rule.capabilities %}
+- capabilities: {{ item.rule.capabilities | join(", ") | inline_code }}
+{% endif %}
+- declared expr: {{ item.declared_expr | inline_code }}
+{% if item.effective_expr %}
+- effective expr: {{ item.effective_expr | inline_code }}
+{% endif %}
+{% if item.expanded_expr %}
+- expanded expr: {{ item.expanded_expr | inline_code }}
+{% endif %}
+{% if item.message %}
+- message: {{ item.message | md_text }}
+{% endif %}
+- severity: {{ item.rule.severity | inline_code }}
+{% if item.rationale %}
+
+#### Rationale
+
+{{ item.rationale | md_block }}
+{% endif %}
+{% if item.rule.projections %}
+
+#### Projections
+
+{% for projection in item.rule.projections %}
+- {{ projection.rule_id | inline_code }} [{{ projection.lang | inline_code }}]
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% if details.has_more %}
+## Next
+
+next page: add --details --offset {{ details.end }} --limit {{ details.limit }}
+{% endif %}
+{% elif report.distinct_rules %}
+## Next
+
+next: add --details to read rule aliases, expressions, messages, and rationales
+{% if report.taxonomy %}
+
+focus: add {{ "--component NAME" | inline_code }} or {{ "--pattern NAME" | inline_code }} before {{ "--details" | inline_code }}
+{% endif %}
+{% endif %}

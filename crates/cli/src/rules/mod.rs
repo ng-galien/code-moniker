@@ -12,6 +12,7 @@ use crate::args::{
 	DefaultRules, RulesArgs, RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs,
 	RulesLearnFormat, RulesShowArgs, RulesShowFormat,
 };
+use crate::presentation::rules as rules_presentation;
 use check::{
 	RuleAliasUsage, RuleClassification, RuleClassificationStatus, RuleCorpusAnalysis,
 	RuleCorpusDiagnosticCode, RuleCorpusDiagnosticLevel, RuleCorpusEntry, RuleOrigin, RuleTaxonomy,
@@ -36,16 +37,6 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 			Exit::UsageError
 		}
 	}
-}
-
-// Load a rules TOML fragment and apply an optional profile, the shared front of
-// the `eval` and `show` pipelines.
-fn load_rules(
-	rules: Option<&Path>,
-	default_rules: Option<DefaultRules>,
-	profile: Option<&str>,
-) -> anyhow::Result<check::Config> {
-	ruleset_request(rules.map(Path::to_path_buf), default_rules, profile).load_config()
 }
 
 fn ruleset_request(
@@ -373,7 +364,7 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 		details: detail_page,
 	};
 	match args.format {
-		RulesShowFormat::Text => write_show_text(stdout, &report)?,
+		RulesShowFormat::Text => write_show_text(stdout, &report, args)?,
 		RulesShowFormat::Json => {
 			serde_json::to_writer_pretty(&mut *stdout, &report)?;
 			stdout.write_all(b"\n")?;
@@ -822,319 +813,230 @@ fn push_bounded_id(ids: &mut Vec<String>, truncated: &mut usize, id: &str) {
 	}
 }
 
-fn write_corpus_diagnostics_text<W: Write>(
+#[derive(Serialize)]
+struct ShowTextContext<'a> {
+	report: &'a ShowReport,
+	focus: Vec<ShowTextFocus<'a>>,
+	matrix: ShowTextMatrix<'a>,
+	taxonomy_issues: Vec<ShowTextDiagnostic>,
+	review_hints: Vec<ShowTextDiagnostic>,
+	details: Option<ShowTextDetailPage<'a>>,
+}
+
+#[derive(Serialize)]
+struct ShowTextFocus<'a> {
+	label: &'static str,
+	value: &'a str,
+}
+
+#[derive(Default, Serialize)]
+struct ShowTextMatrix<'a> {
+	components: Vec<&'a str>,
+	rows: Vec<ShowTextMatrixRow<'a>>,
+}
+
+#[derive(Serialize)]
+struct ShowTextMatrixRow<'a> {
+	pattern: &'a str,
+	counts: Vec<usize>,
+}
+
+#[derive(Serialize)]
+struct ShowTextDiagnostic {
+	code: &'static str,
+	category: &'static str,
+	rules: usize,
+	occurrences: usize,
+	guidance: &'static str,
+	examples: String,
+	omitted: usize,
+	action: &'static str,
+}
+
+#[derive(Serialize)]
+struct ShowTextDetailPage<'a> {
+	offset: usize,
+	end: usize,
+	limit: usize,
+	total: usize,
+	has_more: bool,
+	rules: Vec<ShowTextRule<'a>>,
+}
+
+#[derive(Serialize)]
+struct ShowTextRule<'a> {
+	rule: &'a ShowRuleDetail,
+	declared_expr: String,
+	effective_expr: Option<String>,
+	expanded_expr: Option<String>,
+	message: Option<String>,
+	rationale: Option<String>,
+	diagnostics: Vec<ShowTextRuleDiagnostic>,
+}
+
+#[derive(Serialize)]
+struct ShowTextRuleDiagnostic {
+	label: &'static str,
+	code: &'static str,
+	category: &'static str,
+	guidance: &'static str,
+}
+
+fn write_show_text<W: Write>(
 	w: &mut W,
 	report: &ShowReport,
+	args: &RulesShowArgs,
+) -> anyhow::Result<()> {
+	let context = show_text_context(report, args);
+	w.write_all(rules_presentation::show(&context)?.as_bytes())?;
+	Ok(())
+}
+
+fn show_text_context<'a>(report: &'a ShowReport, args: &'a RulesShowArgs) -> ShowTextContext<'a> {
+	let mut focus = Vec::new();
+	for pattern in &args.pattern {
+		focus.push(ShowTextFocus {
+			label: "pattern",
+			value: pattern,
+		});
+	}
+	for component in &args.component {
+		focus.push(ShowTextFocus {
+			label: "component",
+			value: component,
+		});
+	}
+	for origin in &args.origin {
+		focus.push(ShowTextFocus {
+			label: "origin",
+			value: origin,
+		});
+	}
+	if let Some(rule_id) = &args.rule_id {
+		focus.push(ShowTextFocus {
+			label: "rule",
+			value: rule_id,
+		});
+	}
+	if let Some(profile) = &args.profile {
+		focus.push(ShowTextFocus {
+			label: "profile",
+			value: profile,
+		});
+	}
+
+	let components = report
+		.taxonomy
+		.as_ref()
+		.map(|taxonomy| {
+			taxonomy
+				.components
+				.iter()
+				.filter(|component| {
+					report
+						.taxonomy_summary
+						.component_counts
+						.contains_key(*component)
+				})
+				.map(String::as_str)
+				.collect::<Vec<_>>()
+		})
+		.unwrap_or_default();
+	let rows = report
+		.taxonomy_summary
+		.cross_tab
+		.iter()
+		.map(|(pattern, counts)| ShowTextMatrixRow {
+			pattern,
+			counts: components
+				.iter()
+				.map(|component| counts.get(*component).copied().unwrap_or(0))
+				.collect(),
+		})
+		.collect();
+
+	let details = report.details.as_ref().map(|page| ShowTextDetailPage {
+		offset: page.offset,
+		end: page.offset + page.returned,
+		limit: page.limit,
+		total: page.total,
+		has_more: page.has_more,
+		rules: page.rules.iter().map(show_text_rule).collect(),
+	});
+
+	ShowTextContext {
+		report,
+		focus,
+		matrix: ShowTextMatrix { components, rows },
+		taxonomy_issues: show_text_diagnostics(report, RuleCorpusDiagnosticLevel::Nonconforming),
+		review_hints: show_text_diagnostics(report, RuleCorpusDiagnosticLevel::NeedsReview),
+		details,
+	}
+}
+
+fn show_text_diagnostics(
+	report: &ShowReport,
 	level: RuleCorpusDiagnosticLevel,
-) -> std::io::Result<()> {
-	let present = RuleCorpusDiagnosticCode::ALL
+) -> Vec<ShowTextDiagnostic> {
+	RuleCorpusDiagnosticCode::ALL
 		.into_iter()
 		.filter(|code| code.level() == level)
 		.filter_map(|code| {
-			report
-				.taxonomy_summary
-				.diagnostics
-				.get(code.as_str())
-				.filter(|summary| summary.occurrences > 0)
-				.map(|summary| (code, summary))
+			let summary = report.taxonomy_summary.diagnostics.get(code.as_str())?;
+			(summary.occurrences > 0).then(|| {
+				let examples = summary
+					.examples
+					.iter()
+					.take(TEXT_DIAGNOSTIC_EXAMPLE_LIMIT)
+					.map(String::as_str)
+					.collect::<Vec<_>>()
+					.join(", ");
+				let omitted = summary
+					.examples
+					.len()
+					.saturating_sub(TEXT_DIAGNOSTIC_EXAMPLE_LIMIT)
+					+ summary.examples_truncated;
+				ShowTextDiagnostic {
+					code: code.as_str(),
+					category: code.category().as_str(),
+					rules: summary.rules,
+					occurrences: summary.occurrences,
+					guidance: code.guidance(),
+					examples,
+					omitted,
+					action: code.migration_action(),
+				}
+			})
 		})
-		.collect::<Vec<_>>();
+		.collect()
+}
 
-	if level == RuleCorpusDiagnosticLevel::Nonconforming {
-		if present.is_empty() {
-			return Ok(());
-		}
-		writeln!(w, "taxonomy issues:")?;
-	} else if present.is_empty() {
-		writeln!(w, "review hints: none")?;
-		return Ok(());
-	} else {
-		writeln!(
-			w,
-			"review hints: {} distinct rule(s) (advisory; zero is not a conformance target)",
-			report.taxonomy_summary.needs_review_rules
-		)?;
-	}
-
-	for (code, summary) in present {
-		writeln!(
-			w,
-			"- {} [{}]: {} rule(s), {} occurrence(s)",
-			code.as_str(),
-			code.category().as_str(),
-			summary.rules,
-			summary.occurrences
-		)?;
-		writeln!(w, "  guidance: {}", code.guidance())?;
-		let examples = summary
-			.examples
+fn show_text_rule(rule: &ShowRuleDetail) -> ShowTextRule<'_> {
+	ShowTextRule {
+		rule,
+		declared_expr: one_line(&rule.declared_expr),
+		effective_expr: (rule.declared_expr != rule.effective_expr)
+			.then(|| one_line(&rule.effective_expr)),
+		expanded_expr: (rule.effective_expr != rule.expanded_expr)
+			.then(|| one_line(&rule.expanded_expr)),
+		message: rule.message.as_deref().map(one_line),
+		rationale: rule.rationale.as_deref().map(one_line),
+		diagnostics: rule
+			.analysis
+			.diagnostics
 			.iter()
-			.take(TEXT_DIAGNOSTIC_EXAMPLE_LIMIT)
-			.map(String::as_str)
-			.collect::<Vec<_>>()
-			.join(", ");
-		if !examples.is_empty() {
-			let omitted = summary
-				.examples
-				.len()
-				.saturating_sub(TEXT_DIAGNOSTIC_EXAMPLE_LIMIT)
-				+ summary.examples_truncated;
-			if omitted == 0 {
-				writeln!(w, "  examples: {examples}")?;
-			} else {
-				writeln!(w, "  examples: {examples} (+{omitted} more)")?;
-			}
-		}
-		writeln!(w, "  action: {}", code.migration_action())?;
-	}
-	Ok(())
-}
-
-fn write_rule_expressions_text<W: Write>(w: &mut W, rule: &ShowRuleDetail) -> std::io::Result<()> {
-	writeln!(w, "  declared expr: {}", one_line(&rule.declared_expr))?;
-	if rule.declared_expr != rule.effective_expr {
-		writeln!(w, "  effective expr: {}", one_line(&rule.effective_expr))?;
-	}
-	if rule.effective_expr != rule.expanded_expr {
-		writeln!(w, "  expanded expr: {}", one_line(&rule.expanded_expr))?;
-	}
-	Ok(())
-}
-
-fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<()> {
-	writeln!(w, "rules file: {}", report.rules_file)?;
-	writeln!(w, "default rules: {}", report.default_rules)?;
-	if report.exclude.uris.is_empty() {
-		writeln!(w, "exclude.uris: <none>")?;
-	} else {
-		writeln!(w, "exclude.uris:")?;
-		for uri in &report.exclude.uris {
-			writeln!(w, "- {uri}")?;
-		}
-	}
-	if report.fragments.is_empty() {
-		writeln!(w, "fragments: <none>")?;
-	} else {
-		writeln!(w, "fragments: {}", report.fragments.len())?;
-		for fragment in &report.fragments {
-			let state = if fragment.enabled {
-				"enabled"
-			} else {
-				"disabled"
-			};
-			writeln!(
-				w,
-				"- {} ({state}): {} active / {} declared rule(s) from {}",
-				fragment.id, fragment.active_rules, fragment.declared_rules, fragment.path
-			)?;
-		}
-	}
-	writeln!(
-		w,
-		"profile: {}",
-		report.profile.as_deref().unwrap_or("<none>")
-	)?;
-	writeln!(w, "compiled rows: {}", report.compiled_rows)?;
-	writeln!(w, "distinct rules: {}", report.distinct_rules)?;
-	if let Some(taxonomy) = &report.taxonomy {
-		writeln!(w, "taxonomy patterns: {}", taxonomy.patterns.join(", "))?;
-		writeln!(w, "taxonomy components: {}", taxonomy.components.join(", "))?;
-		writeln!(
-			w,
-			"taxonomy conformance: {} classified; {} unclassified; {} invalid",
-			report.taxonomy_summary.classified_rules,
-			report.taxonomy_summary.unclassified_rules,
-			report.taxonomy_summary.invalid_rules
-		)?;
-		if !report.taxonomy_summary.pattern_counts.is_empty() {
-			writeln!(w, "patterns:")?;
-			for (pattern, count) in &report.taxonomy_summary.pattern_counts {
-				writeln!(w, "- {pattern}: {count}")?;
-			}
-		}
-		if !report.taxonomy_summary.component_counts.is_empty() {
-			writeln!(w, "components:")?;
-			for (component, count) in &report.taxonomy_summary.component_counts {
-				writeln!(w, "- {component}: {count}")?;
-			}
-		}
-		if !report.taxonomy_summary.cross_tab.is_empty() {
-			writeln!(w, "pattern x component:")?;
-			for (pattern, components) in &report.taxonomy_summary.cross_tab {
-				for (component, count) in components {
-					writeln!(w, "- {pattern} x {component}: {count}")?;
-				}
-			}
-		}
-		if !report.taxonomy_summary.unused_patterns.is_empty() {
-			writeln!(
-				w,
-				"unused patterns: {}",
-				report.taxonomy_summary.unused_patterns.join(", ")
-			)?;
-		}
-		if !report.taxonomy_summary.unused_components.is_empty() {
-			writeln!(
-				w,
-				"unused components: {}",
-				report.taxonomy_summary.unused_components.join(", ")
-			)?;
-		}
-		write_corpus_diagnostics_text(w, report, RuleCorpusDiagnosticLevel::Nonconforming)?;
-		write_corpus_diagnostics_text(w, report, RuleCorpusDiagnosticLevel::NeedsReview)?;
-		if !report.taxonomy_summary.unclassified_ids.is_empty() {
-			writeln!(
-				w,
-				"unclassified rules: {}",
-				report.taxonomy_summary.unclassified_ids.join(", ")
-			)?;
-			if report.taxonomy_summary.unclassified_ids_truncated > 0 {
-				writeln!(
-					w,
-					"unclassified rules omitted from summary: {}",
-					report.taxonomy_summary.unclassified_ids_truncated
-				)?;
-			}
-		}
-		if report.taxonomy_summary.migration_candidates.rules > 0 {
-			writeln!(
-				w,
-				"migration candidates: {} rule(s)",
-				report.taxonomy_summary.migration_candidates.rules
-			)?;
-			for (pattern, count) in &report.taxonomy_summary.migration_candidates.pattern_counts {
-				writeln!(w, "- candidate pattern {pattern}: {count}")?;
-			}
-			for (component, count) in &report
-				.taxonomy_summary
-				.migration_candidates
-				.component_counts
-			{
-				writeln!(w, "- candidate component {component}: {count}")?;
-			}
-		}
-	}
-	if let Some(details) = &report.details {
-		writeln!(w)?;
-		writeln!(
-			w,
-			"details: {}-{} of {} distinct rule(s)",
-			details.offset,
-			details.offset + details.returned,
-			details.total
-		)?;
-		for rule in &details.rules {
-			writeln!(w, "- {} ({})", rule.effective_id, rule.domains.join(", "))?;
-			writeln!(w, "  id: {}", rule.id)?;
-			writeln!(w, "  origin: {}", rule.origin.kind.as_str())?;
-			writeln!(w, "  languages: {}", rule.languages.join(", "))?;
-			writeln!(w, "  compiled rows: {}", rule.compiled_rows)?;
-			if let Some(pattern) = &rule.classification.pattern {
-				writeln!(w, "  pattern: {pattern}")?;
-			}
-			if !rule.classification.components.is_empty() {
-				writeln!(
-					w,
-					"  components: {}",
-					rule.classification.components.join(", ")
-				)?;
-			}
-			if !rule.classification.diagnostics.is_empty() {
-				writeln!(
-					w,
-					"  taxonomy: {} ({})",
-					rule.classification.status.as_str(),
-					rule.classification.diagnostics.join("; ")
-				)?;
-			}
-			if rule.analysis.used_aliases.is_empty() {
-				writeln!(w, "  aliases: <none>")?;
-			} else {
-				writeln!(w, "  aliases:")?;
-				for alias in &rule.analysis.used_aliases {
-					let patterns = if alias.patterns.is_empty() {
-						"<none>".to_string()
-					} else {
-						alias.patterns.join(", ")
-					};
-					let components = if alias.components.is_empty() {
-						"<none>".to_string()
-					} else {
-						alias.components.join(", ")
-					};
-					writeln!(
-						w,
-						"  - ${}: patterns={patterns}; components={components}",
-						alias.name
-					)?;
-				}
-			}
-			for diagnostic in &rule.analysis.diagnostics {
-				let label = if diagnostic.level == RuleCorpusDiagnosticLevel::Nonconforming {
+			.map(|diagnostic| ShowTextRuleDiagnostic {
+				label: if diagnostic.level == RuleCorpusDiagnosticLevel::Nonconforming {
 					"taxonomy issue"
 				} else {
 					"review hint"
-				};
-				writeln!(
-					w,
-					"  {label}: {} [{}]",
-					diagnostic.code.as_str(),
-					diagnostic.category.as_str()
-				)?;
-				writeln!(w, "    guidance: {}", diagnostic.code.guidance())?;
-			}
-			if !rule.analysis.migration_actions.is_empty() {
-				writeln!(
-					w,
-					"  migration actions: {}",
-					rule.analysis.migration_actions.join(", ")
-				)?;
-			}
-			writeln!(
-				w,
-				"  root: {}; subject: {}; plan: {}",
-				rule.root, rule.subject, rule.plan
-			)?;
-			if !rule.capabilities.is_empty() {
-				writeln!(w, "  capabilities: {}", rule.capabilities.join(", "))?;
-			}
-			write_rule_expressions_text(w, rule)?;
-			if let Some(message) = &rule.message {
-				writeln!(w, "  message: {}", one_line(message))?;
-			}
-			writeln!(w, "  severity: {}", rule.severity)?;
-			if let Some(rationale) = &rule.rationale {
-				writeln!(w, "  rationale: {}", one_line(rationale))?;
-			}
-			if !rule.projections.is_empty() {
-				writeln!(w, "  projections:")?;
-				for projection in &rule.projections {
-					writeln!(w, "  - {} [{}]", projection.rule_id, projection.lang)?;
-				}
-			}
-		}
-		if details.has_more {
-			writeln!(
-				w,
-				"next page: add --details --offset {} --limit {}",
-				details.offset + details.returned,
-				details.limit
-			)?;
-		}
-	} else if report.distinct_rules > 0 {
-		writeln!(w)?;
-		writeln!(
-			w,
-			"next: add --details to read rule aliases, expressions, messages, and rationales"
-		)?;
-		if report.taxonomy.is_some() {
-			writeln!(
-				w,
-				"focus: add --component <name> or --pattern <name> before --details"
-			)?;
-		}
+				},
+				code: diagnostic.code.as_str(),
+				category: diagnostic.category.as_str(),
+				guidance: diagnostic.code.guidance(),
+			})
+			.collect(),
 	}
-	Ok(())
 }
 
 fn one_line(value: &str) -> String {
@@ -1470,17 +1372,19 @@ mod tests {
 		assert!(out.contains("profile: only-keep"), "{out}");
 		assert!(out.contains("ts.class.keep"), "{out}");
 		assert!(
-			out.contains("expanded expr: (moniker ~ '**/dir:src/**') => name =~ ^[A-Z]"),
+			out.contains("expanded expr: `(moniker ~ '**/dir:src/**') => name =~ ^[A-Z]`"),
 			"{out}"
 		);
 		assert!(
 			out.contains(
-				"rationale: ADR-001: generated types are exempt, but source classes stay PascalCase."
+				"ADR-001: generated types are exempt, but source classes stay PascalCase."
 			),
 			"{out}"
 		);
-		assert!(out.contains("severity: warn"), "{out}");
+		assert!(out.contains("severity: `warn`"), "{out}");
 		assert!(!out.contains("ts.class.drop"), "{out}");
+		crate::presentation::tests::validate_agent_markdown(&out, "Project rules", false)
+			.expect("rules show Markdown");
 	}
 
 	#[test]
@@ -1789,13 +1693,18 @@ mod tests {
 		);
 		assert!(text.contains("taxonomy issues:"), "{text}");
 		assert!(
-			text.contains("missing-pattern-anchor [id classification]"),
+			text.contains("`missing-pattern-anchor` [`id classification`]"),
 			"{text}"
 		);
 		assert!(
-			text.contains("ambiguous-pattern-anchors [id classification]"),
+			text.contains("`ambiguous-pattern-anchors` [`id classification`]"),
 			"{text}"
 		);
+		crate::presentation::tests::validate_agent_markdown(&text, "Project rules", true)
+			.expect("rules taxonomy Markdown");
+		let project = dir.path().canonicalize().unwrap();
+		let normalized = text.replace(project.to_str().unwrap(), "<PROJECT>");
+		insta::assert_snapshot!("rules_show_taxonomy_markdown", normalized);
 	}
 
 	#[test]
@@ -1987,7 +1896,7 @@ mod tests {
 			"{text}"
 		);
 		assert!(
-			text.contains("rule-uses-no-alias [alias alignment]: 2 rule(s), 2 occurrence(s)"),
+			text.contains("`rule-uses-no-alias` [`alias alignment`]: 2 rule(s), 2 occurrence(s)"),
 			"{text}"
 		);
 		assert!(
@@ -2007,7 +1916,7 @@ mod tests {
 			"{text}"
 		);
 		assert!(text.contains("next: add --details"), "{text}");
-		assert!(text.contains("focus: add --component <name>"), "{text}");
+		assert!(text.contains("focus: add `--component NAME`"), "{text}");
 		assert!(!text.contains("needs review:"), "{text}");
 	}
 
@@ -2076,13 +1985,13 @@ mod tests {
 		stderr.clear();
 		assert_eq!(run(&text_cli, &mut stdout, &mut stderr), Exit::Match);
 		let text = String::from_utf8(stdout).unwrap();
-		assert!(text.contains("declared expr: $daemon_boundary"), "{text}");
+		assert!(text.contains("declared expr: `$daemon_boundary`"), "{text}");
 		assert!(
-			text.contains("effective expr: $runtime_daemon_boundary"),
+			text.contains("effective expr: `$runtime_daemon_boundary`"),
 			"{text}"
 		);
 		assert!(
-			text.contains("expanded expr: (name != 'forbidden')"),
+			text.contains("expanded expr: `(name != 'forbidden')`"),
 			"{text}"
 		);
 	}

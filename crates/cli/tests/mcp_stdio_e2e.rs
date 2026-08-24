@@ -111,10 +111,11 @@ roots = ["src/generated"]
 			.as_str()
 			.expect("workspace.status text")
 			.to_string();
-		if text.contains("phase: failed") {
+		let status = query_result_data(&text);
+		if status["phase"] == "failed" {
 			break text;
 		}
-		assert!(text.contains("phase: loading"), "{text}");
+		assert_eq!(status["phase"], "loading", "{text}");
 		thread::sleep(Duration::from_millis(20));
 		id += 1;
 	};
@@ -150,7 +151,8 @@ fn stdio_transport_serves_the_bound_workspace_without_stdout_noise() {
 	assert_no_daemon_registry_while_alive(&mut child, &root);
 	let text = collect_stdio_read(child, &root);
 	assert_no_daemon_registry(&root);
-	assert!(text.contains("workspace:\n  roots:"), "{text}");
+	assert!(text.starts_with("# Workspace map\n"), "{text}");
+	assert!(text.contains("### Roots"), "{text}");
 	assert!(text.contains(&root.display().to_string()), "{text}");
 	assert!(text.contains("App.java"), "{text}");
 }
@@ -273,10 +275,11 @@ fn stdio_query_returns_a_full_scoped_graph_corridor() {
 		let text = response["result"]["content"][0]["text"]
 			.as_str()
 			.expect("workspace status text");
-		if text.contains("phase: ready") {
+		let status = query_result_data(text);
+		if status["phase"] == "ready" {
 			break;
 		}
-		assert!(text.contains("phase: loading"), "{text}");
+		assert_eq!(status["phase"], "loading", "{text}");
 		thread::sleep(Duration::from_millis(20));
 		id += 1;
 	}
@@ -289,9 +292,16 @@ fn stdio_query_returns_a_full_scoped_graph_corridor() {
 		let text = response["result"]["content"][0]["text"]
 			.as_str()
 			.expect("symbol search text");
-		text.lines()
-			.find(|line| line.starts_with("- ") && line.contains(name))
-			.and_then(|line| line.split_whitespace().last())
+		query_result_data(text)["rows"]
+			.as_array()
+			.and_then(|rows| {
+				rows.iter().find(|row| {
+					row["name"]
+						.as_str()
+						.is_some_and(|candidate| candidate.starts_with(name))
+				})
+			})
+			.and_then(|row| row["uri"].as_str())
 			.unwrap_or_else(|| panic!("missing {name} URI in {text}"))
 			.to_string()
 	};
@@ -315,9 +325,10 @@ fn stdio_query_returns_a_full_scoped_graph_corridor() {
 	let text = response["result"]["content"][0]["text"]
 		.as_str()
 		.expect("graph corridor text");
-	assert!(text.contains("connected: true"), "{text}");
-	assert!(text.contains("result_complete: true"), "{text}");
-	assert!(text.contains("search_complete: true"), "{text}");
+	let corridor = query_result_data(text);
+	assert_eq!(corridor["connected"], true, "{text}");
+	assert_eq!(corridor["result_complete"], true, "{text}");
+	assert_eq!(corridor["search_complete"], true, "{text}");
 	assert!(text.contains("middle"), "{text}");
 
 	drop(child.stdin.take());
@@ -404,6 +415,16 @@ fn request_stdio_query(child: &mut std::process::Child, id: u64, query: &str) {
 		}
 	});
 	writeln!(child.stdin.as_mut().expect("child stdin"), "{request}").expect("write MCP query");
+}
+
+fn query_result_data(text: &str) -> serde_json::Value {
+	let json = text
+		.split_once("```text\n")
+		.and_then(|(_, body)| body.split_once("\n```").map(|(json, _)| json))
+		.unwrap_or_else(|| panic!("missing JSON code block in query response:\n{text}"));
+	serde_json::from_str::<serde_json::Value>(json)
+		.unwrap_or_else(|error| panic!("invalid query result JSON: {error}\n{text}"))["result"]["data"]
+		.clone()
 }
 
 fn collect_stdio_read(mut child: std::process::Child, root: &std::path::Path) -> String {

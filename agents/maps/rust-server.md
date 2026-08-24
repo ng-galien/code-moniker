@@ -40,8 +40,9 @@ After rebuilding or restarting `cm-mcp`, validate the surface:
   workspace root. Verify these values can be passed back to symbol tools,
   `compact:false` restores canonical verbose output, and pagination keeps that
   mode.
-- Budget contract: every non-refresh tool defaults to `budget:"small"`; an
-  explicit `max_chars` is a hard ceiling and reports `truncated_by:max_chars`.
+- Volume contract: every non-refresh tool defaults to `budget:"small"`; use
+  `medium` or `full` to request broader pages, traversals, witnesses, and
+  optional detail. Rendered text is never sliced to a character count.
 - Parity probes: `code_moniker_query` with `query.describe`, a two-query compact
   batch, and `code_moniker_context` with facts, coverage and canonical suggested
   checks.

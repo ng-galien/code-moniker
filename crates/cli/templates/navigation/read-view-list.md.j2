@@ -1,0 +1,34 @@
+# Project views
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: full
+- views: {{ views | length }}
+- volume: {{ volume | inline_code }}
+
+## Views
+
+{% if views %}
+{% for view in views %}
+### {{ view.id | inline_code }}
+
+{% if view.title %}
+{{ view.title | md_block }}
+
+{% endif %}
+- fragment: {{ view.fragment | inline_code }}
+- anchor: {{ view.anchor | inline_code }}
+- scope: {{ view.scope | inline_code }}{{ "\n" -}}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}{{ "\n" -}}
+{% endfor %}

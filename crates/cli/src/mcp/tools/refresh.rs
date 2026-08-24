@@ -1,7 +1,7 @@
 use code_moniker_query::{Command, CommandRequest};
 use serde_json::{Value, json};
 
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 pub(in crate::mcp) struct RefreshTool;
@@ -37,7 +37,12 @@ impl McpTool for RefreshTool {
 		OutputContract::Plain
 	}
 
-	fn call(&self, context: &McpContext, _arguments: &Value) -> Result<ToolResult, ToolError> {
+	fn call(
+		&self,
+		context: &McpContext,
+		_arguments: &Value,
+		_output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
 		let response = context
 			.command(CommandRequest {
 				command: Command::WorkspaceRefresh,

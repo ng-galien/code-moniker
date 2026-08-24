@@ -1,0 +1,69 @@
+# Workspace map
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: {{ completeness | inline_code }}
+- files: {{ scoped_files }}
+- files-total: {{ total_files }}
+- depth: {{ depth }}
+- volume: {{ volume | inline_code }}
+
+## Workspace
+
+### Roots
+
+{% for root in roots %}
+- {{ root | inline_code }}{{ "\n" -}}
+{% endfor %}
+
+## Scope
+
+- path: {% if paths %}{{ paths | join(", ") | inline_code }}{% else %}{{ "*" | inline_code }}{% endif %}{{ "\n" -}}
+- lang: {% if langs %}{{ langs | join(", ") | inline_code }}{% else %}{{ "*" | inline_code }}{% endif %}{{ "\n" -}}
+
+## Summary
+
+### Languages
+
+{% if languages %}
+{% for language in languages %}
+- {{ language.name | inline_code }}: {{ language.count }}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Concentration
+
+{% if concentrations %}
+{% for concentration in concentrations %}
+- {{ concentration.name | inline_code }}: {{ concentration.count }} files{% if concentration.percent is not none %} ({{ concentration.percent }}%){% endif %}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Hints
+
+- Start with {{ "code_moniker_symbols" | inline_code }} using path, language, kind, and shape filters before broad symbol reads.
+{% for hint in language_hints %}
+- {{ hint.language | inline_code }} kinds: {{ hint.kinds | join(", ") | inline_code }}{{ "\n" -}}
+{% endfor %}
+
+## Explorer
+
+{% if rows %}
+{% for row in rows %}
+- {{ row | md_text }}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}{{ "\n" -}}
+{% endfor %}

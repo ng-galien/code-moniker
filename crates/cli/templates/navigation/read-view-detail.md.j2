@@ -1,0 +1,146 @@
+# Project view: {{ view.id | md_heading }}
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: full
+{% if view.title %}
+- title: {{ view.title | md_text }}
+{% endif %}
+- fragment: {{ view.fragment | inline_code }}
+- anchor: {{ view.anchor | inline_code }}
+- scope: {{ view.scope | inline_code }}
+{% if view.intent %}
+- intent: {{ view.intent | md_text }}
+{% endif %}
+{% if view.summary %}
+
+## Summary
+
+{{ view.summary | md_block }}
+{% endif %}
+{% if rules %}
+
+## Rules
+
+{% for rule in rules %}
+### {{ rule.id | inline_code }}
+
+- severity: {{ rule.severity | inline_code }}
+- domain: {{ rule.domain | inline_code }}
+{% if rule.rationale %}
+
+#### Rationale
+
+{{ rule.rationale | md_block }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+## Boundaries
+
+{% if boundaries %}
+{% for boundary in boundaries %}
+### {{ boundary.id | inline_code }}
+
+{% if boundary.owns %}
+#### Owns
+
+{% for value in boundary.owns %}
+- {{ value | md_text }}{{ "\n" -}}
+{% endfor %}
+{% endif %}
+{% if boundary.forbids %}
+#### Forbids
+
+{% for value in boundary.forbids %}
+- {{ value | md_text }}{{ "\n" -}}
+{% endfor %}
+
+- status: {{ boundary.forbids_status | inline_code }}
+{% if boundary.forbid_rules %}
+- enforced by: {{ boundary.forbid_rules | join(", ") | md_text }}
+{% endif %}
+{% endif %}
+{% if boundary.rationale %}
+#### Rationale
+
+{{ boundary.rationale | md_block }}
+{% endif %}
+{% if boundary.rules %}
+#### Rule references
+
+{% for rule in boundary.rules %}
+- {{ rule.id | inline_code }}{% if not rule.present %} [missing]{% endif %}{{ "\n" -}}
+{% endfor %}
+{% endif %}
+{% if boundary.evidence or boundary.missing %}
+#### Evidence
+
+{% for item in boundary.evidence %}
+- **{{ item.label | md_text }}** — selector: {{ item.selector | inline_code }}
+{% if item.moniker %}
+  - moniker: {% if item.compact_moniker %}{{ item.moniker | moniker | inline_code }}{% else %}{{ item.moniker | inline_code }}{% endif %}{{ "\n" -}}
+{% endif %}
+  - file: {{ item.file | inline_code }}{% if item.slice %}, slice: {{ item.slice | inline_code }}{% endif %}{{ "\n" -}}
+{% if item.code %}
+
+{{ item.code | code_block }}
+{% endif %}
+{% endfor %}
+{% for selector in boundary.missing %}
+- selector: {{ selector | inline_code }} — status: missing{{ "\n" -}}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Gotchas
+
+{% if gotchas %}
+{% for gotcha in gotchas %}
+### {{ gotcha.id | inline_code }}
+
+{{ gotcha.rationale | md_block }}
+{% if gotcha.check %}
+
+- check: {{ gotcha.check | inline_code }}
+{% endif %}
+{% if gotcha.rules %}
+- rules: {% for rule in gotcha.rules %}{{ rule.id | inline_code }}{% if not rule.present %} [missing]{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+{% if gotcha.evidence or gotcha.missing %}
+
+#### Evidence
+
+{% for item in gotcha.evidence %}
+- **{{ item.label | md_text }}** — selector: {{ item.selector | inline_code }}
+{% if item.moniker %}
+  - moniker: {% if item.compact_moniker %}{{ item.moniker | moniker | inline_code }}{% else %}{{ item.moniker | inline_code }}{% endif %}{{ "\n" -}}
+{% endif %}
+  - file: {{ item.file | inline_code }}{% if item.slice %}, slice: {{ item.slice | inline_code }}{% endif %}{{ "\n" -}}
+{% if item.code %}
+
+{{ item.code | code_block }}
+{% endif %}
+{% endfor %}
+{% for selector in gotcha.missing %}
+- selector: {{ selector | inline_code }} — status: missing{{ "\n" -}}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}{{ "\n" -}}
+{% endfor %}

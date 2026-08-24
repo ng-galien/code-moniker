@@ -1,0 +1,96 @@
+# Project rules check
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+{% if partial %}
+- completeness: partial (rules rows next cursor {{ next_cursor }})
+{% else %}
+- completeness: full
+{% endif %}
+- action: run
+- corpus: daemon_index
+{% if generation is not none %}
+- generation: {{ generation }}
+{% endif %}
+- verdict: {{ result.verdict | inline_code }}
+- exit: {{ result.exit | inline_code }}
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Scope
+
+- profile: {{ scope.profile | inline_code }}
+- rules: {{ scope.rules | inline_code }}
+{% if scope.langs %}
+- lang: {{ scope.langs | join(", ") | inline_code }}
+{% endif %}
+{% if scope.severities %}
+- severity: {{ scope.severities | join(", ") | inline_code }}
+{% endif %}
+{% if scope.files %}
+- file: {{ scope.files | join(", ") | inline_code }}
+{% endif %}
+
+## Report
+
+{% for root in result.roots %}
+### {{ root.root | inline_code }}
+
+root: {{ root.root | inline_code }}
+
+{{ root.summary.total_violations }} violation(s): {{ root.summary.total_warnings }} warning(s), {{ root.summary.total_rule_errors }} rule error(s); {{ root.summary.total_errors }} scan error(s)
+{% if root.summary.violations_by_srcset %}
+
+violations_by_srcset: {% for srcset, count in root.summary.violations_by_srcset | items %}{{ srcset | inline_code }}={{ count }}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+{% for failed in root.summary.failed_rules %}
+- {{ failed.rule_id | inline_code }}: {{ failed.severity | inline_code }} {{ failed.violations }} violation(s)
+{% endfor %}
+
+{% endfor %}
+{% if result.violations %}
+### Violations
+
+{% for violation in result.violations %}
+- {{ violation.path | inline_code }}:{{ violation.lines[0] }}-{{ violation.lines[1] }} [{{ violation.rule_id | inline_code }}] {{ violation.severity | inline_code }}: {{ violation.message | moniker_text | md_text }}
+{% endfor %}
+{% endif %}
+{% if result.errors %}
+### Errors
+
+{% for error in result.errors %}
+- {{ error.path | inline_code }}: {{ error.error | md_text }}
+{% endfor %}
+{% endif %}
+{% if result.rule_reports %}
+### Rule reports
+
+rule_reports: {{ result.rule_reports | length }}
+
+{% for report in result.rule_reports %}
+{% if report.verdict or report.coverage or report.path_analysis or report.inconclusive %}
+- {{ report.rule_id | inline_code }}: verdict={{ (report.verdict or "not_applicable") | inline_code }}, evaluated={{ report.evaluated }}, violations={{ report.violations }}
+{% if report.coverage %}
+  - coverage: {{ report.coverage.percent }}% (minimum {{ report.coverage.min_percent }}%, decided {{ report.coverage.decided }}/{{ report.coverage.total }}, resolved={{ report.coverage.resolved }}, external={{ report.coverage.external }}, candidate={{ report.coverage.candidate }}, dynamic={{ report.coverage.dynamic }}, blocked={{ report.coverage.blocked }}, unresolved={{ report.coverage.unresolved }})
+{% endif %}
+{% if report.path_analysis %}
+  - path: expect={{ report.path_analysis.expectation | inline_code }} relations={{ report.path_analysis.relation | join(",") | inline_code }} selectors={{ report.path_analysis.source_symbols }}/{{ report.path_analysis.target_symbols }}/{{ report.path_analysis.via_symbols }} pairs={{ report.path_analysis.evaluated_pairs }} explored={{ report.path_analysis.explored_symbols }} symbols/{{ report.path_analysis.explored_edges }} edges limits(depth={{ report.path_analysis.max_depth }}, symbols={{ report.path_analysis.max_symbols }}, edges={{ report.path_analysis.max_edges }}, pairs={{ report.path_analysis.max_pairs }})
+{% if report.path_analysis.reasons %}
+  - reasons: {{ report.path_analysis.reasons | join(", ") | md_text }}
+{% endif %}
+{% for step in report.path_analysis.witness %}
+  - witness: {{ step.source | moniker | inline_code }} -[{{ step.relation | inline_code }}]-> {{ step.target | moniker | inline_code }} ({{ step.file | inline_code }}{% if step.line_range %}:{{ step.line_range[0] }}-{{ step.line_range[1] }}{% endif %})
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+- {{ ("code_moniker_rules uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}
+{% endfor %}
+{% endif %}

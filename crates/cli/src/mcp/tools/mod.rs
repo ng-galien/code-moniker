@@ -12,9 +12,12 @@ pub(super) mod search;
 pub(in crate::mcp) mod symbols;
 pub(in crate::mcp) mod usages;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use super::context::McpContext;
+use crate::presentation::problem as problem_presentation;
+use crate::presentation::{RenderOptions, TemplateOutput};
 use context::ContextTool;
 use diff::DiffTool;
 use graph::GraphTool;
@@ -48,43 +51,61 @@ impl OutputContract {
 		}
 	}
 
-	fn validate_arguments(self, arguments: &Value) -> Result<(), ToolError> {
-		if self == Self::Agent {
-			common::compact_argument(arguments).map_err(ToolError::failed)?;
-			common::validate_output_budget(arguments).map_err(ToolError::failed)?;
+	fn output_options(self, arguments: &Value) -> Result<OutputOptions, ToolError> {
+		match self {
+			Self::Agent => common::AgentOutputOptions::from_arguments(arguments)
+				.map(OutputOptions::agent)
+				.map_err(ToolError::failed),
+			Self::Plain => Ok(OutputOptions::plain()),
 		}
-		Ok(())
 	}
 
 	fn finalize(
 		self,
 		mut result: ToolResult,
-		arguments: &Value,
+		options: OutputOptions,
 		scheme: &str,
+		runtime: Option<&str>,
 	) -> Result<ToolResult, ToolError> {
 		if self == Self::Plain {
 			return Ok(result);
 		}
-		let compact = match common::compact_argument(arguments) {
-			Ok(compact) => compact,
-			Err(_) if result.is_error => true,
-			Err(error) => return Err(ToolError::failed(error)),
-		};
-		result.text = common::compact_response_monikers(
-			result.text,
-			compact,
-			scheme,
-			result.monikers.iter().map(String::as_str),
-		);
-		result.text = match common::apply_output_budget(result.text.clone(), arguments) {
-			Ok(text) => text,
-			Err(_) if result.is_error => {
-				common::apply_output_budget(result.text.clone(), &serde_json::json!({}))
-					.unwrap_or(result.text)
-			}
-			Err(error) => return Err(ToolError::failed(error)),
-		};
+		let agent = options.agent_options();
+		let template = result.template.take().ok_or_else(|| {
+			ToolError::failed("agent output must be produced by the shared template renderer")
+		})?;
+		result.text = TemplateOutput::render(
+			&template,
+			RenderOptions {
+				compact: agent.compact,
+				scheme,
+				runtime,
+			},
+		)
+		.map_err(ToolError::failed)?;
 		Ok(result)
+	}
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct OutputOptions {
+	agent: Option<common::AgentOutputOptions>,
+}
+
+impl OutputOptions {
+	fn agent(options: common::AgentOutputOptions) -> Self {
+		Self {
+			agent: Some(options),
+		}
+	}
+
+	fn plain() -> Self {
+		Self { agent: None }
+	}
+
+	pub(super) fn agent_options(self) -> common::AgentOutputOptions {
+		self.agent
+			.expect("agent output options require OutputContract::Agent")
 	}
 }
 
@@ -104,7 +125,7 @@ impl ToolDescriptor {
 pub(super) struct ToolResult {
 	pub(super) text: String,
 	pub(super) is_error: bool,
-	monikers: Vec<String>,
+	template: Option<TemplateOutput>,
 }
 
 impl ToolResult {
@@ -112,29 +133,36 @@ impl ToolResult {
 		Self {
 			text: text.into(),
 			is_error: false,
-			monikers: Vec::new(),
+			template: None,
 		}
 	}
 
-	pub(super) fn error(text: impl Into<String>) -> Self {
+	pub(super) fn templated(template: TemplateOutput) -> Self {
 		Self {
-			text: text.into(),
-			is_error: true,
-			monikers: Vec::new(),
+			text: String::new(),
+			is_error: false,
+			template: Some(template),
 		}
 	}
 
-	pub(super) fn with_monikers<'a>(mut self, monikers: impl IntoIterator<Item = &'a str>) -> Self {
-		self.monikers
-			.extend(monikers.into_iter().map(str::to_owned));
-		self
+	fn templated_error(template: TemplateOutput) -> Self {
+		Self {
+			text: String::new(),
+			is_error: true,
+			template: Some(template),
+		}
 	}
 }
 
 pub(super) trait McpTool {
 	fn descriptor(&self) -> ToolDescriptor;
 	fn output_contract(&self) -> OutputContract;
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError>;
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError>;
 }
 
 pub(super) struct ToolError {
@@ -245,28 +273,28 @@ impl ToolRegistry {
 			.collect()
 	}
 
-	pub(super) fn finalize_error(
+	pub(super) fn render_problem(
 		&self,
 		name: &str,
 		arguments: &Value,
 		scheme: &str,
-		text: String,
+		runtime: Option<&str>,
+		message: &str,
 	) -> Option<ToolResult> {
-		let contract = self.contract_for_tool(name)?;
-		let mut result = ToolResult::error(text);
-		if let Some(uri) = arguments.get("uri").and_then(Value::as_str)
-			&& uri.contains("+moniker://")
-		{
-			result = result.with_monikers([uri]);
-		}
-		OutputContract::finalize(contract, result, arguments, scheme).ok()
-	}
-
-	fn contract_for_tool(&self, name: &str) -> Option<OutputContract> {
-		self.all()
+		let contract = self
+			.all()
 			.into_iter()
-			.find(|tool| tool.descriptor().name == name)
-			.map(|tool| tool.output_contract())
+			.find(|tool| tool.descriptor().name == name)?
+			.output_contract();
+		if contract != OutputContract::Agent {
+			return None;
+		}
+		let options = contract
+			.output_options(arguments)
+			.or_else(|_| contract.output_options(&serde_json::json!({})))
+			.ok()?;
+		let result = agent_problem_result(name, arguments, message).ok()?;
+		contract.finalize(result, options, scheme, runtime).ok()
 	}
 
 	pub(super) fn call(
@@ -282,14 +310,69 @@ impl ToolRegistry {
 		else {
 			return Err(ToolError::unknown_tool(name));
 		};
-		let contract = tool.output_contract();
-		contract.validate_arguments(arguments)?;
-		let mut result = tool.call(context, arguments)?;
-		if contract == OutputContract::Agent {
-			result.text = format!("runtime: {}\n{}", context.runtime_label(), result.text);
-		}
-		OutputContract::finalize(contract, result, arguments, context.scheme())
+		execute_tool(tool, context, arguments)
 	}
+}
+
+fn execute_tool(
+	tool: &dyn McpTool,
+	context: &McpContext,
+	arguments: &Value,
+) -> Result<ToolResult, ToolError> {
+	let contract = tool.output_contract();
+	let options = contract.output_options(arguments)?;
+	let result = tool.call(context, arguments, options)?;
+	contract.finalize(
+		result,
+		options,
+		context.scheme(),
+		Some(context.runtime_label()),
+	)
+}
+
+#[derive(Serialize)]
+struct McpProblemView<'a> {
+	uri: &'a str,
+	tool: &'a str,
+	problem: &'a str,
+	fix_hint: &'static str,
+}
+
+fn agent_problem_result(
+	tool: &str,
+	arguments: &Value,
+	message: &str,
+) -> Result<ToolResult, ToolError> {
+	let uri = arguments
+		.get("uri")
+		.and_then(Value::as_str)
+		.unwrap_or("workspace");
+	let problem = if message
+		.strip_prefix("symbol_not_found: symbol not found:")
+		.is_some_and(|missing| missing.trim() == uri)
+	{
+		"symbol_not_found"
+	} else {
+		message
+	};
+	let fix_hint = if message.starts_with("workspace_mismatch:") {
+		"Stop and connect to the project-owned Code Moniker MCP server for the expected roots."
+	} else if message.starts_with("workspace_identity_required:") {
+		"Retry the workspace read with `expected_roots` set to the current absolute workspace roots."
+	} else if message.starts_with("symbol_not_found:") {
+		"Discover the current moniker with `code_moniker_symbols`, then retry with that value."
+	} else {
+		"Retry with a supported URI and bounded arguments."
+	};
+	let view = McpProblemView {
+		uri,
+		tool,
+		problem,
+		fix_hint,
+	};
+	problem_presentation::mcp(&view)
+		.map(ToolResult::templated_error)
+		.map_err(ToolError::failed)
 }
 
 impl ToolDescriptor {
@@ -312,50 +395,48 @@ fn json_object_schema(schema: Value) -> JsonObject {
 
 #[cfg(test)]
 mod tests {
-	use super::{OutputContract, ToolResult};
+	use super::{OutputContract, ToolResult, agent_problem_result};
 
 	#[test]
-	fn agent_contract_compacts_before_applying_the_hard_budget() {
-		let canonical = concat!(
-			"code+moniker://./lang:rs/dir:crates/dir:cli/dir:src/module:mcp/",
-			"module:tools/enum:OutputContract/method:finalize(result:ToolResult,arguments:&Value)"
-		);
-		let text = std::iter::repeat_n(canonical, 10)
-			.collect::<Vec<_>>()
-			.join("\n");
-		assert!(text.chars().count() > 1_000);
-
-		let result = OutputContract::finalize(
+	fn agent_contract_rejects_pre_rendered_text() {
+		let error = OutputContract::finalize(
 			OutputContract::Agent,
-			ToolResult::success(text).with_monikers([canonical]),
-			&serde_json::json!({"max_chars": 1000}),
+			ToolResult::success("pre-rendered output"),
+			OutputContract::Agent
+				.output_options(&serde_json::json!({}))
+				.expect("output options"),
 			"code+moniker://",
+			None,
 		)
-		.expect("agent output contract");
+		.expect_err("pre-rendered agent text must not bypass the template renderer");
 
-		assert!(!result.text.contains("code+moniker://"));
-		assert!(!result.text.contains("output omitted by budget"));
-		assert!(result.text.chars().count() < 1_000);
+		assert!(error.to_string().contains("shared template renderer"));
 	}
 
 	#[test]
-	fn agent_contract_compacts_and_bounds_error_results() {
-		let canonical = "code+moniker://./lang:rs/module:mcp/struct:Missing";
-		let text = std::iter::repeat_n(canonical, 100)
-			.collect::<Vec<_>>()
-			.join("\n");
-
-		let result = OutputContract::finalize(
-			OutputContract::Agent,
-			ToolResult::error(text).with_monikers([canonical]),
-			&serde_json::json!({"max_chars": 1000}),
-			"code+moniker://",
+	fn agent_problem_uses_the_shared_markdown_template() {
+		let uri = "code+moniker://./lang:rs/module:mcp/struct:Missing";
+		let result = agent_problem_result(
+			"code_moniker_read",
+			&serde_json::json!({"uri": uri}),
+			&format!("symbol_not_found: symbol not found: {uri}"),
 		)
-		.expect("agent error output contract");
+		.expect("problem DTO");
+		let result = OutputContract::Agent
+			.finalize(
+				result,
+				OutputContract::Agent
+					.output_options(&serde_json::json!({}))
+					.expect("output options"),
+				"code+moniker://",
+				Some("test-runtime"),
+			)
+			.expect("problem template");
 
 		assert!(result.is_error);
-		assert!(!result.text.contains("code+moniker://"));
-		assert!(result.text.chars().count() <= 1_000);
-		assert!(result.text.contains("truncated_by: max_chars"));
+		assert!(result.text.contains("symbol_not_found"), "{}", result.text);
+		assert_eq!(result.text.matches(uri).count(), 0, "{}", result.text);
+		crate::presentation::tests::validate_agent_markdown(&result.text, "Tool problem", false)
+			.expect("problem Markdown");
 	}
 }

@@ -1,0 +1,81 @@
+# Symbol graph
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- volume: {{ volume | inline_code }}
+- direction: {{ direction | inline_code }}
+- max-items: {{ max_items }}
+
+## Focus
+
+{% if focus.symbol %}
+- kind: {{ focus.symbol.kind | inline_code }}
+- name: {{ focus.symbol.name | inline_code }}
+- file: {{ focus.symbol.file | inline_code }}
+- uri: {{ focus.symbol.uri | moniker | inline_code }}
+{% else %}
+- file: {{ focus.path | inline_code }}
+{% endif %}
+
+## Coverage
+
+- members: {{ coverage.members.returned }}/{{ coverage.members.total }}
+- internal edges: {{ coverage.internal_edges.returned }}/{{ coverage.internal_edges.matching }} matching ({{ coverage.internal_edges.total }} total)
+- callers: {{ coverage.callers.returned }}/{{ coverage.callers.matching }} matching ({{ coverage.callers.total }} total)
+- callees: {{ coverage.callees.returned }}/{{ coverage.callees.matching }} matching ({{ coverage.callees.total }} total)
+
+## Unlinked references
+
+- external: {{ unlinked.external }} (SDK {{ unlinked.sdk }}, dependency {{ unlinked.dependency }}, injected {{ unlinked.injected_external }}, unknown {{ unlinked.unknown_external }})
+- candidate: {{ unlinked.candidate }}
+- dynamic: {{ unlinked.dynamic }}
+- manifest-blocked: {{ unlinked.manifest_blocked }}
+- unresolved: {{ unlinked.unresolved }}
+{% if unlinked.unresolved_reasons %}
+- unresolved by reason: {% for reason, count in unlinked.unresolved_reasons | items %}{{ reason | inline_code }}={{ count }}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+
+{% if show_callers %}
+## Callers
+
+{% if callers %}
+{% for neighbor in callers %}
+### {{ neighbor.symbol.kind | inline_code }} · {{ neighbor.symbol.name | inline_code }}
+
+- file: {{ neighbor.symbol.file | inline_code }}
+- count: {{ neighbor.count }}
+- relations: {{ neighbor.kinds | join(", ") | inline_code }}
+{% if neighbor.symbol.navigable %}
+- uri: {{ neighbor.symbol.uri | moniker | inline_code }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_No matching callers._
+{% endif %}
+{% endif %}
+{% if show_callees %}
+## Callees
+
+{% if callees %}
+{% for neighbor in callees %}
+### {{ neighbor.symbol.kind | inline_code }} · {{ neighbor.symbol.name | inline_code }}
+
+- file: {{ neighbor.symbol.file | inline_code }}
+- count: {{ neighbor.count }}
+- relations: {{ neighbor.kinds | join(", ") | inline_code }}
+{% if neighbor.symbol.navigable %}
+- uri: {{ neighbor.symbol.uri | moniker | inline_code }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_No matching callees._
+{% endif %}
+{% endif %}
+{% if next_call %}
+## Next
+
+- {{ ("code_moniker_graph focus=\"" ~ (next_call.focus | call_uri) ~ "\"" ~ next_call.arguments) | inline_code }}
+{% endif %}

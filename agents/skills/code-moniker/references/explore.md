@@ -111,7 +111,7 @@ target zone. Source and wider context are opt-in because they dominate token
 cost. Structural questions should stay on symbols, usages and graphs.
 
 When the exact parser shape is material, request it explicitly:
-`code_moniker_read uri:"src/service.ts" ast:true max_depth:6 max_nodes:100`.
+`code_moniker_read uri:"src/service.ts" ast:true max_depth:6 max_nodes:20`.
 A returned symbol moniker can replace the file path to focus the tree on that
 declaration. In a multi-root workspace, use an absolute path or returned
 moniker when the same relative path exists in more than one root. The default

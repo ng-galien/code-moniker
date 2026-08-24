@@ -1,0 +1,30 @@
+# Query results
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: {{ completeness | inline_code }}
+- mode: {{ mode | inline_code }}
+- volume: {{ volume | inline_code }}
+
+{% for result in results %}
+## {% if result.number %}Result {{ result.number }}{% else %}{{ result.operation | inline_code }}{% endif %}{{ "\n" -}}
+
+{% if result.operation %}
+- operation: {{ result.operation | inline_code }}
+{% endif %}
+{% if result.error %}
+### Error
+
+{{ result.error | code_block }}
+{% else %}
+{{ result.body | json_code_block }}
+{% endif %}
+{% if result.next_call %}
+### Next
+
+- {{ ("code_moniker_query" ~ result.next_call) | inline_code }}
+{% endif %}
+
+{% endfor %}

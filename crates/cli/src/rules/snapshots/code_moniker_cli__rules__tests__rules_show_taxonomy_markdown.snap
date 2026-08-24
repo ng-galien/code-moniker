@@ -1,0 +1,77 @@
+---
+source: crates/cli/src/rules/mod.rs
+assertion_line: 1717
+expression: normalized
+---
+# Project rules
+
+## Sources
+
+- rules file: `<PROJECT>/.code-moniker.toml`
+exclude.uris: _none_
+
+### Fragments
+
+fragments: _none_
+
+## Corpus
+
+- default rules: false
+- profile: `none`
+- compiled rows: 4
+- distinct rules: 4
+
+## Taxonomy
+
+taxonomy conformance: 2 classified; 1 unclassified; 1 invalid
+
+### Pattern × component
+
+| pattern | daemon | code |
+|---|---:|---:|
+| hygiene | · | 1 |
+| ownership | 1 | · |
+
+## Diagnostics
+
+### taxonomy issues:
+
+- `missing-pattern-anchor` [`id classification`]: 1 rule(s), 1 occurrence(s)
+  - guidance: The rule id must contain exactly one declared architectural pattern.
+  - examples: legacy_rule
+  - action: review-rule-id-anchors
+- `ambiguous-pattern-anchors` [`id classification`]: 1 rule(s), 1 occurrence(s)
+  - guidance: The rule id contains more than one declared pattern; choose the pattern that states the enforced invariant.
+  - examples: legacy-ownership-hygiene-daemon
+  - action: review-rule-id-anchors
+- `missing-component-anchor` [`id classification`]: 1 rule(s), 1 occurrence(s)
+  - guidance: The rule id must name at least one declared project component involved in the invariant.
+  - examples: legacy_rule
+  - action: review-rule-id-anchors
+
+### Review hints
+
+review hints: 4 distinct rule(s) (advisory; zero is not a conformance target)
+
+- `rule-uses-no-alias` [`alias alignment`]: 4 rule(s), 4 occurrence(s)
+  - guidance: Review whether the expression hides a project-specific selector; metric and generic hygiene rules may legitimately use no alias.
+  - examples: hygiene-code-use-specific-names, legacy-ownership-hygiene-daemon, legacy_rule, ownership-daemon-use-facade
+  - action: review-whether-rule-needs-alias
+
+### Unclassified rules
+
+unclassified rules: `legacy-ownership-hygiene-daemon, legacy_rule`
+
+### Migration candidates
+
+migration candidates: 1 rule(s)
+
+- candidate pattern `hygiene`: 1
+- candidate pattern `ownership`: 1
+- candidate component `daemon`: 1
+
+## Next
+
+next: add --details to read rule aliases, expressions, messages, and rationales
+
+focus: add `--component NAME` or `--pattern NAME` before `--details`

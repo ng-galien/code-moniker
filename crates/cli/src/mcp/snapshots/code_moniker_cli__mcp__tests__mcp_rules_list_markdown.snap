@@ -1,0 +1,35 @@
+---
+source: crates/cli/src/mcp/tests.rs
+assertion_line: 2274
+expression: result.text
+---
+# Active project rules
+
+- runtime: `stdio-worker`
+- uri: `code+moniker://workspace/rules`
+- completeness: partial (rules 0-1 of 2, next cursor 1)
+- rules: 2
+- page-size: 1
+- volume: `small`
+
+## Scope
+
+- profile: `all`
+- rules: `.code-moniker.toml`
+- lang: `java`
+- severity: `error`
+
+## Rules
+
+### `java.class.mcp-root-class-rule`
+
+- severity: `error`
+- root: `local`
+- subject: `symbol`
+- plan: `t0_local`
+- domain: `class defs`
+- message: loaded from workspace root
+
+## Next
+
+- `code_moniker_rules uri="workspace" action="list" lang="java" severity="error" limit=1 cursor="1:1"`

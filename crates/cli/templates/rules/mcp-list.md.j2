@@ -1,0 +1,64 @@
+# Active project rules
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+{% if partial %}
+- completeness: partial (rules {{ start }}-{{ end }} of {{ total }}, next cursor {{ next_cursor }})
+{% else %}
+- completeness: full
+{% endif %}
+- rules: {{ total }}
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Scope
+
+- profile: {{ scope.profile | inline_code }}
+- rules: {{ scope.rules | inline_code }}
+{% if scope.langs %}
+- lang: {{ scope.langs | join(", ") | inline_code }}
+{% endif %}
+{% if scope.severities %}
+- severity: {{ scope.severities | join(", ") | inline_code }}
+{% endif %}
+{% if scope.files %}
+- file: {{ scope.files | join(", ") | inline_code }}
+{% endif %}
+
+## Rules
+
+{% if rules %}
+{% for rule in rules %}
+### {{ rule.id | inline_code }}
+
+- severity: {{ rule.severity | inline_code }}
+- root: {{ rule.rule_root | inline_code }}
+- subject: {{ rule.subject | inline_code }}
+- plan: {{ rule.plan | inline_code }}
+- domain: {{ rule.domain | inline_code }}
+{% if rule.capabilities %}
+- capabilities: {{ rule.capabilities | join(", ") | inline_code }}
+{% endif %}
+{% if rule.message %}
+- message: {{ rule.message | md_text }}
+{% endif %}
+{% if rule.rationale %}
+
+#### Rationale
+
+{{ rule.rationale | md_block }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+- {{ ("code_moniker_rules uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}
+{% endfor %}
+{% endif %}

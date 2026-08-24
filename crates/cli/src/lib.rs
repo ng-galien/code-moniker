@@ -1,4 +1,3 @@
-#![cfg_attr(feature = "mcp", allow(dead_code))]
 //! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
 //! and `docs/cli/check.md` (workspace linter).
 
@@ -14,14 +13,13 @@ pub(crate) mod fs_nofollow;
 pub(crate) mod hooks;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
-#[cfg(feature = "mcp")]
-pub(crate) mod live_control;
 pub(crate) mod manifest;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp_command;
 pub(crate) mod page;
+pub(crate) mod presentation;
 pub(crate) mod query;
 pub(crate) mod rules;
 #[cfg(feature = "mcp")]

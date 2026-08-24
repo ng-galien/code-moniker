@@ -1,26 +1,24 @@
-use std::collections::BTreeMap;
-use std::fmt::Write;
 use std::path::PathBuf;
 
 use code_moniker_query::{
 	Page, Query, QueryRequest, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES,
-	SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_NODES,
-	SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_TEXT_CHARS, SymbolDetailResult,
-	SyntaxNodeDto, SyntaxParseQuery, SyntaxTreeQuery, SyntaxTreeResult, TreeChildrenQuery,
-	TreeChildrenResult, ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto, ViewGotchaDto,
-	ViewListResult, ViewReadQuery, ViewReadResult, ViewRuleDto, ViewRuleRefDto,
+	SYNTAX_TREE_DEFAULT_MAX_DEPTH, SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS, SYNTAX_TREE_MAX_TEXT_CHARS,
+	SymbolDetailResult, SyntaxNodeDto, SyntaxParseQuery, SyntaxTreeQuery, SyntaxTreeResult,
+	TreeChildrenQuery, TreeChildrenResult, ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto,
+	ViewGotchaDto, ViewListResult, ViewReadQuery, ViewReadResult, ViewRuleDto, ViewRuleRefDto,
 };
-use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::{compact_argument, is_workspace_uri, normalize_workspace_uri};
+use super::common::{AgentOutputOptions, is_workspace_uri, normalize_workspace_uri};
 use super::scope::{
 	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
-	append_call_string_arg, path_prefix,
+	append_call_string_arg,
 };
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
 use crate::mcp::context::McpContext;
+use crate::presentation::navigation as navigation_presentation;
 use crate::views::{self, MonikerDisplay};
 
 const DEFAULT_READ_URI: &str = "workspace";
@@ -124,7 +122,7 @@ fn read_input_schema() -> Value {
 			"max_nodes": {
 				"type": "integer",
 				"minimum": 1,
-				"description": "Client-selected maximum AST nodes to emit. Defaults to 100."
+				"description": "Client-selected maximum AST nodes to emit. Without an explicit value, the small, medium, or full output budget selects the node volume."
 			},
 			"named_only": {
 				"type": "boolean",
@@ -165,8 +163,14 @@ impl McpTool for ReadTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let request = ReadRequest::from_arguments(arguments).map_err(ToolError::failed)?;
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let request = ReadRequest::from_arguments(arguments, output.agent_options())
+			.map_err(ToolError::failed)?;
 		read_resource(context, &request).map_err(ToolError::failed)
 	}
 }
@@ -180,28 +184,27 @@ struct ReadRequest {
 	moniker_display: MonikerDisplay,
 	scope: ScopeFilter,
 	paging: Paging,
-	compact: bool,
+	output: AgentOutputOptions,
 	expected_roots: Option<Vec<PathBuf>>,
 }
 
 impl ReadRequest {
-	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
-		let compact = compact_argument(arguments)?;
+	fn from_arguments(arguments: &Value, output: AgentOutputOptions) -> anyhow::Result<Self> {
 		Ok(Self {
 			uri: read_string_argument(arguments, "uri")
 				.unwrap_or(DEFAULT_READ_URI)
 				.to_string(),
-			depth: bounded_usize_argument(arguments, "depth", 2, MAX_DEPTH),
-			context_lines: bounded_usize_argument(arguments, "context_lines", 2, 20),
+			depth: clamped_usize_argument(arguments, "depth", 2, MAX_DEPTH),
+			context_lines: clamped_usize_argument(arguments, "context_lines", 2, 20),
 			include_code: read_bool_argument(arguments, "include_code", false),
-			syntax: read_syntax_options(arguments)?,
+			syntax: read_syntax_options(arguments, output)?,
 			moniker_display: MonikerDisplay::parse(read_string_argument(
 				arguments,
 				"moniker_format",
 			))?,
 			scope: ScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments_for_output(arguments, compact)?,
-			compact,
+			paging: Paging::from_arguments_for_volume(arguments, output)?,
+			output,
 			expected_roots: read_path_list_argument(arguments, "expected_roots")?,
 		})
 	}
@@ -219,7 +222,10 @@ struct SyntaxReadOptions {
 	max_text_chars: usize,
 }
 
-fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
+fn read_syntax_options(
+	arguments: &Value,
+	output: AgentOutputOptions,
+) -> anyhow::Result<SyntaxReadOptions> {
 	let ast_requested = strict_bool_argument(arguments, "ast", false)?;
 	let source = read_string_argument(arguments, "source").map(ToOwned::to_owned);
 	let language = read_string_argument(arguments, "language").map(ToOwned::to_owned);
@@ -241,10 +247,11 @@ fn read_syntax_options(arguments: &Value) -> anyhow::Result<SyntaxReadOptions> {
 		max_nodes: strict_usize_argument(
 			arguments,
 			"max_nodes",
-			SYNTAX_TREE_DEFAULT_MAX_NODES,
+			output.default_page_limit(),
 			1,
 			None,
-		)?,
+		)?
+		.min(output.default_page_limit()),
 		named_only: strict_bool_argument(arguments, "named_only", true)?,
 		include_text: strict_bool_argument(arguments, "include_text", false)?,
 		max_text_chars: strict_usize_argument(
@@ -316,7 +323,7 @@ fn read_string_argument<'a>(arguments: &'a Value, key: &str) -> Option<&'a str> 
 	arguments.get(key).and_then(Value::as_str)
 }
 
-fn bounded_usize_argument(arguments: &Value, key: &str, default: usize, max: usize) -> usize {
+fn clamped_usize_argument(arguments: &Value, key: &str, default: usize, max: usize) -> usize {
 	arguments
 		.get(key)
 		.and_then(Value::as_u64)
@@ -342,33 +349,12 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			)
 		})?;
 		context.verify_expected_roots(expected_roots)?;
-		return read_workspace(
-			context,
-			&request.uri,
-			request.depth,
-			&request.scope,
-			request.paging,
-			request.compact,
-		)
-		.map(ToolResult::success);
+		return read_workspace(context, request).map(ToolResult::templated);
 	}
 	if views::is_views_uri(&request.uri, context.scheme()) {
-		return read_view(
-			context,
-			&request.uri,
-			request.context_lines,
-			request.include_code,
-			request.moniker_display,
-			request.compact,
-		)
-		.map(ToolResult::success);
+		return read_view(context, request).map(ToolResult::templated);
 	}
-	read_symbol(
-		context,
-		&request.uri,
-		request.context_lines,
-		request.compact,
-	)
+	read_symbol(context, request)
 }
 
 fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
@@ -389,10 +375,11 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 		let QueryResult::SyntaxTree(result) = response.result else {
 			anyhow::bail!("daemon returned an unexpected result for syntax.parse");
 		};
-		return Ok(ToolResult::success(render_syntax_tree_lmnav(
+		return Ok(ToolResult::templated(syntax_tree_output(
 			&result,
 			"syntax.parse",
-		)));
+			request.output.budget.as_str(),
+		)?));
 	}
 	let response = context.query_refreshed(
 		Query::SyntaxTree(SyntaxTreeQuery {
@@ -409,37 +396,70 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 	let QueryResult::SyntaxTree(result) = response.result else {
 		anyhow::bail!("daemon returned an unexpected result for syntax.tree");
 	};
-	Ok(
-		ToolResult::success(render_syntax_tree_lmnav(&result, "syntax.tree"))
+	Ok(ToolResult::templated(
+		syntax_tree_output(&result, "syntax.tree", request.output.budget.as_str())?
 			.with_monikers([result.focus.as_str()]),
-	)
+	))
 }
 
-fn render_syntax_tree_lmnav(result: &SyntaxTreeResult, operation: &str) -> String {
-	let mut output = String::new();
-	let _ = writeln!(output, "uri: {operation}");
-	let _ = writeln!(
-		output,
-		"completeness: {}",
-		if result.truncated { "bounded" } else { "full" }
-	);
-	let _ = writeln!(output, "file: {}", result.file);
-	let _ = writeln!(output, "language: {}", result.language);
-	let _ = writeln!(output, "focus: {}", result.focus);
-	if let Some((start, end)) = result.focus_line_range {
-		let _ = writeln!(output, "focus_lines: {start}-{end}");
-	}
-	let _ = writeln!(
-		output,
-		"nodes: {}/{} max_depth:{} parse_error:{}",
-		result.emitted_nodes, result.total_nodes, result.max_depth, result.has_error
-	);
-	output.push_str("tree:\n");
-	render_syntax_node_lmnav(&mut output, &result.root, 0);
-	output
+fn syntax_tree_output(
+	result: &SyntaxTreeResult,
+	operation: &str,
+	volume: &'static str,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
+	let mut nodes = Vec::with_capacity(result.emitted_nodes);
+	collect_syntax_nodes(&mut nodes, &result.root, 0);
+	navigation_presentation::read_ast(&SyntaxTreeTemplate {
+		uri: operation,
+		volume,
+		completeness: if result.truncated { "bounded" } else { "full" },
+		file: &result.file,
+		language: &result.language,
+		focus: &result.focus,
+		focus_lines: result
+			.focus_line_range
+			.map(|(start, end)| format!("{start}-{end}")),
+		emitted_nodes: result.emitted_nodes,
+		total_nodes: result.total_nodes,
+		max_depth: result.max_depth,
+		has_error: result.has_error,
+		nodes,
+	})
 }
 
-fn render_syntax_node_lmnav(output: &mut String, node: &SyntaxNodeDto, depth: usize) {
+#[derive(Serialize)]
+struct SyntaxTreeTemplate<'a> {
+	uri: &'a str,
+	volume: &'static str,
+	completeness: &'static str,
+	file: &'a str,
+	language: &'a str,
+	focus: &'a str,
+	focus_lines: Option<String>,
+	emitted_nodes: usize,
+	total_nodes: usize,
+	max_depth: usize,
+	has_error: bool,
+	nodes: Vec<SyntaxNodeTemplate<'a>>,
+}
+
+#[derive(Serialize)]
+struct SyntaxNodeTemplate<'a> {
+	indent: String,
+	kind: &'a str,
+	start_line: u32,
+	start_column: u32,
+	end_line: u32,
+	end_column: u32,
+	flags: Vec<&'a str>,
+	text: Option<String>,
+}
+
+fn collect_syntax_nodes<'a>(
+	nodes: &mut Vec<SyntaxNodeTemplate<'a>>,
+	node: &'a SyntaxNodeDto,
+	depth: usize,
+) {
 	let mut flags = Vec::new();
 	if let Some(language) = &node.language {
 		flags.push(language.as_str());
@@ -453,441 +473,391 @@ fn render_syntax_node_lmnav(output: &mut String, node: &SyntaxNodeDto, depth: us
 	if node.missing {
 		flags.push("missing");
 	}
-	let flags = if flags.is_empty() {
-		String::new()
-	} else {
-		format!(" [{}]", flags.join(","))
-	};
-	let text = node
-		.text
-		.as_deref()
-		.map(|text| format!(" text={text:?}"))
-		.unwrap_or_default();
-	let _ = writeln!(
-		output,
-		"{}- {} {}:{}-{}:{}{}{}",
-		"  ".repeat(depth),
-		node.kind,
-		node.start.line,
-		node.start.column,
-		node.end.line,
-		node.end.column,
+	let text = node.text.as_deref().map(|text| format!("{text:?}"));
+	nodes.push(SyntaxNodeTemplate {
+		indent: "  ".repeat(depth),
+		kind: &node.kind,
+		start_line: node.start.line,
+		start_column: node.start.column,
+		end_line: node.end.line,
+		end_column: node.end.column,
 		flags,
-		text
-	);
+		text,
+	});
 	for child in &node.children {
-		render_syntax_node_lmnav(output, child, depth + 1);
+		collect_syntax_nodes(nodes, child, depth + 1);
 	}
 }
 
 fn read_workspace(
 	context: &McpContext,
-	uri: &str,
-	depth: usize,
-	scope: &ScopeFilter,
-	paging: Paging,
-	compact: bool,
-) -> anyhow::Result<String> {
+	request: &ReadRequest,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
 	let response = context.query_refreshed(
 		Query::TreeChildren(TreeChildrenQuery {
 			workspace: None,
-			path: scope.paths.clone(),
-			depth,
-			lang: scope.langs.clone(),
+			path: request.scope.paths.clone(),
+			depth: request.depth,
+			lang: request.scope.langs.clone(),
 			projection: Vec::new(),
 		}),
-		paging.daemon_page(),
+		request.paging.daemon_page(),
 	)?;
 	let QueryResult::TreeChildren(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for workspace read");
 	};
-	Ok(render_daemon_explorer_lmnav(DaemonExplorerRender {
+	explorer_output(DaemonExplorerProjection {
 		scheme: context.scheme(),
-		request_uri: uri,
-		depth,
-		scope,
-		paging,
+		request_uri: &request.uri,
+		depth: request.depth,
+		scope: &request.scope,
+		paging: request.paging,
 		next_cursor: response.next_cursor.as_ref(),
 		result: &result,
-		compact,
+		output: request.output,
 		workspace_roots: context.workspace_roots(),
-	}))
+	})
 }
 
-fn read_symbol(
-	context: &McpContext,
-	uri: &str,
-	context_lines: usize,
-	compact: bool,
-) -> anyhow::Result<ToolResult> {
+fn read_symbol(context: &McpContext, request: &ReadRequest) -> anyhow::Result<ToolResult> {
 	let response = context.query_refreshed(
 		Query::SymbolDetail(code_moniker_query::SymbolDetailQuery {
 			workspace: None,
-			uri: uri.to_string(),
-			context_lines,
+			uri: request.uri.to_string(),
+			context_lines: request.context_lines,
 		}),
 		code_moniker_query::Page::default(),
 	)?;
 	let QueryResult::SymbolDetail(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for symbol read");
 	};
-	Ok(ToolResult::success(render_daemon_symbol_source_lmnav(
-		context.scheme(),
-		&result,
-		compact,
+	Ok(ToolResult::templated(
+		symbol_source_output(
+			context.scheme(),
+			&result,
+			request.output,
+			request.paging.limit,
+		)?
+		.with_monikers([result.symbol.uri.as_str()]),
 	))
-	.with_monikers([result.symbol.uri.as_str()]))
 }
 
 fn read_view(
 	context: &McpContext,
-	uri: &str,
-	context_lines: usize,
-	include_code: bool,
-	moniker_display: MonikerDisplay,
-	compact: bool,
-) -> anyhow::Result<String> {
+	request: &ReadRequest,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
 	let response = context.query_refreshed(
 		Query::ViewRead(ViewReadQuery {
-			uri: uri.to_string(),
+			uri: request.uri.to_string(),
 			scheme: Some(context.scheme().to_string()),
-			context_lines,
-			include_code,
+			context_lines: request.context_lines,
+			include_code: request.include_code,
 		}),
 		code_moniker_query::Page::default(),
 	)?;
 	let QueryResult::ViewRead(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for view read");
 	};
-	Ok(render_daemon_view_lmnav(
+	view_output(
 		context.scheme(),
 		&result,
-		moniker_display,
-		compact,
-	))
+		ViewRenderOptions {
+			moniker_display: request.moniker_display,
+			output: request.output,
+			next_limit: request.paging.limit,
+		},
+	)
 }
 
 const VIEWS_URI: &str = "workspace/views";
 
-fn render_daemon_view_lmnav(
+#[derive(Clone, Copy)]
+struct ViewRenderOptions {
+	moniker_display: MonikerDisplay,
+	output: AgentOutputOptions,
+	next_limit: usize,
+}
+
+fn view_output(
 	scheme: &str,
 	result: &ViewReadResult,
-	moniker_display: MonikerDisplay,
-	compact: bool,
-) -> String {
+	options: ViewRenderOptions,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
 	match result {
-		ViewReadResult::List(list) => render_view_list(scheme, list, compact),
-		ViewReadResult::Detail(detail) => {
-			render_view_detail(scheme, detail, moniker_display, compact)
-		}
+		ViewReadResult::List(list) => view_list_output(scheme, list, options),
+		ViewReadResult::Detail(detail) => view_detail_output(scheme, detail, options),
 	}
 }
 
-fn render_view_list(scheme: &str, list: &ViewListResult, compact: bool) -> String {
-	let mut output = String::new();
-	output.push_str(&format!("uri: {scheme}{VIEWS_URI}\n"));
-	output.push_str("completeness: full\n");
-	output.push_str(&format!("views: {}\n\n", list.views.len()));
-	output.push_str("views:\n");
-	if list.views.is_empty() {
-		output.push_str("  <empty>\n");
-	} else {
-		for view in &list.views {
-			output.push_str(&format!("  - {}\n", view.id));
-			if let Some(title) = &view.title {
-				output.push_str(&format!("    title: {title}\n"));
+#[derive(Serialize)]
+struct ViewListTemplate<'a> {
+	uri: String,
+	volume: &'static str,
+	views: Vec<ViewListItemTemplate<'a>>,
+	next_calls: Vec<AgentCall>,
+}
+
+#[derive(Serialize)]
+struct ViewListItemTemplate<'a> {
+	id: &'a str,
+	title: Option<&'a str>,
+	fragment: &'a str,
+	anchor: &'a str,
+	scope: &'a str,
+}
+
+fn view_list_output(
+	scheme: &str,
+	list: &ViewListResult,
+	options: ViewRenderOptions,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
+	let views = list
+		.views
+		.iter()
+		.map(|view| ViewListItemTemplate {
+			id: &view.id,
+			title: view.title.as_deref(),
+			fragment: &view.fragment,
+			anchor: &view.anchor,
+			scope: view_scope_label(&view.scope),
+		})
+		.collect::<Vec<_>>();
+	let next_calls = list
+		.views
+		.iter()
+		.take(options.next_limit)
+		.map(|view| {
+			let mut arguments = String::new();
+			append_read_output_args(&mut arguments, options.output);
+			AgentCall {
+				tool: "code_moniker_read",
+				uri: format!("{scheme}{VIEWS_URI}/{}", view.id),
+				arguments,
 			}
-			output.push_str(&format!("    fragment: {}\n", view.fragment));
-			output.push_str(&format!("    anchor: {}\n", view.anchor));
-			output.push_str(&format!("    scope: {}\n", view_scope_label(&view.scope)));
-		}
-	}
-	output.push_str("\nnext:\n");
-	for view in list.views.iter().take(if compact { 5 } else { 12 }) {
-		output.push_str("  - code_moniker_read");
-		append_call_string_arg(
-			&mut output,
-			"uri",
-			&format!("{scheme}{VIEWS_URI}/{}", view.id),
-		);
-		if !compact {
-			append_call_bool_arg(&mut output, "compact", false);
-		}
-		output.push('\n');
-	}
-	output
+		})
+		.collect::<Vec<_>>();
+	navigation_presentation::read_view_list(&ViewListTemplate {
+		uri: format!("{scheme}{VIEWS_URI}"),
+		volume: options.output.budget.as_str(),
+		views,
+		next_calls,
+	})
 }
 
-fn render_view_detail(
+#[derive(Serialize)]
+struct ViewDetailTemplate<'a> {
+	uri: String,
+	view: ViewMetadataTemplate<'a>,
+	rules: Vec<ViewRuleTemplate<'a>>,
+	boundaries: Vec<ViewBoundaryTemplate<'a>>,
+	gotchas: Vec<ViewGotchaTemplate<'a>>,
+	next_calls: Vec<AgentCall>,
+}
+
+#[derive(Serialize)]
+struct ViewMetadataTemplate<'a> {
+	id: &'a str,
+	title: Option<&'a str>,
+	fragment: &'a str,
+	anchor: &'a str,
+	scope: &'a str,
+	intent: Option<&'a str>,
+	summary: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct ViewRuleTemplate<'a> {
+	id: &'a str,
+	severity: &'a str,
+	domain: &'a str,
+	rationale: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct ViewBoundaryTemplate<'a> {
+	id: &'a str,
+	owns: &'a [String],
+	forbids: &'a [String],
+	forbids_status: &'static str,
+	forbid_rules: &'a [String],
+	rationale: Option<&'a str>,
+	rules: Vec<ViewRuleRefTemplate<'a>>,
+	evidence: Vec<ViewEvidenceTemplate<'a>>,
+	missing: &'a [String],
+}
+
+#[derive(Serialize)]
+struct ViewGotchaTemplate<'a> {
+	id: &'a str,
+	rationale: &'a str,
+	check: Option<&'a str>,
+	rules: Vec<ViewRuleRefTemplate<'a>>,
+	evidence: Vec<ViewEvidenceTemplate<'a>>,
+	missing: &'a [String],
+}
+
+#[derive(Serialize)]
+struct ViewRuleRefTemplate<'a> {
+	id: &'a str,
+	present: bool,
+}
+
+#[derive(Serialize)]
+struct ViewEvidenceTemplate<'a> {
+	selector: &'a str,
+	label: &'a str,
+	moniker: Option<String>,
+	compact_moniker: bool,
+	file: &'a str,
+	slice: Option<String>,
+	code: Option<String>,
+}
+
+fn view_detail_output(
 	scheme: &str,
 	detail: &ViewDetailResult,
-	moniker_display: MonikerDisplay,
-	compact: bool,
-) -> String {
-	let mut output = String::new();
-	render_view_header(&mut output, scheme, detail);
-	render_view_rule_catalog(&mut output, &detail.rules);
-	render_view_boundaries(&mut output, detail, moniker_display);
-	render_view_gotchas(&mut output, detail, moniker_display);
-	render_view_next(&mut output, scheme, detail, compact);
-	output
-}
-
-fn render_view_header(output: &mut String, scheme: &str, detail: &ViewDetailResult) {
-	output.push_str(&format!("uri: {scheme}{VIEWS_URI}/{}\n", detail.id));
-	output.push_str("completeness: full\n");
-	output.push_str(&format!("view: {}\n", detail.id));
-	if let Some(title) = &detail.title {
-		output.push_str(&format!("title: {title}\n"));
-	}
-	output.push_str(&format!("fragment: {}\n", detail.fragment));
-	output.push_str(&format!("anchor: {}\n", detail.anchor));
-	output.push_str(&format!("scope: {}\n", view_scope_label(&detail.scope)));
-	if let Some(intent) = &detail.intent {
-		output.push_str(&format!("intent: {intent}\n"));
-	}
-	if let Some(summary) = &detail.summary {
-		output.push_str("\nsummary:\n");
-		render_view_text_block(output, summary, "  ");
-	}
-}
-
-fn render_view_rule_catalog(output: &mut String, rules: &[ViewRuleDto]) {
-	if rules.is_empty() {
-		return;
-	}
-	output.push_str("\nrules:\n");
-	for rule in rules {
-		output.push_str(&format!(
-			"  - {} [{}] domain={}\n",
-			rule.id, rule.severity, rule.domain
-		));
-		if let Some(rationale) = &rule.rationale {
-			output.push_str("    rationale:\n");
-			render_view_text_block(output, rationale, "      ");
-		}
-	}
-}
-
-fn render_view_boundaries(
-	output: &mut String,
-	detail: &ViewDetailResult,
-	moniker_display: MonikerDisplay,
-) {
-	output.push_str("\nboundaries:\n");
-	if detail.boundaries.is_empty() {
-		output.push_str("  <empty>\n");
-		return;
-	}
-	for boundary in &detail.boundaries {
-		render_view_boundary(output, boundary, moniker_display);
-	}
-}
-
-fn render_view_boundary(
-	output: &mut String,
-	boundary: &ViewBoundaryDto,
-	moniker_display: MonikerDisplay,
-) {
-	output.push_str(&format!("  - {}\n", boundary.id));
-	render_view_list_block(output, "owns", &boundary.owns, "    ");
-	render_view_forbids(output, boundary, "    ");
-	if let Some(rationale) = &boundary.rationale {
-		output.push_str("    rationale:\n");
-		render_view_text_block(output, rationale, "      ");
-	}
-	render_view_rule_refs(output, "rules", &boundary.rule_refs, "    ");
-	render_view_evidence(
-		output,
-		&boundary.evidence,
-		&boundary.missing,
-		moniker_display,
-		"    ",
-	);
-}
-
-fn render_view_gotchas(
-	output: &mut String,
-	detail: &ViewDetailResult,
-	moniker_display: MonikerDisplay,
-) {
-	output.push_str("\ngotchas:\n");
-	if detail.gotchas.is_empty() {
-		output.push_str("  <empty>\n");
-		return;
-	}
-	for gotcha in &detail.gotchas {
-		render_view_gotcha(output, gotcha, moniker_display);
-	}
-}
-
-fn render_view_gotcha(
-	output: &mut String,
-	gotcha: &ViewGotchaDto,
-	moniker_display: MonikerDisplay,
-) {
-	output.push_str(&format!("  - {}\n", gotcha.id));
-	output.push_str("    rationale:\n");
-	render_view_text_block(output, &gotcha.rationale, "      ");
-	if let Some(check) = &gotcha.check {
-		output.push_str(&format!("    check: {check}\n"));
-	}
-	render_view_rule_refs(output, "rules", &gotcha.rule_refs, "    ");
-	render_view_evidence(
-		output,
-		&gotcha.evidence,
-		&gotcha.missing,
-		moniker_display,
-		"    ",
-	);
-}
-
-fn render_view_evidence(
-	output: &mut String,
-	evidence: &[ViewEvidenceDto],
-	missing: &[String],
-	moniker_display: MonikerDisplay,
-	indent: &str,
-) {
-	if evidence.is_empty() && missing.is_empty() {
-		return;
-	}
-	output.push_str(indent);
-	output.push_str("evidence:\n");
-	for item in evidence {
-		render_view_evidence_item(output, item, moniker_display, indent);
-	}
-	for selector in missing {
-		output.push_str(indent);
-		output.push_str(&format!("  - selector: {selector}\n"));
-		output.push_str(indent);
-		output.push_str("    status: missing\n");
-	}
-}
-
-fn render_view_evidence_item(
-	output: &mut String,
-	item: &ViewEvidenceDto,
-	moniker_display: MonikerDisplay,
-	indent: &str,
-) {
-	output.push_str(indent);
-	output.push_str(&format!("  - selector: {}\n", item.selector));
-	output.push_str(indent);
-	output.push_str(&format!("    label: {}\n", item.label));
-	if let Some(moniker) = moniker_display.render(&item.moniker) {
-		output.push_str(indent);
-		output.push_str(&format!("    moniker: {moniker}\n"));
-	}
-	output.push_str(indent);
-	output.push_str(&format!("    file: {}\n", item.file));
-	if let Some((start, end)) = item.slice {
-		output.push_str(indent);
-		output.push_str(&format!("    slice: L{start}-L{end}\n"));
-	}
-	if !item.code.is_empty() {
-		output.push_str(indent);
-		output.push_str("    code:\n");
-		for line in &item.code {
-			let marker = if item
-				.active_slice
-				.is_some_and(|(start, end)| start <= line.number && line.number <= end)
-			{
-				">"
-			} else {
-				" "
-			};
-			output.push_str(indent);
-			output.push_str(&format!(
-				"      {marker} {:>4} | {}\n",
-				line.number, line.text
-			));
-		}
-	}
-}
-
-fn render_view_rule_refs(
-	output: &mut String,
-	label: &str,
-	rule_refs: &[ViewRuleRefDto],
-	indent: &str,
-) {
-	if rule_refs.is_empty() {
-		return;
-	}
-	output.push_str(indent);
-	output.push_str(label);
-	output.push_str(":\n");
-	for rule_ref in rule_refs {
-		output.push_str(indent);
-		if rule_ref.present {
-			output.push_str(&format!("  - {}\n", rule_ref.id));
-		} else {
-			output.push_str(&format!("  - {} [missing]\n", rule_ref.id));
-		}
-	}
-}
-
-fn render_view_forbids(output: &mut String, boundary: &ViewBoundaryDto, indent: &str) {
-	if boundary.forbids.is_empty() {
-		return;
-	}
-	output.push_str(indent);
-	output.push_str("forbids:\n");
-	for value in &boundary.forbids {
-		output.push_str(indent);
-		output.push_str(&format!("  - {value}\n"));
-	}
-	output.push_str(indent);
-	if boundary.forbid_rules.is_empty() {
-		output.push_str("forbids_status: advisory\n");
-	} else {
-		output.push_str("forbids_status: enforced_by_rules\n");
-		render_view_list_block(output, "forbid_rules", &boundary.forbid_rules, indent);
-	}
-}
-
-fn render_view_list_block(output: &mut String, label: &str, values: &[String], indent: &str) {
-	if values.is_empty() {
-		return;
-	}
-	output.push_str(indent);
-	output.push_str(label);
-	output.push_str(":\n");
-	for value in values {
-		output.push_str(indent);
-		output.push_str(&format!("  - {value}\n"));
-	}
-}
-
-fn render_view_text_block(output: &mut String, text: &str, indent: &str) {
-	for line in text.trim().lines() {
-		output.push_str(indent);
-		output.push_str(line.trim());
-		output.push('\n');
-	}
-}
-
-fn render_view_next(output: &mut String, scheme: &str, detail: &ViewDetailResult, compact: bool) {
-	output.push_str("\nnext:\n");
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
+	options: ViewRenderOptions,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
+	let rules = detail.rules.iter().map(view_rule_template).collect();
+	let boundaries = detail
+		.boundaries
+		.iter()
+		.map(|boundary| view_boundary_template(boundary, options.moniker_display))
+		.collect();
+	let gotchas = detail
+		.gotchas
+		.iter()
+		.map(|gotcha| view_gotcha_template(gotcha, options.moniker_display))
+		.collect();
+	let mut next_calls = Vec::new();
+	let mut arguments = String::new();
 	append_call_string_arg(
-		output,
+		&mut arguments,
 		"path",
 		&format!("{}**", view_next_scope_path(&detail.scope)),
 	);
-	append_call_number_arg(output, "limit", if compact { 20 } else { 50 });
-	if !compact {
-		append_call_bool_arg(output, "compact", false);
+	append_call_number_arg(&mut arguments, "limit", options.next_limit);
+	append_read_output_args(&mut arguments, options.output);
+	next_calls.push(AgentCall {
+		tool: "code_moniker_symbols",
+		uri: format!("{scheme}workspace"),
+		arguments,
+	});
+	if !options.output.compact {
+		let mut arguments = String::new();
+		append_call_string_arg(&mut arguments, "action", "list");
+		append_call_number_arg(&mut arguments, "limit", 50);
+		append_read_output_args(&mut arguments, options.output);
+		next_calls.push(AgentCall {
+			tool: "code_moniker_rules",
+			uri: format!("{scheme}workspace"),
+			arguments,
+		});
 	}
-	output.push('\n');
-	if !compact {
-		output.push_str(&format!(
-			"  - code_moniker_rules uri=\"{scheme}workspace\" action=\"list\" limit=50 compact=false\n"
-		));
+	navigation_presentation::read_view_detail(&ViewDetailTemplate {
+		uri: format!("{scheme}{VIEWS_URI}/{}", detail.id),
+		view: ViewMetadataTemplate {
+			id: &detail.id,
+			title: detail.title.as_deref(),
+			fragment: &detail.fragment,
+			anchor: &detail.anchor,
+			scope: view_scope_label(&detail.scope),
+			intent: detail.intent.as_deref(),
+			summary: detail.summary.as_deref(),
+		},
+		rules,
+		boundaries,
+		gotchas,
+		next_calls,
+	})
+}
+
+fn view_rule_template(rule: &ViewRuleDto) -> ViewRuleTemplate<'_> {
+	ViewRuleTemplate {
+		id: &rule.id,
+		severity: &rule.severity,
+		domain: &rule.domain,
+		rationale: rule.rationale.as_deref(),
 	}
+}
+
+fn view_boundary_template<'a>(
+	boundary: &'a ViewBoundaryDto,
+	moniker_display: MonikerDisplay,
+) -> ViewBoundaryTemplate<'a> {
+	ViewBoundaryTemplate {
+		id: &boundary.id,
+		owns: &boundary.owns,
+		forbids: &boundary.forbids,
+		forbids_status: if boundary.forbid_rules.is_empty() {
+			"advisory"
+		} else {
+			"enforced_by_rules"
+		},
+		forbid_rules: &boundary.forbid_rules,
+		rationale: boundary.rationale.as_deref(),
+		rules: view_rule_refs(&boundary.rule_refs),
+		evidence: view_evidence(&boundary.evidence, moniker_display),
+		missing: &boundary.missing,
+	}
+}
+
+fn view_gotcha_template<'a>(
+	gotcha: &'a ViewGotchaDto,
+	moniker_display: MonikerDisplay,
+) -> ViewGotchaTemplate<'a> {
+	ViewGotchaTemplate {
+		id: &gotcha.id,
+		rationale: &gotcha.rationale,
+		check: gotcha.check.as_deref(),
+		rules: view_rule_refs(&gotcha.rule_refs),
+		evidence: view_evidence(&gotcha.evidence, moniker_display),
+		missing: &gotcha.missing,
+	}
+}
+
+fn view_rule_refs(rule_refs: &[ViewRuleRefDto]) -> Vec<ViewRuleRefTemplate<'_>> {
+	rule_refs
+		.iter()
+		.map(|rule| ViewRuleRefTemplate {
+			id: &rule.id,
+			present: rule.present,
+		})
+		.collect()
+}
+
+fn view_evidence(
+	evidence: &[ViewEvidenceDto],
+	moniker_display: MonikerDisplay,
+) -> Vec<ViewEvidenceTemplate<'_>> {
+	evidence
+		.iter()
+		.map(|item| ViewEvidenceTemplate {
+			selector: &item.selector,
+			label: &item.label,
+			moniker: moniker_display.render(&item.moniker),
+			compact_moniker: moniker_display == MonikerDisplay::Compact,
+			file: &item.file,
+			slice: item.slice.map(|(start, end)| format!("L{start}-L{end}")),
+			code: (!item.code.is_empty()).then(|| {
+				item.code
+					.iter()
+					.map(|line| {
+						let marker = if item
+							.active_slice
+							.is_some_and(|(start, end)| start <= line.number && line.number <= end)
+						{
+							">"
+						} else {
+							" "
+						};
+						format!("{marker} {:>4} | {}", line.number, line.text)
+					})
+					.collect::<Vec<_>>()
+					.join("\n")
+			}),
+		})
+		.collect()
 }
 
 fn view_scope_label(scope: &str) -> &str {
@@ -902,61 +872,92 @@ fn view_next_scope_path(scope: &str) -> String {
 	}
 }
 
-fn render_daemon_symbol_source_lmnav(
-	scheme: &str,
-	result: &SymbolDetailResult,
-	compact: bool,
-) -> String {
-	let symbol = &result.symbol;
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}\n", symbol.uri));
-	if result.source.is_some() {
-		output.push_str("completeness: full\n");
-	} else {
-		output.push_str(
-			"completeness: partial (symbol has no line range; showing first available lines)\n",
-		);
-	}
-	output.push_str(&format!("file: {}\n", symbol.file));
-	output.push_str(&format!("language: {}\n", symbol.language));
-	output.push_str(&format!("kind: {}\n", symbol.kind));
-	output.push_str(&format!("name: {}\n", symbol.name));
-	if let Some((start, end)) = symbol.line_range {
-		output.push_str(&format!("range: {start}-{end}\n"));
-	}
-	if let Some(source) = &result.source {
-		output.push_str(&format!(
-			"slice: {}-{}\n\n",
-			source.first_line, source.last_line
-		));
-		output.push_str("code:\n");
-		for line in &source.lines {
-			output.push_str(&format!("  {:>4} | {}\n", line.number, line.text));
-		}
-	}
-	output.push_str("\nnext:\n");
-	if !compact {
-		output.push_str(&format!(
-			"  - code_moniker_symbols uri=\"{scheme}workspace\""
-		));
-		append_call_string_arg(&mut output, "name", &symbol.name);
-		append_call_number_arg(&mut output, "limit", 20);
-		append_call_bool_arg(&mut output, "compact", false);
-		output.push('\n');
-	}
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	append_call_string_arg(&mut output, "path", &symbol.file);
-	append_call_number_arg(&mut output, "limit", if compact { 20 } else { 50 });
-	if !compact {
-		append_call_bool_arg(&mut output, "compact", false);
-	}
-	output.push('\n');
-	output
+#[derive(Serialize)]
+struct AgentCall {
+	tool: &'static str,
+	uri: String,
+	arguments: String,
 }
 
-struct DaemonExplorerRender<'a> {
+#[derive(Serialize)]
+struct SymbolSourceTemplate<'a> {
+	uri: &'a str,
+	completeness: &'static str,
+	file: &'a str,
+	language: &'a str,
+	kind: &'a str,
+	name: &'a str,
+	range: Option<String>,
+	slice: Option<String>,
+	code: Option<String>,
+	next_calls: Vec<AgentCall>,
+}
+
+fn symbol_source_output(
+	scheme: &str,
+	result: &SymbolDetailResult,
+	output: AgentOutputOptions,
+	limit: usize,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
+	let symbol = &result.symbol;
+	let mut next_calls = Vec::new();
+	if !output.compact {
+		let mut arguments = String::new();
+		append_call_string_arg(&mut arguments, "name", &symbol.name);
+		append_call_number_arg(&mut arguments, "limit", limit);
+		append_read_output_args(&mut arguments, output);
+		next_calls.push(AgentCall {
+			tool: "code_moniker_symbols",
+			uri: format!("{scheme}workspace"),
+			arguments,
+		});
+	}
+	let mut arguments = String::new();
+	append_call_string_arg(&mut arguments, "path", &symbol.file);
+	append_call_number_arg(&mut arguments, "limit", limit);
+	append_read_output_args(&mut arguments, output);
+	next_calls.push(AgentCall {
+		tool: "code_moniker_symbols",
+		uri: format!("{scheme}workspace"),
+		arguments,
+	});
+	let (slice, code) = result.source.as_ref().map_or_else(
+		|| (None, None),
+		|source| {
+			(
+				Some(format!("{}-{}", source.first_line, source.last_line)),
+				Some(
+					source
+						.lines
+						.iter()
+						.map(|line| format!("{:>4} | {}", line.number, line.text))
+						.collect::<Vec<_>>()
+						.join("\n"),
+				),
+			)
+		},
+	);
+	navigation_presentation::read_symbol(&SymbolSourceTemplate {
+		uri: &symbol.uri,
+		completeness: if result.source.is_some() {
+			"full"
+		} else {
+			"partial (symbol has no line range; showing first available lines)"
+		},
+		file: &symbol.file,
+		language: &symbol.language,
+		kind: &symbol.kind,
+		name: &symbol.name,
+		range: symbol
+			.line_range
+			.map(|(start, end)| format!("{start}-{end}")),
+		slice,
+		code,
+		next_calls,
+	})
+}
+
+struct DaemonExplorerProjection<'a> {
 	scheme: &'a str,
 	request_uri: &'a str,
 	depth: usize,
@@ -964,97 +965,135 @@ struct DaemonExplorerRender<'a> {
 	paging: Paging,
 	next_cursor: Option<&'a code_moniker_query::QueryCursor>,
 	result: &'a TreeChildrenResult,
-	compact: bool,
+	output: AgentOutputOptions,
 	workspace_roots: &'a [PathBuf],
 }
 
-fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
+#[derive(Serialize)]
+struct CountTemplate<'a> {
+	name: &'a str,
+	count: usize,
+	percent: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct LanguageHintTemplate<'a> {
+	language: &'a str,
+	kinds: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ExplorerTemplate<'a> {
+	uri: String,
+	completeness: String,
+	roots: Vec<String>,
+	scoped_files: usize,
+	total_files: usize,
+	depth: usize,
+	volume: &'static str,
+	paths: &'a [String],
+	langs: &'a [String],
+	languages: Vec<CountTemplate<'a>>,
+	concentrations: Vec<CountTemplate<'a>>,
+	language_hints: Vec<LanguageHintTemplate<'a>>,
+	rows: Vec<String>,
+	next_calls: Vec<AgentCall>,
+}
+
+fn explorer_output(
+	render: DaemonExplorerProjection<'_>,
+) -> anyhow::Result<crate::presentation::TemplateOutput> {
 	let uri = normalize_workspace_uri(render.scheme, render.request_uri, DEFAULT_READ_URI);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {uri}\n"));
-	if let Some(next) = render.next_cursor {
-		output.push_str(&format!(
-			"completeness: partial (explorer rows {}-{} of {}, next cursor {})\n",
+	let completeness = if let Some(next) = render.next_cursor {
+		format!(
+			"partial (explorer rows {}-{} of {}, next cursor {})",
 			render.paging.cursor,
 			render.paging.cursor + render.result.rows.len(),
 			render.result.total,
 			next.offset
-		));
+		)
 	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str("workspace:\n");
-	output.push_str("  roots:\n");
-	for root in render.workspace_roots {
-		let root = Value::String(root.display().to_string()).to_string();
-		output.push_str(&format!("    - {root}\n"));
-	}
-	output.push_str(&format!("files: {}\n", render.result.scoped_files));
-	output.push_str(&format!("files_total: {}\n", render.result.total_files));
-	output.push_str(&format!("depth: {}\n\n", render.depth));
-	output.push_str("scope:\n");
-	for line in render.scope.describe() {
-		output.push_str(&line);
-		output.push('\n');
-	}
-	output.push('\n');
-	output.push_str("summary:\n");
-	output.push_str("  languages:\n");
-	for language in &render.result.languages {
-		output.push_str(&format!("    {}: {}\n", language.name, language.count));
-	}
-	output.push_str("  concentration:\n");
-	for prefix in &render.result.prefixes {
-		output.push_str(&format!("    {}: {} files\n", prefix.name, prefix.count));
-	}
-	output.push_str("  hints:\n");
-	output.push_str("    start with code_moniker_symbols using path/lang/kind/shape filters before broad symbol reads\n\n");
-	output.push_str("explorer:\n");
-	if render.result.rows.is_empty() {
-		output.push_str("  <empty>\n");
-	} else {
-		for row in &render.result.rows {
-			output.push_str("  ");
-			output.push_str(&explorer_row_label(row));
-			output.push('\n');
-		}
-	}
-	output.push_str("\nnext:\n");
+		"full".to_string()
+	};
+	let mut next_calls = Vec::new();
 	if let Some(next) = render.next_cursor {
-		output.push_str(&format!(
-			"  - code_moniker_read uri=\"{}workspace\"",
-			render.scheme
-		));
-		render.scope.append_call_args(&mut output);
-		append_expected_roots_arg(&mut output, render.workspace_roots);
-		append_call_number_arg(&mut output, "depth", render.depth);
-		append_call_number_arg(&mut output, "limit", render.paging.limit);
-		append_call_cursor_arg(&mut output, "cursor", next);
-		if !render.compact {
-			append_call_bool_arg(&mut output, "compact", false);
-		}
-		output.push('\n');
+		let mut arguments = String::new();
+		render.scope.append_call_args(&mut arguments);
+		append_expected_roots_arg(&mut arguments, render.workspace_roots);
+		append_call_number_arg(&mut arguments, "depth", render.depth);
+		append_call_number_arg(&mut arguments, "limit", render.paging.limit);
+		append_call_cursor_arg(&mut arguments, "cursor", next);
+		append_read_output_args(&mut arguments, render.output);
+		next_calls.push(AgentCall {
+			tool: "code_moniker_read",
+			uri: format!("{}workspace", render.scheme),
+			arguments,
+		});
 	}
-	append_read_next_call(
-		&mut output,
+	next_calls.push(read_next_call(
 		render.scheme,
 		render.scope,
 		ReadNextCall {
 			depth: (render.depth + 1).min(MAX_DEPTH),
 			limit: render.paging.limit,
 			cursor: None,
-			compact: render.compact,
+			output: render.output,
 			expected_roots: Some(render.workspace_roots),
 		},
-	);
-	append_symbols_call(
-		&mut output,
+	));
+	next_calls.push(symbols_call(
 		render.scheme,
 		render.scope,
-		if render.compact { 20 } else { 50 },
-		render.compact,
+		render.paging.limit,
+		render.output,
+	));
+	let languages = render
+		.result
+		.languages
+		.iter()
+		.map(|language| CountTemplate {
+			name: &language.name,
+			count: language.count,
+			percent: None,
+		})
+		.collect();
+	let concentrations = render
+		.result
+		.prefixes
+		.iter()
+		.map(|prefix| CountTemplate {
+			name: &prefix.name,
+			count: prefix.count,
+			percent: None,
+		})
+		.collect();
+	let language_hints = language_hints(
+		render
+			.result
+			.languages
+			.iter()
+			.map(|language| language.name.as_str()),
 	);
-	output
+	navigation_presentation::read_explorer(&ExplorerTemplate {
+		uri,
+		completeness,
+		roots: render
+			.workspace_roots
+			.iter()
+			.map(|root| root.display().to_string())
+			.collect(),
+		scoped_files: render.result.scoped_files,
+		total_files: render.result.total_files,
+		depth: render.depth,
+		volume: render.output.budget.as_str(),
+		paths: &render.scope.paths,
+		langs: &render.scope.langs,
+		languages,
+		concentrations,
+		language_hints,
+		rows: render.result.rows.iter().map(explorer_row_label).collect(),
+		next_calls,
+	})
 }
 
 fn explorer_row_label(row: &code_moniker_query::TreeNode) -> String {
@@ -1072,205 +1111,31 @@ fn explorer_row_label(row: &code_moniker_query::TreeNode) -> String {
 	}
 }
 
-pub(in crate::mcp) fn render_symbol_source_lmnav(
-	scheme: &str,
-	symbol: &SymbolRecord,
-	source: &SourceFileRecord,
-	source_text: &str,
-	context_lines: usize,
-) -> String {
-	render_symbol_source_lmnav_mode(scheme, symbol, source, source_text, context_lines, true)
-}
-
-fn render_symbol_source_lmnav_mode(
-	scheme: &str,
-	symbol: &SymbolRecord,
-	source: &SourceFileRecord,
-	source_text: &str,
-	context_lines: usize,
-	compact: bool,
-) -> String {
-	let total_lines = source_text.lines().count().max(1);
-	let (raw_start, raw_end) = symbol
-		.line_range
-		.map(|(start, end)| (start.max(1) as usize, end.max(start).max(1) as usize))
-		.unwrap_or((1, total_lines.min(80)));
-	let target_start = raw_start.min(total_lines);
-	let target_end = raw_end.min(total_lines).max(target_start);
-	let slice_start = target_start.saturating_sub(context_lines).max(1);
-	let slice_end = target_end.saturating_add(context_lines).min(total_lines);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}\n", symbol.identity));
-	if symbol.line_range.is_some() {
-		output.push_str("completeness: full\n");
-	} else {
-		output.push_str(
-			"completeness: partial (symbol has no line range; showing first available lines)\n",
-		);
-	}
-	output.push_str(&format!("file: {}\n", source.rel_path));
-	output.push_str(&format!("language: {}\n", source.language));
-	output.push_str(&format!("kind: {}\n", symbol.kind));
-	output.push_str(&format!("name: {}\n", symbol.name));
-	output.push_str(&format!("range: {target_start}-{target_end}\n"));
-	output.push_str(&format!("slice: {slice_start}-{slice_end}\n\n"));
-	output.push_str("code:\n");
-	for (line_number, line) in source_text.lines().enumerate() {
-		let line_number = line_number + 1;
-		if line_number < slice_start || line_number > slice_end {
-			continue;
-		}
-		output.push_str(&format!("  {line_number:>4} | {line}\n"));
-	}
-	output.push_str("\nnext:\n");
-	if !compact {
-		output.push_str(&format!(
-			"  - code_moniker_symbols uri=\"{scheme}workspace\""
-		));
-		append_call_string_arg(&mut output, "name", &symbol.name);
-		append_call_number_arg(&mut output, "limit", 20);
-		append_call_bool_arg(&mut output, "compact", false);
-		output.push('\n');
-	}
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	append_call_string_arg(&mut output, "path", &source.rel_path);
-	append_call_number_arg(&mut output, "limit", if compact { 20 } else { 50 });
-	if !compact {
-		append_call_bool_arg(&mut output, "compact", false);
-	}
-	output.push('\n');
-	output
-}
-
-pub(in crate::mcp) fn render_explorer_lmnav(
-	scheme: &str,
-	request_uri: &str,
-	depth: usize,
-	catalog: &SourceCatalog,
-	scope: &ScopeFilter,
-	paging: Paging,
-) -> String {
-	render_explorer_lmnav_mode(scheme, request_uri, catalog, scope, (depth, paging, true))
-}
-
-fn render_explorer_lmnav_mode(
-	scheme: &str,
-	request_uri: &str,
-	catalog: &SourceCatalog,
-	scope: &ScopeFilter,
-	render: (usize, Paging, bool),
-) -> String {
-	let (depth, paging, compact) = render;
-	let scoped_sources = catalog
-		.sources
-		.iter()
-		.filter(|source| scope.matches_file(&source.display_name, source.language.as_deref()))
-		.collect::<Vec<_>>();
-	let mut tree = ExplorerNode::default();
-	for source in &scoped_sources {
-		tree.insert(source);
-	}
-	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_READ_URI);
-	let summary = WorkspaceSummary::from_sources(catalog.sources.len(), &scoped_sources);
-	let mut lines = Vec::new();
-	tree.render(depth, "", &mut lines);
-	let (start, end, next) = paging.window(&lines);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {uri}\n"));
-	if let Some(next) = next {
-		output.push_str(&format!(
-			"completeness: partial (explorer rows {start}-{end} of {}, next cursor {next})\n",
-			lines.len()
-		));
-	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str(&format!("files: {}\n", summary.scoped_files));
-	output.push_str(&format!("files_total: {}\n", summary.total_files));
-	output.push_str(&format!("depth: {depth}\n\n"));
-	output.push_str("scope:\n");
-	for line in scope.describe() {
-		output.push_str(&line);
-		output.push('\n');
-	}
-	output.push('\n');
-	summary.render(&mut output);
-	output.push_str("explorer:\n");
-	if lines.is_empty() {
-		output.push_str("  <empty>\n");
-	} else {
-		for line in lines.iter().take(end).skip(start) {
-			output.push_str(line);
-			output.push('\n');
-		}
-	}
-	output.push_str("\nnext:\n");
-	if let Some(next) = next {
-		append_read_next_call(
-			&mut output,
-			scheme,
-			scope,
-			ReadNextCall {
-				depth,
-				limit: paging.limit,
-				cursor: Some(next),
-				compact,
-				expected_roots: None,
-			},
-		);
-	}
-	append_read_next_call(
-		&mut output,
-		scheme,
-		scope,
-		ReadNextCall {
-			depth: (depth + 1).min(MAX_DEPTH),
-			limit: paging.limit,
-			cursor: None,
-			compact,
-			expected_roots: None,
-		},
-	);
-	append_symbols_call(
-		&mut output,
-		scheme,
-		scope,
-		if compact { 20 } else { 50 },
-		compact,
-	);
-	output
-}
-
 struct ReadNextCall<'a> {
 	depth: usize,
 	limit: usize,
 	cursor: Option<usize>,
-	compact: bool,
+	output: AgentOutputOptions,
 	expected_roots: Option<&'a [PathBuf]>,
 }
 
-fn append_read_next_call(
-	output: &mut String,
-	scheme: &str,
-	scope: &ScopeFilter,
-	call: ReadNextCall<'_>,
-) {
-	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
-	scope.append_call_args(output);
+fn read_next_call(scheme: &str, scope: &ScopeFilter, call: ReadNextCall<'_>) -> AgentCall {
+	let mut arguments = String::new();
+	scope.append_call_args(&mut arguments);
 	if let Some(expected_roots) = call.expected_roots {
-		append_expected_roots_arg(output, expected_roots);
+		append_expected_roots_arg(&mut arguments, expected_roots);
 	}
-	append_call_number_arg(output, "depth", call.depth);
-	append_call_number_arg(output, "limit", call.limit);
+	append_call_number_arg(&mut arguments, "depth", call.depth);
+	append_call_number_arg(&mut arguments, "limit", call.limit);
 	if let Some(cursor) = call.cursor {
-		append_call_number_arg(output, "cursor", cursor);
+		append_call_number_arg(&mut arguments, "cursor", cursor);
 	}
-	if !call.compact {
-		append_call_bool_arg(output, "compact", false);
+	append_read_output_args(&mut arguments, call.output);
+	AgentCall {
+		tool: "code_moniker_read",
+		uri: format!("{scheme}workspace"),
+		arguments,
 	}
-	output.push('\n');
 }
 
 fn append_expected_roots_arg(output: &mut String, roots: &[PathBuf]) {
@@ -1281,149 +1146,149 @@ fn append_expected_roots_arg(output: &mut String, roots: &[PathBuf]) {
 	output.push_str(&format!(" expected_roots={}", Value::Array(roots)));
 }
 
-fn append_symbols_call(
-	output: &mut String,
+fn symbols_call(
 	scheme: &str,
 	scope: &ScopeFilter,
 	limit: usize,
-	compact: bool,
-) {
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	scope.append_call_args(output);
-	append_call_number_arg(output, "limit", limit);
-	if !compact {
-		append_call_bool_arg(output, "compact", false);
-	}
-	output.push('\n');
-}
-
-#[derive(Default)]
-struct ExplorerNode {
-	files: Vec<String>,
-	children: BTreeMap<String, ExplorerNode>,
-}
-
-impl ExplorerNode {
-	fn insert(&mut self, source: &SourceUnit) {
-		let mut parts = source
-			.display_name
-			.split(['/', '\\'])
-			.filter(|part| !part.is_empty())
-			.peekable();
-		let mut node = self;
-		while let Some(part) = parts.next() {
-			if parts.peek().is_some() {
-				node = node.children.entry(part.to_string()).or_default();
-			} else {
-				node.files.push(match source.language.as_deref() {
-					Some(language) if !language.is_empty() => format!("{part} [{language}]"),
-					_ => part.to_string(),
-				});
-			}
-		}
-	}
-
-	fn render(&self, depth: usize, prefix: &str, lines: &mut Vec<String>) {
-		if depth == 0 {
-			return;
-		}
-		for (name, child) in &self.children {
-			let path = if prefix.is_empty() {
-				format!("{name}/")
-			} else {
-				format!("{prefix}{name}/")
-			};
-			lines.push(format!("  {path}"));
-			child.render(depth - 1, &path, lines);
-		}
-		for file in &self.files {
-			let path = if prefix.is_empty() {
-				file.to_string()
-			} else {
-				format!("{prefix}{file}")
-			};
-			lines.push(format!("  {path}"));
-		}
+	output: AgentOutputOptions,
+) -> AgentCall {
+	let mut arguments = String::new();
+	scope.append_call_args(&mut arguments);
+	append_call_number_arg(&mut arguments, "limit", limit);
+	append_read_output_args(&mut arguments, output);
+	AgentCall {
+		tool: "code_moniker_symbols",
+		uri: format!("{scheme}workspace"),
+		arguments,
 	}
 }
 
-#[derive(Debug)]
-struct WorkspaceSummary {
-	total_files: usize,
-	scoped_files: usize,
-	languages: Vec<(String, usize)>,
-	prefixes: Vec<(String, usize)>,
+fn append_read_output_args(arguments: &mut String, output: AgentOutputOptions) {
+	append_call_string_arg(arguments, "budget", output.budget.as_str());
+	if !output.compact {
+		append_call_bool_arg(arguments, "compact", false);
+	}
 }
 
-impl WorkspaceSummary {
-	fn from_sources(total_files: usize, sources: &[&SourceUnit]) -> Self {
-		let mut languages = BTreeMap::<String, usize>::new();
-		let mut prefixes = BTreeMap::<String, usize>::new();
-		for source in sources {
-			if let Some(language) = source.language.as_deref() {
-				*languages.entry(language.to_string()).or_default() += 1;
-			}
-			*prefixes
-				.entry(path_prefix(&source.display_name))
-				.or_default() += 1;
-		}
-		let mut languages = languages.into_iter().collect::<Vec<_>>();
-		languages.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-		let mut prefixes = prefixes.into_iter().collect::<Vec<_>>();
-		prefixes.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-		prefixes.truncate(8);
-		Self {
-			total_files,
-			scoped_files: sources.len(),
-			languages,
-			prefixes,
-		}
-	}
-
-	fn render(&self, output: &mut String) {
-		output.push_str("summary:\n");
-		self.render_languages(output);
-		self.render_concentration(output);
-		self.render_hints(output);
-		output.push('\n');
-	}
-
-	fn render_languages(&self, output: &mut String) {
-		output.push_str("  languages:\n");
-		if self.languages.is_empty() {
-			output.push_str("    <empty>\n");
-		} else {
-			for (language, count) in &self.languages {
-				output.push_str(&format!("    {language}: {count}\n"));
-			}
-		}
-	}
-
-	fn render_concentration(&self, output: &mut String) {
-		output.push_str("  concentration:\n");
-		if self.prefixes.is_empty() {
-			output.push_str("    <empty>\n");
-		} else {
-			for (prefix, count) in &self.prefixes {
-				let percent = (count * 100).checked_div(self.scoped_files).unwrap_or(0);
-				output.push_str(&format!("    {prefix}: {count} files ({percent}%)\n"));
-			}
-		}
-	}
-
-	fn render_hints(&self, output: &mut String) {
-		output.push_str("  hints:\n");
-		output.push_str("    start with code_moniker_symbols using path/lang/kind/shape filters before broad symbol reads\n");
-		for (language, _) in self.languages.iter().take(4) {
-			if let Some(lang) = code_moniker_core::lang::Lang::from_tag(language) {
-				let kinds = language_kinds::known_kinds(std::iter::once(&lang))
+fn language_hints<'a>(
+	languages: impl IntoIterator<Item = &'a str>,
+) -> Vec<LanguageHintTemplate<'a>> {
+	languages
+		.into_iter()
+		.take(4)
+		.filter_map(|language| {
+			let lang = code_moniker_core::lang::Lang::from_tag(language)?;
+			Some(LanguageHintTemplate {
+				language,
+				kinds: language_kinds::known_kinds(std::iter::once(&lang))
 					.into_iter()
 					.take(18)
-					.collect::<Vec<_>>();
-				output.push_str(&format!("    {language} kinds: {}\n", kinds.join(", ")));
-			}
-		}
+					.map(str::to_owned)
+					.collect(),
+			})
+		})
+		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{
+		AgentOutputOptions, ViewBoundaryTemplate, ViewDetailTemplate, ViewEvidenceTemplate,
+		ViewGotchaTemplate, ViewMetadataTemplate, ViewRuleRefTemplate, read_syntax_options,
+	};
+	use crate::mcp::tools::common::OutputBudget;
+
+	#[test]
+	fn syntax_volume_profile_caps_explicit_node_count() {
+		let options = read_syntax_options(
+			&serde_json::json!({"ast": true, "max_nodes": 20_000}),
+			AgentOutputOptions {
+				compact: true,
+				budget: OutputBudget::Small,
+			},
+		)
+		.expect("small syntax request");
+
+		assert_eq!(options.max_nodes, 20);
+	}
+
+	#[test]
+	fn view_detail_keeps_conditional_evidence_and_rule_fields_on_separate_lines() {
+		let canonical = "code+moniker://./lang:rs/module:app/fn:run()";
+		let evidence = ViewEvidenceTemplate {
+			selector: "fn:run",
+			label: "Run function",
+			moniker: Some(canonical.to_string()),
+			compact_moniker: true,
+			file: "src/app.rs",
+			slice: Some("L1-L4".to_string()),
+			code: None,
+		};
+		let view = ViewDetailTemplate {
+			uri: "code+moniker://workspace/views/app".to_string(),
+			view: ViewMetadataTemplate {
+				id: "app",
+				title: None,
+				fragment: "app",
+				anchor: ".",
+				scope: ".",
+				intent: None,
+				summary: None,
+			},
+			rules: Vec::new(),
+			boundaries: vec![ViewBoundaryTemplate {
+				id: "entry",
+				owns: &[],
+				forbids: &[],
+				forbids_status: "advisory",
+				forbid_rules: &[],
+				rationale: None,
+				rules: Vec::new(),
+				evidence: vec![evidence],
+				missing: &[],
+			}],
+			gotchas: vec![ViewGotchaTemplate {
+				id: "careful",
+				rationale: "Keep the boundary visible.",
+				check: None,
+				rules: vec![
+					ViewRuleRefTemplate {
+						id: "rule-a",
+						present: true,
+					},
+					ViewRuleRefTemplate {
+						id: "rule-b",
+						present: false,
+					},
+				],
+				evidence: Vec::new(),
+				missing: &[],
+			}],
+			next_calls: Vec::new(),
+		};
+		let rendered = crate::presentation::navigation::read_view_detail(&view)
+			.expect("view template")
+			.render(crate::presentation::RenderOptions {
+				compact: true,
+				scheme: "code+moniker://",
+				runtime: None,
+			})
+			.expect("rendered view");
+		let lines = rendered.lines().collect::<Vec<_>>();
+
+		assert!(
+			lines.contains(&"  - moniker: `rs:app.fn:run()`"),
+			"{rendered}"
+		);
+		assert!(
+			lines.contains(&"  - file: `src/app.rs`, slice: `L1-L4`"),
+			"{rendered}"
+		);
+		assert!(
+			lines.contains(&"- rules: `rule-a`, `rule-b` [missing]"),
+			"{rendered}"
+		);
+		crate::presentation::tests::validate_agent_markdown(&rendered, "Project view: app", false)
+			.expect("view CommonMark");
 	}
 }

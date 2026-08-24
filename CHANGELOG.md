@@ -11,6 +11,32 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-24
+
+This release makes agent-facing architectural discovery a first-class rendering
+contract. The VS Code extension keeps its separate version and release channel
+and is not published by the `v0.9.0` tag.
+
+### Added
+
+- **Shared agent presentation pipeline.** CLI and MCP text documents render
+  typed DTOs through MiniJinja templates with a CommonMark hierarchy,
+  contextual escaping, executable continuations, and reusable compact
+  monikers.
+- **Executable presentation architecture.** Project rules classify the shared,
+  MCP-scoped, and CLI-scoped presentation components and enforce the renderer,
+  output boundary, Markdown validation, and daemon independence.
+
+### Changed
+
+- **Volume profiles shape facts before rendering.** `small`, `medium`, and
+  `full` bound pages, traversal, evidence, and optional detail without counting
+  or truncating rendered characters; generated continuations preserve the
+  active profile.
+- **Architectural discovery is readable by default.** Rule, symbol, graph,
+  usage, note, diff, query, source, syntax-tree, and project-view output now use
+  consistent document titles, sections, metadata, and rationales.
+
 ## [0.8.0] - 2026-08-24
 
 This release turns project rules into queryable architectural memory for agents

@@ -34,17 +34,6 @@ changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
 test_module = "moniker ~ '**/module:tests/**'"
 cli_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
-compat_or_legacy_name = "moniker ~ '**/*:/^(compat|legacy)$/**'"
-
-[[rust.module.where]]
-id       = "workspace-crate-has-no-compat-or-legacy-modules"
-severity = "warn"
-expr     = "NOT ($workspace_crate AND $compat_or_legacy_name)"
-message  = "`code-moniker-workspace` must not contain `compat` or `legacy` modules."
-rationale = """
-Compatibility and legacy store adaptation belong to CLI. The workspace crate owns reusable
-source, code, linkage, changes, snapshot, and registry contracts.
-"""
 
 [[refs.where]]
 id       = "workspace-crate-does-not-import-cli"

@@ -1,0 +1,159 @@
+# Change context
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: bounded (coverage below)
+- mode: {{ "change.context" | inline_code }}
+- volume: {{ volume | inline_code }}
+
+## Architectural and symbolic context
+
+### Focus
+
+{% if result.focus.kind == "symbol" %}
+- symbol: {{ result.focus.symbol.uri | moniker | inline_code }}
+- kind: {{ result.focus.symbol.kind | inline_code }}
+- file: {{ result.focus.symbol.file | inline_code }}
+{% else %}
+- file: {{ result.focus.path | inline_code }}
+{% endif %}
+{% if source_code %}
+
+#### Source
+
+{{ source_code | code_block }}
+{% endif %}
+
+## Coverage
+
+- members: {{ result.coverage.members_emitted }}/{{ result.coverage.members_total }}
+- internal-edges: {{ result.coverage.internal_edges_emitted }}/{{ result.coverage.internal_edges_total }}
+- callers: {{ result.coverage.callers_emitted }}/{{ result.coverage.callers_total }}
+- callees: {{ result.coverage.callees_emitted }}/{{ result.coverage.callees_total }}
+- notes: {{ result.coverage.notes_emitted }}/{{ result.coverage.notes_total }}
+- rules: {{ result.coverage.rules_emitted }}/{{ result.coverage.rules_total }}
+- changes: {{ result.coverage.changes_emitted }}/{{ result.coverage.changes_total }}
+
+## Graph
+
+### Members
+
+{% if result.graph.members %}
+{% for member in result.graph.members %}
+- {{ member.uri | moniker | inline_code }} — {{ member.kind | inline_code }} {{ member.name | inline_code }} in {{ member.file | inline_code }}{% if member.line_range %}:{{ member.line_range[0] }}-{{ member.line_range[1] }}{% endif %}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Internal edges
+
+{% if result.graph.internal_edges %}
+{% for edge in result.graph.internal_edges %}
+- {{ edge.source | moniker | inline_code }} → {{ edge.target | moniker | inline_code }} — {{ edge.kinds | join(", ") | inline_code }} ({{ edge.count }}){{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Callers
+
+{% if result.graph.callers %}
+{% for neighbor in result.graph.callers %}
+- {{ neighbor.symbol.uri | moniker | inline_code }} — {{ neighbor.kinds | join(", ") | inline_code }} ({{ neighbor.count }}){{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Callees
+
+{% if result.graph.callees %}
+{% for neighbor in result.graph.callees %}
+- {{ neighbor.symbol.uri | moniker | inline_code }} — {{ neighbor.kinds | join(", ") | inline_code }} ({{ neighbor.count }}){{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Unlinked references
+
+- external: {{ result.graph.unlinked.external }}
+- SDK: {{ result.graph.unlinked.sdk }}
+- dependency: {{ result.graph.unlinked.dependency }}
+- candidate: {{ result.graph.unlinked.candidate }}
+- dynamic: {{ result.graph.unlinked.dynamic }}
+- unresolved: {{ result.graph.unlinked.unresolved }}
+
+## Notes
+
+{% if result.notes %}
+{% for note in result.notes %}
+### {{ note.id | inline_code }} — {{ note.title | md_heading }}
+
+- moniker: {{ note.moniker | moniker | inline_code }}
+- kind: {{ note.kind | inline_code }}
+- status: {{ note.status | inline_code }}
+- created-by: {{ note.created_by | inline_code }}
+
+{{ note.body | md_block }}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Applicable rules
+
+{% if result.rules %}
+{% for applicable in result.rules %}
+### {{ applicable.rule.id | inline_code }}
+
+- status: {{ applicable.status | inline_code }}
+- severity: {{ applicable.rule.severity | inline_code }}
+- reason: {{ applicable.reason | md_text }}
+{% if applicable.rule.rationale %}
+
+#### Rationale
+
+{{ applicable.rule.rationale | md_block }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Worktree changes
+
+### Files
+
+{% if result.changed_files %}
+{% for file in result.changed_files %}
+- {{ file.disposition | inline_code }}: {{ (file.old_path or "-") | inline_code }} → {{ (file.new_path or "-") | inline_code }}; symbols={{ file.symbol_changes }}, moved={{ file.moved_symbols }}, analyzable={{ file.analyzable }}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+### Symbols
+
+{% if result.changed_symbols %}
+{% for change in result.changed_symbols %}
+- {{ change.kind | inline_code }} ({{ change.confidence | inline_code }}){% if change.old %}: {{ change.old.identity | moniker | inline_code }}{% endif %}{% if change.new %} → {{ change.new.identity | moniker | inline_code }}{% endif %}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+## Suggested checks
+
+{% if result.suggested_checks %}
+{% for check in result.suggested_checks %}
+- {{ check | moniker_text | inline_code }}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}

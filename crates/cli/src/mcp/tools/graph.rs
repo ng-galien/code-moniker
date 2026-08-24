@@ -1,15 +1,19 @@
-use std::fmt::Write as _;
-
 use code_moniker_query::{
-	GraphSectionCoverage, MAX_BOUNDED_RESULT_ITEMS, Page, Query, QueryResult, SymbolGraphFocus,
-	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UsageDirection,
+	MAX_BOUNDED_RESULT_ITEMS, Page, Query, QueryResult, SymbolGraphQuery, SymbolGraphResult,
+	UsageDirection,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::scope::string_list;
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::common::{AgentOutputOptions, OutputBudget};
+use super::scope::{
+	append_call_bool_arg, append_call_number_arg, append_call_string_arg, string_list,
+};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 
 use crate::mcp::context::McpContext;
+use crate::presentation::TemplateOutput;
+use crate::presentation::relationships as relationship_presentation;
 
 pub(super) struct GraphTool;
 
@@ -46,7 +50,7 @@ impl GraphTool {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": MAX_BOUNDED_RESULT_ITEMS,
-					"description": "Bound for listed neighbors and members. Defaults 40; truncation is reported."
+					"description": "Explicit bound for listed neighbors and members. Otherwise the volume profile selects 40, 120, or 500 items; incomplete coverage produces a continuation."
 				},
 				"direction": {
 					"type": "string",
@@ -92,9 +96,17 @@ impl McpTool for GraphTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let request = graph_request(arguments).map_err(ToolError::failed)?;
-		run_graph(context, request).map_err(ToolError::failed)
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let request =
+			graph_request(arguments, output.agent_options()).map_err(ToolError::failed)?;
+		run_graph(context, request)
+			.map(ToolResult::templated)
+			.map_err(ToolError::failed)
 	}
 }
 
@@ -105,19 +117,21 @@ struct GraphRequest {
 	relation: Vec<String>,
 	min_count: usize,
 	include_internal: bool,
+	output: AgentOutputOptions,
 }
 
-fn graph_request(arguments: &Value) -> anyhow::Result<GraphRequest> {
+fn graph_request(arguments: &Value, output: AgentOutputOptions) -> anyhow::Result<GraphRequest> {
 	let focus = arguments
 		.get("focus")
 		.and_then(Value::as_str)
 		.ok_or_else(|| anyhow::anyhow!("focus is required"))?;
-	let max_items = optional_u64(arguments, "max_items")?
+	let requested_max_items = optional_u64(arguments, "max_items")?
 		.map(|value| value as usize)
-		.unwrap_or(GraphTool::DEFAULT_MAX_ITEMS);
-	if !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&max_items) {
+		.unwrap_or_else(|| graph_volume_limit(output.budget));
+	if !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&requested_max_items) {
 		anyhow::bail!("max_items must be between 1 and {MAX_BOUNDED_RESULT_ITEMS}");
 	}
+	let max_items = requested_max_items.min(graph_volume_limit(output.budget));
 	let direction = match arguments.get("direction") {
 		Some(Value::String(value)) => value.parse::<UsageDirection>()?,
 		Some(_) => anyhow::bail!("direction must be a string"),
@@ -142,7 +156,16 @@ fn graph_request(arguments: &Value) -> anyhow::Result<GraphRequest> {
 		relation,
 		min_count,
 		include_internal,
+		output,
 	})
+}
+
+fn graph_volume_limit(budget: OutputBudget) -> usize {
+	match budget {
+		OutputBudget::Small => GraphTool::DEFAULT_MAX_ITEMS,
+		OutputBudget::Medium => 120,
+		OutputBudget::Full => MAX_BOUNDED_RESULT_ITEMS,
+	}
 }
 
 fn optional_u64(arguments: &Value, name: &str) -> anyhow::Result<Option<u64>> {
@@ -156,21 +179,22 @@ fn optional_u64(arguments: &Value, name: &str) -> anyhow::Result<Option<u64>> {
 	}
 }
 
-fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<ToolResult> {
+fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<TemplateOutput> {
 	let GraphRequest {
-		focus,
+		focus: requested_focus,
 		max_items,
 		direction,
 		relation,
 		min_count,
 		include_internal,
+		output,
 	} = request;
 	let response = context.query_refreshed(
 		Query::SymbolGraph(SymbolGraphQuery {
 			workspace: None,
-			focus,
+			focus: requested_focus.clone(),
 			direction,
-			relation,
+			relation: relation.clone(),
 			min_count,
 			include_internal,
 			limit: max_items,
@@ -180,135 +204,144 @@ fn run_graph(context: &McpContext, request: GraphRequest) -> anyhow::Result<Tool
 	let QueryResult::SymbolGraph(result) = response.result else {
 		anyhow::bail!("unexpected symbol graph response");
 	};
-	let candidates = graph_monikers(&result);
-	Ok(ToolResult::success(render_graph(&result, max_items, direction)).with_monikers(candidates))
-}
-
-fn graph_monikers(result: &SymbolGraphResult) -> Vec<&str> {
-	let mut monikers = Vec::new();
-	if let SymbolGraphFocus::Symbol { symbol } = &result.focus {
-		monikers.push(symbol.uri.as_str());
-	}
-	for member in &result.members {
-		monikers.push(member.uri.as_str());
-	}
-	for edge in &result.internal_edges {
-		monikers.push(edge.source.as_str());
-		monikers.push(edge.target.as_str());
-	}
-	for neighbor in result.callers.iter().chain(&result.callees) {
-		monikers.push(neighbor.symbol.uri.as_str());
-	}
-	monikers
-}
-
-fn render_graph(result: &SymbolGraphResult, max_items: usize, direction: UsageDirection) -> String {
-	let mut out = String::new();
-	match &result.focus {
-		SymbolGraphFocus::Symbol { symbol } => {
-			let _ = writeln!(
-				out,
-				"focus: {} {} ({})",
-				symbol.kind, symbol.name, symbol.file
-			);
-		}
-		SymbolGraphFocus::File { path } => {
-			let _ = writeln!(out, "focus: file {path}");
-		}
-	}
-	let _ = writeln!(
-		out,
-		"members: {}/{} internal edges: {}/{} matching ({} total)",
-		result.coverage.members.returned,
-		result.coverage.members.total,
-		result.coverage.internal_edges.returned,
-		result.coverage.internal_edges.matching,
-		result.coverage.internal_edges.total
-	);
-	let _ = writeln!(
-		out,
-		"unlinked refs: external {} (sdk {} · dependency {} · injected {} · unknown {}) · candidate {} · dynamic {} · manifest-blocked {} · unresolved {}",
-		result.unlinked.external,
-		result.unlinked.sdk,
-		result.unlinked.dependency,
-		result.unlinked.injected_external,
-		result.unlinked.unknown_external,
-		result.unlinked.candidate,
-		result.unlinked.dynamic,
-		result.unlinked.manifest_blocked,
-		result.unlinked.unresolved
-	);
-	if !result.unlinked.unresolved_reasons.is_empty() {
-		let reasons = result
-			.unlinked
-			.unresolved_reasons
-			.iter()
-			.map(|(reason, count)| format!("{reason} {count}"))
-			.collect::<Vec<_>>()
-			.join(" · ");
-		let _ = writeln!(out, "unresolved by reason: {reasons}");
-	}
-	if direction != UsageDirection::Outgoing {
-		render_neighbors(
-			&mut out,
-			"callers",
-			&result.callers,
-			result.coverage.callers,
+	let next_call = graph_next_call(
+		GraphNextInput {
+			focus: &requested_focus,
 			max_items,
-		);
-	}
-	if direction != UsageDirection::Incoming {
-		render_neighbors(
-			&mut out,
-			"callees",
-			&result.callees,
-			result.coverage.callees,
-			max_items,
-		);
-	}
-	out
+			direction,
+			relation: &relation,
+			min_count,
+			include_internal,
+		},
+		output,
+		&result,
+	);
+	let view = GraphView {
+		volume: output.budget.as_str(),
+		direction: direction.as_str(),
+		max_items,
+		focus: &result.focus,
+		coverage: &result.coverage,
+		unlinked: &result.unlinked,
+		show_callers: direction != UsageDirection::Outgoing,
+		show_callees: direction != UsageDirection::Incoming,
+		callers: &result.callers,
+		callees: &result.callees,
+		next_call,
+	};
+	relationship_presentation::graph(&view)
 }
 
-fn render_neighbors(
-	out: &mut String,
-	label: &str,
-	neighbors: &[SymbolGraphNeighbor],
-	coverage: GraphSectionCoverage,
+#[derive(Serialize)]
+struct GraphView<'a> {
+	volume: &'static str,
+	direction: &'static str,
 	max_items: usize,
-) {
-	let shown = neighbors.len().min(max_items);
-	let _ = writeln!(
-		out,
-		"{label}: {shown}/{} matching ({} total)",
-		coverage.matching, coverage.total
-	);
-	for neighbor in neighbors.iter().take(max_items) {
-		let _ = writeln!(
-			out,
-			"- {} {} ({}) x{} [{}]",
-			neighbor.symbol.kind,
-			neighbor.symbol.name,
-			neighbor.symbol.file,
-			neighbor.count,
-			neighbor.kinds.join(",")
-		);
-		if neighbor.symbol.navigable {
-			let _ = writeln!(out, "  uri: {}", neighbor.symbol.uri);
-		}
+	focus: &'a code_moniker_query::SymbolGraphFocus,
+	coverage: &'a code_moniker_query::SymbolGraphCoverage,
+	unlinked: &'a code_moniker_query::UnlinkedRefsDto,
+	show_callers: bool,
+	show_callees: bool,
+	callers: &'a [code_moniker_query::SymbolGraphNeighbor],
+	callees: &'a [code_moniker_query::SymbolGraphNeighbor],
+	next_call: Option<GraphNextCall>,
+}
+
+#[derive(Serialize)]
+struct GraphNextCall {
+	focus: String,
+	arguments: String,
+}
+
+struct GraphNextInput<'a> {
+	focus: &'a str,
+	max_items: usize,
+	direction: UsageDirection,
+	relation: &'a [String],
+	min_count: usize,
+	include_internal: bool,
+}
+
+fn graph_next_call(
+	input: GraphNextInput<'_>,
+	output: AgentOutputOptions,
+	result: &SymbolGraphResult,
+) -> Option<GraphNextCall> {
+	let incomplete = result.coverage.members.returned < result.coverage.members.matching
+		|| result.coverage.internal_edges.returned < result.coverage.internal_edges.matching
+		|| result.coverage.callers.returned < result.coverage.callers.matching
+		|| result.coverage.callees.returned < result.coverage.callees.matching;
+	if !incomplete || input.max_items >= MAX_BOUNDED_RESULT_ITEMS {
+		return None;
 	}
-	if neighbors.len() > max_items {
-		let _ = writeln!(out, "- truncated: +{}", neighbors.len() - max_items);
+	let next_budget = match output.budget {
+		OutputBudget::Small => OutputBudget::Medium,
+		OutputBudget::Medium | OutputBudget::Full => OutputBudget::Full,
+	};
+	let next_limit = input
+		.max_items
+		.saturating_mul(2)
+		.max(graph_volume_limit(next_budget))
+		.min(MAX_BOUNDED_RESULT_ITEMS);
+	let mut arguments = String::new();
+	append_call_number_arg(&mut arguments, "max_items", next_limit);
+	append_call_string_arg(&mut arguments, "direction", input.direction.as_str());
+	for relation in input.relation {
+		append_call_string_arg(&mut arguments, "relation", relation);
 	}
+	append_call_number_arg(&mut arguments, "min_count", input.min_count);
+	append_call_bool_arg(&mut arguments, "include_internal", input.include_internal);
+	append_call_bool_arg(&mut arguments, "compact", output.compact);
+	append_call_string_arg(&mut arguments, "budget", next_budget.as_str());
+	Some(GraphNextCall {
+		focus: input.focus.to_string(),
+		arguments,
+	})
 }
 
 #[cfg(test)]
 mod tests {
-	use code_moniker_query::{GraphSectionCoverage, SymbolGraphCoverage, UnlinkedRefsDto};
+	use code_moniker_query::{
+		GraphSectionCoverage, SymbolGraphCoverage, SymbolGraphFocus, SymbolGraphNeighbor,
+		UnlinkedRefsDto,
+	};
 
 	use super::*;
+	use crate::presentation::RenderOptions;
+
+	fn graph_markdown(
+		result: &SymbolGraphResult,
+		max_items: usize,
+		direction: UsageDirection,
+	) -> String {
+		let view = GraphView {
+			volume: "small",
+			direction: direction.as_str(),
+			max_items,
+			focus: &result.focus,
+			coverage: &result.coverage,
+			unlinked: &result.unlinked,
+			show_callers: direction != UsageDirection::Outgoing,
+			show_callees: direction != UsageDirection::Incoming,
+			callers: &result.callers,
+			callees: &result.callees,
+			next_call: None,
+		};
+		let rendered = relationship_presentation::graph(&view)
+			.expect("graph template")
+			.render(RenderOptions {
+				compact: false,
+				scheme: "code+moniker://",
+				runtime: None,
+			})
+			.expect("render graph");
+		crate::presentation::tests::validate_agent_markdown(&rendered, "Symbol graph", false)
+			.expect("valid graph Markdown");
+		rendered
+	}
 
 	#[test]
-	fn graph_render_classifies_non_unique_references_outside_the_graph() {
+	fn graph_template_classifies_non_unique_references_outside_the_graph() {
 		let result = SymbolGraphResult {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
@@ -333,15 +366,17 @@ mod tests {
 			},
 		};
 
-		let rendered = render_graph(&result, 10, UsageDirection::Both);
+		let rendered = graph_markdown(&result, 10, UsageDirection::Both);
 
-		assert!(rendered.contains(
-			"unlinked refs: external 1 (sdk 1 · dependency 0 · injected 0 · unknown 0) · candidate 2 · dynamic 3 · manifest-blocked 4 · unresolved 5"
-		));
+		assert!(rendered.contains("- external: 1 (SDK 1, dependency 0, injected 0, unknown 0)"));
+		assert!(rendered.contains("- candidate: 2"));
+		assert!(rendered.contains("- dynamic: 3"));
+		assert!(rendered.contains("- manifest-blocked: 4"));
+		assert!(rendered.contains("- unresolved: 5"));
 	}
 
 	#[test]
-	fn graph_render_omits_sections_filtered_by_direction() {
+	fn graph_template_omits_sections_filtered_by_direction() {
 		let result = SymbolGraphResult {
 			focus: SymbolGraphFocus::File {
 				path: "src/sample.py".to_string(),
@@ -355,20 +390,20 @@ mod tests {
 			unlinked: UnlinkedRefsDto::default(),
 		};
 
-		let rendered = render_graph(&result, 10, UsageDirection::Outgoing);
+		let rendered = graph_markdown(&result, 10, UsageDirection::Outgoing);
 
 		assert!(
-			!rendered.contains("callers:"),
+			!rendered.contains("## Callers"),
 			"a caller section cleared by direction=outgoing must not render as a fact, got:\n{rendered}"
 		);
 		assert!(
-			rendered.contains("callees: 0"),
+			rendered.contains("## Callees"),
 			"the requested direction must still render, got:\n{rendered}"
 		);
 	}
 
 	#[test]
-	fn graph_render_labels_zero_after_filter_with_the_prefilter_total() {
+	fn graph_template_labels_zero_after_filter_with_the_prefilter_total() {
 		let result = SymbolGraphResult {
 			focus: SymbolGraphFocus::File {
 				path: "src/hub.rs".to_string(),
@@ -389,16 +424,16 @@ mod tests {
 			unlinked: UnlinkedRefsDto::default(),
 		};
 
-		let rendered = render_graph(&result, 10, UsageDirection::Incoming);
+		let rendered = graph_markdown(&result, 10, UsageDirection::Incoming);
 
 		assert!(
-			rendered.contains("callers: 0/0 matching (2192 total)"),
+			rendered.contains("- callers: 0/0 matching (2192 total)"),
 			"a post-filter zero must retain its pre-filter denominator:\n{rendered}"
 		);
 	}
 
 	#[test]
-	fn graph_render_keeps_canonical_neighbor_uris() {
+	fn graph_template_keeps_canonical_neighbor_uris() {
 		let neighbor_uri = "code+moniker://./lang:rs/module:sample/fn:caller()".to_string();
 		let local_uri =
 			"code+moniker://./lang:rs/module:sample/fn:caller()/local:value".to_string();
@@ -456,15 +491,34 @@ mod tests {
 			unlinked: UnlinkedRefsDto::default(),
 		};
 
-		let rendered = render_graph(&result, 10, UsageDirection::Incoming);
+		let rendered = graph_markdown(&result, 10, UsageDirection::Incoming);
 
 		assert!(
-			rendered.contains(&format!("  uri: {neighbor_uri}")),
+			rendered.contains(&format!("- uri: `{neighbor_uri}`")),
 			"{rendered}"
 		);
 		assert!(
-			!rendered.contains(&format!("  uri: {local_uri}")),
+			!rendered.contains(&format!("- uri: `{local_uri}`")),
 			"{rendered}"
 		);
+	}
+
+	#[test]
+	fn graph_volume_profiles_bound_the_query_before_rendering() {
+		assert_eq!(graph_volume_limit(OutputBudget::Small), 40);
+		assert_eq!(graph_volume_limit(OutputBudget::Medium), 120);
+		assert_eq!(
+			graph_volume_limit(OutputBudget::Full),
+			MAX_BOUNDED_RESULT_ITEMS
+		);
+		let request = super::graph_request(
+			&serde_json::json!({"focus": "rs:App", "max_items": 500}),
+			AgentOutputOptions {
+				compact: true,
+				budget: OutputBudget::Small,
+			},
+		)
+		.expect("small graph request");
+		assert_eq!(request.max_items, GraphTool::DEFAULT_MAX_ITEMS);
 	}
 }

@@ -1,0 +1,30 @@
+---
+source: crates/cli/src/mcp/tests.rs
+assertion_line: 1887
+expression: normalized
+---
+# Project rules check
+
+- runtime: `stdio-worker`
+- uri: `code+moniker://workspace/rules`
+- completeness: full
+- action: run
+- corpus: daemon_index
+- generation: 1
+- verdict: `pass`
+- exit: `match`
+- page-size: 5
+- volume: `small`
+
+## Scope
+
+- profile: `all`
+- rules: `.code-moniker.toml`
+
+## Report
+
+### `<PROJECT>`
+
+root: `<PROJECT>`
+
+0 violation(s): 0 warning(s), 0 rule error(s); 0 scan error(s)

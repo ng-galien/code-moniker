@@ -1,12 +1,14 @@
 use code_moniker_query::{
 	ChangeContextQuery, ChangeContextResult, DEFAULT_CHANGE_CONTEXT_ITEMS,
-	MAX_CHANGE_CONTEXT_ITEMS, Page, Query, QueryResult, SymbolGraphFocus, format_query_response,
+	MAX_CHANGE_CONTEXT_ITEMS, Page, Query, QueryResult, SymbolGraphFocus,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::compact_argument;
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::common::AgentOutputOptions;
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
+use crate::presentation::navigation as navigation_presentation;
 
 pub(super) struct ContextTool;
 
@@ -17,7 +19,7 @@ impl ContextTool {
 		"When to use: gather the bounded symbolic context required before changing a symbol or file. ",
 		"This combines its graph neighborhood, active notes, applicable rules, worktree changes, ",
 		"coverage counts, and canonical suggested checks in one snapshot-consistent response.\n\n",
-		"Output is compact and hard-budgeted by default. Body monikers use the compact form; ",
+		"Output is compact with a small result-volume profile by default. Body monikers use the compact form; ",
 		"generated follow-up calls preserve the active compact or canonical mode."
 	);
 
@@ -60,26 +62,26 @@ impl McpTool for ContextTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		run_context(context, arguments)
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		run_context(context, arguments, output)
 	}
 }
 
-fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
+fn run_context(
+	context: &McpContext,
+	arguments: &Value,
+	output: OutputOptions,
+) -> Result<ToolResult, ToolError> {
 	let Some(focus) = arguments.get("focus").and_then(Value::as_str) else {
 		return Err(ToolError::failed(anyhow::anyhow!("focus is required")));
 	};
-	let compact = compact_argument(arguments).map_err(ToolError::failed)?;
-	let max_items = arguments
-		.get("max_items")
-		.and_then(Value::as_u64)
-		.map(|value| value as usize)
-		.unwrap_or(DEFAULT_CHANGE_CONTEXT_ITEMS);
-	if !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&max_items) {
-		return Err(ToolError::failed(anyhow::anyhow!(
-			"max_items must be between 1 and {MAX_CHANGE_CONTEXT_ITEMS}"
-		)));
-	}
+	let agent = output.agent_options();
+	let max_items = context_max_items(arguments, agent)?;
 	let response = context
 		.query_refreshed(
 			Query::ChangeContext(ChangeContextQuery {
@@ -100,15 +102,54 @@ fn run_context(context: &McpContext, arguments: &Value) -> Result<ToolResult, To
 		)));
 	};
 	let monikers = response_monikers(result);
-	let body = if compact {
-		format_query_response(&response)
-	} else {
-		serde_json::to_string_pretty(&response).map_err(ToolError::failed)?
-	};
-	let output = format!(
-		"uri: code+moniker://workspace\ncompleteness: bounded (coverage below)\nmode: change.context\n\n{body}"
-	);
-	Ok(ToolResult::success(output).with_monikers(monikers))
+	let workspace_uri = format!("{}workspace", context.scheme());
+	let source_code = result.source.as_ref().map(|source| {
+		source
+			.lines
+			.iter()
+			.map(|line| format!("{} | {}", line.number, line.text))
+			.collect::<Vec<_>>()
+			.join("\n")
+	});
+	let template = navigation_presentation::context(&ContextTemplate {
+		uri: &workspace_uri,
+		volume: agent.budget.as_str(),
+		result,
+		source_code,
+	})
+	.map_err(ToolError::failed)?
+	.with_monikers(monikers.into_iter().chain([workspace_uri.as_str()]));
+	Ok(ToolResult::templated(template))
+}
+
+fn context_max_items(arguments: &Value, agent: AgentOutputOptions) -> Result<usize, ToolError> {
+	let requested_max_items = arguments
+		.get("max_items")
+		.and_then(Value::as_u64)
+		.map(|value| value as usize)
+		.unwrap_or_else(|| {
+			agent
+				.default_page_limit()
+				.clamp(DEFAULT_CHANGE_CONTEXT_ITEMS, MAX_CHANGE_CONTEXT_ITEMS)
+		});
+	if !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&requested_max_items) {
+		return Err(ToolError::failed(anyhow::anyhow!(
+			"max_items must be between 1 and {MAX_CHANGE_CONTEXT_ITEMS}"
+		)));
+	}
+	Ok(requested_max_items.min(
+		agent
+			.default_page_limit()
+			.clamp(DEFAULT_CHANGE_CONTEXT_ITEMS, MAX_CHANGE_CONTEXT_ITEMS),
+	))
+}
+
+#[derive(Serialize)]
+struct ContextTemplate<'a> {
+	uri: &'a str,
+	volume: &'static str,
+	result: &'a ChangeContextResult,
+	source_code: Option<String>,
 }
 
 fn response_monikers(result: &ChangeContextResult) -> Vec<&str> {
@@ -143,4 +184,24 @@ fn response_monikers(result: &ChangeContextResult) -> Vec<&str> {
 		}
 	}
 	candidates
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{AgentOutputOptions, context_max_items};
+	use crate::mcp::tools::common::OutputBudget;
+
+	#[test]
+	fn context_volume_profile_caps_explicit_max_items() {
+		let max_items = context_max_items(
+			&serde_json::json!({"max_items": 100}),
+			AgentOutputOptions {
+				compact: true,
+				budget: OutputBudget::Small,
+			},
+		)
+		.expect("small context request");
+
+		assert_eq!(max_items, 20);
+	}
 }

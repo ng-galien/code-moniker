@@ -1,0 +1,29 @@
+# Symbol source
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | moniker | inline_code }}
+- completeness: {{ completeness | inline_code }}
+- file: {{ file | inline_code }}
+- language: {{ language | inline_code }}
+- kind: {{ kind | inline_code }}
+- name: {{ name | inline_code }}
+{% if range %}
+- range: {{ range }}
+{% endif %}
+{% if slice %}
+- slice: {{ slice }}
+{% endif %}
+
+{% if code %}
+## Code
+
+{{ code | code_block }}
+
+{% endif %}
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}{{ "\n" -}}
+{% endfor %}

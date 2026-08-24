@@ -1,0 +1,23 @@
+# Syntax tree
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: {{ completeness | inline_code }}
+- file: {{ file | inline_code }}
+- language: {{ language | inline_code }}
+- focus: {{ focus | moniker | inline_code }}
+{% if focus_lines %}
+- focus-lines: {{ focus_lines }}
+{% endif %}
+- nodes: {{ emitted_nodes }}/{{ total_nodes }}
+- max-depth: {{ max_depth }}
+- parse-error: {{ has_error }}
+- volume: {{ volume | inline_code }}
+
+## Tree
+
+{% for node in nodes %}
+{{ node.indent }}- {{ node.kind | md_text }} {{ node.start_line }}:{{ node.start_column }}-{{ node.end_line }}:{{ node.end_column }}{% if node.flags %} [{{ node.flags | join(",") | md_text }}]{% endif %}{% if node.text %} text={{ node.text | md_text }}{% endif %}{{ "\n" -}}
+{% endfor %}

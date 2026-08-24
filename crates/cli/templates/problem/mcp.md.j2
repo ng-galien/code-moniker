@@ -1,0 +1,16 @@
+# Tool problem
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | moniker | inline_code }}
+- completeness: partial
+- tool: {{ tool | inline_code }}
+
+## Problem
+
+{{ problem | code_block }}
+
+## Recovery
+
+{{ fix_hint | md_text }}

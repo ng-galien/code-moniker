@@ -1,0 +1,66 @@
+# Semantic diff
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- scope: {{ result.scope | inline_code }}
+- volume: {{ volume | inline_code }}
+- max-items: {{ max_items }}
+
+## Summary
+
+- files: {{ result.summary.files }} ({{ result.summary.analyzable_files }} analyzable)
+- symbol changes: {{ result.summary.symbol_changes }}
+- reference changes: {{ result.summary.ref_changes }} ({{ result.summary.retargeted_refs }} retargeted)
+- residual files: {{ result.summary.residual_files }}
+
+## Files
+
+{% if files %}
+{% for file in files %}
+- {{ file.path | inline_code }} · {{ file.disposition | inline_code }}{% if not file.analyzable %} · not analyzable{% endif %}{% if not file.coverage_explained %} · residual{% endif %}{{ "\n" -}}
+{% endfor %}
+{% else %}
+_No changed files._
+{% endif %}
+{% if files_omitted %}
+
+{{ files_omitted }} additional changed file(s) omitted by this volume profile.
+{% endif %}
+
+## Symbol changes
+
+{% if symbols %}
+{% for change in symbols %}
+- {{ change.change_kind | inline_code }} {{ change.symbol_kind | inline_code }} {{ change.identity | moniker | inline_code }} [{{ change.confidence | inline_code }}]
+{% endfor %}
+{% else %}
+_No symbol changes._
+{% endif %}
+{% if symbols_omitted %}
+
+{{ symbols_omitted }} additional symbol fact(s) omitted by this volume profile.
+{% endif %}
+{% if refs %}
+## Reference changes
+
+{% for change in refs %}
+- {{ change.kind | inline_code }} {{ change.ref_kind | inline_code }} {{ change.file | inline_code }}
+{% endfor %}
+{% if refs_omitted %}
+
+{{ refs_omitted }} additional reference fact(s) omitted by this volume profile.
+{% endif %}
+{% endif %}
+{% if result.diagnostics %}
+## Diagnostics
+
+{% for diagnostic in result.diagnostics %}
+- {{ diagnostic | md_block }}
+{% endfor %}
+{% endif %}
+{% if next_call %}
+## Next
+
+- {{ ("code_moniker_diff" ~ next_call.arguments) | inline_code }}
+{% endif %}

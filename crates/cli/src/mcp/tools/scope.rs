@@ -1,21 +1,19 @@
-use std::path::Path;
-
 use code_moniker_core::core::shape::Shape;
 use code_moniker_query::{Page, QueryCursor, WorkspaceGeneration, split_csv};
 use regex::Regex;
+use serde::Serialize;
 use serde_json::Value;
 
 use code_moniker_workspace::glob::FilePathFilter;
 
-pub(super) const DEFAULT_LIMIT: usize = 80;
-const COMPACT_DEFAULT_LIMIT: usize = 20;
+use super::common::AgentOutputOptions;
+
 pub(super) const MAX_LIMIT: usize = 500;
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::mcp) struct ScopeFilter {
 	pub(in crate::mcp) paths: Vec<String>,
 	pub(in crate::mcp) langs: Vec<String>,
-	path_filter: FilePathFilter,
 }
 
 impl ScopeFilter {
@@ -25,18 +23,8 @@ impl ScopeFilter {
 			.into_iter()
 			.map(|lang| lang.to_ascii_lowercase())
 			.collect::<Vec<_>>();
-		let path_filter = FilePathFilter::compile(&paths)?;
-		Ok(Self {
-			paths,
-			langs,
-			path_filter,
-		})
-	}
-
-	pub(super) fn matches_file(&self, rel_path: &str, language: Option<&str>) -> bool {
-		self.path_filter.matches(rel_path)
-			&& (self.langs.is_empty()
-				|| language.is_some_and(|lang| self.langs.iter().any(|allowed| allowed == lang)))
+		FilePathFilter::compile(&paths)?;
+		Ok(Self { paths, langs })
 	}
 
 	pub(super) fn describe(&self) -> Vec<String> {
@@ -95,37 +83,6 @@ impl SymbolScopeFilter {
 		})
 	}
 
-	pub(super) fn matches_symbol(&self, symbol: SymbolMatch<'_>) -> bool {
-		self.matches_symbol_base(symbol) && self.matches_kind_and_shape(symbol.kind)
-	}
-
-	fn matches_symbol_base(&self, symbol: SymbolMatch<'_>) -> bool {
-		(self.include_non_navigable || symbol.navigable)
-			&& self
-				.name
-				.as_ref()
-				.is_none_or(|regex| regex.is_match(symbol.name))
-	}
-
-	fn matches_kind_and_shape(&self, kind: &str) -> bool {
-		(self.kinds.is_empty() || self.kinds.iter().any(|allowed| allowed == kind))
-			&& (self.shapes.is_empty()
-				|| self
-					.shapes
-					.iter()
-					.any(|shape| *shape == Shape::for_kind(kind.as_bytes())))
-	}
-
-	fn matches_kind_or_shape(&self, kind: &str) -> bool {
-		let has_kind_filter = !self.kinds.is_empty() || !self.shapes.is_empty();
-		!has_kind_filter
-			|| self.kinds.iter().any(|allowed| allowed == kind)
-			|| self
-				.shapes
-				.iter()
-				.any(|shape| *shape == Shape::for_kind(kind.as_bytes()))
-	}
-
 	pub(super) fn describe(&self) -> Vec<String> {
 		let mut lines = self.files.describe();
 		if !self.kinds.is_empty() {
@@ -163,11 +120,24 @@ impl SymbolScopeFilter {
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct SymbolMatch<'a> {
-	pub(super) name: &'a str,
-	pub(super) kind: &'a str,
-	pub(super) navigable: bool,
+#[derive(Serialize)]
+pub(super) struct ScopeRowView {
+	label: String,
+	value: String,
+}
+
+pub(super) fn scope_rows(scope: &SymbolScopeFilter) -> Vec<ScopeRowView> {
+	scope
+		.describe()
+		.into_iter()
+		.filter_map(|line| {
+			let (label, value) = line.trim().split_once(": ")?;
+			Some(ScopeRowView {
+				label: label.to_string(),
+				value: value.to_string(),
+			})
+		})
+		.collect()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -178,22 +148,14 @@ pub(in crate::mcp) struct Paging {
 }
 
 impl Paging {
-	pub(super) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
-		Self::from_arguments_with_default(arguments, DEFAULT_LIMIT)
-	}
-
-	pub(in crate::mcp) fn from_arguments_for_output(
+	pub(in crate::mcp) fn from_arguments_for_volume(
 		arguments: &Value,
-		compact: bool,
+		output: AgentOutputOptions,
 	) -> anyhow::Result<Self> {
-		Self::from_arguments_with_default(
-			arguments,
-			if compact {
-				COMPACT_DEFAULT_LIMIT
-			} else {
-				DEFAULT_LIMIT
-			},
-		)
+		let profile_limit = output.default_page_limit();
+		let mut paging = Self::from_arguments_with_default(arguments, profile_limit)?;
+		paging.limit = paging.limit.min(profile_limit);
+		Ok(paging)
 	}
 
 	fn from_arguments_with_default(
@@ -209,13 +171,6 @@ impl Paging {
 			generation,
 			limit,
 		})
-	}
-
-	pub(super) fn window<T>(&self, items: &[T]) -> (usize, usize, Option<usize>) {
-		let start = self.cursor.min(items.len());
-		let end = start.saturating_add(self.limit).min(items.len());
-		let next = (end < items.len()).then_some(end);
-		(start, end, next)
 	}
 
 	pub(super) fn daemon_page(&self) -> Page {
@@ -265,15 +220,9 @@ pub(super) fn regex_argument(
 pub(super) fn append_call_string_arg(output: &mut String, key: &str, value: &str) {
 	output.push(' ');
 	output.push_str(key);
-	output.push_str("=\"");
-	for ch in value.chars() {
-		match ch {
-			'\\' => output.push_str("\\\\"),
-			'"' => output.push_str("\\\""),
-			_ => output.push(ch),
-		}
-	}
-	output.push('"');
+	output.push('=');
+	output
+		.push_str(&serde_json::to_string(value).expect("serializing a string to JSON cannot fail"));
 }
 
 pub(super) fn append_call_number_arg(output: &mut String, key: &str, value: usize) {
@@ -361,33 +310,4 @@ fn positive_number_argument(arguments: &Value, key: &str) -> anyhow::Result<Opti
 		anyhow::bail!("`{key}` must be greater than zero");
 	}
 	Ok(value)
-}
-
-pub(super) fn path_prefix(rel_path: &str) -> String {
-	let mut parts = Path::new(rel_path)
-		.parent()
-		.unwrap_or_else(|| Path::new(""))
-		.components()
-		.filter_map(|component| component.as_os_str().to_str())
-		.take(2)
-		.collect::<Vec<_>>();
-	if parts.is_empty() {
-		"<root>".to_string()
-	} else if parts.len() == 1 {
-		parts.remove(0).to_string()
-	} else {
-		parts.join("/")
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::path_prefix;
-
-	#[test]
-	fn path_prefix_groups_files_without_counting_the_filename() {
-		assert_eq!(path_prefix("crates/daemon/src/lib.rs"), "crates/daemon");
-		assert_eq!(path_prefix("src/a.rs"), "src");
-		assert_eq!(path_prefix("src/b.rs"), "src");
-	}
 }

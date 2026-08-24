@@ -5,15 +5,17 @@ use code_moniker_query::{
 	QueryResult,
 };
 use code_moniker_workspace::notes::{NoteAuthor, NoteKind, NoteStatus};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::compact_argument;
+use super::common::{AgentOutputOptions, OutputBudget};
 use super::scope::{
 	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg,
 };
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
+use crate::presentation::notes as notes_presentation;
 
 const DEFAULT_NOTES_URI: &str = "workspace/notes";
 
@@ -117,8 +119,14 @@ impl McpTool for NotesTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let request = NoteRequest::from_arguments(arguments).map_err(ToolError::failed)?;
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let request = NoteRequest::from_arguments(arguments, output.agent_options())
+			.map_err(ToolError::failed)?;
 		run_notes(context, &request).map_err(ToolError::failed)
 	}
 }
@@ -137,11 +145,11 @@ struct NoteRequest {
 	orphan: Option<bool>,
 	include_done: bool,
 	paging: Paging,
-	compact: bool,
+	output: AgentOutputOptions,
 }
 
 impl NoteRequest {
-	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+	fn from_arguments(arguments: &Value, output: AgentOutputOptions) -> anyhow::Result<Self> {
 		Ok(Self {
 			action: NoteAction::from_arguments(arguments)?,
 			uri: string_argument(arguments, "uri")?
@@ -155,8 +163,8 @@ impl NoteRequest {
 			created_by: optional_author(arguments)?.unwrap_or(NoteAuthor::Agent),
 			orphan: bool_argument(arguments, "orphan")?,
 			include_done: bool_argument(arguments, "include_done")?.unwrap_or(false),
-			paging: Paging::from_arguments(arguments)?,
-			compact: compact_argument(arguments)?,
+			paging: Paging::from_arguments_for_volume(arguments, output)?,
+			output,
 		})
 	}
 }
@@ -196,29 +204,16 @@ fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<Tool
 		request.paging.daemon_page(),
 	)?;
 	match response.result {
-		QueryResult::Notes(result) => {
-			let candidates = note_monikers(&result);
-			Ok(ToolResult::success(render_notes_result(
-				context.scheme(),
-				request,
-				&result,
-				response.next_cursor.as_ref(),
-			))
-			.with_monikers(candidates))
-		}
+		QueryResult::Notes(result) => notes_view(
+			context.scheme(),
+			request,
+			&result,
+			response.next_cursor.as_ref(),
+		)
+		.and_then(|view| notes_presentation::mcp(&view))
+		.map(ToolResult::templated),
 		other => anyhow::bail!("unexpected daemon notes result: {other:?}"),
 	}
-}
-
-fn note_monikers(result: &NotesResult) -> Vec<&str> {
-	let mut monikers = Vec::new();
-	for note in result.rows.iter().chain(result.deleted.iter()) {
-		monikers.push(note.moniker.as_str());
-		if let NoteResolutionDto::Resolved { target, .. } = &note.resolution {
-			monikers.push(target.as_str());
-		}
-	}
-	monikers
 }
 
 fn notes_query(request: &NoteRequest) -> NotesQuery {
@@ -249,121 +244,145 @@ impl From<NoteAction> for QueryNotesAction {
 	}
 }
 
-fn render_notes_result(
+#[derive(Serialize)]
+struct McpNotesView<'a> {
+	uri: String,
+	partial: bool,
+	next_cursor: Option<usize>,
+	action: &'a str,
+	total: usize,
+	volume: &'static str,
+	scope: Option<McpNotesScopeView<'a>>,
+	deleted: bool,
+	notes: Vec<McpNoteView<'a>>,
+	next_call: Option<String>,
+}
+
+#[derive(Serialize)]
+struct McpNotesScopeView<'a> {
+	moniker: Option<&'a str>,
+	orphan: Option<bool>,
+	include_done: bool,
+}
+
+#[derive(Serialize)]
+struct McpNoteView<'a> {
+	id: &'a str,
+	moniker: &'a str,
+	kind: &'a str,
+	status: &'a str,
+	title: &'a str,
+	body: &'a str,
+	created_by: &'a str,
+	updated_at: &'a str,
+	resolution: &'static str,
+	target: Option<&'a str>,
+	file: Option<&'a str>,
+	slice: Option<(u32, u32)>,
+	commands: Vec<String>,
+}
+
+fn notes_view<'a>(
 	scheme: &str,
-	request: &NoteRequest,
-	result: &NotesResult,
+	request: &'a NoteRequest,
+	result: &'a NotesResult,
 	next: Option<&code_moniker_query::QueryCursor>,
-) -> String {
-	let mut output = String::new();
-	if let Some(id) = request
+) -> anyhow::Result<McpNotesView<'a>> {
+	let uri = if let Some(id) = request
 		.id
 		.as_ref()
 		.filter(|_| request.action != NoteAction::List)
 	{
-		output.push_str(&format!("uri: {scheme}workspace/notes/{id}\n"));
+		format!("{scheme}workspace/notes/{id}")
 	} else {
-		output.push_str(&format!("uri: {scheme}workspace/notes\n"));
-	}
-	if let Some(next) = next {
-		output.push_str(&format!(
-			"completeness: partial (notes next cursor {})\n",
-			next.offset
-		));
+		format!("{scheme}workspace/notes")
+	};
+	let (deleted, notes) = if let Some(note) = result.deleted.as_ref() {
+		(true, vec![note_view(note)])
 	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str(&format!("action: {}\n", result.action));
-	output.push_str(&format!("notes: {}\n\n", result.total));
-	if let Some(deleted) = &result.deleted {
-		output.push_str("deleted:\n");
-		render_note_entry(&mut output, deleted);
-		return output;
-	}
-	if request.action == NoteAction::List {
-		output.push_str("scope:\n");
-		if let Some(moniker) = &request.moniker {
-			output.push_str(&format!("  moniker: {moniker}\n"));
-		} else {
-			output.push_str("  moniker: *\n");
-		}
-		if let Some(orphan) = request.orphan {
-			output.push_str(&format!("  orphan: {orphan}\n"));
-		}
-		output.push_str(&format!("  include_done: {}\n\n", request.include_done));
-		output.push_str("results:\n");
-	} else {
-		output.push_str("note:\n");
-	}
-	if result.rows.is_empty() {
-		output.push_str("  <empty>\n");
-	} else {
-		for note in &result.rows {
-			render_note_entry(&mut output, note);
-		}
-	}
-	if let Some(next) = next {
-		output.push_str("\nnext:\n");
-		output.push_str("  - code_moniker_notes action=\"list\"");
-		if let Some(moniker) = &request.moniker {
-			append_call_string_arg(&mut output, "moniker", moniker);
-		}
-		if let Some(orphan) = request.orphan {
-			append_call_bool_arg(&mut output, "orphan", orphan);
-		}
-		if request.include_done {
-			append_call_bool_arg(&mut output, "include_done", true);
-		}
-		append_call_number_arg(&mut output, "limit", request.paging.limit);
-		append_call_cursor_arg(&mut output, "cursor", next);
-		output.push('\n');
-	}
-	output
+		(false, result.rows.iter().map(note_view).collect())
+	};
+	Ok(McpNotesView {
+		uri,
+		partial: next.is_some(),
+		next_cursor: next.map(|cursor| cursor.offset),
+		action: &result.action,
+		total: result.total,
+		volume: request.output.budget.as_str(),
+		scope: (request.action == NoteAction::List).then_some(McpNotesScopeView {
+			moniker: request.moniker.as_deref(),
+			orphan: request.orphan,
+			include_done: request.include_done,
+		}),
+		deleted,
+		notes,
+		next_call: next.map(|cursor| notes_next_call(request, cursor)),
+	})
 }
 
-fn render_note_entry(output: &mut String, note: &NoteDto) {
-	output.push_str(&format!("  - id: {}\n", note.id));
-	output.push_str(&format!("    kind: {}\n", note.kind));
-	output.push_str(&format!("    status: {}\n", note.status));
-	output.push_str(&format!("    created_by: {}\n", note.created_by));
-	output.push_str(&format!("    title: {}\n", note.title));
-	output.push_str(&format!("    moniker: {}\n", note.moniker));
-	match &note.resolution {
+fn note_view(note: &NoteDto) -> McpNoteView<'_> {
+	let (resolution, target, file, slice) = match &note.resolution {
 		NoteResolutionDto::Resolved {
 			target,
 			file,
 			slice,
-		} => {
-			output.push_str("    resolution: resolved\n");
-			output.push_str(&format!("    target: {target}\n"));
-			if let Some((start, end)) = slice {
-				output.push_str(&format!("    file: {file}:{start}-{end}\n"));
-			} else {
-				output.push_str(&format!("    file: {file}\n"));
-			}
-		}
-		NoteResolutionDto::Orphan => {
-			output.push_str("    resolution: orphan\n");
-		}
+		} => (
+			"resolved",
+			Some(target.as_str()),
+			Some(file.as_str()),
+			*slice,
+		),
+		NoteResolutionDto::Orphan => ("orphan", None, None, None),
+	};
+	McpNoteView {
+		id: &note.id,
+		moniker: &note.moniker,
+		kind: &note.kind,
+		status: &note.status,
+		title: &note.title,
+		body: &note.body,
+		created_by: &note.created_by,
+		updated_at: &note.updated_at,
+		resolution,
+		target,
+		file,
+		slice,
+		commands: note_commands(note),
 	}
-	output.push_str(&format!("    updated_at: {}\n", note.updated_at));
-	if !note.body.is_empty() {
-		output.push_str("    body:\n");
-		for line in note.body.lines() {
-			output.push_str("      ");
-			output.push_str(line);
-			output.push('\n');
-		}
+}
+
+fn note_commands(note: &NoteDto) -> Vec<String> {
+	let mut get = "code_moniker_notes".to_string();
+	append_call_string_arg(&mut get, "action", "get");
+	append_call_string_arg(&mut get, "id", &note.id);
+	let mut transition = "code_moniker_notes".to_string();
+	append_call_string_arg(&mut transition, "action", "transition");
+	append_call_string_arg(&mut transition, "id", &note.id);
+	append_call_string_arg(&mut transition, "status", "ongoing");
+	vec![get, transition]
+}
+
+fn notes_next_call(request: &NoteRequest, cursor: &code_moniker_query::QueryCursor) -> String {
+	let mut arguments = String::new();
+	append_call_string_arg(&mut arguments, "action", "list");
+	if let Some(moniker) = &request.moniker {
+		append_call_string_arg(&mut arguments, "moniker", moniker);
 	}
-	output.push_str("    commands:\n");
-	output.push_str(&format!(
-		"      get: code_moniker_notes action=\"get\" id=\"{}\"\n",
-		note.id
-	));
-	output.push_str(&format!(
-		"      transition: code_moniker_notes action=\"transition\" id=\"{}\" status=\"ongoing\"\n",
-		note.id
-	));
+	if let Some(orphan) = request.orphan {
+		append_call_bool_arg(&mut arguments, "orphan", orphan);
+	}
+	if request.include_done {
+		append_call_bool_arg(&mut arguments, "include_done", true);
+	}
+	append_call_number_arg(&mut arguments, "limit", request.paging.limit);
+	append_call_cursor_arg(&mut arguments, "cursor", cursor);
+	if request.output.budget != OutputBudget::Small {
+		append_call_string_arg(&mut arguments, "budget", request.output.budget.as_str());
+	}
+	if !request.output.compact {
+		append_call_bool_arg(&mut arguments, "compact", false);
+	}
+	arguments
 }
 
 fn ensure_notes_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
@@ -421,12 +440,4 @@ fn bool_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<bool>> {
 		.as_bool()
 		.map(Some)
 		.ok_or_else(|| anyhow::anyhow!("`{key}` must be a boolean"))
-}
-
-fn required_id(request: &NoteRequest) -> anyhow::Result<&str> {
-	required_string(request.id.as_deref(), "id")
-}
-
-fn required_string<'a>(value: Option<&'a str>, key: &str) -> anyhow::Result<&'a str> {
-	value.ok_or_else(|| anyhow::anyhow!("{key} is required"))
 }

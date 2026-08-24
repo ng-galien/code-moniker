@@ -4,23 +4,36 @@ Status: accepted
 
 ## Decision
 
-Every public MCP response intended for an agent is compact and bounded by
-default. The contract is owned by one registry boundary, not by individual
-renderers.
+Every public MCP response intended for an agent is compact and uses a small
+result-volume profile by default. The contract is parsed by one registry
+boundary and applied while each tool projects its response, before rendering.
 
 An MCP tool explicitly declares either:
 
-- `OutputContract::Agent`: the registry injects `compact=true`, `budget=small`,
-  and the optional `max_chars` override into its public input schema; validates
-  those arguments before tool execution; replaces registered canonical
-  monikers with compact monikers; then applies the hard output budget.
+- `OutputContract::Agent`: the registry injects `compact=true` and
+  `budget=small` into its public input schema, parses both before tool
+  execution, and passes typed output options to the tool. The tool maps the
+  volume profile to result counts, traversal depth, witnesses, and optional
+  detail before constructing its presentation DTO.
 - `OutputContract::Plain`: the tool returns a small operational response that
   does not need agent-output transformation. This is currently reserved for
   workspace refresh.
 
-Tools return canonical text plus the finite set of monikers present in that
-text. They may still use `compact` to choose a minimal or verbose information
-shape, but they never perform URI compaction or output truncation themselves.
+The project taxonomy names three presentation components:
+
+- `presentation`: the shared MiniJinja environment, filters, and template
+  contract;
+- `presentation@mcp`: lazy rendering at the MCP output boundary;
+- `presentation@cli`: CLI documents rendered through the same engine.
+
+Scoped presentation components are atomic. They identify one presentation
+contract in its delivery context; they are not implicit aliases for every MCP
+or CLI module.
+
+Templates render a complete DTO. Explicit MiniJinja filters compact typed URI
+fields and the finite prose fields that declare moniker candidates. No stage
+counts characters, slices rendered text, or tries to recover a continuation
+block from the rendered document.
 
 ## Invariants
 
@@ -30,13 +43,15 @@ shape, but they never perform URI compaction or output truncation themselves.
 3. Generated follow-up calls preserve the requested rendering mode: compact
    monikers by default, canonical arguments with `compact=false`. Both remain
    unambiguous and executable.
-4. Moniker compaction runs before the hard character budget.
-5. Schema publication, argument validation, compaction, and budgeting have one
-   owner: `OutputContract`.
+4. A volume profile changes the projection before rendering; it never rewrites
+   rendered text.
+5. Schema publication and argument parsing have one owner: `OutputContract`;
+   each tool owns the semantic projection of its result volume.
 6. Adding a new `McpTool` requires an explicit output contract at compile time.
 7. Diagnostic payloads whose size follows source complexity, such as syntax
-   trees, are opt-in and carry explicit structural bounds in the typed query
-   contract. Their hard caps have one shared protocol-level definition.
+   trees, are opt-in and carry explicit structural limits in the typed query
+   contract. Depth and node volume are client-selected; the daemon rejects a
+   zero node budget and enforces the shared per-leaf text ceiling.
 
 ### On-demand syntax trees
 
@@ -47,7 +62,9 @@ grammar-node detail, and optional leaf text before rendering. Semantic
 extraction consumes the same parsed document contract, including any
 embedded-language trees; the daemon cannot grow a parallel language parser.
 The MCP intent surface is `code_moniker_read` with `ast=true`; named nodes,
-depth 6, 100 nodes, and no leaf text are the defaults.
+depth 6, no leaf text, and a profile-bound node cap are the defaults. The cap is
+20 for `small`, 80 for `medium`, and 500 for `full`; explicit larger values are
+reduced before query execution.
 
 The same surface accepts only `source` plus `language` for direct input and
 routes that request to `syntax.parse`; `ast=true` remains necessary only for
@@ -68,11 +85,11 @@ output paths:
 - the query contract marks `syntax.parse` as snapshot-free, the MCP runtime
   skips preload, and the daemon dispatches it before live-index work;
 - the daemon response consumes the typed `SyntaxTreeQuery`;
-- the response enters the daemon hard-limit validator;
+- the response enters the daemon structural-limit validator;
 - `ReadTool::input_schema` delegates to the bounded AST schema renderer.
 
 Field-level rules additionally require every volume control in the typed query,
-the shared hard caps in daemon validation, and the complete opt-in contract in
+the daemon's node and leaf-text validation, and the complete opt-in contract in
 the MCP schema. Moving or deleting any selected boundary makes the path rule
 fail because all endpoints use `require_non_empty = true`.
 
@@ -80,16 +97,15 @@ fail because all endpoints use `require_non_empty = true`.
 
 The root `.code-moniker.toml` encodes this decision as error-severity rules:
 
-- every graph path from the `ToolRegistry` success and error output entry
-  points to compaction or budgeting must pass through
-  `OutputContract::finalize`;
-- the finalizer must apply compaction before budgeting;
-- the contract must publish and validate compact and budget options;
+- the contract must publish and parse compact and volume-profile options before
+  tool execution;
+- templated agent output is rendered only through `OutputContract::finalize`;
+- output finalization must not slice rendered text;
 - every concrete tool contract under the MCP tool surface must declare
   `OutputContract::Agent`, with refresh as the sole explicit exception;
-- per-tool schemas must not redeclare `compact`, `budget`, or `max_chars`;
-- production code must not call the moniker compactor or output budgeter
-  outside the finalizer.
+- per-tool schemas must not redeclare `compact` or `budget`;
+- global response-string compaction is forbidden; typed URI and prose fields
+  use explicit template filters.
 
 The generic `workspace.path` expectation `all_paths_via` expresses the
 mandatory-boundary property. It proves connectivity, removes the selected
@@ -108,8 +124,7 @@ contains both a protected path and a direct bypass.
 The public MCP surface remains token-efficient as tools are added or renamed.
 The contract rule uses an open selector over the MCP tool surface rather than
 enumerating the current tool modules, so adding or renaming a tool cannot make
-it disappear from enforcement. Mixed compact/canonical output and missing
-response budgets become structural violations during local checks and CI
-instead of review-time conventions. Renderers remain responsible for
-information shape; the output boundary remains responsible for transport
-shape.
+it disappear from enforcement. Mixed compact/canonical output and ignored
+volume profiles become structural violations during local checks and CI
+instead of review-time conventions. Projectors own information volume;
+templates own presentation; the registry owns the shared public options.
