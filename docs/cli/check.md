@@ -4,7 +4,7 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--rules-inline <TOML>]... [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
+code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--rules-inline <TOML>]... [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--verbose] [--max-violations <N>]
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
@@ -1112,6 +1112,9 @@ Failed rules:
 - ts.class.repository-lives-in-domain: 1 warning(s)
 Read errors: 1 file(s).
 ```
+
+A clean single-file text check stays silent by default. Pass `--verbose` to
+print the same summary and make the successful check visible.
 
 `Failed rules` and `Read errors` are printed only when present. The failed
 rule list counts unsuppressed violations, so suppressions are already

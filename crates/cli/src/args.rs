@@ -653,6 +653,9 @@ pub struct CheckArgs {
 	#[arg(long, value_enum, default_value_t = CheckFormat::Text)]
 	pub format: CheckFormat,
 
+	#[arg(long, help = "print the summary for a clean single-file text check")]
+	pub verbose: bool,
+
 	#[arg(
 		long = "default-rules",
 		value_enum,
@@ -1513,9 +1516,19 @@ mod tests {
 			Command::Check(c) => {
 				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
 				assert_eq!(c.format, CheckFormat::Json);
+				assert!(!c.verbose);
 				assert_eq!(c.default_rules, None);
 				assert!(!c.report);
 			}
+			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn check_subcommand_accepts_verbose() {
+		let cli = parse(&["check", "a.ts", "--verbose"]).unwrap();
+		match cli.command {
+			Command::Check(c) => assert!(c.verbose),
 			other => panic!("expected Check, got {other:?}"),
 		}
 	}

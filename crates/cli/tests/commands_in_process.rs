@@ -624,6 +624,23 @@ fn check_clean_file_returns_match() {
 }
 
 #[test]
+fn check_verbose_reports_clean_single_file_summary() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--verbose",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(out.contains("0 violation(s) across 0 file(s)"), "{out}");
+	assert!(out.contains("1 scanned"), "{out}");
+}
+
+#[test]
 fn check_violation_reports_rule_id_and_lines() {
 	let dir = write_fixture("a.ts", TS_BAD_NAMING);
 	let path = dir.path().join("a.ts");
