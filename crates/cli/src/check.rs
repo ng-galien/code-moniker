@@ -23,14 +23,13 @@ pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut
 		return crate::check_scenario::run(scenario, stdout, stderr);
 	}
 	let request = check_request_from_args(args);
-	match run_request_inner(
-		request,
-		args.format,
-		args.report,
-		args.max_violations,
-		stdout,
-		stderr,
-	) {
+	let render = CheckRender {
+		format: args.format,
+		report: args.report,
+		max_violations: args.max_violations,
+		verbose: args.verbose,
+	};
+	match run_request_inner(request, render, stdout, stderr) {
 		Ok(outcome) => {
 			if outcome.any_error
 				|| (outcome.any_error_violation && args.format != CheckFormat::CodexHook)
@@ -83,14 +82,13 @@ pub(crate) fn run_text_request<W1: Write, W2: Write>(
 	stdout: &mut W1,
 	stderr: &mut W2,
 ) -> Exit {
-	match run_request_inner(
-		request,
-		CheckFormat::Text,
+	let render = CheckRender {
+		format: CheckFormat::Text,
 		report,
 		max_violations,
-		stdout,
-		stderr,
-	) {
+		verbose: false,
+	};
+	match run_request_inner(request, render, stdout, stderr) {
 		Ok(outcome) => {
 			if outcome.any_error || outcome.any_error_violation {
 				Exit::NoMatch
@@ -107,14 +105,12 @@ pub(crate) fn run_text_request<W1: Write, W2: Write>(
 
 fn run_request_inner<W: Write, E: Write>(
 	request: CheckRequest,
-	format: CheckFormat,
-	report: bool,
-	max_violations: Option<usize>,
+	render: CheckRender,
 	stdout: &mut W,
 	stderr: &mut E,
 ) -> anyhow::Result<CheckOutcome> {
 	let run = request.run()?;
-	if !should_render(format, &run) {
+	if !should_render(render.format, &run) {
 		return Ok(CheckOutcome::from_run(&run));
 	}
 	for e in &run.errors {
@@ -125,12 +121,26 @@ fn run_request_inner<W: Write, E: Write>(
 			e.error
 		);
 	}
-	match format {
-		CheckFormat::Text => write_reports_text(stdout, &run, report, max_violations)?,
-		CheckFormat::Json => write_reports_json(stdout, &run, report)?,
-		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &run, max_violations)?,
+	match render.format {
+		CheckFormat::Text => write_reports_text(
+			stdout,
+			&run,
+			render.report,
+			render.max_violations,
+			render.verbose,
+		)?,
+		CheckFormat::Json => write_reports_json(stdout, &run, render.report)?,
+		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &run, render.max_violations)?,
 	}
 	Ok(CheckOutcome::from_run(&run))
+}
+
+#[derive(Clone, Copy)]
+struct CheckRender {
+	format: CheckFormat,
+	report: bool,
+	max_violations: Option<usize>,
+	verbose: bool,
 }
 
 fn check_request_from_args(args: &CheckArgs) -> CheckRequest {
@@ -186,6 +196,7 @@ fn write_reports_text<W: Write>(
 	run: &CheckRun,
 	include_rule_report: bool,
 	max_violations: Option<usize>,
+	verbose: bool,
 ) -> std::io::Result<()> {
 	let reports = &run.reports;
 	let errors = &run.errors;
@@ -218,7 +229,7 @@ fn write_reports_text<W: Write>(
 		}
 	}
 	let single_clean = reports.len() == 1 && counts.files_with == 0 && errors.is_empty();
-	if !single_clean {
+	if verbose || !single_clean {
 		write!(
 			w,
 			"\n{total} violation(s) across {files_with} file(s) ({scanned} scanned, elapsed {elapsed_ms} ms",
@@ -497,7 +508,7 @@ fn codex_hook_reason(
 		elapsed_ms,
 		skip_reason: None,
 	};
-	write_reports_text(&mut reason, &run, false, max_violations)?;
+	write_reports_text(&mut reason, &run, false, max_violations, false)?;
 	Ok(String::from_utf8(reason)?)
 }
 
