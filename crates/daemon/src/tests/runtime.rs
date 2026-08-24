@@ -1,6 +1,9 @@
 use super::*;
 
 #[cfg(windows)]
+use crate::runtime::WindowsSupervisorProcess;
+
+#[cfg(windows)]
 #[test]
 fn windows_supervisor_handle_observes_the_original_process_exit() {
 	let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))

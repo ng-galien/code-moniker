@@ -2296,7 +2296,7 @@ components = ["workspace"]
 	}
 
 	#[test]
-	fn project_views_validate_references_after_profile_filtering() {
+	fn project_views_validate_references_before_profile_filtering() {
 		let project = tempfile::tempdir().expect("project");
 		let rules = project.path().join(".code-moniker.toml");
 		std::fs::write(
@@ -2322,12 +2322,11 @@ components = ["workspace"]
 		)
 		.expect("write rules");
 
-		let error = crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
+		crate::check::command::RuleSetRequest::with_rules(&rules, "code+moniker://")
 			.with_project_root(project.path())
 			.with_profile(Some("none".to_string()))
 			.load_config()
-			.expect_err("profile-filtered view references must fail ruleset loading");
-		assert!(error.to_string().contains("unknown rule `profiled-rule`"));
+			.expect("an execution profile must not invalidate the project view corpus");
 	}
 
 	#[test]

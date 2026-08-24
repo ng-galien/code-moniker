@@ -639,9 +639,6 @@ impl RuleSetRequest {
 				self.default_rules.as_override(),
 			)?
 		};
-		if let Some(profile) = &self.profile {
-			cfg.apply_profile(profile)?;
-		}
 		if !cfg.views.is_empty() {
 			let effective_rule_ids =
 				compiled_specs_with_config(&cfg, Lang::ALL.iter().copied(), &self.scheme)?
@@ -654,6 +651,9 @@ impl RuleSetRequest {
 					})
 					.collect::<HashMap<_, _>>();
 			config::validate_view_rule_references(&cfg, &effective_rule_ids)?;
+		}
+		if let Some(profile) = &self.profile {
+			cfg.apply_profile(profile)?;
 		}
 		Ok(cfg)
 	}

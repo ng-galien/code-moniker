@@ -6,15 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, TryLockError};
 use std::time::Instant;
 
+#[cfg(not(windows))]
+use code_moniker_query::pid_is_alive;
 use code_moniker_query::{
 	CapabilitySet, Command, CommandRequest, CommandResponse, Consistency, DaemonRegistryEntry,
 	DaemonRpcServer, DaemonWorkspaceConfig, HandshakeResponse, ProtocolRequest, ProtocolResponse,
 	Query, QueryError, QueryRequest, QueryResponse, QueryResult, WorkspaceEventDto,
 	WorkspaceEventKind, WorkspaceFailureDto, WorkspaceLifecycle, WorkspacePhase, WorkspaceStatus,
 	bounded_debug, canonical_workspace_config, claim_registry_entry, config_from_roots,
-	config_roots, current_build_identity, pid_is_alive, registry_path_for_config,
-	remove_registry_entry_if_own, update_registry_entry_if_own, validate_daemon_start_config,
-	workspace_label,
+	config_roots, current_build_identity, registry_path_for_config, remove_registry_entry_if_own,
+	update_registry_entry_if_own, validate_daemon_start_config, workspace_label,
 };
 use code_moniker_workspace::snapshot::{WorkspaceCancellation, WorkspaceSnapshot};
 use code_moniker_workspace::source::LocalResourceCache;
@@ -364,13 +365,13 @@ impl SupervisorWatch {
 }
 
 #[cfg(windows)]
-struct WindowsSupervisorProcess {
+pub(crate) struct WindowsSupervisorProcess {
 	handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
 #[cfg(windows)]
 impl WindowsSupervisorProcess {
-	fn open(pid: u32) -> anyhow::Result<Self> {
+	pub(crate) fn open(pid: u32) -> anyhow::Result<Self> {
 		use windows_sys::Win32::Foundation::{
 			CloseHandle, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 		};
@@ -413,7 +414,7 @@ impl WindowsSupervisorProcess {
 		}
 	}
 
-	fn is_running(&self) -> bool {
+	pub(crate) fn is_running(&self) -> bool {
 		use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
 		use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
