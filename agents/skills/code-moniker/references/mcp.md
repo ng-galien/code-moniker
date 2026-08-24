@@ -5,9 +5,11 @@ an absolute root: `code-moniker mcp <absolute-root> --transport stdio`. HTTP rem
 `code-moniker mcp <root> --transport http --port <p>` and endpoint `/mcp`.
 The stdio supervisor keeps the client pipe stable across an atomic CLI reinstall
 and refreshes the advertised tool list after its replacement worker initializes.
-Use either transport as the complete agent surface:
-do not shell out to the daemon or replay the same exploration through direct
-queries. Responses
+Use either transport as the complete symbolic agent surface. The preliminary
+static `code-moniker rules show .` taxonomy map described by the skill is a
+separate orientation step because the current MCP rules list does not expose
+the same matrix and corpus diagnostics. Do not shell out to the daemon or
+replay the same indexed exploration through direct queries. Responses
 are compact text with `uri`, `completeness`, and a result body. A `next`
 section appears only when the server has a useful pagination or navigation
 follow-up; its generated calls are ready to execute.
@@ -50,7 +52,8 @@ needed.
 
 ## Working discipline
 
-1. **Verify identity, then start scoped**: `code_moniker_read uri:"workspace"
+1. **After taxonomy orientation, verify identity and read the general index**:
+   `code_moniker_read uri:"workspace"
    expected_roots:["<current absolute workspace root>"]` requires
    `expected_roots` and fails with `workspace_mismatch` unless the server is
    bound to exactly that root set.

@@ -4,7 +4,16 @@ Use only the `code_moniker_*` MCP tools for agent exploration. They preserve
 the typed query model while enforcing compact output, deterministic budgets,
 compact monikers and canonical follow-up calls.
 
-## First contact
+## Before symbolic exploration
+
+Read the project's static taxonomy and corpus summary first with
+`code-moniker rules show .`, as described in `rules.md`. This gives the
+project's patterns, components, rule distribution and ubiquitous language
+before symbol names or directory concentration bias the exploration. Do this
+once per project context, not before every MCP call. If the project has no
+taxonomy or rules, record the absence and continue without inventing them.
+
+## First contact with the general index
 
 Call `code_moniker_read uri:"workspace" expected_roots:["<current absolute
 workspace root>"] budget:"small"`. `expected_roots` is mandatory for this
@@ -12,7 +21,9 @@ workspace read; omitting it fails with `workspace_identity_required`, and an
 incorrect identity fails with `workspace_mismatch`. A successful call returns
 the language mix, definition/reference counts, concentration hints and a
 bounded first explorer level. Stop there if it answers the question; otherwise
-follow only the narrow `next` call relevant to the requested scope.
+follow only the narrow `next` call relevant to the requested scope. Interpret
+this general index through the project vocabulary learned in the preceding
+step; a component is not necessarily a directory or software module.
 
 ## Load project context when it changes interpretation
 
@@ -88,6 +99,10 @@ After selecting a target, call `code_moniker_context focus:"<returned moniker>"`
 once. It combines bounded source context, graph facts, notes, applicable rules,
 worktree changes, coverage and canonical suggested checks. Do not re-fetch the
 same sections separately unless coverage shows that the omitted facts matter.
+
+After implementing and testing, return to `rules.md`: decide whether the change
+keeps, revises, adds or removes architectural testimony. This is part of the
+developer workflow, not a documentation-only follow-up.
 
 ## Read code only when necessary
 

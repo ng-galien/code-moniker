@@ -5,12 +5,13 @@ dangerous boundaries and project vocabulary discovered by previous agents so a
 later agent can regain context without reconstructing the design from scratch.
 They are not merely a list of forbidden operations.
 
-Use this reference in two modes:
+Use this reference in two ordered developer modes:
 
-- **Write testimony** after a change or investigation reveals a durable,
-  non-obvious invariant worth protecting.
-- **Read testimony** before changing an unfamiliar area, so existing decisions
-  guide exploration and design.
+- **Discover and develop**: orient on arrival from the project taxonomy and
+  corpus, then follow relevant rules and aliases into indexed code before
+  choosing a change.
+- **Maintain testimony** after development by updating, adding or removing
+  rules when the project knowledge or executable invariant changed.
 
 The same rule supports both modes through five connected forms of evidence:
 
@@ -130,20 +131,74 @@ Read direct alias references before expression expansion. `expanded_expr`
 proves executable meaning but loses the alias vocabulary that makes the rule
 navigable.
 
-## Write testimony
+## Mode 1 — Discover and develop
 
-Write or revise a rule when work establishes a durable invariant whose loss
-would recreate architectural drift, duplication, unsafe ownership, an invalid
-dependency direction, an important call flow, lifecycle confusion, or a
-project-specific hygiene failure. Do not create a rule merely to restate code,
-a one-off implementation detail, or a behavior already expressed more clearly
-by a focused test.
+Start with one unfiltered corpus summary. It is a bounded vocabulary map, not a
+detailed dump of every compiled rule.
+
+1. Read the declared patterns, components, scoped components,
+   pattern-by-component matrix, fragment origins and conformance summary.
+   `rules show` does not require the daemon:
+
+   ```sh
+   code-moniker rules show .
+   ```
+
+   Use `rules learn taxonomy` only if the model needs explanation after seeing
+   the project's actual vocabulary. Classification says the corpus follows the
+   declared grammar; it does not prove that the vocabulary or architecture is
+   correct.
+2. Relate that vocabulary to the general workspace index, then filter by the
+   task's component, pattern or exact rule and request details:
+
+   ```sh
+   code-moniker rules show . --component mcp --details
+   code-moniker rules show . --pattern ownership --details
+   code-moniker rules show . --rule mcp-runtime-ownership-is-on-server
+   ```
+
+3. Read the id as the decision, then inspect the aliases as entry points into
+   the code. Expand only the aliases relevant to the task and follow their
+   concrete modules or symbols.
+4. Read the declared expression to preserve the author's local vocabulary, the
+   effective expression to see fragment namespacing, and the expanded
+   expression to learn the concrete enforced boundary. Read the message and
+   rationale to learn why it exists and what regression previous work was
+   preventing. Do not let a broad rationale overstate the executable evidence.
+5. When indexed relationships matter, use the relevant project view, context,
+   graph or usages call to verify current owners and consumers. Record coverage;
+   a classified rule does not prove that every intended symbol is indexed or
+   selected.
+6. Before editing, summarize the applicable invariants and let them constrain
+   candidate designs. Prefer the existing owner, call flow and dependency
+   direction over a parallel mechanism.
+7. After implementing and testing, return to the maintenance posture: keep,
+   revise, add or remove testimony according to what the change actually taught
+   or invalidated. Preserve user ownership of architectural choices.
+
+This creates the navigable chain:
+
+```text
+taxonomy -> component -> rule -> aliases -> zones and symbols -> invariant -> rationale
+```
+
+## Mode 2 — Maintain testimony after development
+
+Compare the implemented design with the corpus read during orientation. Revise
+an existing rule when its boundary, vocabulary or rationale changed; add one
+when the work establishes a durable invariant whose loss would recreate
+architectural drift, duplication, unsafe ownership, an invalid dependency
+direction, an important call flow, lifecycle confusion or a project-specific
+hygiene failure; remove a rule when its protected decision no longer exists.
+Do not create a rule merely because code changed, to restate implementation, or
+to duplicate behavior already expressed more clearly by a focused test.
 
 1. Inspect the implemented code and identify the exact guarantee worth
    preserving. Distinguish the broader design intention from what an
    executable selector can actually prove.
-2. Read the project taxonomy and select the one architectural pattern and all
-   material project components involved. Do not invent vocabulary silently.
+2. Re-read the project taxonomy and select the one architectural pattern and
+   all material project components involved. Change that vocabulary only as an
+   explicit project-language decision; do not invent it silently.
 3. Compose a natural id containing those anchors. The id must describe the
    executable guarantee, not a stronger aspiration found only in the
    rationale.
@@ -164,43 +219,6 @@ An existing rule that no longer describes the desired architecture is a design
 decision to revisit. Do not bypass it with an ignore or weaken it merely to
 make a change pass. Present the conflict and change the rule explicitly only
 when the task authorizes that decision.
-
-## Read testimony to gain project seniority
-
-Start from the task's component or zone, not from an unbounded dump of every
-rule.
-
-1. Use the static corpus map to filter by relevant component, pattern or exact
-   rule. `rules show` does not require the daemon:
-
-   ```sh
-   code-moniker rules show . --component mcp
-   code-moniker rules show . --pattern ownership
-   code-moniker rules show . --rule mcp-runtime-ownership-is-on-server --format json
-   ```
-
-2. Read the id as the decision, then inspect the aliases as entry points into
-   the code. Expand only the aliases relevant to the task and follow their
-   concrete modules or symbols.
-3. Read the expression to learn the actual enforced boundary. Read the message
-   and rationale to learn why it exists and what regression previous work was
-   preventing. Do not let a broad rationale overstate the executable evidence.
-4. When indexed relationships matter, use the relevant project view, context,
-   graph or usages call to verify current owners and consumers. Record coverage;
-   a classified rule does not prove that every intended symbol is indexed or
-   selected.
-5. Before editing, summarize the applicable invariants and let them constrain
-   candidate designs. Prefer the existing owner, call flow and dependency
-   direction over a parallel mechanism.
-6. After the change, ask whether new project knowledge should strengthen an
-   existing id, alias, expression or rationale, or justify a new rule. Preserve
-   user ownership of architectural choices.
-
-This creates the navigable chain:
-
-```text
-component -> aliases -> zones and symbols -> rules -> invariant -> rationale
-```
 
 ## Use Git history as optional context
 
