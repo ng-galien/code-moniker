@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,10 @@ use serde::Serialize;
 use crate::args::{
 	DefaultRules, RulesArgs, RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs,
 	RulesLearnFormat, RulesShowArgs, RulesShowFormat,
+};
+use check::{
+	RuleClassification, RuleClassificationStatus, RuleCorpusAnalysis, RuleCorpusDiagnosticCode,
+	RuleCorpusDiagnosticLevel, RuleCorpusEntry, RuleOrigin, RuleTaxonomy,
 };
 use code_moniker_check as check;
 
@@ -309,32 +313,39 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 		.canonicalize()
 		.with_context(|| format!("cannot resolve project root `{}`", args.root.display()))?;
 	let path = resolve_from_root(&root, &args.rules);
-	let cfg = load_rules(Some(&path), args.default_rules, args.profile.as_deref())?;
-	let specs =
-		check::compiled_specs_with_config(&cfg, Lang::ALL.iter().copied(), crate::DEFAULT_SCHEME)?;
-	let mut rules_by_lang = BTreeMap::<String, Vec<check::CompiledRuleSpec>>::new();
-	for spec in specs {
-		rules_by_lang
-			.entry(spec.lang.clone())
-			.or_default()
-			.push(spec);
-	}
-	let mut langs = Lang::ALL
-		.iter()
-		.map(|lang| ShowLang {
-			lang: lang.tag().to_string(),
-			rules: rules_by_lang.remove(lang.tag()).unwrap_or_default(),
-		})
-		.collect::<Vec<_>>();
-	if let Some(rules) = rules_by_lang.remove("workspace") {
-		langs.push(ShowLang {
-			lang: "workspace".to_string(),
+	let rules_file = path.display().to_string();
+	let request = ruleset_request(Some(path), args.default_rules, args.profile.as_deref())
+		.with_inline_rules(args.rules_inline.clone())
+		.with_project_root(root.as_path());
+	let cfg = request.load_config()?;
+	validate_show_filters(args, cfg.rules.taxonomy.as_ref())?;
+	let corpus = check::compiled_rule_corpus(&request, Lang::ALL.iter().copied())?;
+	let full_summary = taxonomy_summary(cfg.rules.taxonomy.as_ref(), &corpus);
+	let corpus = filter_corpus(corpus, args);
+	let compiled_rows = corpus.len();
+	let mut summary = taxonomy_summary(cfg.rules.taxonomy.as_ref(), &corpus);
+	summary.unused_patterns = full_summary.unused_patterns;
+	summary.unused_components = full_summary.unused_components;
+	let details_requested = args.details || args.rule_id.is_some();
+	let mut effective_rules = aggregate_effective_rules(corpus, args.by_language);
+	let detail_page = details_requested.then(|| {
+		let total = effective_rules.len();
+		let offset = args.offset.unwrap_or(0).min(total);
+		let limit = args.limit.unwrap_or(50);
+		let rules = effective_rules
+			.drain(offset..effective_rules.len().min(offset.saturating_add(limit)))
+			.collect::<Vec<_>>();
+		ShowDetailPage {
+			offset,
+			limit,
+			returned: rules.len(),
+			total,
+			has_more: offset.saturating_add(rules.len()) < total,
 			rules,
-		});
-	}
-	let total_rules = langs.iter().map(|lang| lang.rules.len()).sum();
+		}
+	});
 	let report = ShowReport {
-		rules_file: path.display().to_string(),
+		rules_file,
 		default_rules: cfg.default_rules.unwrap_or(true),
 		exclude: ShowExclude {
 			uris: cfg.exclude.uris.to_vec(),
@@ -351,8 +362,11 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 			})
 			.collect(),
 		profile: args.profile.as_deref().map(str::to_owned),
-		total_rules,
-		langs,
+		compiled_rows,
+		distinct_rules: summary.distinct_rules,
+		taxonomy: cfg.rules.taxonomy.clone(),
+		taxonomy_summary: summary,
+		details: detail_page,
 	};
 	match args.format {
 		RulesShowFormat::Text => write_show_text(stdout, &report)?,
@@ -371,8 +385,13 @@ struct ShowReport {
 	exclude: ShowExclude,
 	fragments: Vec<ShowFragment>,
 	profile: Option<String>,
-	total_rules: usize,
-	langs: Vec<ShowLang>,
+	compiled_rows: usize,
+	distinct_rules: usize,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	taxonomy: Option<RuleTaxonomy>,
+	taxonomy_summary: TaxonomySummary,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	details: Option<ShowDetailPage>,
 }
 
 #[derive(Serialize)]
@@ -390,9 +409,365 @@ struct ShowFragment {
 }
 
 #[derive(Serialize)]
-struct ShowLang {
-	lang: String,
-	rules: Vec<check::CompiledRuleSpec>,
+struct ShowDetailPage {
+	offset: usize,
+	limit: usize,
+	returned: usize,
+	total: usize,
+	has_more: bool,
+	rules: Vec<ShowRuleDetail>,
+}
+
+#[derive(Serialize)]
+struct ShowRuleDetail {
+	effective_id: String,
+	id: String,
+	origin: RuleOrigin,
+	classification: RuleClassification,
+	analysis: RuleCorpusAnalysis,
+	languages: Vec<String>,
+	domains: Vec<String>,
+	compiled_rows: usize,
+	severity: String,
+	root: String,
+	subject: String,
+	plan: String,
+	capabilities: Vec<String>,
+	group_by: Vec<String>,
+	kind: Option<String>,
+	expr: String,
+	expanded_expr: String,
+	message: Option<String>,
+	rationale: Option<String>,
+	require_doc_comment: Option<String>,
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	projections: Vec<check::CompiledRuleSpec>,
+}
+
+#[derive(Default, Serialize)]
+struct TaxonomySummary {
+	distinct_rules: usize,
+	classified_rules: usize,
+	unclassified_rules: usize,
+	invalid_rules: usize,
+	pattern_counts: BTreeMap<String, usize>,
+	component_counts: BTreeMap<String, usize>,
+	origin_counts: BTreeMap<String, usize>,
+	cross_tab: BTreeMap<String, BTreeMap<String, usize>>,
+	unused_patterns: Vec<String>,
+	unused_components: Vec<String>,
+	unclassified_ids: Vec<String>,
+	unclassified_ids_truncated: usize,
+	migration_candidates: MigrationCandidates,
+	needs_review_rules: usize,
+	diagnostics: BTreeMap<String, DiagnosticSummary>,
+}
+
+#[derive(Default, Serialize)]
+struct MigrationCandidates {
+	rules: usize,
+	rule_ids: Vec<String>,
+	rule_ids_truncated: usize,
+	pattern_counts: BTreeMap<String, usize>,
+	component_counts: BTreeMap<String, usize>,
+}
+
+#[derive(Default, Serialize)]
+struct DiagnosticSummary {
+	rules: usize,
+	occurrences: usize,
+	examples: Vec<String>,
+	examples_truncated: usize,
+}
+
+const SUMMARY_ID_SAMPLE_LIMIT: usize = 20;
+
+fn validate_show_filters(
+	args: &RulesShowArgs,
+	taxonomy: Option<&RuleTaxonomy>,
+) -> anyhow::Result<()> {
+	if let Some(limit) = args.limit
+		&& !(1..=200).contains(&limit)
+	{
+		bail!("--limit must be between 1 and 200");
+	}
+	if (!args.pattern.is_empty() || !args.component.is_empty()) && taxonomy.is_none() {
+		bail!("pattern/component filters require `[rules.taxonomy]` in the project rules file");
+	}
+	if let Some(taxonomy) = taxonomy {
+		for pattern in &args.pattern {
+			if !taxonomy.patterns.contains(pattern) {
+				bail!(
+					"unknown rule pattern `{pattern}` (declared: {})",
+					taxonomy.patterns.join(", ")
+				);
+			}
+		}
+		for component in &args.component {
+			if !taxonomy.components.contains(component) {
+				bail!(
+					"unknown rule component `{component}` (declared: {})",
+					taxonomy.components.join(", ")
+				);
+			}
+		}
+	}
+	let known_origins = [
+		"project",
+		"fragment",
+		"embedded_default",
+		"external",
+		"inline",
+	];
+	for origin in &args.origin {
+		if !known_origins.contains(&origin.as_str()) {
+			bail!(
+				"unknown rule origin `{origin}` (known: {})",
+				known_origins.join(", ")
+			);
+		}
+	}
+	Ok(())
+}
+
+fn aggregate_effective_rules(
+	corpus: Vec<RuleCorpusEntry>,
+	include_projections: bool,
+) -> Vec<ShowRuleDetail> {
+	let mut grouped = BTreeMap::<String, Vec<RuleCorpusEntry>>::new();
+	for entry in corpus {
+		grouped
+			.entry(entry.effective_id.clone())
+			.or_default()
+			.push(entry);
+	}
+	grouped
+		.into_iter()
+		.map(|(effective_id, mut entries)| {
+			entries.sort_by(|left, right| {
+				left.rule
+					.lang
+					.cmp(&right.rule.lang)
+					.then_with(|| left.rule.rule_id.cmp(&right.rule.rule_id))
+			});
+			let first = &entries[0];
+			let languages = entries
+				.iter()
+				.map(|entry| entry.rule.lang.clone())
+				.collect::<BTreeSet<_>>()
+				.into_iter()
+				.collect();
+			let domains = entries
+				.iter()
+				.map(|entry| entry.rule.domain.clone())
+				.collect::<BTreeSet<_>>()
+				.into_iter()
+				.collect();
+			ShowRuleDetail {
+				effective_id,
+				id: first.classification.id.clone(),
+				origin: first.origin.clone(),
+				classification: first.classification.clone(),
+				analysis: first.analysis.clone(),
+				languages,
+				domains,
+				compiled_rows: entries.len(),
+				severity: first.rule.severity.as_str().to_string(),
+				root: first.rule.root.clone(),
+				subject: first.rule.subject.clone(),
+				plan: first.rule.plan.clone(),
+				capabilities: first.rule.capabilities.clone(),
+				group_by: first.rule.group_by.clone(),
+				kind: first.rule.kind.clone(),
+				expr: first.rule.expr.clone(),
+				expanded_expr: first.rule.expanded_expr.clone(),
+				message: first.rule.message.clone(),
+				rationale: first.rule.rationale.clone(),
+				require_doc_comment: first.rule.require_doc_comment.clone(),
+				projections: if include_projections {
+					entries.into_iter().map(|entry| entry.rule).collect()
+				} else {
+					Vec::new()
+				},
+			}
+		})
+		.collect()
+}
+
+fn filter_corpus(corpus: Vec<RuleCorpusEntry>, args: &RulesShowArgs) -> Vec<RuleCorpusEntry> {
+	corpus
+		.into_iter()
+		.filter(|entry| {
+			(args.pattern.is_empty()
+				|| entry
+					.classification
+					.pattern
+					.as_ref()
+					.is_some_and(|pattern| args.pattern.contains(pattern)))
+				&& args
+					.component
+					.iter()
+					.all(|component| entry.classification.components.contains(component))
+				&& (args.origin.is_empty()
+					|| args
+						.origin
+						.iter()
+						.any(|origin| origin == entry.origin.kind.as_str()))
+		})
+		.filter(|entry| {
+			args.rule_id.as_ref().is_none_or(|id| {
+				entry.rule.rule_id == *id
+					|| entry.effective_id == *id
+					|| entry.classification.id == *id
+			})
+		})
+		.collect()
+}
+
+fn taxonomy_summary(
+	taxonomy: Option<&RuleTaxonomy>,
+	corpus: &[RuleCorpusEntry],
+) -> TaxonomySummary {
+	let mut summary = TaxonomySummary::default();
+	for code in RuleCorpusDiagnosticCode::ALL {
+		summary
+			.diagnostics
+			.insert(code.as_str().to_string(), DiagnosticSummary::default());
+	}
+	let mut seen = BTreeSet::new();
+	for entry in corpus {
+		if !seen.insert(entry.effective_id.as_str()) {
+			continue;
+		}
+		*summary
+			.origin_counts
+			.entry(entry.origin.kind.as_str().to_string())
+			.or_default() += 1;
+		let mut diagnostic_codes = BTreeSet::new();
+		if entry
+			.analysis
+			.diagnostics
+			.iter()
+			.any(|diagnostic| diagnostic.level == RuleCorpusDiagnosticLevel::NeedsReview)
+		{
+			summary.needs_review_rules += 1;
+		}
+		for diagnostic in &entry.analysis.diagnostics {
+			let key = diagnostic.code.as_str().to_string();
+			let diagnostic_summary = summary
+				.diagnostics
+				.get_mut(&key)
+				.expect("every corpus diagnostic has a summary bucket");
+			diagnostic_summary.occurrences += 1;
+			if diagnostic_codes.insert(diagnostic.code) {
+				diagnostic_summary.rules += 1;
+			}
+			let mut example = entry.classification.id.clone();
+			if let Some(alias) = &diagnostic.alias {
+				example.push_str(&format!(" (${}", alias));
+				if let Some(anchor) = &diagnostic.anchor {
+					example.push_str(&format!(": {anchor}"));
+				}
+				example.push(')');
+			} else if let Some(anchor) = &diagnostic.anchor {
+				example.push_str(&format!(" ({anchor})"));
+			}
+			push_bounded_id(
+				&mut diagnostic_summary.examples,
+				&mut diagnostic_summary.examples_truncated,
+				example,
+			);
+		}
+		match entry.classification.status {
+			RuleClassificationStatus::Classified => {
+				summary.classified_rules += 1;
+				let pattern = entry
+					.classification
+					.pattern
+					.as_ref()
+					.expect("classified rules have one pattern");
+				*summary.pattern_counts.entry(pattern.clone()).or_default() += 1;
+				for component in &entry.classification.components {
+					*summary
+						.component_counts
+						.entry(component.clone())
+						.or_default() += 1;
+					*summary
+						.cross_tab
+						.entry(pattern.clone())
+						.or_default()
+						.entry(component.clone())
+						.or_default() += 1;
+				}
+			}
+			RuleClassificationStatus::Unclassified => {
+				summary.unclassified_rules += 1;
+				push_bounded_id(
+					&mut summary.unclassified_ids,
+					&mut summary.unclassified_ids_truncated,
+					entry.classification.id.clone(),
+				);
+				record_migration_candidate(&mut summary.migration_candidates, entry);
+			}
+			RuleClassificationStatus::Invalid => {
+				summary.invalid_rules += 1;
+				push_bounded_id(
+					&mut summary.unclassified_ids,
+					&mut summary.unclassified_ids_truncated,
+					entry.classification.id.clone(),
+				);
+				record_migration_candidate(&mut summary.migration_candidates, entry);
+			}
+			RuleClassificationStatus::TaxonomyNotDeclared => {}
+		}
+	}
+	summary.distinct_rules = seen.len();
+	if let Some(taxonomy) = taxonomy {
+		summary.unused_patterns = taxonomy
+			.patterns
+			.iter()
+			.filter(|pattern| !summary.pattern_counts.contains_key(*pattern))
+			.map(ToString::to_string)
+			.collect();
+		summary.unused_components = taxonomy
+			.components
+			.iter()
+			.filter(|component| !summary.component_counts.contains_key(*component))
+			.map(ToString::to_string)
+			.collect();
+	}
+	summary
+}
+
+fn record_migration_candidate(summary: &mut MigrationCandidates, entry: &RuleCorpusEntry) {
+	if entry.classification.candidate_patterns.is_empty()
+		&& entry.classification.candidate_components.is_empty()
+	{
+		return;
+	}
+	summary.rules += 1;
+	push_bounded_id(
+		&mut summary.rule_ids,
+		&mut summary.rule_ids_truncated,
+		entry.classification.id.clone(),
+	);
+	for pattern in &entry.classification.candidate_patterns {
+		*summary.pattern_counts.entry(pattern.clone()).or_default() += 1;
+	}
+	for component in &entry.classification.candidate_components {
+		*summary
+			.component_counts
+			.entry(component.clone())
+			.or_default() += 1;
+	}
+}
+
+fn push_bounded_id(ids: &mut Vec<String>, truncated: &mut usize, id: String) {
+	if ids.len() < SUMMARY_ID_SAMPLE_LIMIT {
+		ids.push(id);
+	} else {
+		*truncated += 1;
+	}
 }
 
 fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<()> {
@@ -428,12 +803,168 @@ fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<
 		"profile: {}",
 		report.profile.as_deref().unwrap_or("<none>")
 	)?;
-	writeln!(w, "compiled rules: {}", report.total_rules)?;
-	for lang in &report.langs {
+	writeln!(w, "compiled rows: {}", report.compiled_rows)?;
+	writeln!(w, "distinct rules: {}", report.distinct_rules)?;
+	if let Some(taxonomy) = &report.taxonomy {
+		writeln!(w, "taxonomy patterns: {}", taxonomy.patterns.join(", "))?;
+		writeln!(w, "taxonomy components: {}", taxonomy.components.join(", "))?;
+		writeln!(
+			w,
+			"classified: {}; unclassified: {}; invalid: {}",
+			report.taxonomy_summary.classified_rules,
+			report.taxonomy_summary.unclassified_rules,
+			report.taxonomy_summary.invalid_rules
+		)?;
+		if !report.taxonomy_summary.pattern_counts.is_empty() {
+			writeln!(w, "patterns:")?;
+			for (pattern, count) in &report.taxonomy_summary.pattern_counts {
+				writeln!(w, "- {pattern}: {count}")?;
+			}
+		}
+		if !report.taxonomy_summary.component_counts.is_empty() {
+			writeln!(w, "components:")?;
+			for (component, count) in &report.taxonomy_summary.component_counts {
+				writeln!(w, "- {component}: {count}")?;
+			}
+		}
+		if !report.taxonomy_summary.cross_tab.is_empty() {
+			writeln!(w, "pattern x component:")?;
+			for (pattern, components) in &report.taxonomy_summary.cross_tab {
+				for (component, count) in components {
+					writeln!(w, "- {pattern} x {component}: {count}")?;
+				}
+			}
+		}
+		if !report.taxonomy_summary.unused_patterns.is_empty() {
+			writeln!(
+				w,
+				"unused patterns: {}",
+				report.taxonomy_summary.unused_patterns.join(", ")
+			)?;
+		}
+		if !report.taxonomy_summary.unused_components.is_empty() {
+			writeln!(
+				w,
+				"unused components: {}",
+				report.taxonomy_summary.unused_components.join(", ")
+			)?;
+		}
+		writeln!(
+			w,
+			"needs review: {} distinct rule(s)",
+			report.taxonomy_summary.needs_review_rules
+		)?;
+		for (code, summary) in &report.taxonomy_summary.diagnostics {
+			if summary.occurrences > 0 {
+				writeln!(
+					w,
+					"- {code}: {} rule(s), {} occurrence(s)",
+					summary.rules, summary.occurrences
+				)?;
+			}
+		}
+		if !report.taxonomy_summary.unclassified_ids.is_empty() {
+			writeln!(
+				w,
+				"unclassified rules: {}",
+				report.taxonomy_summary.unclassified_ids.join(", ")
+			)?;
+			if report.taxonomy_summary.unclassified_ids_truncated > 0 {
+				writeln!(
+					w,
+					"unclassified rules omitted from summary: {}",
+					report.taxonomy_summary.unclassified_ids_truncated
+				)?;
+			}
+		}
+		if report.taxonomy_summary.migration_candidates.rules > 0 {
+			writeln!(
+				w,
+				"migration candidates: {} rule(s)",
+				report.taxonomy_summary.migration_candidates.rules
+			)?;
+			for (pattern, count) in &report.taxonomy_summary.migration_candidates.pattern_counts {
+				writeln!(w, "- candidate pattern {pattern}: {count}")?;
+			}
+			for (component, count) in &report
+				.taxonomy_summary
+				.migration_candidates
+				.component_counts
+			{
+				writeln!(w, "- candidate component {component}: {count}")?;
+			}
+		}
+	}
+	if let Some(details) = &report.details {
 		writeln!(w)?;
-		writeln!(w, "[{}] {} rule(s)", lang.lang, lang.rules.len())?;
-		for rule in &lang.rules {
-			writeln!(w, "- {} ({})", rule.rule_id, rule.domain)?;
+		writeln!(
+			w,
+			"details: {}-{} of {} distinct rule(s)",
+			details.offset,
+			details.offset + details.returned,
+			details.total
+		)?;
+		for rule in &details.rules {
+			writeln!(w, "- {} ({})", rule.effective_id, rule.domains.join(", "))?;
+			writeln!(w, "  id: {}", rule.id)?;
+			writeln!(w, "  origin: {}", rule.origin.kind.as_str())?;
+			writeln!(w, "  languages: {}", rule.languages.join(", "))?;
+			writeln!(w, "  compiled rows: {}", rule.compiled_rows)?;
+			if let Some(pattern) = &rule.classification.pattern {
+				writeln!(w, "  pattern: {pattern}")?;
+			}
+			if !rule.classification.components.is_empty() {
+				writeln!(
+					w,
+					"  components: {}",
+					rule.classification.components.join(", ")
+				)?;
+			}
+			if !rule.classification.diagnostics.is_empty() {
+				writeln!(
+					w,
+					"  taxonomy: {} ({})",
+					rule.classification.status.as_str(),
+					rule.classification.diagnostics.join("; ")
+				)?;
+			}
+			if rule.analysis.used_aliases.is_empty() {
+				writeln!(w, "  aliases: <none>")?;
+			} else {
+				writeln!(w, "  aliases:")?;
+				for alias in &rule.analysis.used_aliases {
+					let patterns = if alias.patterns.is_empty() {
+						"<none>".to_string()
+					} else {
+						alias.patterns.join(", ")
+					};
+					let components = if alias.components.is_empty() {
+						"<none>".to_string()
+					} else {
+						alias.components.join(", ")
+					};
+					writeln!(
+						w,
+						"  - ${}: patterns={patterns}; components={components}",
+						alias.name
+					)?;
+				}
+			}
+			for diagnostic in &rule.analysis.diagnostics {
+				writeln!(
+					w,
+					"  diagnostic: {} ({})",
+					diagnostic.code.as_str(),
+					diagnostic.level.as_str()
+				)?;
+			}
+			if !rule.analysis.migration_actions.is_empty() {
+				writeln!(
+					w,
+					"  migration actions: {}",
+					rule.analysis.migration_actions.join(", ")
+				)?;
+			}
 			writeln!(
 				w,
 				"  root: {}; subject: {}; plan: {}",
@@ -451,11 +982,15 @@ fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<
 			if let Some(message) = &rule.message {
 				writeln!(w, "  message: {}", one_line(message))?;
 			}
-			if rule.severity.is_warn() {
-				writeln!(w, "  severity: warn")?;
-			}
+			writeln!(w, "  severity: {}", rule.severity)?;
 			if let Some(rationale) = &rule.rationale {
 				writeln!(w, "  rationale: {}", one_line(rationale))?;
+			}
+			if !rule.projections.is_empty() {
+				writeln!(w, "  projections:")?;
+				for projection in &rule.projections {
+					writeln!(w, "  - {} [{}]", projection.rule_id, projection.lang)?;
+				}
 			}
 		}
 	}
@@ -784,6 +1319,7 @@ mod tests {
 			dir.path().to_str().unwrap(),
 			"--profile",
 			"only-keep",
+			"--details",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
@@ -949,6 +1485,7 @@ mod tests {
 			dir.path().to_str().unwrap(),
 			"--format",
 			"json",
+			"--details",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
@@ -956,32 +1493,553 @@ mod tests {
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
 		assert_eq!(out["default_rules"], false);
-		assert!(out["total_rules"].as_u64().unwrap() >= 1);
-		assert!(
-			out["langs"]
-				.as_array()
-				.unwrap()
-				.iter()
-				.any(|lang| lang["lang"] == "ts"
-					&& lang["rules"]
-						.as_array()
-						.unwrap()
-						.iter()
-						.any(|rule| rule["rule_id"] == "refs.domain-no-infra")),
-			"{out:#}"
+		assert!(out["compiled_rows"].as_u64().unwrap() >= 1);
+		assert_eq!(out["taxonomy_summary"]["unclassified_rules"], 0);
+		assert_eq!(
+			out["taxonomy_summary"]["unclassified_ids"],
+			serde_json::json!([])
 		);
-		let rule = out["langs"]
+		let rule = out["details"]["rules"]
 			.as_array()
 			.unwrap()
 			.iter()
-			.flat_map(|lang| lang["rules"].as_array().unwrap())
-			.find(|rule| rule["rule_id"] == "refs.domain-no-infra")
+			.find(|rule| rule["effective_id"] == "refs.domain-no-infra")
 			.expect("domain rule is present");
 		assert_eq!(
 			rule["rationale"],
 			"ADR-002: the domain layer must stay independent from infrastructure details."
 		);
 		assert_eq!(rule["severity"], "error");
+		assert_eq!(rule["classification"]["status"], "taxonomy_not_declared");
+	}
+
+	#[test]
+	fn rules_show_maps_and_filters_the_effective_taxonomy() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["ownership", "hygiene"]
+			components = ["daemon", "code"]
+
+			[[rust.fn.where]]
+			id = "ownership-daemon-use-facade"
+			expr = "name != 'forbidden'"
+
+			[[rust.fn.where]]
+			id = "hygiene-code-use-specific-names"
+			expr = "name != 'placeholder'"
+
+			[[rust.fn.where]]
+			id = "legacy_rule"
+			expr = "name != 'legacy'"
+
+			[[rust.fn.where]]
+			id = "legacy-ownership-hygiene-daemon"
+			expr = "name != 'migration'"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["distinct_rules"], 4);
+		assert_eq!(out["taxonomy_summary"]["classified_rules"], 2);
+		assert_eq!(out["taxonomy_summary"]["unclassified_rules"], 1);
+		assert_eq!(out["taxonomy_summary"]["invalid_rules"], 1);
+		assert_eq!(
+			out["taxonomy_summary"]["cross_tab"]["ownership"]["daemon"],
+			1
+		);
+		assert_eq!(out["taxonomy_summary"]["pattern_counts"]["ownership"], 1);
+		assert_eq!(out["taxonomy_summary"]["component_counts"]["daemon"], 1);
+		assert_eq!(
+			out["taxonomy_summary"]["migration_candidates"]["pattern_counts"]["ownership"],
+			1
+		);
+		assert_eq!(
+			out["taxonomy_summary"]["migration_candidates"]["component_counts"]["daemon"],
+			1
+		);
+		let rules = out["details"]["rules"].as_array().unwrap();
+		let classified = rules
+			.iter()
+			.find(|rule| rule["classification"]["pattern"] == "ownership")
+			.unwrap();
+		assert_eq!(classified["origin"]["kind"], "project");
+		assert_eq!(classified["classification"]["pattern"], "ownership");
+		assert_eq!(
+			classified["classification"]["components"],
+			serde_json::json!(["daemon"])
+		);
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--pattern",
+			"ownership",
+			"--component",
+			"daemon",
+			"--format",
+			"json",
+		]);
+		stdout.clear();
+		stderr.clear();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let filtered: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(filtered["distinct_rules"], 1);
+		assert_eq!(filtered["compiled_rows"], 1);
+		assert_eq!(
+			filtered["taxonomy_summary"]["unused_patterns"],
+			serde_json::json!([])
+		);
+		assert_eq!(
+			filtered["taxonomy_summary"]["unused_components"],
+			serde_json::json!([])
+		);
+	}
+
+	#[test]
+	fn rules_show_filters_scoped_components_without_lexical_rollup() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["separation-of-concerns"]
+			components = ["dsl", "index", "workspace", "index@workspace"]
+
+			[aliases]
+			dsl_evaluation = "name = 'evaluation'"
+			index_at_workspace_target = "name = 'snapshot'"
+
+			[[rust.fn.where]]
+			id = "dsl-and-index@workspace-separation-of-concerns-preserves-local-evaluation"
+			expr = "$dsl_evaluation AND $index_at_workspace_target"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--component",
+			"index@workspace",
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["distinct_rules"], 1);
+		assert_eq!(
+			out["details"]["rules"][0]["classification"]["components"],
+			serde_json::json!(["dsl", "index@workspace"])
+		);
+		assert_eq!(
+			out["taxonomy_summary"]["component_counts"],
+			serde_json::json!({"dsl": 1, "index@workspace": 1})
+		);
+		assert_eq!(out["taxonomy_summary"]["needs_review_rules"], 0);
+
+		for parent in ["index", "workspace"] {
+			let cli = Cli::parse_from([
+				"code-moniker",
+				"rules",
+				"show",
+				dir.path().to_str().unwrap(),
+				"--component",
+				parent,
+				"--format",
+				"json",
+			]);
+			stdout.clear();
+			stderr.clear();
+			assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+			let filtered: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+			assert_eq!(filtered["distinct_rules"], 0, "parent filter `{parent}`");
+			assert_eq!(filtered["compiled_rows"], 0, "parent filter `{parent}`");
+		}
+	}
+
+	#[test]
+	fn rules_show_reports_alias_alignment_and_migration_diagnostics() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["ownership", "hygiene"]
+			components = ["mcp", "workspace", "code"]
+
+			[aliases]
+			mcp_server = "name = 'server'"
+			workspace_runtime_target = "name = 'workspace'"
+			http_runtime_target = "name = 'http'"
+
+			[[rust.fn.where]]
+			id = "mcp-runtime-ownership-is-on-server"
+			expr = "$mcp_server"
+
+			[[rust.fn.where]]
+			id = "mcp-runtime-ownership-needs-alignment"
+			expr = "$workspace_runtime_target"
+
+			[[rust.fn.where]]
+			id = "code-hygiene-uses-generic-selector"
+			expr = "$http_runtime_target"
+
+			[[rust.fn.where]]
+			id = "code-hygiene-rejects-placeholder-names"
+			expr = "name != 'placeholder'"
+
+			[[refs.where]]
+			id = "workspace-ownership-target-is-local"
+			expr = "target ~ '**/external_pkg:other/**'"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let diagnostics = &out["taxonomy_summary"]["diagnostics"];
+		assert_eq!(out["taxonomy_summary"]["classified_rules"], 5);
+		assert_eq!(diagnostics["missing-pattern-anchor"]["rules"], 0);
+		assert_eq!(diagnostics["ambiguous-pattern-anchors"]["rules"], 0);
+		assert_eq!(diagnostics["missing-component-anchor"]["rules"], 0);
+		assert_eq!(diagnostics["rule-uses-no-alias"]["rules"], 2);
+		assert_eq!(
+			diagnostics["alias-has-no-taxonomy-anchor"]["occurrences"],
+			1
+		);
+		assert_eq!(
+			diagnostics["alias-anchor-missing-from-rule-id"]["occurrences"],
+			1
+		);
+		assert_eq!(
+			diagnostics["rule-component-not-represented-by-used-alias"]["occurrences"],
+			2
+		);
+		assert_eq!(diagnostics["inline-project-selector-candidate"]["rules"], 1);
+
+		let rules = out["details"]["rules"].as_array().unwrap();
+		let aligned = rules
+			.iter()
+			.find(|rule| rule["id"] == "mcp-runtime-ownership-is-on-server")
+			.unwrap();
+		assert_eq!(aligned["classification"]["pattern"], "ownership");
+		assert_eq!(
+			aligned["classification"]["components"],
+			serde_json::json!(["mcp"])
+		);
+		assert_eq!(aligned["analysis"]["used_aliases"][0]["name"], "mcp_server");
+		assert_eq!(
+			aligned["analysis"]["used_aliases"][0]["components"],
+			serde_json::json!(["mcp"])
+		);
+		assert_eq!(aligned["analysis"]["diagnostics"], serde_json::json!([]));
+
+		let no_alias = rules
+			.iter()
+			.find(|rule| rule["id"] == "code-hygiene-rejects-placeholder-names")
+			.unwrap();
+		assert!(
+			no_alias["analysis"]["diagnostics"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.any(|diagnostic| diagnostic["code"] == "rule-uses-no-alias"
+					&& diagnostic["level"] == "needs_review")
+		);
+	}
+
+	#[test]
+	fn rules_show_distinguishes_fragment_and_embedded_origins() {
+		let dir = tempdir().unwrap();
+		std::fs::create_dir_all(dir.path().join("module/src")).unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = true
+
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["daemon"]
+			"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("module/src/code-moniker.fragment.toml"),
+			r#"
+			fragment = "fn"
+
+			[[rust.fn.where]]
+			id = "ownership-daemon-use-boundary"
+			expr = "name != 'forbidden'"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert!(
+			out["taxonomy_summary"]["origin_counts"]["embedded_default"]
+				.as_u64()
+				.unwrap() > 0
+		);
+		assert_eq!(out["taxonomy_summary"]["origin_counts"]["fragment"], 1);
+		let fragment = out["details"]["rules"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find(|rule| rule["origin"]["kind"] == "fragment")
+			.unwrap();
+		assert_eq!(fragment["origin"]["fragment"], "fn");
+		assert_eq!(fragment["classification"]["pattern"], "ownership");
+	}
+
+	#[test]
+	fn rules_show_reports_inline_override_as_the_effective_origin() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["daemon"]
+
+			[[rust.fn.where]]
+			id = "ownership-daemon-use-boundary"
+			expr = "name != 'project'"
+			"#,
+		)
+		.unwrap();
+		let inline = r#"
+			[[rust.fn.where]]
+			id = "ownership-daemon-use-boundary"
+			expr = "name != 'inline'"
+			"#;
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--rules-inline",
+			inline,
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let rule = out["details"]["rules"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find(|rule| rule["classification"]["id"] == "ownership-daemon-use-boundary")
+			.unwrap();
+		assert_eq!(rule["origin"]["kind"], "inline");
+		assert_eq!(rule["expr"], "name != 'inline'");
+	}
+
+	#[test]
+	fn rules_show_keeps_anonymous_overlay_identity_after_merge() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[[refs.where]]
+			expr = "source != target"
+			"#,
+		)
+		.unwrap();
+		let inline = r#"
+			[[refs.where]]
+			expr = "source = target"
+			"#;
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--rules-inline",
+			inline,
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["distinct_rules"], 2);
+		let inline_rule = out["details"]["rules"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find(|rule| rule["effective_id"] == "refs.where_1")
+			.expect("anonymous inline rule keeps its post-merge identity");
+		assert_eq!(inline_rule["origin"]["kind"], "inline");
+		assert_eq!(inline_rule["compiled_rows"], super::Lang::ALL.len());
+	}
+
+	#[test]
+	fn rules_show_validates_the_exact_declared_id_including_dots() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["ownership"]
+			components = ["daemon"]
+
+			[[rust.fn.where]]
+			id = "legacy.ownership-daemon-use-boundary"
+			expr = "name != 'forbidden'"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+			"--details",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let rule = &out["details"]["rules"][0];
+		assert_eq!(rule["id"], "legacy.ownership-daemon-use-boundary");
+		assert_eq!(rule["classification"]["status"], "invalid");
+		assert_eq!(rule["classification"]["pattern"], serde_json::Value::Null);
+	}
+
+	#[test]
+	fn rules_show_counts_one_declared_rule_across_compiled_language_rows() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[rules.taxonomy]
+			patterns = ["dependency"]
+			components = ["query"]
+
+			[[refs.where]]
+			id = "dependency-query-use-contract"
+			expr = "source != target"
+			"#,
+		)
+		.unwrap();
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["compiled_rows"], super::Lang::ALL.len());
+		assert_eq!(out["distinct_rules"], 1);
+		assert_eq!(out["taxonomy_summary"]["classified_rules"], 1);
+		assert!(out.get("details").is_none());
+
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+			"--details",
+			"--by-language",
+			"--limit",
+			"1",
+		]);
+		stdout.clear();
+		stderr.clear();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let detailed: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(detailed["details"]["total"], 1);
+		assert_eq!(detailed["details"]["returned"], 1);
+		assert_eq!(
+			detailed["details"]["rules"][0]["compiled_rows"],
+			super::Lang::ALL.len()
+		);
+		assert_eq!(
+			detailed["details"]["rules"][0]["projections"]
+				.as_array()
+				.unwrap()
+				.len(),
+			super::Lang::ALL.len()
+		);
 	}
 
 	fn write_eval_inputs(
@@ -1204,18 +2262,22 @@ mod tests {
 			dir.path().to_str().unwrap(),
 			"--format",
 			"json",
+			"--details",
+			"--by-language",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
-		let langs = out["langs"].as_array().unwrap();
-		let rust_ids: Vec<_> = langs.iter().find(|lang| lang["lang"] == "rs").unwrap()["rules"]
+		assert_eq!(out["distinct_rules"], 2);
+		let rust_ids: Vec<_> = out["details"]["rules"]
 			.as_array()
 			.unwrap()
 			.iter()
-			.map(|rule| rule["rule_id"].as_str().unwrap().to_string())
+			.flat_map(|rule| rule["projections"].as_array().unwrap())
+			.filter(|projection| projection["lang"] == "rs")
+			.map(|projection| projection["rule_id"].as_str().unwrap().to_string())
 			.collect();
 		assert!(
 			!rust_ids.iter().any(|id| id == "rs.class.class-rule"),

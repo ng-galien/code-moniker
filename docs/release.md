@@ -152,36 +152,36 @@ target and can optionally execute tests through Wine. That is useful as a
 compile/smoke gate, but the GitHub-hosted Windows VM remains the release
 acceptance environment for process supervision, file locking and path behavior.
 
-## `0.7.1` acceptance checklist
+## `0.8.0` acceptance checklist
 
 - [ ] `main` is clean, the six release-gate CI jobs listed above are green, and
-      no `v0.7.1` tag exists. The `vscode-extension` job is not part of this
+      no `v0.8.0` tag exists. The `vscode-extension` job is not part of this
       gate.
-- [ ] All workspace crates that are published share version `0.7.1`.
-- [ ] `dist plan --tag=v0.7.1` lists exactly the five supported targets,
+- [ ] All workspace crates that are published share version `0.8.0`.
+- [ ] `dist plan --tag=v0.8.0` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo test --workspace --quiet`
 - [ ] `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - [ ] `cargo test -p code-moniker --features mcp --no-default-features --lib`
-- [ ] From `packages/client/`: `npm ci --ignore-scripts --omit=optional`,
+- [ ] From `packages/client/`: `npm ci --omit=optional`,
       `npm test`, then
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and
       `npm run test:daemon:owned -- <code-moniker-binary>`.
 - [ ] A plain `cargo install code-moniker` exposes `code-moniker mcp --help`.
 - [ ] `agent install --client codex` writes `required = false`, and an
       unavailable Code Moniker MCP does not prevent the agent session opening.
-- [ ] Push `v0.7.1` only after the preceding gates pass.
+- [ ] Push `v0.8.0` only after the preceding gates pass.
 - [ ] Confirm the Windows CI job installs the two npm tarballs in a clean
       consumer and completes the packaged owned-daemon smoke test.
 - [ ] Confirm the Release workflow completes through `announce`, all seven
-      crates exist on crates.io, and all five packages exist on npm at `0.7.1`.
+      crates exist on crates.io, and all five packages exist on npm at `0.8.0`.
 - [ ] On clean macOS, Linux and Windows environments, exercise the direct
-      installer and `cargo binstall code-moniker --version 0.7.1`.
+      installer and `cargo binstall code-moniker --version 0.8.0`.
 - [ ] Run `code-moniker --version`, `code-moniker mcp --help`, and an agent
       skill/MCP install smoke test.
 - [ ] Confirm clean ESM and CommonJS consumers install
-      `@code-moniker/client@0.7.1` and receive the matching native package.
+      `@code-moniker/client@0.8.0` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.
 - [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive and
       native npm package.

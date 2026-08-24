@@ -151,13 +151,12 @@ fn one_shot_and_snapshot_runner_agree_on_workspace_symbol_rule() {
 	])
 	.run()
 	.expect("file-scoped check");
+	assert!(file_scoped.errors.is_empty(), "{:#?}", file_scoped.errors);
 	assert!(
 		file_scoped
-			.errors
-			.iter()
-			.any(|error| error.error.contains("workspace rules were not run")),
-		"{:#?}",
-		file_scoped.errors
+			.file_violations()
+			.all(|(_, violation)| violation.rule_id != RULE_ID),
+		"workspace symbol rules must be out of scope for file-scoped checks"
 	);
 
 	let cache = LocalResourceCache::default();

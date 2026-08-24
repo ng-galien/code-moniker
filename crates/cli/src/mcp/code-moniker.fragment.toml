@@ -33,17 +33,17 @@ mcp_tests = """
   OR source ~ '**/lang:rs/module:tests/**'
 """
 workspace_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
-workspace_runtime_target = """
+workspace_daemon_runtime_target = """
   target ~ '**/external_pkg:code_moniker_workspace/path:registry/path:LocalWorkspaceRegistry'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:registry/path:LocalWorkspaceOptions'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceRequest'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceTransition'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:source/path:LocalResourceCache'
 """
-http_runtime_target = "target ~ '**/path:/^(TcpListener|JoinHandle)$/'"
+mcp_runtime_wiring_target = "target ~ '**/path:/^(TcpListener|JoinHandle)$/'"
 
 [[rust.module.where]]
-id       = "mcp-tools-avoid-duplicate-descendant-fn-names"
+id       = "mcp-tools-hygiene-avoids-cross-module-helper-name-duplication"
 severity = "warn"
 expr     = """
   $mcp_tools_root_def
@@ -52,32 +52,36 @@ expr     = """
        a.name = b.name AND a.parent != b.parent
      ) = 0
 """
-message  = "MCP tool modules contain duplicate descendant `fn` names across nested owners."
+message  = "MCP tool modules duplicate a helper name across module owners; share the helper or document an intentional protocol shape."
 rationale = """
 Sibling tool modules should not grow parallel private helpers with the same function names.
 Duplicate names inside one owner are allowed for language patterns, but duplicates across owners
 usually indicate a shared helper boundary or intentionally mirrored protocol shape that should
-be documented.
+be documented. The first observed case was `bounded_usize_argument` in `read` and `usages`:
+`read` applies a default and clamps the value, while `usages` rejects type and bound errors.
+Harmonize that argument contract before sharing an implementation; otherwise keep the two
+policies separate and document why the same concept intentionally behaves differently.
 """
 
 [[refs.where]]
-id       = "mcp-server-owns-runtime-wiring"
+id       = "mcp-runtime-ownership-keeps-socket-and-task-wiring-on-server"
 severity = "error"
 expr     = """
   $mcp_root
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type')
-  AND $http_runtime_target
+  AND $mcp_runtime_wiring_target
   => $mcp_server OR $mcp_tests
 """
-message  = "MCP socket/thread runtime wiring belongs to `cli::mcp::server`."
+message  = "MCP socket/task runtime wiring belongs to `cli::mcp::server`."
 rationale = """
-The CLI may opt in to MCP, but socket lifetime and stream framing are global runtime concerns.
-Keeping those imports in server prevents individual tools from opening listeners or depending on
-TCP details.
+The CLI may opt in to MCP, but socket lifetime, stream framing, and the preload worker task are
+global runtime concerns. Keeping `TcpListener` and `JoinHandle` in `server` prevents individual
+tools from opening listeners, depending on TCP details, or taking ownership of the worker
+lifecycle.
 """
 
 [[refs.where]]
-id       = "mcp-workspace-access-is-tool-owned"
+id       = "mcp-workspace-model-access-ownership-stays-with-tools"
 severity = "error"
 expr     = """
   $mcp_root
@@ -85,22 +89,23 @@ expr     = """
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
   => NOT $workspace_target
 """
-message  = "`cli::mcp` runtime modules must not access workspace internals; workspace facts come from the daemon contract."
+message  = "`cli::mcp` runtime modules must not import workspace representations; tools own projection of facts returned by the daemon."
 rationale = """
 MCP is a daemon client surface over code-moniker. Context and runtime may carry session
 options and daemon handles, but they must not construct workspace resources or recreate
-workspace read paths. Tool modules shape MCP presentation; workspace facts come from
-`code-moniker-query` requests answered by the workspace daemon.
+workspace read paths. Tool modules may use stable workspace models and formatting helpers to
+select, project, and render MCP output from typed query responses. Acquisition, refresh, linkage,
+and lifecycle remain owned by the workspace daemon.
 """
 
 [[refs.where]]
-id       = "mcp-does-not-own-workspace-runtime"
+id       = "workspace-daemon-runtime-ownership-keeps-mcp-as-contract-consumer"
 severity = "error"
 expr     = """
   $mcp_root
   AND NOT $mcp_tests
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
-  => NOT $workspace_runtime_target
+  => NOT $workspace_daemon_runtime_target
 """
 message  = "MCP must consume the daemon contract; it must not construct or refresh workspace runtime resources."
 rationale = """
@@ -111,7 +116,7 @@ daemon contract becomes optional and feature parity cannot be enforced.
 """
 
 [[refs.where]]
-id       = "mcp-daemon-contract-is-context-only"
+id       = "mcp-daemon-dependency-injection-enters-through-server-and-context"
 severity = "error"
 expr     = """
   $mcp_root
@@ -122,10 +127,15 @@ expr     = """
 """
 message  = "The daemon handle is injected through MCP context; tools must use `context.query()`/`context.command()`."
 rationale = """
-The daemon contract is the boundary between MCP presentation and workspace runtime. The server
-creates or receives the daemon client, context exposes typed query/command helpers, and tools
-format daemon DTOs. If tools import daemon internals or clients directly, MCP grows local
-facades and bypasses the single protocol every consumer must eventually share.
+The daemon contract is the boundary between MCP presentation and workspace runtime. The
+`mcp_command` entrypoint selects and constructs either a detached `DaemonClient` modality or the
+explicit in-process `WorkspaceDaemon` fallback, then injects that `DaemonRuntime` into
+`McpContext`. Context contains both implementations behind the same typed query/command helpers;
+within that handoff, the server starts and owns the preload worker lifecycle but does not select
+the daemon modality. The in-process modality does not
+transfer workspace acquisition, refresh, or lifecycle ownership to MCP; it is still the daemon
+runtime behind the contract. If tools import daemon internals or clients directly, MCP grows
+local facades and bypasses the single protocol every consumer must eventually share.
 """
 
 [[views]]
@@ -158,14 +168,14 @@ symbols = [
   "module:server/struct:CodeMonikerMcp",
 ]
 rules = [
- "mcp-does-not-own-workspace-runtime",
- "mcp-server-owns-runtime-wiring",
- "mcp-shared-index-contract-is-context-only",
- "mcp-workspace-access-is-tool-owned",
+ "workspace-daemon-runtime-ownership-keeps-mcp-as-contract-consumer",
+ "mcp-runtime-ownership-keeps-socket-and-task-wiring-on-server",
+ "mcp-daemon-dependency-injection-enters-through-server-and-context",
+ "mcp-workspace-model-access-ownership-stays-with-tools",
 ]
 forbid_rules = [
- "mcp-does-not-own-workspace-runtime",
- "mcp-workspace-access-is-tool-owned",
+ "workspace-daemon-runtime-ownership-keeps-mcp-as-contract-consumer",
+ "mcp-workspace-model-access-ownership-stays-with-tools",
 ]
 
 [[views.boundaries]]
@@ -188,9 +198,9 @@ symbols = [
   "module:tools/module:rules/struct:RulesTool",
 ]
 rules = [
-  "mcp-does-not-own-workspace-runtime",
-  "mcp-shared-index-contract-is-context-only",
-  "mcp-workspace-access-is-tool-owned",
+  "workspace-daemon-runtime-ownership-keeps-mcp-as-contract-consumer",
+  "mcp-daemon-dependency-injection-enters-through-server-and-context",
+  "mcp-workspace-model-access-ownership-stays-with-tools",
 ]
 
 [[views.gotchas]]

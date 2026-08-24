@@ -2273,13 +2273,6 @@ fn read_views_lists_and_renders_fragment_view() {
 		"{}",
 		detail.text
 	);
-	assert!(
-		detail
-			.text
-			.contains("- missing-view-rule [missing] domain=unresolved"),
-		"{}",
-		detail.text
-	);
 	assert!(detail.text.contains("boundaries:"));
 	assert!(
 		detail.text.contains("forbids_status: enforced_by_rules"),
@@ -2370,7 +2363,7 @@ fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::P
 		The entry boundary highlights the class and method an agent should inspect first.
 		"""
 		symbols = ["class:App", "method:run", "count"]
-		rules = ["view-boundary-rule", "missing-view-rule"]
+		rules = ["view-boundary-rule"]
 
 		[[views.gotchas]]
 		id = "method-slice"

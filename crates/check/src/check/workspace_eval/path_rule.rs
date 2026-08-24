@@ -159,32 +159,38 @@ pub(super) fn append_path_specs(
 	compiled: &CompiledWorkspaceRules,
 	specs: &mut Vec<CompiledRuleSpec>,
 ) {
-	specs.extend(compiled.path.iter().map(|rule| CompiledRuleSpec {
-		rule_id: rule.rule_id.to_owned(),
-		severity: rule.severity,
-		lang: "workspace".to_string(),
-		root: "workspace".to_string(),
-		subject: "path".to_string(),
-		plan: "t2_linkage".to_string(),
-		capabilities: rule.capabilities.to_owned(),
-		group_by: Vec::new(),
-		domain: "workspace paths".to_string(),
-		kind: None,
-		expr: render_path_expr(
-			rule.expect,
-			&rule.from_raw,
-			&rule.to_raw,
-			rule.via_raw.as_deref(),
-		),
-		expanded_expr: render_path_expr(
-			rule.expect,
-			&rule.from_expanded,
-			&rule.to_expanded,
-			rule.via_expanded.as_deref(),
-		),
-		message: rule.message.to_owned(),
-		rationale: rule.rationale.to_owned(),
-		require_doc_comment: None,
+	specs.extend(compiled.path.iter().map(|rule| {
+		CompiledRuleSpec {
+			rule_id: rule.rule_id.to_owned(),
+			severity: rule.severity,
+			lang: "workspace".to_string(),
+			root: "workspace".to_string(),
+			subject: "path".to_string(),
+			plan: "t2_linkage".to_string(),
+			capabilities: rule.capabilities.to_owned(),
+			group_by: Vec::new(),
+			domain: "workspace paths".to_string(),
+			kind: None,
+			expr: render_path_expr(
+				rule.expect,
+				&rule.from_raw,
+				&rule.to_raw,
+				rule.via_raw.as_deref(),
+			),
+			expanded_expr: render_path_expr(
+				rule.expect,
+				&rule.from_expanded,
+				&rule.to_expanded,
+				rule.via_expanded.as_deref(),
+			),
+			analysis_exprs: std::iter::once(rule.from_raw.clone())
+				.chain(std::iter::once(rule.to_raw.clone()))
+				.chain(rule.via_raw.iter().cloned())
+				.collect(),
+			message: rule.message.to_owned(),
+			rationale: rule.rationale.to_owned(),
+			require_doc_comment: None,
+		}
 	}));
 }
 

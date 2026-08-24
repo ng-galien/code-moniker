@@ -2,6 +2,10 @@
 /target
 **/target
 
+# JavaScript dependency trees are generated inputs, never workspace sources.
+**/node_modules/
+**/dist/
+
 # Coverage profile data. test/coverage.sh writes profraws under
 # target/cov/ (already covered above), but failed runs without
 # LLVM_PROFILE_FILE land them in CWD as default_*.profraw.

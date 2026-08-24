@@ -1,0 +1,1 @@
+../../../../../../agents/skills/code-moniker/references/rules.md

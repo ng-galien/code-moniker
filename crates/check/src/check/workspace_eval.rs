@@ -84,6 +84,7 @@ impl CompiledWorkspaceRules {
 				kind: None,
 				expr: rule.raw_expr.to_owned(),
 				expanded_expr: rule.expanded_expr.to_owned(),
+				analysis_exprs: vec![rule.raw_expr.to_owned()],
 				message: rule.message.to_owned(),
 				rationale: rule.rationale.to_owned(),
 				require_doc_comment: None,

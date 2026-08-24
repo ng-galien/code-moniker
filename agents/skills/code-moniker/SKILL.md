@@ -3,10 +3,10 @@ name: code-moniker
 description: >-
   Use Code Moniker for targeted structural exploration when indexed facts add
   value: architecture, callers and callees, coupling, ownership, change impact,
-  codebase-wide mechanisms, or diagnosis of Code Moniker itself. Do not invoke
-  it automatically for known-file edits, exact-string lookup, routine Git or
-  test work, small local diffs, or every turn in a repository that happens to
-  expose Code Moniker.
+  codebase-wide mechanisms, project-rule authoring or interpretation, or
+  diagnosis of Code Moniker itself. Do not invoke it automatically for
+  known-file edits, exact-string lookup, routine Git or test work, small local
+  diffs, or every turn in a repository that happens to expose Code Moniker.
 ---
 
 # Code Moniker
@@ -22,6 +22,7 @@ Use Code Moniker when at least one of these is true:
 - the code or repository area is unfamiliar and needs a structural map;
 - the answer depends on callers, callees, coupling, hierarchy or change impact;
 - a repository-wide mechanism owner and its consumers must be identified;
+- project rules must be written, aligned, or read as architectural memory;
 - the user explicitly asks for Code Moniker or for indexed symbolic evidence;
 - Code Moniker, its daemon, MCP surface, hooks or indexed generation is itself
   under diagnosis.
@@ -35,6 +36,20 @@ workspace-wide ownership evidence.
 
 Use the smallest number of calls that answers the question. Stop when the
 evidence is sufficient.
+
+## Rules as project memory
+
+Project rules serve two distinct workflows: an author records a durable
+invariant after learning or changing the code, while a later agent reads the
+corpus to acquire project-specific seniority before modifying that area. In
+both cases, read `references/rules.md` before acting on rule ids, taxonomy,
+aliases, rationales, corpus diagnostics, or rule history.
+
+Do not treat a rule as a prohibition without context. Its natural-language id,
+semantic anchors, aliases, executable expression, rationale, origin and
+optional Git history form one testimony about the project. Keep static corpus
+classification separate from indexed evidence that a rule currently covers a
+zone or symbol.
 
 ## Select one surface
 
@@ -82,7 +97,8 @@ scope and triggering event before diagnosing invalidation.
   covers the required read-only capability, and discover the live grammar
   before composing a query.
 - Rules: use `code_moniker_rules` only for a requested or applicable rule
-  evaluation, not as a generic completion ritual.
+  evaluation, not as a generic completion ritual. For rule-led discovery or
+  authoring, follow `references/rules.md`.
 
 Keep `compact:true`, a small budget and narrow limits by default. Request code,
 larger budgets, paging or broader scope only when the current result proves it
@@ -112,6 +128,8 @@ Read only the reference needed for the current task:
 
 - unfamiliar-code exploration: `references/explore.md`;
 - architecture language and contextual views: `references/architecture.md`;
+- rule authoring, rule-led discovery, aliases, corpus diagnostics and history:
+  `references/rules.md`;
 - fragment files, view URIs, and rule id namespaces: `references/fragments.md`;
 - health, coupling and smell diagnosis: `references/diagnose.md`;
 - detailed MCP contracts and budgets: `references/mcp.md`;

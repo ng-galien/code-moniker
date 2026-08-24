@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -21,6 +21,7 @@ use code_moniker_workspace::source::{
 
 use crate::check;
 use crate::check::config::{self, RuleSeverity};
+use crate::check::corpus::{RuleCorpusContext, RuleCorpusEntry, build_rule_corpus};
 use crate::check::eval::CompiledRuleSpec;
 use crate::check::expr::Domain;
 
@@ -638,6 +639,19 @@ impl RuleSetRequest {
 				self.default_rules.as_override(),
 			)?
 		};
+		if !cfg.views.is_empty() {
+			let effective_rule_ids =
+				compiled_specs_with_config(&cfg, Lang::ALL.iter().copied(), &self.scheme)?
+					.into_iter()
+					.map(|spec| {
+						let effective_id = config::rule_source_for_compiled_id(&cfg, &spec.rule_id)
+							.map(|(effective_id, _)| effective_id)
+							.unwrap_or_else(|| spec.rule_id.clone());
+						(spec.rule_id, effective_id)
+					})
+					.collect::<HashMap<_, _>>();
+			config::validate_view_rule_references(&cfg, &effective_rule_ids)?;
+		}
 		if let Some(profile) = &self.profile {
 			cfg.apply_profile(profile)?;
 		}
@@ -662,6 +676,23 @@ impl RuleSetRequest {
 		let cfg = self.load_config()?;
 		check_source_with_config(&cfg, source, anchor, lang, &self.scheme, report)
 	}
+}
+
+pub fn compiled_rule_corpus(
+	request: &RuleSetRequest,
+	langs: impl IntoIterator<Item = Lang>,
+) -> anyhow::Result<Vec<RuleCorpusEntry>> {
+	let langs = langs.into_iter().collect::<Vec<_>>();
+	let cfg = request.load_config()?;
+	let specs = compiled_specs_with_config(&cfg, langs.iter().copied(), &request.scheme)?;
+
+	Ok(build_rule_corpus(
+		specs,
+		RuleCorpusContext {
+			taxonomy: cfg.rules.taxonomy.as_ref(),
+			config: &cfg,
+		},
+	))
 }
 
 /// Executable check request over either a file, a project root, or a filtered
@@ -1149,16 +1180,6 @@ pub fn check_project_files_workspace(
 			workspace_rules: false,
 		},
 	)?;
-	if !cfg.workspace.symbol.rules.is_empty()
-		|| !cfg.workspace.group.rules.is_empty()
-		|| !cfg.workspace.path.is_empty()
-	{
-		errors.push(FileError {
-			path: root.to_path_buf(),
-			error: "workspace rules were not run: a file-scoped check does not provide a complete symbol inventory"
-				.to_string(),
-		});
-	}
 	if let Some(error) = requirements.source_catalog_error() {
 		errors.push(FileError {
 			path: root.to_path_buf(),
