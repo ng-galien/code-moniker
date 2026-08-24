@@ -80,7 +80,7 @@ impl Scenario {
 		scheme: &str,
 		report: bool,
 	) -> anyhow::Result<CheckRun> {
-		let cfg = config::load_from_str(
+		let cfg = config::load_project_from_str(
 			self.rules.as_deref().unwrap_or(""),
 			RULES_FILE,
 			Some(self.effective_default_rules()),

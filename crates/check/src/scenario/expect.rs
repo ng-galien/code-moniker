@@ -35,7 +35,7 @@ fn format_span((start, end): (u32, u32)) -> String {
 
 fn parse_expected(line: &str) -> Result<ExpectedViolation, String> {
 	let (rule_id, location) = line
-		.split_once('@')
+		.split_once(" @ ")
 		.ok_or_else(|| expectation_syntax(line))?;
 	let rule_id = rule_id.trim();
 	let (path, span) = location

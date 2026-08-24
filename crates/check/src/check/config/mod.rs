@@ -575,24 +575,46 @@ fn include_defaults_from_project(project: &ProjectConfig, include_defaults: bool
 			.unwrap_or(true)
 }
 
+#[cfg(test)]
 pub fn load_from_str(
 	raw: &str,
 	path: &str,
 	default_rules: Option<bool>,
 ) -> Result<Config, ConfigError> {
+	load_from_str_with_origin(raw, path, default_rules, false, RuleSourceKind::External)
+}
+
+/// Load one in-memory canonical project configuration for scenario workspaces.
+/// Project-owned taxonomy and source groups keep the same ownership contract
+/// as a root `.code-moniker.toml` without reading the physical filesystem.
+pub fn load_project_from_str(
+	raw: &str,
+	path: &str,
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
+	load_from_str_with_origin(raw, path, default_rules, true, RuleSourceKind::Project)
+}
+
+fn load_from_str_with_origin(
+	raw: &str,
+	path: &str,
+	default_rules: Option<bool>,
+	project_root: bool,
+	source_kind: RuleSourceKind,
+) -> Result<Config, ConfigError> {
 	let user: Config = toml::from_str(raw).map_err(|error| ConfigError::UserConfig {
 		path: path.to_string(),
 		error,
 	})?;
-	ensure_source_groups_owned_by_project_root(&user, path, false)?;
-	ensure_rule_taxonomy_owned_by_project_root(&user, path, false)?;
+	ensure_source_groups_owned_by_project_root(&user, path, project_root)?;
+	ensure_rule_taxonomy_owned_by_project_root(&user, path, project_root)?;
 	validate(&user, path)?;
 	let include_defaults = default_rules.unwrap_or_else(|| user.default_rules.unwrap_or(true));
 	load_with_project(
 		ProjectConfig {
 			root: Some(LoadedConfig {
 				config: user,
-				source_kind: RuleSourceKind::External,
+				source_kind,
 				source: Some(path.to_string()),
 			}),
 			fragments: Vec::new(),
@@ -1527,31 +1549,7 @@ impl Config {
 	}
 
 	pub fn apply_profile(&mut self, name: &str) -> Result<(), ConfigError> {
-		let profile = self
-			.profiles
-			.get(name)
-			.ok_or_else(|| ConfigError::UnknownProfile {
-				name: name.to_string(),
-				known: self.known_profiles(),
-			})?
-			.clone();
-		let enable = compile_patterns(&profile.enable, name, "enable")?;
-		let disable = compile_patterns(&profile.disable, name, "disable")?;
-		filter_rules(&mut self.refs.rules, "refs", &enable, &disable);
-		filter_workspace_rules(&mut self.workspace, &enable, &disable);
-		filter_shape_map(&mut self.shape, "shape", &enable, &disable);
-		filter_lang(&mut self.default, "default", &enable, &disable);
-		for lang in Lang::ALL {
-			filter_lang(
-				self.for_lang_mut(*lang),
-				config_section(*lang),
-				&enable,
-				&disable,
-			);
-		}
-		self.refresh_fragment_active_rules();
-		rebuild_rule_sources(self);
-		Ok(())
+		apply_profile(self, name)
 	}
 
 	fn known_profiles(&self) -> String {
@@ -1613,6 +1611,34 @@ fn compile_patterns(
 			})
 		})
 		.collect()
+}
+
+fn apply_profile(config: &mut Config, name: &str) -> Result<(), ConfigError> {
+	let profile = config
+		.profiles
+		.get(name)
+		.ok_or_else(|| ConfigError::UnknownProfile {
+			name: name.to_string(),
+			known: config.known_profiles(),
+		})?
+		.clone();
+	let enable = compile_patterns(&profile.enable, name, "enable")?;
+	let disable = compile_patterns(&profile.disable, name, "disable")?;
+	filter_rules(&mut config.refs.rules, "refs", &enable, &disable);
+	filter_workspace_rules(&mut config.workspace, &enable, &disable);
+	filter_shape_map(&mut config.shape, "shape", &enable, &disable);
+	filter_lang(&mut config.default, "default", &enable, &disable);
+	for lang in Lang::ALL {
+		filter_lang(
+			config.for_lang_mut(*lang),
+			config_section(*lang),
+			&enable,
+			&disable,
+		);
+	}
+	config.refresh_fragment_active_rules();
+	rebuild_rule_sources(config);
+	Ok(())
 }
 
 fn filter_lang(lr: &mut LangRules, section: &str, enable: &[Regex], disable: &[Regex]) {

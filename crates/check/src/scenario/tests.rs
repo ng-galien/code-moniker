@@ -78,6 +78,22 @@ fn scenario_runs_against_an_in_memory_workspace() {
 }
 
 #[test]
+fn expectation_parser_preserves_scoped_component_markers() {
+	let expected = ExpectedViolation::parse(
+		"refs.workspace-dependency-avoids-index@workspace @ src/workspace.ts:L4",
+	)
+	.expect("scoped rule id");
+	assert_eq!(
+		expected,
+		ExpectedViolation {
+			rule_id: "refs.workspace-dependency-avoids-index@workspace".to_string(),
+			path: "src/workspace.ts".to_string(),
+			lines: (4, 4),
+		}
+	);
+}
+
+#[test]
 fn mismatched_expectations_report_missing_and_unexpected() {
 	let document = DOCUMENT.replace("src/lib.rs:L3", "src/lib.rs:L1");
 	let scenario = Scenario::parse(&document).expect("parse scenario");
