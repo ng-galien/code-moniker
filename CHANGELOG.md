@@ -11,6 +11,18 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-24
+
+This patch release makes successful single-file checks observable on demand
+without making per-edit agent hooks noisy.
+
+### Added
+
+- **Clean single-file summaries can be requested explicitly.** `check
+  --verbose` prints the normal zero-violation text summary for a successful
+  single-file check, while the default text and Codex hook paths retain their
+  existing silent-success behavior.
+
 ## [0.8.0] - 2026-08-24
 
 This release turns project rules into queryable architectural memory for agents
