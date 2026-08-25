@@ -871,7 +871,7 @@ pub(in crate::changes) struct GitWorktree {
 
 impl GitWorktree {
 	pub(in crate::changes) fn discover(path: &Path) -> Result<Self, String> {
-		let output = git_cli_command(path)
+		let output = git_cli_command(path)?
 			.args(["rev-parse", "--show-toplevel"])
 			.output()
 			.map_err(|e| format!("cannot run git rev-parse in {}: {e}", path.display()))?;
@@ -914,7 +914,7 @@ pub(in crate::changes) fn git_show(
 }
 
 fn git_cli_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
-	let output = git_cli_command(git_root)
+	let output = git_cli_command(git_root)?
 		.args(args)
 		.output()
 		.map_err(|e| format!("cannot run git {:?}: {e}", args))?;
@@ -928,10 +928,25 @@ fn git_cli_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
 	Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn git_cli_command(cwd: &Path) -> Command {
-	let mut command = Command::new("git");
+fn git_cli_command(cwd: &Path) -> Result<Command, String> {
+	let mut command = Command::new(git_program()?);
 	command.env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(cwd);
-	command
+	Ok(command)
+}
+
+fn git_program() -> Result<PathBuf, String> {
+	git_program_from_path(std::env::var_os("PATH").as_deref())
+}
+
+fn git_program_from_path(path: Option<&OsStr>) -> Result<PathBuf, String> {
+	let Some(path) = path else {
+		return Err("cannot run git: PATH is unavailable".to_string());
+	};
+	let executable = if cfg!(windows) { "git.exe" } else { "git" };
+	std::env::split_paths(path)
+		.map(|directory| directory.join(executable))
+		.find(|candidate| candidate.is_file())
+		.ok_or_else(|| format!("cannot run git: {executable} is not present in PATH"))
 }
 
 fn git_pathspec(git_root: &Path, source_root: &Path) -> String {
@@ -992,6 +1007,16 @@ fn parse_hunk_side(raw: &str) -> Option<Option<LineSpan>> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn missing_git_is_rejected_before_process_creation() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let path = std::env::join_paths([temp.path()]).expect("PATH");
+		let error = git_program_from_path(Some(&path)).expect_err("git.exe must be absent");
+
+		assert!(error.starts_with("cannot run git:"), "{error}");
+		assert!(error.ends_with("is not present in PATH"), "{error}");
+	}
 
 	fn no_source_groups() -> &'static DeclaredSourceGroups {
 		static GROUPS: std::sync::OnceLock<DeclaredSourceGroups> = std::sync::OnceLock::new();

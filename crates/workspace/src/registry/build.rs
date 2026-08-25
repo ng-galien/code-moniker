@@ -17,8 +17,7 @@ use crate::source::SourceCatalogPort;
 pub(crate) fn build_complete_snapshot(
 	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
 	code_index: &mut (impl CodeIndexPort + ?Sized),
-	linkage: &mut (impl LinkagePort + Send + ?Sized),
-	change_overlay: &mut (impl ChangeOverlayPort + Send + ?Sized),
+	linkage: &mut (impl LinkagePort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -37,41 +36,12 @@ pub(crate) fn build_complete_snapshot(
 	let index =
 		index_span.in_scope(|| code_index.build_index_cancellable(&catalog, &cancellation))?;
 	let index_elapsed = index_timer.elapsed();
-	let phase_parent = tracing::Span::current();
-	let (linkage, changes) = rayon::join(
-		|| {
-			let span = tracing::info_span!(
-				parent: &phase_parent,
-				"workspace.index_phase",
-				index.phase = "linkage",
-			);
-			let timer = Instant::now();
-			let snapshot = span.in_scope(|| {
-				cancellation.check(WorkspaceResource::LinkageSnapshot)?;
-				let snapshot = linkage.resolve_linkage(&index)?;
-				cancellation.check(WorkspaceResource::LinkageSnapshot)?;
-				Ok::<_, WorkspaceFailure>(snapshot)
-			})?;
-			Ok::<_, WorkspaceFailure>((snapshot, timer.elapsed()))
-		},
-		|| {
-			let span = tracing::info_span!(
-				parent: &phase_parent,
-				"workspace.index_phase",
-				index.phase = "change_overlay",
-			);
-			let timer = Instant::now();
-			let overlay = span.in_scope(|| {
-				cancellation.check(WorkspaceResource::ChangeOverlay)?;
-				let overlay = change_overlay.build_change_overlay(&catalog, &index)?;
-				cancellation.check(WorkspaceResource::ChangeOverlay)?;
-				Ok::<_, WorkspaceFailure>(overlay)
-			})?;
-			Ok::<_, WorkspaceFailure>((overlay, timer.elapsed()))
-		},
-	);
-	let (linkage, linkage_elapsed) = linkage?;
-	let (changes, changes_elapsed) = changes?;
+	let linkage_timer = Instant::now();
+	let linkage_span = tracing::info_span!("workspace.index_phase", index.phase = "linkage");
+	let linkage = linkage_span.in_scope(|| linkage.resolve_linkage(&index))?;
+	let linkage_elapsed = linkage_timer.elapsed();
+	let changes = empty_changes(&catalog, &index);
+	let changes_elapsed = Duration::ZERO;
 	let timings = timings(
 		catalog_elapsed,
 		&index,
@@ -134,7 +104,6 @@ pub(crate) fn build_index_only_snapshot(
 pub(crate) fn build_linkage_snapshot(
 	current: Option<&WorkspaceSnapshot>,
 	linkage: &mut (impl LinkagePort + ?Sized),
-	change_overlay: &mut (impl ChangeOverlayPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -147,9 +116,8 @@ pub(crate) fn build_linkage_snapshot(
 	let linkage_timer = Instant::now();
 	let linkage = linkage.resolve_linkage(&current.index)?;
 	let linkage_elapsed = linkage_timer.elapsed();
-	let changes_timer = Instant::now();
-	let changes = change_overlay.build_change_overlay(&current.catalog, &current.index)?;
-	let changes_elapsed = changes_timer.elapsed();
+	let changes = empty_changes(&current.catalog, &current.index);
+	let changes_elapsed = Duration::ZERO;
 	let total = current.timings.source_catalog
 		+ current.timings.code_index
 		+ linkage_elapsed
@@ -382,7 +350,6 @@ impl LivePlanBuild<'_> {
 			self.source_catalog,
 			self.code_index,
 			self.linkage,
-			self.change_overlay,
 			build.request,
 			build.generation,
 		)

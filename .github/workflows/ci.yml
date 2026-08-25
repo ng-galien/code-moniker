@@ -92,8 +92,20 @@ jobs:
       - name: Test Windows daemon primitives
         run: cargo test -p code-moniker-query -p code-moniker-daemon -p code-moniker-daemon-client
 
-      - name: Build the Windows CLI with daemon support
-        run: cargo build -p code-moniker --features mcp
+      - name: Prove Windows source refresh is independent from Git
+        run: |
+          cargo test -p code-moniker-workspace complete_source_refresh_does_not_invoke_the_git_change_overlay
+          cargo test -p code-moniker-workspace missing_git_is_rejected_before_process_creation
+
+      - name: Record native Windows environment
+        shell: pwsh
+        run: |
+          Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber,CsProcessors,CsNumberOfLogicalProcessors,CsTotalPhysicalMemory | Format-List | Out-File windows-runtime-environment.txt
+          rustc -Vv | Out-File windows-runtime-environment.txt -Append
+          node --version | Out-File windows-runtime-environment.txt -Append
+
+      - name: Build the release-shaped Windows CLI with daemon support
+        run: cargo build -p code-moniker --features mcp --release
 
       - name: Install reusable client dependencies
         run: npm ci --omit=optional
@@ -104,12 +116,28 @@ jobs:
         working-directory: packages/client
 
       - name: Launch an owned daemon with a custom registry
-        run: npm run test:daemon:owned -- ../../target/debug/code-moniker.exe
+        shell: pwsh
+        run: |
+          npm run test:daemon:owned -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: packages/client
 
-      - name: Install tarballs and launch the packaged Windows daemon
+      - name: Install tarballs and launch the release-shaped packaged Windows daemon
         working-directory: packages/client
-        run: npm run test:daemon:packaged -- win32-x64 ../../target/debug/code-moniker.exe
+        shell: pwsh
+        run: |
+          npm run test:daemon:packaged -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload native Windows lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-daemon-lifecycle-${{ github.run_id }}
+          path: |
+            windows-runtime-environment.txt
+            windows-owned-daemon.log
+            windows-packaged-daemon.log
 
   linux-static-runtime:
     name: Static Linux npm runtime
@@ -143,6 +171,16 @@ jobs:
             exit 1
           fi
           "$binary" --version
+
+      - name: Run source indexing in Ubuntu without Git
+        run: |
+          mkdir -p no-git-workspace
+          echo 'export const ubuntu_without_git = 1;' > no-git-workspace/source.ts
+          docker run --rm -v "$PWD:/work:ro" ubuntu:24.04 /bin/sh -c '
+            test ! -e /usr/bin/git
+            /work/target/x86_64-unknown-linux-musl/debug/code-moniker stats /work/no-git-workspace
+            /work/target/x86_64-unknown-linux-musl/debug/code-moniker diff /work/no-git-workspace 2>&1 | grep "git is not present in PATH"
+          '
 
       - name: Install Node.js
         uses: actions/setup-node@v7.0.0

@@ -1,9 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import process from "node:process";
 
 import { NodeDaemonRuntime } from "../dist/node.js";
+import {
+	assertDaemonWorkspaceIndexed,
+	assertPostReadyMutation,
+	seedDaemonWorkspace,
+} from "./seed-daemon-workspace.mjs";
 
 const [binaryArgument] = process.argv.slice(2);
 if (!binaryArgument) {
@@ -22,6 +27,7 @@ let owned;
 let client;
 
 try {
+	seedDaemonWorkspace(workspaceRoot);
 	owned = await runtime.launch({
 		workspaceRoots: [workspaceRoot],
 		binaryCandidates: [binary],
@@ -29,7 +35,14 @@ try {
 	client = await runtime.connect(owned.entry, {
 		clientName: "@code-moniker/client-owned-smoke",
 	});
-	await waitForSmokeWorkspace(client);
+	const initialStatus = await waitForSmokeWorkspace(client);
+	assertDaemonWorkspaceIndexed(initialStatus, "owned Windows daemon");
+	const mutationGeneration = await assertPostReadyMutation(
+		client,
+		workspaceRoot,
+		initialStatus,
+		"owned Windows daemon",
+	);
 
 	await client.sources.replace({
 		srcset: "consumer-sql",
@@ -78,8 +91,31 @@ SELECT id FROM owned_client_account;
 		throw new Error("the owned daemon did not return the view graph");
 	}
 
+	const coldPid = owned.entry.pid;
+	client.close();
+	client = undefined;
+	await runtime.stop(owned.entry, { exitTimeoutMs: 10_000 });
+	assertStoppedAndUnclaimed(runtime, owned, workspaceRoot, "cold owned daemon");
+	owned = undefined;
+
+	owned = await runtime.launch({
+		workspaceRoots: [workspaceRoot],
+		binaryCandidates: [binary],
+	});
+	client = await runtime.connect(owned.entry, {
+		clientName: "@code-moniker/client-owned-warm-smoke",
+	});
+	const warmStatus = await waitForSmokeWorkspace(client);
+	assertDaemonWorkspaceIndexed(warmStatus, "warm owned Windows daemon");
+	const warmPid = owned.entry.pid;
+	client.close();
+	client = undefined;
+	await runtime.stop(owned.entry, { exitTimeoutMs: 10_000 });
+	assertStoppedAndUnclaimed(runtime, owned, workspaceRoot, "warm owned daemon");
+	owned = undefined;
+
 	console.log(
-		`owned daemon smoke passed: pid ${owned.entry.pid}, registry ${runtime.registryDirectory}, graph focus ${view.uri}`,
+		`owned daemon smoke passed: cold pid ${coldPid}, warm pid ${warmPid}, registry ${runtime.registryDirectory}, ${initialStatus.files} files, ${initialStatus.symbols} symbols, ${initialStatus.references} references, ${initialStatus.timings?.total_ms ?? "unknown"} ms, mutation generation ${mutationGeneration}, graph focus ${view.uri}`,
 	);
 } finally {
 	client?.close();
@@ -89,14 +125,30 @@ SELECT id FROM owned_client_account;
 		});
 	}
 	rmSync(workspaceRoot, { recursive: true, force: true });
+	if (existsSync(workspaceRoot)) {
+		throw new Error(`owned daemon workspace cleanup failed: ${workspaceRoot}`);
+	}
+}
+
+function assertStoppedAndUnclaimed(runtime, owned, workspaceRoot, label) {
+	if (owned.process.isRunning()) {
+		throw new Error(`${label} process ${owned.entry.pid} is still running`);
+	}
+	if (runtime.findDaemon([workspaceRoot])) {
+		throw new Error(`${label} retained its daemon registry claim`);
+	}
 }
 
 async function waitForSmokeWorkspace(client) {
 	const deadline = Date.now() + 60_000;
 	while (Date.now() <= deadline) {
 		const status = await client.workspace.status();
-		if (status.phase === "ready") {
-			return;
+		if (
+			status.phase === "ready" &&
+			typeof status.generation === "number" &&
+			status.generation >= 1
+		) {
+			return status;
 		}
 		if (status.phase === "failed") {
 			throw new Error(

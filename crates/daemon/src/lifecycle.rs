@@ -42,15 +42,32 @@ pub(super) fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyh
 	Ok(())
 }
 
-pub(super) fn drain_live_events(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
-	let plan = std::iter::from_fn(|| daemon.live.rx.try_recv().ok())
+pub(super) fn drain_live_events(
+	daemon: &mut WorkspaceDaemon,
+	defer_auto_refresh: bool,
+) -> Result<(), QueryError> {
+	let watcher_installed = daemon.install_pending_live_watcher()?;
+	let mut plan = std::iter::from_fn(|| daemon.live.rx.try_recv().ok())
 		.fold(WorkspaceLiveRefreshPlan::default(), |plan, event| {
 			plan.coalesce(WorkspaceLiveRefreshPlan::from_event(event))
 		});
-	if !plan.is_empty() {
-		apply_live_plan_for_policy(daemon, plan)?;
+	if watcher_installed {
+		let reconciliation = daemon.live_watcher_reconciliation_plan();
+		if defer_auto_refresh {
+			plan = plan.coalesce(reconciliation);
+		} else {
+			refresh_full_cancellable(daemon, WorkspaceCancellation::default())?;
+		}
 	}
-	if daemon.live.policy == DaemonLiveRefreshPolicy::Auto
+	if !plan.is_empty() {
+		if defer_auto_refresh {
+			daemon.registry.live_commands().mark_stale(plan);
+		} else {
+			apply_live_plan_for_policy(daemon, plan)?;
+		}
+	}
+	if !defer_auto_refresh
+		&& daemon.live.policy == DaemonLiveRefreshPolicy::Auto
 		&& daemon.registry.queries().staleness().is_stale()
 	{
 		refresh_stale(daemon)?;

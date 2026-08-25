@@ -9,7 +9,7 @@ use super::model::{WorkspaceLiveEvent, WorkspaceWatchRoot};
 use super::roots::{WorkspaceEventClassifier, watch_paths_for};
 
 pub struct LiveWorkspaceWatcher {
-	_watcher: WorkspaceWatcherBackend,
+	_watchers: Vec<WorkspaceWatcherBackend>,
 	_worker: JoinHandle<()>,
 	watched_paths: usize,
 	warnings: Vec<String>,
@@ -22,7 +22,7 @@ impl LiveWorkspaceWatcher {
 	where
 		F: Fn(WorkspaceLiveEvent) + Send + 'static,
 	{
-		Self::start_with_backend(roots, WorkspaceWatcherBackendKind::Recommended, publish)
+		Self::start_with_backend(roots, default_watcher_backend(), publish)
 	}
 
 	pub fn start_polling<F>(roots: Vec<WorkspaceWatchRoot>, publish: F) -> anyhow::Result<Self>
@@ -43,11 +43,12 @@ impl LiveWorkspaceWatcher {
 		let watch_targets = watch_paths_for(&roots);
 		let classifier = WorkspaceEventClassifier::new(roots);
 		let (tx, worker) = watcher_event_channel(publish);
-		let mut watcher = new_watcher(backend, classifier.clone(), tx)?;
-		let (watched_paths, warnings) = watch_target_paths(&mut watcher, &watch_targets);
+		let (watchers, warnings) = watch_target_paths(backend, &classifier, &tx, &watch_targets);
+		let watched_paths = watchers.len();
+		ensure_all_watch_targets_registered(watch_targets.len(), watched_paths, &warnings)?;
 
 		Ok(Self {
-			_watcher: watcher,
+			_watchers: watchers,
 			_worker: worker,
 			watched_paths,
 			warnings,
@@ -96,6 +97,15 @@ impl WorkspaceWatcherBackend {
 enum WorkspaceWatcherBackendKind {
 	Recommended,
 	Polling,
+	PollingProduction,
+}
+
+fn default_watcher_backend() -> WorkspaceWatcherBackendKind {
+	if cfg!(test) {
+		WorkspaceWatcherBackendKind::Recommended
+	} else {
+		WorkspaceWatcherBackendKind::PollingProduction
+	}
 }
 
 fn watcher_event_channel<F>(publish: F) -> (mpsc::Sender<WorkspaceLiveEvent>, JoinHandle<()>)
@@ -125,6 +135,12 @@ fn new_watcher(
 				polling_watcher_config(),
 			)?))
 		}
+		WorkspaceWatcherBackendKind::PollingProduction => {
+			Ok(WorkspaceWatcherBackend::Polling(notify::PollWatcher::new(
+				move |event| publish_classified_event(&classifier, &tx, event),
+				Config::default().with_poll_interval(Duration::from_secs(1)),
+			)?))
+		}
 	}
 }
 
@@ -148,18 +164,42 @@ fn polling_watcher_config() -> Config {
 }
 
 fn watch_target_paths(
-	watcher: &mut WorkspaceWatcherBackend,
+	backend: WorkspaceWatcherBackendKind,
+	classifier: &WorkspaceEventClassifier,
+	tx: &mpsc::Sender<WorkspaceLiveEvent>,
 	targets: &[PathBuf],
-) -> (usize, Vec<String>) {
+) -> (Vec<WorkspaceWatcherBackend>, Vec<String>) {
 	let mut warnings = Vec::new();
-	let mut watched_paths = 0;
+	let mut watchers = Vec::new();
 	for path in targets {
-		match watcher.watch(path.as_path(), RecursiveMode::Recursive) {
-			Ok(()) => watched_paths += 1,
+		let result =
+			new_watcher(backend, classifier.clone(), tx.clone()).and_then(|mut watcher| {
+				watcher.watch(path.as_path(), RecursiveMode::Recursive)?;
+				Ok(watcher)
+			});
+		match result {
+			Ok(watcher) => watchers.push(watcher),
 			Err(error) => warnings.push(format!("{}: {error}", path.display())),
 		}
 	}
-	(watched_paths, warnings)
+	(watchers, warnings)
+}
+
+fn ensure_all_watch_targets_registered(
+	target_count: usize,
+	watched_paths: usize,
+	warnings: &[String],
+) -> anyhow::Result<()> {
+	anyhow::ensure!(
+		target_count > 0 && watched_paths == target_count && warnings.is_empty(),
+		"live watcher registration failed: {}",
+		if warnings.is_empty() {
+			format!("watched {watched_paths} of {target_count} source paths")
+		} else {
+			warnings.join("; ")
+		}
+	);
+	Ok(())
 }
 
 fn publish_coalesced_events<F>(rx: mpsc::Receiver<WorkspaceLiveEvent>, publish: F)
@@ -172,5 +212,19 @@ where
 			event = event.coalesce(next);
 		}
 		publish(event);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn partial_multi_root_registration_fails_closed() {
+		let warnings = vec!["C:\\missing: access denied".to_string()];
+		let error = ensure_all_watch_targets_registered(2, 1, &warnings)
+			.expect_err("one missing root must fail the complete registration");
+
+		assert!(error.to_string().contains("access denied"));
 	}
 }

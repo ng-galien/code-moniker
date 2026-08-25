@@ -33,6 +33,7 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 	fs::write(temp.path().join("lib.rs"), "pub struct Indexed;\n").expect("write fixture");
 	let daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
 	let daemon = Arc::new(Mutex::new(daemon));
+	let daemon_probe = daemon.clone();
 	let published = Arc::new(RwLock::new(None));
 	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
 	let (events, _) = tokio::sync::broadcast::channel(8);
@@ -44,10 +45,10 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 		published.clone(),
 		lifecycle.clone(),
 		events,
-		move |_| {
+		move |registration| {
 			watcher_entered_tx.send(()).expect("announce watcher start");
 			release_watcher_rx.recv().expect("release watcher start");
-			Ok(())
+			registration.start().map(Some)
 		},
 	);
 	watcher_entered_rx
@@ -61,6 +62,7 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 		.read()
 		.unwrap_or_else(|error| error.into_inner())
 		.is_some();
+	let daemon_available_while_watcher_is_blocked = daemon_probe.try_lock().is_ok();
 	release_watcher_tx.send(()).expect("release watcher");
 	worker
 		.await
@@ -69,6 +71,161 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 
 	assert_eq!(phase_while_watcher_is_blocked, WorkspacePhase::Ready);
 	assert!(snapshot_published_while_watcher_is_blocked);
+	assert!(daemon_available_while_watcher_is_blocked);
+	let daemon = daemon_probe
+		.lock()
+		.unwrap_or_else(|error| error.into_inner());
+	assert_eq!(
+		daemon
+			.registry
+			.queries()
+			.snapshot()
+			.unwrap()
+			.generation
+			.value(),
+		1,
+		"watcher arming must not invalidate cursors without a source refresh"
+	);
+	assert!(
+		daemon.registry.queries().staleness().is_stale(),
+		"watcher arming must expose its pre-registration observation gap"
+	);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn initial_watcher_failure_is_exposed_by_rpc_workspace_status() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub struct Indexed;\n").expect("write fixture");
+	let roots = vec![temp.path().to_path_buf()];
+	let daemon = Arc::new(Mutex::new(
+		WorkspaceDaemon::new(roots.clone()).expect("daemon"),
+	));
+	let published = Arc::new(RwLock::new(None));
+	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
+	let (events, _) = tokio::sync::broadcast::channel(8);
+	let (_, worker) = spawn_initial_preload_with_watcher(
+		daemon.clone(),
+		published.clone(),
+		lifecycle.clone(),
+		events.clone(),
+		move |_| anyhow::bail!("watch registration failed"),
+	);
+	worker
+		.await
+		.expect("preload worker joins")
+		.expect_err("watcher failure must fail preload completion");
+
+	let service = DaemonRpcService {
+		daemon,
+		published,
+		lifecycle,
+		roots: Arc::from(roots),
+		events,
+		shutdown: Arc::new(tokio::sync::Notify::new()),
+		handshake: HandshakeResponse {
+			protocol_version: code_moniker_query::PROTOCOL_VERSION,
+			daemon_version: "test".to_string(),
+			build: producer_identity(),
+			workspace_root: "test".to_string(),
+			workspace_roots: Vec::new(),
+			capabilities: CapabilitySet::default(),
+		},
+	};
+	let response = service
+		.dispatch(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::WorkspaceStatus,
+		))))
+		.await
+		.expect("RPC dispatch");
+	let ProtocolResponse::Query(response) = response else {
+		panic!("expected workspace status, got {response:?}");
+	};
+	let QueryResult::WorkspaceStatus(status) = response.result else {
+		panic!("expected workspace status, got {:?}", response.result);
+	};
+	assert_eq!(status.phase, WorkspacePhase::Failed);
+	assert_eq!(status.stale_summary, "watch registration failed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_initial_watcher_success_remains_fallback_coverage() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub struct Indexed;\n").expect("fixture");
+	let daemon = Arc::new(Mutex::new(
+		WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon"),
+	));
+	let controller = daemon.clone();
+	let published = Arc::new(RwLock::new(None));
+	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
+	let (events, _) = tokio::sync::broadcast::channel(8);
+	let (_, worker) = spawn_initial_preload_with_watcher(
+		daemon.clone(),
+		published,
+		lifecycle.clone(),
+		events,
+		move |registration| {
+			controller
+				.lock()
+				.unwrap_or_else(|error| error.into_inner())
+				.restart_live_watcher()?;
+			registration.start().map(Some)
+		},
+	);
+	worker
+		.await
+		.expect("worker joins")
+		.expect("preload succeeds");
+
+	let daemon = daemon.lock().unwrap_or_else(|error| error.into_inner());
+	assert!(daemon.live.watcher.is_some());
+	assert!(daemon.registry.queries().staleness().is_stale());
+	assert_eq!(
+		lifecycle
+			.read()
+			.unwrap_or_else(|error| error.into_inner())
+			.phase,
+		WorkspacePhase::Ready
+	);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_initial_watcher_failure_cannot_override_a_replacement() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub struct Indexed;\n").expect("fixture");
+	let daemon = Arc::new(Mutex::new(
+		WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon"),
+	));
+	let controller = daemon.clone();
+	let published = Arc::new(RwLock::new(None));
+	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
+	let (events, _) = tokio::sync::broadcast::channel(8);
+	let (_, worker) = spawn_initial_preload_with_watcher(
+		daemon.clone(),
+		published,
+		lifecycle.clone(),
+		events,
+		move |_| {
+			controller
+				.lock()
+				.unwrap_or_else(|error| error.into_inner())
+				.restart_live_watcher()?;
+			anyhow::bail!("obsolete initial watcher failed")
+		},
+	);
+	worker
+		.await
+		.expect("worker joins")
+		.expect("obsolete failure is ignored");
+
+	let daemon = daemon.lock().unwrap_or_else(|error| error.into_inner());
+	assert!(daemon.registry.queries().staleness().is_stale());
+	assert_eq!(
+		lifecycle
+			.read()
+			.unwrap_or_else(|error| error.into_inner())
+			.phase,
+		WorkspacePhase::Ready
+	);
 }
 
 #[test]

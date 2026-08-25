@@ -502,7 +502,6 @@ fn run_workspace_command(
 			&mut *runtime.ports.source_catalog,
 			&mut *runtime.ports.code_index,
 			&mut *runtime.ports.linkage,
-			&mut *runtime.ports.change_overlay,
 			request,
 			generation,
 		),
@@ -513,7 +512,6 @@ fn run_workspace_command(
 		WorkspaceCommandKind::ResolveLinkage => build_linkage_snapshot(
 			runtime.state.snapshot(),
 			&mut *runtime.ports.linkage,
-			&mut *runtime.ports.change_overlay,
 			request,
 			generation,
 		),

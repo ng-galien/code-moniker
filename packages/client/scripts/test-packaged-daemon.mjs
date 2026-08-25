@@ -67,6 +67,10 @@ try {
 		join(packageRoot, "scripts", "smoke-packaged-daemon.mjs"),
 		join(consumer, "smoke-packaged-daemon.mjs"),
 	);
+	copyFileSync(
+		join(packageRoot, "scripts", "seed-daemon-workspace.mjs"),
+		join(consumer, "seed-daemon-workspace.mjs"),
+	);
 	runNpm(
 		[
 			"install",

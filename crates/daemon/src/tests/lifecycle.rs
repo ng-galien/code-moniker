@@ -170,3 +170,63 @@ fn failed_workspace_status_without_snapshot_carries_the_failure_summary() {
 	assert_eq!(status.stale_summary, "broken corpus");
 	assert_eq!(status.roots[0].stale_summary, "broken corpus");
 }
+
+#[test]
+fn live_watcher_failure_remains_a_typed_failed_status() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub fn watched() {}\n").expect("fixture");
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+	let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+		command: Command::WorkspaceRefresh,
+	}));
+	assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+	daemon.inject_live_watcher_failure("watch registration failed");
+
+	for _ in 0..2 {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::WorkspaceStatus,
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected status response, got {response:?}");
+		};
+		let QueryResult::WorkspaceStatus(status) = response.result else {
+			panic!("expected workspace status, got {:?}", response.result);
+		};
+		assert_eq!(status.phase, WorkspacePhase::Failed);
+		assert_eq!(
+			status
+				.failure
+				.as_ref()
+				.and_then(|failure| failure.resource.as_deref()),
+			Some("live_watcher")
+		);
+		assert_eq!(status.stale_summary, "watch registration failed");
+	}
+}
+
+#[test]
+fn watcher_activation_reconciles_a_mutation_from_the_registration_gap() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let source = temp.path().join("lib.rs");
+	fs::write(&source, "pub fn before_registration() {}\n").expect("fixture");
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+	crate::lifecycle::refresh_full_cancellable(&mut daemon, WorkspaceCancellation::default())
+		.expect("initial refresh");
+	let registration = daemon.live_watcher_registration();
+
+	fs::write(&source, "pub fn mutation_inside_registration_gap() {}\n")
+		.expect("mutate before watcher activation");
+	let watcher = registration.start().expect("arm watcher after mutation");
+	daemon.queue_live_watcher_update_for_test(watcher);
+	crate::lifecycle::drain_live_events(&mut daemon, true).expect("install watcher update");
+	assert!(
+		daemon.registry.queries().staleness().is_stale(),
+		"watcher activation must require reconciliation"
+	);
+
+	crate::lifecycle::refresh_stale(&mut daemon).expect("reconcile registration gap");
+	match search_symbols(&mut daemon, "mutation_inside_registration_gap") {
+		QueryResult::SymbolList(symbols) => assert_eq!(symbols.rows.len(), 1),
+		other => panic!("expected symbols result, got {other:?}"),
+	}
+}
