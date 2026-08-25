@@ -1,7 +1,7 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // View exploration builds owned RPC DTOs from borrowed view and workspace state.
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use code_moniker_query::{
 	SourceLine, ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult,
@@ -12,8 +12,14 @@ use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use super::config;
 use super::model::{BoundarySpec, GotchaSpec, RenderOptions, ViewDocument};
 use super::resolve::{self, RuleEvidence, SymbolEvidence, SymbolResolution};
+use crate::helpers::rules_config_root;
 
 const VIEWS_URI: &str = "workspace/views";
+
+pub(crate) struct ViewWorkspace<'a> {
+	pub roots: &'a [PathBuf],
+	pub config_root: &'a Path,
+}
 
 pub fn is_views_uri(uri: &str, scheme: &str) -> bool {
 	view_path(uri, scheme).is_some()
@@ -27,11 +33,33 @@ pub fn read(
 	context_lines: usize,
 	include_code: bool,
 ) -> anyhow::Result<ViewReadResult> {
-	let views = config::load(roots)?;
+	let config_root = rules_config_root(roots)?;
+	read_with_config_root(
+		uri,
+		ViewWorkspace {
+			roots,
+			config_root: &config_root,
+		},
+		scheme,
+		snapshot,
+		context_lines,
+		include_code,
+	)
+}
+
+pub(crate) fn read_with_config_root(
+	uri: &str,
+	workspace: ViewWorkspace<'_>,
+	scheme: &str,
+	snapshot: &WorkspaceSnapshot,
+	context_lines: usize,
+	include_code: bool,
+) -> anyhow::Result<ViewReadResult> {
+	let views = config::load(workspace.roots)?;
 	match view_path(uri, scheme) {
 		Some(None) => Ok(ViewReadResult::List(build_list(&views))),
 		Some(Some(id)) => Ok(ViewReadResult::Detail(Box::new(build_detail(
-			roots,
+			workspace,
 			snapshot,
 			&views,
 			&id,
@@ -70,7 +98,7 @@ fn build_list(views: &[ViewDocument]) -> ViewListResult {
 }
 
 fn build_detail(
-	roots: &[PathBuf],
+	workspace: ViewWorkspace<'_>,
 	snapshot: &WorkspaceSnapshot,
 	views: &[ViewDocument],
 	id: &str,
@@ -81,7 +109,7 @@ fn build_detail(
 		.iter()
 		.find(|view| view.spec.id == id)
 		.ok_or_else(|| anyhow::anyhow!("view `{id}` not found"))?;
-	let rules = rule_map(roots, snapshot, view)?;
+	let rules = rule_map(workspace.config_root, snapshot, view)?;
 	let options = RenderOptions {
 		context_lines,
 		include_code,
@@ -203,12 +231,12 @@ fn evidence_dtos(evidence: Vec<SymbolEvidence>) -> Vec<ViewEvidenceDto> {
 }
 
 fn rule_map(
-	roots: &[PathBuf],
+	config_root: &Path,
 	snapshot: &WorkspaceSnapshot,
 	view: &ViewDocument,
 ) -> anyhow::Result<BTreeMap<String, RuleEvidence>> {
 	let ids = collect_rule_ids(view);
-	let rules = resolve::resolve_rules(roots, snapshot, &ids)?;
+	let rules = resolve::resolve_rules(config_root, snapshot, &ids)?;
 	Ok(ids.into_iter().zip(rules).collect())
 }
 

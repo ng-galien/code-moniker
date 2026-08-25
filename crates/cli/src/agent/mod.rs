@@ -19,6 +19,11 @@ mod physical_skill;
 const STATE_SCHEMA: u32 = 1;
 const SKILL_NAME: &str = "code-moniker";
 
+// Code Moniker enriches an agent session, but it must never prevent the owning
+// client from starting when the local MCP process is temporarily unavailable
+// (for example after EMFILE or during a binary replacement).
+const CODEX_MCP_REQUIRED_FOR_CLIENT_STARTUP: bool = false;
+
 const SKILL_FILES: &[(&str, &str)] = &[
 	(
 		"SKILL.md",
@@ -35,6 +40,10 @@ const SKILL_FILES: &[(&str, &str)] = &[
 	(
 		"references/explore.md",
 		include_str!("../../assets/agent/code-moniker/references/explore.md"),
+	),
+	(
+		"references/fragments.md",
+		include_str!("../../assets/agent/code-moniker/references/fragments.md"),
 	),
 	(
 		"references/mcp.md",
@@ -956,10 +965,10 @@ fn install_codex_mcp(
 					.collect(),
 			),
 		),
-		// Code Moniker enriches an agent session, but it must never prevent the
-		// owning client from starting when the local MCP process is temporarily
-		// unavailable (for example after EMFILE or during a binary replacement).
-		("required".to_string(), toml::Value::Boolean(false)),
+		(
+			"required".to_string(),
+			toml::Value::Boolean(CODEX_MCP_REQUIRED_FOR_CLIENT_STARTUP),
+		),
 		("startup_timeout_sec".to_string(), toml::Value::Integer(45)),
 		("tool_timeout_sec".to_string(), toml::Value::Integer(120)),
 	]));
@@ -1392,6 +1401,7 @@ fn remove_empty_parents(mut current: Option<&Path>, stop: PathBuf) {
 mod tests {
 	use super::*;
 	use clap::Parser;
+	use pulldown_cmark::{Event, Parser as MarkdownParser, Tag};
 	use tempfile::tempdir;
 
 	use crate::Cli;
@@ -1399,6 +1409,168 @@ mod tests {
 	fn write_test_file(path: &Path, contents: &[u8]) {
 		fs::create_dir_all(path.parent().unwrap()).unwrap();
 		fs::write(path, contents).unwrap();
+	}
+
+	fn collect_skill_asset_paths(root: &Path, directory: &Path, paths: &mut BTreeSet<String>) {
+		for entry in fs::read_dir(directory).unwrap() {
+			let path = entry.unwrap().path();
+			if fs::metadata(&path).unwrap().is_dir() {
+				collect_skill_asset_paths(root, &path, paths);
+			} else {
+				let relative = path.strip_prefix(root).unwrap();
+				let relative = relative
+					.components()
+					.map(|component| component.as_os_str().to_string_lossy())
+					.collect::<Vec<_>>()
+					.join("/");
+				paths.insert(relative);
+			}
+		}
+	}
+
+	fn resolve_skill_reference(owner: &str, reference: &str) -> String {
+		let mut parts = Vec::new();
+		let parent = Path::new(owner).parent().unwrap_or_else(|| Path::new(""));
+		let referenced_path = parent.join(reference);
+		for component in referenced_path.components() {
+			match component {
+				std::path::Component::Normal(part) => {
+					parts.push(part.to_string_lossy().into_owned())
+				}
+				std::path::Component::CurDir => {}
+				std::path::Component::ParentDir => {
+					if parts.pop().is_none() {
+						panic!("reference escapes the skill root");
+					}
+				}
+				std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+					panic!("local skill reference must be relative")
+				}
+			}
+		}
+		parts.join("/")
+	}
+
+	fn has_uri_scheme(value: &str) -> bool {
+		let Some((scheme, _)) = value.split_once(':') else {
+			return false;
+		};
+		let mut characters = scheme.chars();
+		characters
+			.next()
+			.is_some_and(|first| first.is_ascii_alphabetic())
+			&& characters.all(|character| {
+				character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+			})
+	}
+
+	fn local_markdown_reference(value: &str) -> Option<&str> {
+		let value = value.trim();
+		if value.is_empty()
+			|| value.starts_with('/')
+			|| value.starts_with('#')
+			|| has_uri_scheme(value)
+		{
+			return None;
+		}
+		let without_fragment = value.split_once('#').map_or(value, |(path, _)| path);
+		let path = without_fragment
+			.split_once('?')
+			.map_or(without_fragment, |(path, _)| path);
+		Path::new(path)
+			.extension()
+			.is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+			.then_some(path)
+	}
+
+	fn markdown_asset_references(contents: &str) -> BTreeSet<String> {
+		MarkdownParser::new(contents)
+			.filter_map(|event| match event {
+				Event::Code(candidate)
+				| Event::Start(Tag::Link {
+					dest_url: candidate,
+					..
+				}) => local_markdown_reference(&candidate).map(ToOwned::to_owned),
+				_ => None,
+			})
+			.collect()
+	}
+
+	#[test]
+	fn markdown_asset_references_only_collect_relative_markdown_targets() {
+		let markdown = r#"
+[local](references/rules.md#taxonomy)
+[external](https://example.org/README.md)
+`architecture.md`
+`référence avec espaces.MD`
+plain.md
+`code-moniker rules show .`
+"#;
+
+		assert_eq!(
+			markdown_asset_references(markdown),
+			BTreeSet::from([
+				"architecture.md".to_string(),
+				"references/rules.md".to_string(),
+				"référence avec espaces.MD".to_string(),
+			])
+		);
+	}
+
+	#[test]
+	fn embedded_skill_inventory_covers_every_packaged_asset() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/agent/code-moniker");
+		let mut packaged = BTreeSet::new();
+		collect_skill_asset_paths(&root, &root, &mut packaged);
+		let embedded = SKILL_FILES
+			.iter()
+			.map(|(relative, _)| (*relative).to_string())
+			.collect::<BTreeSet<_>>();
+
+		assert_eq!(embedded, packaged);
+	}
+
+	#[test]
+	fn packaged_skill_assets_match_canonical_tree_in_checkout() {
+		let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let workspace = manifest.join("../..");
+		if !workspace.join("Cargo.toml").is_file() {
+			return;
+		}
+		let canonical = workspace.join("agents/skills/code-moniker");
+		let packaged = manifest.join("assets/agent/code-moniker");
+		let mut canonical_paths = BTreeSet::new();
+		let mut packaged_paths = BTreeSet::new();
+		collect_skill_asset_paths(&canonical, &canonical, &mut canonical_paths);
+		collect_skill_asset_paths(&packaged, &packaged, &mut packaged_paths);
+
+		assert_eq!(canonical_paths, packaged_paths);
+		for relative in canonical_paths {
+			assert_eq!(
+				fs::read(canonical.join(&relative)).unwrap(),
+				fs::read(packaged.join(&relative)).unwrap(),
+				"packaged skill asset `{relative}` differs from its canonical source"
+			);
+		}
+	}
+
+	#[test]
+	fn embedded_skill_resolves_every_local_markdown_reference() {
+		let embedded = SKILL_FILES
+			.iter()
+			.map(|(relative, _)| *relative)
+			.collect::<BTreeSet<_>>();
+
+		for (owner, contents) in SKILL_FILES {
+			for referenced in markdown_asset_references(contents) {
+				let resolved = resolve_skill_reference(owner, &referenced);
+				assert!(
+					embedded.contains(resolved.as_str()),
+					"{owner} references missing embedded asset {} (resolved as {resolved})",
+					referenced,
+				);
+			}
+		}
 	}
 
 	#[test]

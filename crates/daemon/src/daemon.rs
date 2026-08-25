@@ -590,9 +590,13 @@ fn dispatch_snapshot_query(
 		Query::SymbolUsages(query) => {
 			symbol_usages_response(&snapshot, &context.roots, query, page, current_generation)
 		}
-		Query::ViewRead(query) => {
-			view_read_response(&snapshot, &context.roots, query, current_generation)
-		}
+		Query::ViewRead(query) => view_read_response(
+			&snapshot,
+			&context.roots,
+			&context.config_root,
+			query,
+			current_generation,
+		),
 		Query::RulesList(query) => rules_list_response(
 			&snapshot,
 			response,

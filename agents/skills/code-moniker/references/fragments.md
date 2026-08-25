@@ -82,5 +82,5 @@ or `-` (aliases: letters, digits, `_` only). Every fragment rule needs an
 `id`. Fragments cannot override an existing rule id and cannot declare
 `workspace.source_group`.
 
-Executable shape: `code-moniker rules learn fragments`. Rule-id merge details:
-`docs/cli/check-dsl.md` (Configuration topology).
+For executable fragment and merge examples, run
+`code-moniker rules learn fragments`.

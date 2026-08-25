@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::graph::resolved_reference_target;
 use super::model::UsageDtoContext;
@@ -621,12 +621,13 @@ fn usage_source_is_in_set(
 pub(crate) fn view_read_response(
 	snapshot: &WorkspaceSnapshot,
 	roots: &[PathBuf],
+	config_root: &Path,
 	query: ViewReadQuery,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
-	let result = views::read(
+	let result = views::read_with_config_root(
 		&query.uri,
-		roots,
+		views::ViewWorkspace { roots, config_root },
 		query.scheme.as_deref().unwrap_or(DEFAULT_SCHEME),
 		snapshot,
 		query.context_lines,

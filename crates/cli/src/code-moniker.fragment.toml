@@ -14,6 +14,10 @@ cli_args_contract_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:args/
 cli_extract_runtime_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:extract/**'"
 mcp_command_module_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:mcp_command/**'"
 cli_exit_conversion = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/struct:ExitCode/method:/^from[(]e:Exit[)]$/'"
+cli_embedded_skill_inventory = "uri ~ '**/dir:crates/dir:cli/dir:src/module:agent/const:SKILL_FILES'"
+cli_skill_inventory_guard = "require('**/dir:crates/dir:cli/dir:src/module:agent/module:tests/test:/^embedded_skill_inventory_covers_every_packaged_asset/')"
+cli_skill_canonical_tree_guard = "require('**/dir:crates/dir:cli/dir:src/module:agent/module:tests/test:/^packaged_skill_assets_match_canonical_tree_in_checkout/')"
+cli_skill_reference_guard = "require('**/dir:crates/dir:cli/dir:src/module:agent/module:tests/test:/^embedded_skill_resolves_every_local_markdown_reference/')"
 
 [[rust.enum.where]]
 id       = "cli-command-registry-composition-root-requires-feature-modules"
@@ -139,6 +143,22 @@ message  = "`lib.rs` must not host inline test `{name}`; test command behavior t
 rationale = """
 The crate root is a dispatch surface. Inline tests there tend to lock helper functions and
 make command relocation harder.
+"""
+
+[[rust.shape.value.where]]
+id       = "cli-skill-asset-ownership-keeps-embedded-inventory-and-source-guards-together"
+severity = "error"
+expr     = "$cli_embedded_skill_inventory => $cli_skill_inventory_guard AND $cli_skill_canonical_tree_guard AND $cli_skill_reference_guard"
+message  = "`SKILL_FILES` must remain paired with canonical-tree, package-inventory, and local-Markdown-reference completeness guards."
+rationale = """
+`agents/skills/code-moniker` is the canonical distributable skill tree, while `SKILL_FILES` is
+the explicit compile-time inventory consumed by installation, update, status, and uninstall.
+Cargo packaging can contain an asset without adding it to that inventory, and a canonical asset
+can be omitted from the CLI package tree entirely. The guards make those splits executable: in a
+workspace checkout, one compares the canonical tree with the package assets; another compares
+every package asset with the embedded inventory, including from an extracted Cargo package; the
+last resolves every local Markdown reference against what an installed skill actually contains.
+Any skill asset change must preserve all three views before the binary can ship.
 """
 
 [[rust.shape.callable.where]]

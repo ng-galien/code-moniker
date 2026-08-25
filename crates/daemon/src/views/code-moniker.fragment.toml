@@ -12,6 +12,8 @@ presentation_renderer_target = """
   target ~ '**/external_pkg:code_moniker_cli'
   OR target ~ '**/external_pkg:code_moniker_cli/**'
 """
+daemon_workspace_view_rules_compiler = "uri ~ '**/dir:crates/dir:daemon/dir:src/module:views/module:resolve/fn:/^compiled_rule_specs/'"
+daemon_workspace_view_query_dispatch = "uri ~ '**/dir:crates/dir:daemon/dir:src/module:daemon/fn:/^dispatch_snapshot_query/'"
 
 [[refs.where]]
 id = "daemon-and-presentation-dependency-keeps-project-views-renderer-independent"
@@ -26,6 +28,37 @@ rationale = """
 Project-view resolution consumes workspace facts and returns query DTOs. Keeping it independent
 from CLI presentation lets every consumer render the same architectural evidence without moving
 transport or formatting policy into the daemon.
+"""
+
+[[rust.fn.where]]
+id = "daemon-workspace-view-rules-ownership-binds-canonical-root"
+severity = "error"
+expr = """
+  $daemon_workspace_view_rules_compiler
+  => (
+    text =~ 'config_root.join\\(\"\\.code-moniker\\.toml\"\\)'
+    AND text =~ 'with_project_root\\(config_root\\)'
+  )
+"""
+message = "Project-view rule resolution must bind the daemon config root before loading `.code-moniker.toml`."
+rationale = """
+View details resolve rule messages and rationales through the shared `RuleSetRequest` contract.
+The rules path alone may also represent an alternate `--rules` file, so it cannot prove canonical
+ownership of project taxonomy or structural workspace configuration. Binding the daemon's
+resolved config root preserves that distinction across single-root and multi-root sessions and
+prevents canonical views from failing with `RuleTaxonomyOutsideProjectRoot`.
+"""
+
+[[rust.fn.where]]
+id = "daemon-workspace-view-rules-call-flow-propagates-config-root"
+severity = "error"
+expr = "$daemon_workspace_view_query_dispatch => text =~ '&context\\.config_root'"
+message = "View-read dispatch must propagate the daemon config root into rule evidence resolution."
+rationale = """
+The daemon resolves `config_root` once with the same upward-search policy used by rules commands.
+Recomputing an ancestor from selected roots loses canonical configuration above a multi-root
+common directory. Passing the owned context value keeps view discovery and rule evidence aligned
+with the active daemon session.
 """
 
 [[views]]

@@ -11,6 +11,16 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Packaged agent skills install every canonical asset.** The embedded skill
+  inventory now includes fragment guidance, rejects unresolved local Markdown
+  references, and stays aligned with the canonical and packaged skill trees.
+- **Project views accept canonical taxonomy configuration.** Rule evidence for
+  `workspace/views/<id>` now propagates the daemon's resolved configuration
+  root before loading `.code-moniker.toml`, so canonical taxonomies are not
+  mistaken for external rules files in single-root or multi-root sessions.
+
 ## [0.9.0] - 2026-08-26
 
 This release makes agent-facing architectural discovery a first-class rendering

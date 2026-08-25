@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::snapshot::{
@@ -65,14 +65,14 @@ pub fn resolve_symbols(
 }
 
 pub fn resolve_rules(
-	roots: &[PathBuf],
+	config_root: &Path,
 	snapshot: &WorkspaceSnapshot,
 	rule_ids: &[String],
 ) -> anyhow::Result<Vec<RuleEvidence>> {
 	if rule_ids.is_empty() {
 		return Ok(Vec::new());
 	}
-	let specs = compiled_rule_specs(roots, snapshot)?;
+	let specs = compiled_rule_specs(config_root, snapshot)?;
 	Ok(rule_ids
 		.iter()
 		.map(|id| resolve_rule(id, &specs).unwrap_or_else(|| missing_rule(id)))
@@ -243,11 +243,12 @@ fn code_slice(
 }
 
 fn compiled_rule_specs(
-	roots: &[PathBuf],
+	config_root: &Path,
 	snapshot: &WorkspaceSnapshot,
 ) -> anyhow::Result<HashMap<String, RuleEvidence>> {
-	let rules_path = workspace_config_root(roots)?.join(".code-moniker.toml");
+	let rules_path = config_root.join(".code-moniker.toml");
 	let specs = check::RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
+		.with_project_root(config_root)
 		.compiled_specs_for_langs(workspace_languages(snapshot))?;
 	let mut out = HashMap::new();
 	for spec in specs {
@@ -296,30 +297,4 @@ fn workspace_languages(snapshot: &WorkspaceSnapshot) -> Vec<Lang> {
 	langs.sort_by_key(|lang| lang.tag());
 	langs.dedup();
 	langs
-}
-
-fn workspace_config_root(roots: &[PathBuf]) -> anyhow::Result<PathBuf> {
-	let Some(first) = roots.first() else {
-		anyhow::bail!("views require at least one workspace root");
-	};
-	let mut common = root_dir(first);
-	for root in roots.iter().skip(1) {
-		let root = root_dir(root);
-		while !root.starts_with(&common) {
-			if !common.pop() {
-				anyhow::bail!("cannot find common root for views");
-			}
-		}
-	}
-	Ok(common)
-}
-
-fn root_dir(path: &Path) -> PathBuf {
-	if path.is_dir() {
-		path.to_path_buf()
-	} else {
-		path.parent()
-			.unwrap_or_else(|| Path::new("."))
-			.to_path_buf()
-	}
 }

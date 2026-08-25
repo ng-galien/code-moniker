@@ -12,9 +12,9 @@ use code_moniker_query::{
 	GraphSymbolScope, HandshakeResponse, Page, ProtocolRequest, ProtocolResponse, Query,
 	QueryCursor, QueryError, QueryRequest, QueryResult, RulesCheckQuery, RulesCheckRootResult,
 	RulesCheckVerdict, SymbolGraphQuery, SymbolSearchQuery, SymbolUsagesQuery, SyntaxNodeDto,
-	SyntaxTreeQuery, UsageDirection, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
-	WorkspaceLifecycle, WorkspacePhase, WorkspaceSourceDocumentDto, WorkspaceSourceSetDto,
-	canonical_workspace_roots,
+	SyntaxTreeQuery, UsageDirection, ViewDetailResult, ViewReadQuery, ViewReadResult,
+	WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration, WorkspaceLifecycle, WorkspacePhase,
+	WorkspaceSourceDocumentDto, WorkspaceSourceSetDto, canonical_workspace_roots,
 };
 use code_moniker_workspace::live::WorkspaceLiveEvent;
 use code_moniker_workspace::snapshot::{
@@ -61,5 +61,6 @@ mod runtime;
 mod support;
 mod symbols;
 mod syntax;
+mod views;
 
 use support::*;
