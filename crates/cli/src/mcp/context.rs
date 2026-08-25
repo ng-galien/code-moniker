@@ -156,6 +156,7 @@ impl DaemonRuntime {
 		}
 	}
 
+	#[cfg(test)]
 	pub(crate) fn in_process(daemon: WorkspaceDaemon) -> Self {
 		Self::InProcess {
 			daemon: Arc::new(Mutex::new(daemon)),

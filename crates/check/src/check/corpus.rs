@@ -98,6 +98,77 @@ impl RuleCorpusDiagnosticCode {
 			Self::InlineProjectSelectorCandidate => "inline-project-selector-candidate",
 		}
 	}
+
+	pub const fn category(self) -> RuleCorpusDiagnosticCategory {
+		match self {
+			Self::MissingPatternAnchor
+			| Self::AmbiguousPatternAnchors
+			| Self::MissingComponentAnchor => RuleCorpusDiagnosticCategory::IdClassification,
+			Self::RuleUsesNoAlias
+			| Self::AliasHasNoTaxonomyAnchor
+			| Self::AliasAnchorMissingFromRuleId
+			| Self::RuleComponentNotRepresentedByUsedAlias => RuleCorpusDiagnosticCategory::AliasAlignment,
+			Self::InlineProjectSelectorCandidate => {
+				RuleCorpusDiagnosticCategory::MigrationSuggestion
+			}
+		}
+	}
+
+	pub const fn level(self) -> RuleCorpusDiagnosticLevel {
+		match self {
+			Self::MissingPatternAnchor
+			| Self::AmbiguousPatternAnchors
+			| Self::MissingComponentAnchor => RuleCorpusDiagnosticLevel::Nonconforming,
+			Self::RuleUsesNoAlias
+			| Self::AliasHasNoTaxonomyAnchor
+			| Self::AliasAnchorMissingFromRuleId
+			| Self::RuleComponentNotRepresentedByUsedAlias
+			| Self::InlineProjectSelectorCandidate => RuleCorpusDiagnosticLevel::NeedsReview,
+		}
+	}
+
+	pub const fn migration_action(self) -> &'static str {
+		match self {
+			Self::MissingPatternAnchor
+			| Self::AmbiguousPatternAnchors
+			| Self::MissingComponentAnchor => "review-rule-id-anchors",
+			Self::RuleUsesNoAlias => "review-whether-rule-needs-alias",
+			Self::AliasHasNoTaxonomyAnchor => "review-alias-taxonomy-anchors",
+			Self::AliasAnchorMissingFromRuleId | Self::RuleComponentNotRepresentedByUsedAlias => {
+				"align-rule-id-and-used-aliases"
+			}
+			Self::InlineProjectSelectorCandidate => "extract-inline-project-selector-into-alias",
+		}
+	}
+
+	pub const fn guidance(self) -> &'static str {
+		match self {
+			Self::MissingPatternAnchor => {
+				"The rule id must contain exactly one declared architectural pattern."
+			}
+			Self::AmbiguousPatternAnchors => {
+				"The rule id contains more than one declared pattern; choose the pattern that states the enforced invariant."
+			}
+			Self::MissingComponentAnchor => {
+				"The rule id must name at least one declared project component involved in the invariant."
+			}
+			Self::RuleUsesNoAlias => {
+				"Review whether the expression hides a project-specific selector; metric and generic hygiene rules may legitimately use no alias."
+			}
+			Self::AliasHasNoTaxonomyAnchor => {
+				"Review whether the alias is generic or should name a project component; generic aliases may legitimately have no taxonomy anchor."
+			}
+			Self::AliasAnchorMissingFromRuleId => {
+				"A used alias names a taxonomy anchor absent from the rule id; add it only when that architectural party is material to the invariant."
+			}
+			Self::RuleComponentNotRepresentedByUsedAlias => {
+				"A rule component is not represented by a used alias; verify that the expression still provides a clear coordinate to that component."
+			}
+			Self::InlineProjectSelectorCandidate => {
+				"A raw project selector may deserve a stable alias when it represents a reusable project zone or symbol."
+			}
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -106,6 +177,16 @@ pub enum RuleCorpusDiagnosticCategory {
 	IdClassification,
 	AliasAlignment,
 	MigrationSuggestion,
+}
+
+impl RuleCorpusDiagnosticCategory {
+	pub const fn as_str(self) -> &'static str {
+		match self {
+			Self::IdClassification => "id classification",
+			Self::AliasAlignment => "alias alignment",
+			Self::MigrationSuggestion => "migration suggestion",
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -251,16 +332,12 @@ fn analyze_rule_expressions(
 		match classification.candidate_patterns.as_slice() {
 			[] => diagnostics.push(diagnostic(
 				RuleCorpusDiagnosticCode::MissingPatternAnchor,
-				RuleCorpusDiagnosticCategory::IdClassification,
-				RuleCorpusDiagnosticLevel::Nonconforming,
 				None,
 				None,
 			)),
 			[_] => {}
 			_ => diagnostics.push(diagnostic(
 				RuleCorpusDiagnosticCode::AmbiguousPatternAnchors,
-				RuleCorpusDiagnosticCategory::IdClassification,
-				RuleCorpusDiagnosticLevel::Nonconforming,
 				None,
 				None,
 			)),
@@ -268,8 +345,6 @@ fn analyze_rule_expressions(
 		if classification.candidate_components.is_empty() {
 			diagnostics.push(diagnostic(
 				RuleCorpusDiagnosticCode::MissingComponentAnchor,
-				RuleCorpusDiagnosticCategory::IdClassification,
-				RuleCorpusDiagnosticLevel::Nonconforming,
 				None,
 				None,
 			));
@@ -326,14 +401,13 @@ fn append_alias_diagnostics(
 	if used_aliases.is_empty() {
 		return;
 	}
-	let mut alias_components = Vec::new();
+	let mut alias_components: Vec<&String> = Vec::new();
 	for alias in used_aliases {
+		let alias_name = || Some(alias.name.clone());
 		if alias.patterns.is_empty() && alias.components.is_empty() {
 			diagnostics.push(diagnostic(
 				RuleCorpusDiagnosticCode::AliasHasNoTaxonomyAnchor,
-				RuleCorpusDiagnosticCategory::AliasAlignment,
-				RuleCorpusDiagnosticLevel::NeedsReview,
-				Some(alias.name.clone()),
+				alias_name(),
 				None,
 			));
 		}
@@ -343,25 +417,21 @@ fn append_alias_diagnostics(
 			if !present {
 				diagnostics.push(diagnostic(
 					RuleCorpusDiagnosticCode::AliasAnchorMissingFromRuleId,
-					RuleCorpusDiagnosticCategory::AliasAlignment,
-					RuleCorpusDiagnosticLevel::NeedsReview,
-					Some(alias.name.clone()),
+					alias_name(),
 					Some(anchor.clone()),
 				));
 			}
 		}
 		for component in &alias.components {
-			if !alias_components.contains(component) {
-				alias_components.push(component.clone());
+			if !alias_components.contains(&component) {
+				alias_components.push(component);
 			}
 		}
 	}
 	for component in &classification.candidate_components {
-		if !alias_components.contains(component) {
+		if !alias_components.contains(&component) {
 			diagnostics.push(diagnostic(
 				RuleCorpusDiagnosticCode::RuleComponentNotRepresentedByUsedAlias,
-				RuleCorpusDiagnosticCategory::AliasAlignment,
-				RuleCorpusDiagnosticLevel::NeedsReview,
 				None,
 				Some(component.clone()),
 			));
@@ -377,8 +447,6 @@ fn append_expression_diagnostics(
 	if uses_no_alias {
 		diagnostics.push(diagnostic(
 			RuleCorpusDiagnosticCode::RuleUsesNoAlias,
-			RuleCorpusDiagnosticCategory::AliasAlignment,
-			RuleCorpusDiagnosticLevel::NeedsReview,
 			None,
 			None,
 		));
@@ -389,8 +457,6 @@ fn append_expression_diagnostics(
 	{
 		diagnostics.push(diagnostic(
 			RuleCorpusDiagnosticCode::InlineProjectSelectorCandidate,
-			RuleCorpusDiagnosticCategory::MigrationSuggestion,
-			RuleCorpusDiagnosticLevel::NeedsReview,
 			None,
 			None,
 		));
@@ -399,15 +465,13 @@ fn append_expression_diagnostics(
 
 fn diagnostic(
 	code: RuleCorpusDiagnosticCode,
-	category: RuleCorpusDiagnosticCategory,
-	level: RuleCorpusDiagnosticLevel,
 	alias: Option<String>,
 	anchor: Option<String>,
 ) -> RuleCorpusDiagnostic {
 	RuleCorpusDiagnostic {
 		code,
-		category,
-		level,
+		category: code.category(),
+		level: code.level(),
 		alias,
 		anchor,
 	}
@@ -416,20 +480,7 @@ fn diagnostic(
 fn migration_actions(diagnostics: &[RuleCorpusDiagnostic]) -> Vec<String> {
 	let mut actions = Vec::new();
 	for diagnostic in diagnostics {
-		let action = match diagnostic.code {
-			RuleCorpusDiagnosticCode::MissingPatternAnchor
-			| RuleCorpusDiagnosticCode::AmbiguousPatternAnchors
-			| RuleCorpusDiagnosticCode::MissingComponentAnchor => "review-rule-id-anchors",
-			RuleCorpusDiagnosticCode::RuleUsesNoAlias => "review-whether-rule-needs-alias",
-			RuleCorpusDiagnosticCode::AliasHasNoTaxonomyAnchor => "review-alias-taxonomy-anchors",
-			RuleCorpusDiagnosticCode::AliasAnchorMissingFromRuleId
-			| RuleCorpusDiagnosticCode::RuleComponentNotRepresentedByUsedAlias => {
-				"align-rule-id-and-used-aliases"
-			}
-			RuleCorpusDiagnosticCode::InlineProjectSelectorCandidate => {
-				"extract-inline-project-selector-into-alias"
-			}
-		};
+		let action = diagnostic.code.migration_action();
 		if !actions.iter().any(|existing| existing == action) {
 			actions.push(action.to_string());
 		}

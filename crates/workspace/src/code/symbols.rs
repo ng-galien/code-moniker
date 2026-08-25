@@ -105,10 +105,9 @@ mod tests {
 	#[test]
 	fn compact_identity_handles_complex_callable_signatures() {
 		let identity = concat!(
-			"code+moniker://./lang:rs/dir:crates/dir:cli/dir:src/module:mcp/",
-			"module:tools/module:notes/fn:render_notes_result(scheme:&str,",
-			"request:&NoteRequest,result:&NotesResult,",
-			"next:Option<&code_moniker_query::QueryCursor>)"
+			"code+moniker://./lang:rs/dir:crates/dir:cli/dir:src/",
+			"module:presentation/fn:compact_presentation_text(value:String,",
+			"compact:bool,scheme:&str,monikers:&[String])"
 		);
 		let parsed = from_uri(
 			identity,
@@ -120,7 +119,7 @@ mod tests {
 		assert_eq!(
 			compact_identity(identity, "code+moniker://").as_deref(),
 			Some(
-				"rs:crates/cli/src/mcp.tools.notes.fn:render_notes_result(scheme:&str,request:&NoteRequest,result:&NotesResult,next:Option<&code_moniker_query::QueryCursor>)"
+				"rs:crates/cli/src/presentation.fn:compact_presentation_text(value:String,compact:bool,scheme:&str,monikers:&[String])"
 			)
 		);
 	}

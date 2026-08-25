@@ -1,0 +1,47 @@
+# Workspace symbols
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+{% if partial %}
+- completeness: partial (symbols {{ start }}-{{ end }} of {{ total }}, next cursor {{ next_cursor }})
+{% else %}
+- completeness: full
+{% endif %}
+- symbols: {{ total }}
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Scope
+
+{% for row in scope %}
+- {{ row.label | md_text }}: {{ row.value | md_text }}
+{% endfor %}
+
+## Results
+
+{% if rows %}
+{% for row in rows %}
+### {{ row.kind | inline_code }} {{ row.name | inline_code }} {{ row.location | inline_code }}
+
+- uri: {{ row.uri | moniker | inline_code }}
+{% if not compact %}
+- usages: {{ ("code_moniker_usages uri=\"" ~ (row.uri | call_uri) ~ "\" budget=\"" ~ volume ~ "\" compact=false") | inline_code }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% if hint %}
+
+callable names may include their parameter signature; try {{ hint.name_argument | inline_code }} or omit the trailing {{ "$" | inline_code }}.
+{% endif %}
+{% endif %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}
+{% endfor %}
+{% endif %}

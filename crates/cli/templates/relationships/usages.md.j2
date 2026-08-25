@@ -1,0 +1,122 @@
+{% macro summary(summary, shared) %}
+- references: {{ summary.refs }}
+- files: {{ summary.files }}
+- contexts: {{ summary.contexts }}
+- prefixes: {{ summary.prefixes }}
+{% if summary.dominant_prefix %}
+- dominant prefix: {{ summary.dominant_prefix | inline_code }}
+{% endif %}
+{% if summary.kinds %}
+- kinds: {% for row in summary.kinds %}{{ row.name | inline_code }}={{ row.count }}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+{% if summary.top_actors %}
+- top actors: {% for row in summary.top_actors %}{{ row.name | inline_code }}={{ row.count }}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+{% if summary.top_prefixes %}
+- top prefixes: {% for row in summary.top_prefixes %}{{ row.name | inline_code }}={{ row.count }}{% if not loop.last %}, {% endif %}{% endfor %}{{ "\n" -}}
+{% endif %}
+{% if shared %}
+- shared-helper signal: {{ summary.shared_helper_signal | inline_code }}
+{% endif %}
+{% endmacro %}
+# Symbol usages
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | moniker | inline_code }}
+- completeness: {% if partial %}partial (usages {{ start }}-{{ end }} of {{ total }}, next cursor {{ next_cursor }}){% else %}full{% endif %}{{ "\n" -}}
+- direction: {{ direction | inline_code }}
+- target-scope: {{ target_scope | inline_code }} ({{ targets }} symbols)
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Target
+
+- kind: {{ target.kind | inline_code }}
+- name: {{ target.name | inline_code }}
+- file: {{ target.file | inline_code }}{% if target.line_range %}:{{ target.line_range[0] }}-{{ target.line_range[1] }}{% endif %}{{ "\n" -}}
+- language: {{ target.language | inline_code }}
+
+## Scope
+
+- path: {% if scope.paths %}{{ scope.paths | join(", ") | inline_code }}{% else %}*{% endif %}{{ "\n" -}}
+- language: {% if scope.langs %}{{ scope.langs | join(", ") | inline_code }}{% else %}*{% endif %}{{ "\n" -}}
+
+{% if show_incoming %}
+## Incoming summary
+
+{% if incoming_summary %}
+{{ summary(summary=incoming_summary, shared=true) }}
+{% else %}
+- references: 0
+{% endif %}
+{% endif %}
+{% if show_outgoing %}
+## Outgoing summary
+
+{% if outgoing_summary %}
+{{ summary(summary=outgoing_summary, shared=false) }}
+{% else %}
+- references: 0
+{% endif %}
+{% endif %}
+## Usages
+
+{% if compact_map %}
+- page references: {{ compact_map.page_refs }}
+- groups: {{ compact_map.groups | length }}
+{% if compact_map.technical_refs %}
+- {{ compact_map.technical_label | md_text }}: {{ compact_map.technical_refs }} reference(s) in {{ compact_map.technical_groups }} group(s)
+{% endif %}
+
+{% for group in compact_map.groups %}
+### {{ group.direction | inline_code }} · {{ group.class | inline_code }} · {{ group.kind | inline_code }} · {{ group.label | inline_code }}
+
+- location: {{ group.location | inline_code }}
+- references: {{ group.ref_count }}
+{% if group.context %}
+- context: {{ group.context | moniker | inline_code }}
+{% endif %}
+{% if group.endpoint %}
+- endpoint: {{ group.endpoint | moniker | inline_code }}
+{% endif %}
+{% if group.via %}
+- via: {{ group.via | moniker_text | md_text }}
+{% endif %}
+{% if group.evidence %}
+
+#### Evidence
+
+{{ group.evidence.code | code_block }}
+{% endif %}
+
+{% endfor %}
+{% elif usages %}
+{% for usage in usages %}
+### {{ usage.direction | inline_code }} · {{ usage.kind | inline_code }} · {{ usage.actor | inline_code }}
+
+- location: {{ usage.location | inline_code }}
+- file: {{ usage.file | inline_code }}
+- context: {{ usage.context | moniker | inline_code }}
+- endpoint: {{ usage.endpoint | moniker | inline_code }}
+- reference: {{ usage.reference | inline_code }}
+{% if usage.via %}
+- via: {{ usage.via | moniker_text | md_text }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_No usages in this page._
+{% endif %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+{% if call.uri %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}
+{% else %}
+- {{ (call.tool ~ call.arguments) | inline_code }}
+{% endif %}
+{% endfor %}
+{% endif %}

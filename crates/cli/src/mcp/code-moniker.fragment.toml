@@ -57,10 +57,9 @@ rationale = """
 Sibling tool modules should not grow parallel private helpers with the same function names.
 Duplicate names inside one owner are allowed for language patterns, but duplicates across owners
 usually indicate a shared helper boundary or intentionally mirrored protocol shape that should
-be documented. The first observed case was `bounded_usize_argument` in `read` and `usages`:
-`read` applies a default and clamps the value, while `usages` rejects type and bound errors.
-Harmonize that argument contract before sharing an implementation; otherwise keep the two
-policies separate and document why the same concept intentionally behaves differently.
+be explicit. Shared DTO projection belongs in `scope`; genuinely different argument policies
+use policy-specific names such as `clamped_*` and `strict_bounded_*` instead of looking like
+duplicate implementations of one contract.
 """
 
 [[refs.where]]
@@ -144,9 +143,9 @@ title = "CLI MCP agent surface"
 scope = "."
 intent = "Understand the MCP runtime and tool boundaries before changing the agent-facing protocol surface."
 summary = """
-The MCP module exposes code-moniker workspace facts to agents. The SDK-backed runtime and
-workspace-backed tools are separate boundaries; new features should extend a concrete tool domain
-instead of teaching the server layer about workspace resources.
+The MCP module exposes daemon query results to agents. The SDK-backed runtime, daemon-contract
+tools, and shared presentation boundary have distinct ownership; new features should extend a
+concrete tool domain instead of teaching the server layer about workspace resources.
 """
 
 [[views.boundaries]]
@@ -182,12 +181,13 @@ forbid_rules = [
 id = "tools"
 owns = [
   "tool registry",
-  "workspace-backed LMNAV rendering",
-  "paging and scope arguments",
+  "typed presentation projections from daemon query DTOs",
+  "volume-aware paging and scope arguments",
 ]
 rationale = """
 Tools are the only MCP components allowed to decide which workspace resource they need.
-Adding a feature usually means enriching an existing tool domain rather than adding runtime
+They select and bound a typed presentation projection before the shared output boundary renders
+it. Adding a feature usually means enriching an existing tool domain rather than adding runtime
 knowledge to server or dispatch.
 """
 symbols = [
@@ -206,15 +206,15 @@ rules = [
 [[views.gotchas]]
 id = "paging-preserves-scope"
 rationale = """
-Every paged LMNAV output must preserve its scope arguments in the next call. If a cursor drops
-path, language, kind, name, profile, rule, or severity filters, an agent silently changes the
-question while following pagination.
+Every paged agent document must preserve its scope and output-volume arguments in the next call.
+If a cursor drops path, language, kind, name, profile, rule, severity, compact, or budget, an
+agent silently changes the question while following pagination.
 """
 symbols = [
   "module:tools/module:scope/struct:Paging",
-  "module:tools/module:read/fn:append_read_next_call",
-  "module:tools/module:symbols/fn:append_symbols_next_call",
-  "module:tools/module:rules/fn:append_rules_next_call",
+  "module:tools/module:read/fn:read_next_call",
+  "module:tools/module:symbols/fn:symbols_next_call",
+  "module:tools/module:rules/fn:rules_next_call",
 ]
 check = "cargo test -p code-moniker --features mcp mcp::tests --lib"
 

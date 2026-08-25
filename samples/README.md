@@ -9,9 +9,10 @@ This directory has two distinct sample corpora:
   rule roots, including bounded transitive architecture checks.
 - `learn/`: focused DSL learning documents used by `code-moniker rules learn`.
   They are also executable scenario fixtures, but their purpose is to teach one
-  syntax idea at a time. `fragments.cm.md` covers view URIs and namespaced
-  rule ids (the in-memory runner mounts the effective merged rule, not a live
-  fragment file).
+  concept at a time. `taxonomy.cm.md` covers project vocabulary and diagnostic
+  interpretation. `fragments.cm.md` covers view URIs and namespaced rule ids
+  (the in-memory runner mounts the effective merged rule, not a live fragment
+  file).
 
 - Format contract: [`docs/check-scenarios.md`](../docs/check-scenarios.md)
 - Run one sample: `code-moniker check . --scenario samples/catalog/<name>.cm.md`

@@ -1,11 +1,17 @@
-use std::fmt::Write as _;
-
-use code_moniker_query::{ChangeReviewQuery, ChangeReviewResult, Page, Query, QueryResult};
+use code_moniker_query::{
+	ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSymbol, Page, Query,
+	QueryResult,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::common::{AgentOutputOptions, OutputBudget};
+use super::scope::{append_call_bool_arg, append_call_number_arg, append_call_string_arg};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 
 use crate::mcp::context::McpContext;
+use crate::presentation::TemplateOutput;
+use crate::presentation::relationships as relationship_presentation;
 
 pub(super) struct DiffTool;
 
@@ -37,7 +43,7 @@ impl DiffTool {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": 500,
-					"description": "Bound for listed symbol and reference facts. Defaults 50; truncation is reported."
+					"description": "Explicit bound for listed symbol and reference facts. Otherwise the volume profile selects 50, 150, or 500 facts; omitted facts produce a continuation."
 				}
 			},
 			"additionalProperties": false
@@ -58,16 +64,15 @@ impl McpTool for DiffTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let detail_refs = arguments
-			.get("refs")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
-		let max_items = arguments
-			.get("max_items")
-			.and_then(Value::as_u64)
-			.map(|value| value as usize)
-			.unwrap_or(Self::DEFAULT_MAX_ITEMS);
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let output = output.agent_options();
+		let detail_refs = optional_bool(arguments, "refs")?.unwrap_or(false);
+		let max_items = diff_max_items(arguments, output.budget)?;
 		let response = context
 			.query_refreshed(
 				Query::ChangeReview(ChangeReviewQuery { workspace: None }),
@@ -79,105 +84,179 @@ impl McpTool for DiffTool {
 				"unexpected change review response"
 			)));
 		};
-		let candidates = review_monikers(&result);
-		Ok(
-			ToolResult::success(render_review(&result, detail_refs, max_items))
-				.with_monikers(candidates),
-		)
+		diff_template(&result, detail_refs, max_items, output)
+			.map(ToolResult::templated)
+			.map_err(ToolError::failed)
 	}
 }
 
-fn review_monikers(result: &ChangeReviewResult) -> Vec<&str> {
-	result
+fn diff_max_items(arguments: &Value, budget: OutputBudget) -> Result<usize, ToolError> {
+	let volume_limit = diff_volume_limit(budget);
+	Ok(optional_max_items(arguments)?
+		.unwrap_or(volume_limit)
+		.min(volume_limit))
+}
+
+fn optional_bool(arguments: &Value, name: &str) -> Result<Option<bool>, ToolError> {
+	match arguments.get(name) {
+		Some(Value::Bool(value)) => Ok(Some(*value)),
+		Some(_) => Err(ToolError::failed(format!("{name} must be a boolean"))),
+		None => Ok(None),
+	}
+}
+
+fn optional_max_items(arguments: &Value) -> Result<Option<usize>, ToolError> {
+	let Some(value) = arguments.get("max_items") else {
+		return Ok(None);
+	};
+	let Some(value) = value.as_u64() else {
+		return Err(ToolError::failed("max_items must be an unsigned integer"));
+	};
+	let value = value as usize;
+	if !(1..=500).contains(&value) {
+		return Err(ToolError::failed("max_items must be between 1 and 500"));
+	}
+	Ok(Some(value))
+}
+
+fn diff_volume_limit(budget: OutputBudget) -> usize {
+	match budget {
+		OutputBudget::Small => DiffTool::DEFAULT_MAX_ITEMS,
+		OutputBudget::Medium => 150,
+		OutputBudget::Full => 500,
+	}
+}
+
+#[derive(Serialize)]
+struct DiffView<'a> {
+	volume: &'static str,
+	max_items: usize,
+	result: &'a ChangeReviewResult,
+	files: Vec<DiffFileView<'a>>,
+	files_omitted: usize,
+	symbols: Vec<DiffSymbolView<'a>>,
+	symbols_omitted: usize,
+	refs: Option<&'a [ChangeReviewRef]>,
+	refs_omitted: usize,
+	next_call: Option<DiffNextCall>,
+}
+
+#[derive(Serialize)]
+struct DiffFileView<'a> {
+	path: String,
+	disposition: &'a str,
+	analyzable: bool,
+	coverage_explained: bool,
+}
+
+#[derive(Serialize)]
+struct DiffSymbolView<'a> {
+	change_kind: &'a str,
+	symbol_kind: &'a str,
+	identity: &'a str,
+	confidence: &'a str,
+}
+
+#[derive(Serialize)]
+struct DiffNextCall {
+	arguments: String,
+}
+
+fn diff_template(
+	result: &ChangeReviewResult,
+	detail_refs: bool,
+	max_items: usize,
+	output: AgentOutputOptions,
+) -> anyhow::Result<TemplateOutput> {
+	let files = result
+		.files
+		.iter()
+		.take(max_items)
+		.map(diff_file_view)
+		.collect::<Vec<_>>();
+	let files_omitted = result.files.len().saturating_sub(max_items);
+	let symbols = result
 		.symbol_changes
 		.iter()
-		.flat_map(|change| [change.old.as_ref(), change.new.as_ref()])
-		.flatten()
-		.map(|side| side.identity.as_str())
-		.collect()
-}
-
-fn render_review(result: &ChangeReviewResult, detail_refs: bool, max_items: usize) -> String {
-	let mut out = String::new();
-	let _ = writeln!(out, "scope: {}", result.scope);
-	let _ = writeln!(
-		out,
-		"summary: files {} ({} analyzable) symbols {} refs {} ({} retargeted) residual {}",
-		result.summary.files,
-		result.summary.analyzable_files,
-		result.summary.symbol_changes,
-		result.summary.ref_changes,
-		result.summary.retargeted_refs,
-		result.summary.residual_files
+		.take(max_items)
+		.filter_map(diff_symbol_view)
+		.collect::<Vec<_>>();
+	let symbols_omitted = result.symbol_changes.len().saturating_sub(max_items);
+	let refs = detail_refs.then(|| &result.ref_changes[..result.ref_changes.len().min(max_items)]);
+	let refs_omitted = if detail_refs {
+		result.ref_changes.len().saturating_sub(max_items)
+	} else {
+		0
+	};
+	let next_call = diff_next_call(
+		detail_refs,
+		max_items,
+		output,
+		files_omitted > 0 || symbols_omitted > 0 || refs_omitted > 0,
 	);
-	for file in &result.files {
-		let _ = writeln!(out, "{}", file_line(file));
-	}
-	render_symbols(&mut out, result, max_items);
-	render_refs(&mut out, result, detail_refs, max_items);
-	for diagnostic in &result.diagnostics {
-		let _ = writeln!(out, "diagnostic: {diagnostic}");
-	}
-	out
+	let view = DiffView {
+		volume: output.budget.as_str(),
+		max_items,
+		result,
+		files,
+		files_omitted,
+		symbols,
+		symbols_omitted,
+		refs,
+		refs_omitted,
+		next_call,
+	};
+	relationship_presentation::diff(&view)
 }
 
-fn file_line(file: &code_moniker_query::ChangeReviewFile) -> String {
+fn diff_file_view(file: &code_moniker_query::ChangeReviewFile) -> DiffFileView<'_> {
 	let path = match (&file.old_path, &file.new_path) {
 		(Some(old), Some(new)) if old != new => format!("{old} -> {new}"),
-		(_, Some(new)) => new.clone(),
-		(Some(old), None) => old.clone(),
-		(None, None) => "<unknown>".to_string(),
+		(_, Some(new)) => new.to_string(),
+		(Some(old), None) => old.to_string(),
+		(None, None) => "unknown".to_string(),
 	};
-	format!(
-		"- {path} {}{}{}",
-		file.disposition,
-		if file.analyzable {
-			""
-		} else {
-			" (not analyzable)"
-		},
-		if file.coverage_explained {
-			""
-		} else {
-			" [residual]"
-		}
-	)
-}
-
-fn render_symbols(out: &mut String, result: &ChangeReviewResult, max_items: usize) {
-	for change in result.symbol_changes.iter().take(max_items) {
-		let Some(side) = change.new.as_ref().or(change.old.as_ref()) else {
-			continue;
-		};
-		let _ = writeln!(
-			out,
-			"  {} {} {} [{}]",
-			change.kind, side.kind, side.identity, change.confidence
-		);
-	}
-	if result.symbol_changes.len() > max_items {
-		let _ = writeln!(
-			out,
-			"  truncated: +{} symbol fact(s)",
-			result.symbol_changes.len() - max_items
-		);
+	DiffFileView {
+		path,
+		disposition: &file.disposition,
+		analyzable: file.analyzable,
+		coverage_explained: file.coverage_explained,
 	}
 }
 
-fn render_refs(out: &mut String, result: &ChangeReviewResult, detail_refs: bool, max_items: usize) {
-	if !detail_refs {
-		return;
+fn diff_symbol_view(change: &ChangeReviewSymbol) -> Option<DiffSymbolView<'_>> {
+	let side = change.new.as_ref().or(change.old.as_ref())?;
+	Some(DiffSymbolView {
+		change_kind: &change.kind,
+		symbol_kind: &side.kind,
+		identity: &side.identity,
+		confidence: &change.confidence,
+	})
+}
+
+fn diff_next_call(
+	detail_refs: bool,
+	max_items: usize,
+	output: AgentOutputOptions,
+	incomplete: bool,
+) -> Option<DiffNextCall> {
+	if !incomplete || max_items >= 500 {
+		return None;
 	}
-	for change in result.ref_changes.iter().take(max_items) {
-		let _ = writeln!(out, "  {} {} {}", change.kind, change.ref_kind, change.file);
-	}
-	if result.ref_changes.len() > max_items {
-		let _ = writeln!(
-			out,
-			"  truncated: +{} ref fact(s)",
-			result.ref_changes.len() - max_items
-		);
-	}
+	let next_budget = match output.budget {
+		OutputBudget::Small => OutputBudget::Medium,
+		OutputBudget::Medium | OutputBudget::Full => OutputBudget::Full,
+	};
+	let next_limit = max_items
+		.saturating_mul(2)
+		.max(diff_volume_limit(next_budget))
+		.min(500);
+	let mut arguments = String::new();
+	append_call_bool_arg(&mut arguments, "refs", detail_refs);
+	append_call_number_arg(&mut arguments, "max_items", next_limit);
+	append_call_bool_arg(&mut arguments, "compact", output.compact);
+	append_call_string_arg(&mut arguments, "budget", next_budget.as_str());
+	Some(DiffNextCall { arguments })
 }
 
 #[cfg(test)]
@@ -185,6 +264,7 @@ mod tests {
 	use code_moniker_query::{ChangeReviewSide, ChangeReviewSymbol};
 
 	use super::*;
+	use crate::presentation::RenderOptions;
 
 	fn added_method(identity: &str) -> ChangeReviewSymbol {
 		ChangeReviewSymbol {
@@ -225,8 +305,24 @@ mod tests {
 			ref_changes: Vec::new(),
 			diagnostics: Vec::new(),
 		};
-		let mut out = String::new();
-		render_symbols(&mut out, &result, 10);
+		let out = diff_template(
+			&result,
+			false,
+			10,
+			AgentOutputOptions {
+				compact: false,
+				budget: OutputBudget::Small,
+			},
+		)
+		.expect("diff template")
+		.render(RenderOptions {
+			compact: false,
+			scheme: "code+moniker://",
+			runtime: None,
+		})
+		.expect("render diff");
+		crate::presentation::tests::validate_agent_markdown(&out, "Semantic diff", false)
+			.expect("valid diff Markdown");
 		assert!(
 			out.contains("struct:FsCheckWorkspace/method:source_catalog"),
 			"each symbol fact must carry its identity, got:\n{out}"
@@ -234,6 +330,18 @@ mod tests {
 		assert!(
 			out.contains("struct:MemoryCheckWorkspace/method:source_catalog"),
 			"same-name facts must stay distinguishable, got:\n{out}"
+		);
+	}
+
+	#[test]
+	fn diff_volume_profiles_bound_fact_projection_before_rendering() {
+		assert_eq!(diff_volume_limit(OutputBudget::Small), 50);
+		assert_eq!(diff_volume_limit(OutputBudget::Medium), 150);
+		assert_eq!(diff_volume_limit(OutputBudget::Full), 500);
+		assert_eq!(
+			super::diff_max_items(&serde_json::json!({"max_items": 500}), OutputBudget::Small)
+				.expect("small cap"),
+			50
 		);
 	}
 }

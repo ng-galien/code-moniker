@@ -1,0 +1,45 @@
+# Symbol insights
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: full
+- files: {{ files }}
+- symbols: {{ symbols }}
+- refs: {{ references }}
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Scope
+
+{% for row in scope %}
+- {{ row.label | md_text }}: {{ row.value | md_text }}
+{% endfor %}
+
+## Insights
+
+- navigable-symbols: {{ navigable_symbols }}
+- non-navigable-symbols: {{ non_navigable_symbols }}
+
+{% for group in groups %}
+### {{ group.title | md_heading }}
+
+{% if group.rows %}
+| Name | Count |
+| --- | ---: |
+{% for row in group.rows %}
+| {{ row.name | table_cell }} | {{ row.count }} |
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+
+{% endfor %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+- {{ (call.tool ~ " uri=\"" ~ (call.uri | call_uri) ~ "\"" ~ call.arguments) | inline_code }}
+{% endfor %}
+{% endif %}

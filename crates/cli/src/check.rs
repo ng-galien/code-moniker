@@ -75,36 +75,6 @@ fn run_scenario_check<W1: Write, W2: Write>(
 	}
 }
 
-#[cfg(feature = "mcp")]
-pub(crate) fn run_text_request<W1: Write, W2: Write>(
-	request: CheckRequest,
-	report: bool,
-	max_violations: Option<usize>,
-	stdout: &mut W1,
-	stderr: &mut W2,
-) -> Exit {
-	match run_request_inner(
-		request,
-		CheckFormat::Text,
-		report,
-		max_violations,
-		stdout,
-		stderr,
-	) {
-		Ok(outcome) => {
-			if outcome.any_error || outcome.any_error_violation {
-				Exit::NoMatch
-			} else {
-				Exit::Match
-			}
-		}
-		Err(e) => {
-			let _ = writeln!(stderr, "code-moniker: {e:#}");
-			Exit::UsageError
-		}
-	}
-}
-
 fn run_request_inner<W: Write, E: Write>(
 	request: CheckRequest,
 	format: CheckFormat,

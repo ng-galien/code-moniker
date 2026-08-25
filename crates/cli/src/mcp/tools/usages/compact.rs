@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use code_moniker_query::{SymbolUsagesResult, UsageDto};
+use serde::Serialize;
 
 use super::{EvidenceMode, TechnicalMode, UsageRequest, usage_kind_priority};
 use crate::mcp::context::McpContext;
@@ -42,6 +43,29 @@ struct UsageGroup<'a> {
 	rows: Vec<&'a UsageDto>,
 }
 
+#[derive(Serialize)]
+pub(super) struct CompactUsageMap {
+	pub(super) page_refs: usize,
+	pub(super) technical_label: &'static str,
+	pub(super) technical_refs: usize,
+	pub(super) technical_groups: usize,
+	pub(super) groups: Vec<CompactUsageGroup>,
+}
+
+#[derive(Serialize)]
+pub(super) struct CompactUsageGroup {
+	pub(super) direction: &'static str,
+	pub(super) class: &'static str,
+	pub(super) kind: String,
+	pub(super) label: String,
+	pub(super) location: String,
+	pub(super) ref_count: usize,
+	pub(super) context: Option<String>,
+	pub(super) endpoint: Option<String>,
+	pub(super) via: Option<String>,
+	pub(super) evidence: Option<UsageSourceSnippet>,
+}
+
 impl UsageGroup<'_> {
 	fn primary_kind(&self) -> &str {
 		self.key.kind
@@ -57,12 +81,11 @@ impl UsageGroup<'_> {
 	}
 }
 
-pub(super) fn render_compact_usage_map(
-	output: &mut String,
+pub(super) fn compact_usage_map(
 	context: &McpContext,
 	result: &SymbolUsagesResult,
 	request: &UsageRequest,
-) {
+) -> CompactUsageMap {
 	let type_target = is_type_symbol_kind(&result.target.kind);
 	let groups = group_daemon_usages(&result.rows, type_target);
 	let technical_refs = groups
@@ -86,25 +109,23 @@ pub(super) fn render_compact_usage_map(
 		BTreeSet::new()
 	};
 
-	output.push_str("usages:\n");
-	output.push_str(&format!("  page_refs: {}\n", result.rows.len()));
-	output.push_str(&format!("  groups: {}\n", visible.len()));
-	if technical_refs > 0 {
-		let label = if request.technical == TechnicalMode::Include {
-			"technical_included"
+	let groups = visible
+		.iter()
+		.enumerate()
+		.map(|(index, group)| {
+			compact_usage_group(context, group, evidence.contains(&index), request)
+		})
+		.collect();
+	CompactUsageMap {
+		page_refs: result.rows.len(),
+		technical_label: if request.technical == TechnicalMode::Include {
+			"technical included"
 		} else {
-			"technical_omitted"
-		};
-		output.push_str(&format!(
-			"  {label}: {technical_refs} refs in {technical_groups} groups\n"
-		));
-	}
-	if visible.is_empty() {
-		output.push_str("  <empty>\n");
-		return;
-	}
-	for (index, group) in visible.iter().enumerate() {
-		render_compact_usage_group(output, context, group, evidence.contains(&index), request);
+			"technical omitted"
+		},
+		technical_refs,
+		technical_groups,
+		groups,
 	}
 }
 
@@ -200,45 +221,35 @@ fn representative_evidence_indices(
 	selected
 }
 
-fn render_compact_usage_group(
-	output: &mut String,
+fn compact_usage_group(
 	context: &McpContext,
 	group: &UsageGroup<'_>,
 	include_evidence: bool,
 	request: &UsageRequest,
-) {
+) -> CompactUsageGroup {
 	let row = group.representative();
 	let label = if group.key.direction == "incoming" {
-		row.actor.as_str()
+		row.actor.to_string()
 	} else {
-		short_identity(&row.endpoint)
+		short_identity(&row.endpoint).to_string()
 	};
-	output.push_str(&format!(
-		"  - {} {} {} {} {} [{} ref{}]\n",
-		if group.key.direction == "incoming" {
+	CompactUsageGroup {
+		direction: if group.key.direction == "incoming" {
 			"in"
 		} else {
 			"out"
 		},
-		group.key.class.as_str(),
-		group.primary_kind(),
+		class: group.key.class.as_str(),
+		kind: group.primary_kind().to_string(),
 		label,
-		row.location,
-		group.rows.len(),
-		if group.rows.len() == 1 { "" } else { "s" }
-	));
-	if group.key.direction == "incoming" {
-		output.push_str(&format!("    context: {}\n", row.context));
-	} else {
-		output.push_str(&format!("    endpoint: {}\n", row.endpoint));
-	}
-	if let Some(via) = group.key.via {
-		output.push_str(&format!("    via: {via}\n"));
-	}
-	if include_evidence {
-		if let Some(snippet) = usage_source_snippet(context, row, request.context_lines) {
-			render_usage_source_snippet(output, &snippet);
-		}
+		location: row.location.to_string(),
+		ref_count: group.rows.len(),
+		context: (group.key.direction == "incoming").then(|| row.context.to_string()),
+		endpoint: (group.key.direction != "incoming").then(|| row.endpoint.to_string()),
+		via: group.key.via.map(str::to_string),
+		evidence: include_evidence
+			.then(|| usage_source_snippet(context, row, request.context_lines))
+			.flatten(),
 	}
 }
 
@@ -292,9 +303,9 @@ fn short_identity(identity: &str) -> &str {
 	identity.rsplit('/').next().unwrap_or(identity)
 }
 
-struct UsageSourceSnippet {
-	active: (u32, u32),
-	lines: Vec<(u32, String)>,
+#[derive(Serialize)]
+pub(super) struct UsageSourceSnippet {
+	pub(super) code: String,
 }
 
 fn usage_source_snippet(
@@ -314,12 +325,20 @@ fn usage_source_snippet(
 		.enumerate()
 		.filter_map(|(index, text)| {
 			let number = index as u32 + 1;
-			(number >= first && number <= last).then(|| (number, bounded_source_line(text, 240)))
+			(number >= first && number <= last).then(|| {
+				format!(
+					"{} {number:>4} | {text}",
+					if number >= start && number <= active_end {
+						">"
+					} else {
+						" "
+					}
+				)
+			})
 		})
 		.collect::<Vec<_>>();
-	(!lines.is_empty()).then_some(UsageSourceSnippet {
-		active: (start, active_end),
-		lines,
+	(!lines.is_empty()).then(|| UsageSourceSnippet {
+		code: lines.join("\n"),
 	})
 }
 
@@ -353,28 +372,6 @@ fn confined_source_path(roots: &[PathBuf], row_root: &str, file: &str) -> Option
 		}
 	}
 	None
-}
-
-fn bounded_source_line(text: &str, max_chars: usize) -> String {
-	let mut chars = text.chars();
-	let bounded = chars.by_ref().take(max_chars).collect::<String>();
-	if chars.next().is_some() {
-		format!("{bounded}…")
-	} else {
-		bounded
-	}
-}
-
-fn render_usage_source_snippet(output: &mut String, snippet: &UsageSourceSnippet) {
-	output.push_str("    evidence:\n");
-	for (number, text) in &snippet.lines {
-		let marker = if *number >= snippet.active.0 && *number <= snippet.active.1 {
-			'>'
-		} else {
-			' '
-		};
-		output.push_str(&format!("      {marker} {number:>4} | {text}\n"));
-	}
 }
 
 #[cfg(test)]

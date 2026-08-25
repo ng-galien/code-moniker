@@ -219,27 +219,22 @@ async fn dispatch_tool_call(
 			let _entered = blocking_span.enter();
 			let result = registry.call(&context, &name, &arguments);
 			let result = match result {
-				Err(error) if !error.is_unknown_tool() => {
-					let uri = arguments
-						.get("uri")
-						.and_then(Value::as_str)
-						.unwrap_or("workspace");
-					registry
-						.finalize_error(
-							&name,
-							&arguments,
-							context.scheme(),
-							problem_lmnav(uri, &name, &error.to_string()),
-						)
-						.map(Ok)
-						.unwrap_or(Err(error))
-				}
+				Err(error) if !error.is_unknown_tool() => registry
+					.render_problem(
+						&name,
+						&arguments,
+						context.scheme(),
+						Some(context.runtime_label()),
+						&error.to_string(),
+					)
+					.map(Ok)
+					.unwrap_or(Err(error)),
 				result => result,
 			};
 			(name, arguments, result)
 		})
 		.await;
-		let (name, arguments, result) = match joined {
+		let (name, _arguments, result) = match joined {
 			Ok(result) => result,
 			Err(join_error) => {
 				result_span.record("mcp.tool.status", "join_error");
@@ -248,7 +243,7 @@ async fn dispatch_tool_call(
 		};
 		let status = tool_result_status(&result);
 		result_span.record("mcp.tool.status", status);
-		let response = call_result(&name, &arguments, result);
+		let response = call_result(&name, result);
 		result_span.record("mcp.response.content_count", response.content.len());
 		result_span.record("mcp.response.is_error", response.is_error.unwrap_or(false));
 		tracing::info!(
@@ -285,52 +280,15 @@ fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &
 	}
 }
 
-fn call_result(
-	name: &str,
-	arguments: &Value,
-	result: Result<ToolResult, super::tools::ToolError>,
-) -> CallToolResult {
+fn call_result(name: &str, result: Result<ToolResult, super::tools::ToolError>) -> CallToolResult {
 	match result {
 		Ok(result) if result.is_error => CallToolResult::error(vec![Content::text(result.text)]),
 		Ok(result) => CallToolResult::success(vec![Content::text(result.text)]),
 		Err(error) if error.is_unknown_tool() => {
 			CallToolResult::error(vec![Content::text(format!("unknown tool: {name}"))])
 		}
-		Err(error) => {
-			let uri = arguments
-				.get("uri")
-				.and_then(Value::as_str)
-				.unwrap_or("workspace");
-			CallToolResult::error(vec![Content::text(problem_lmnav(
-				uri,
-				name,
-				&error.to_string(),
-			))])
-		}
+		Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
 	}
-}
-
-fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
-	let fix_hint = if message.starts_with("workspace_mismatch:") {
-		"stop and connect to the project-owned code-moniker MCP server for the expected roots"
-	} else if message.starts_with("workspace_identity_required:") {
-		"retry the workspace read with expected_roots set to the current absolute workspace roots"
-	} else if message.starts_with("symbol_not_found:") {
-		"discover the current moniker with code_moniker_symbols, then retry with that value"
-	} else {
-		"retry with a supported URI and bounded arguments"
-	};
-	let problem = if message
-		.strip_prefix("symbol_not_found: symbol not found:")
-		.is_some_and(|missing| missing.trim() == uri)
-	{
-		"symbol_not_found"
-	} else {
-		message
-	};
-	format!(
-		"uri: {uri}\ncompleteness: partial\n\nproblem: {problem}\nwhere: {tool}\nfix_hint: {fix_hint}\n"
-	)
 }
 
 #[cfg(test)]
@@ -379,45 +337,5 @@ mod tests {
 		});
 
 		assert_eq!(*captured.lock().unwrap(), Some(true));
-	}
-
-	#[test]
-	fn known_tool_errors_cross_the_agent_output_boundary() {
-		let uri = "x".repeat(1_500);
-		let arguments = serde_json::json!({
-			"uri": uri,
-			"max_chars": 1_000
-		});
-		let result = ToolRegistry::new()
-			.finalize_error(
-				"code_moniker_read",
-				&arguments,
-				"code+moniker://",
-				problem_lmnav(&uri, "code_moniker_read", "symbol not found"),
-			)
-			.expect("known tool contract");
-		let response = call_result("code_moniker_read", &arguments, Ok(result));
-		let response = serde_json::to_value(response).expect("serialize call result");
-		let text = response["content"][0]["text"].as_str().expect("error text");
-
-		assert_eq!(response["isError"].as_bool(), Some(true));
-		assert!(text.chars().count() <= 1_000, "{}", text.chars().count());
-		assert!(text.contains("truncated_by: max_chars"), "{text}");
-	}
-
-	#[test]
-	fn missing_symbol_problem_does_not_repeat_the_error_or_uri() {
-		let uri = "rs:crates/workspace/src/registry.build.fn:missing()";
-		let text = problem_lmnav(
-			uri,
-			"code_moniker_read",
-			&format!("symbol_not_found: symbol not found: {uri}"),
-		);
-
-		assert!(text.contains("completeness: partial\n"), "{text}");
-		assert!(!text.contains("partial (error)"), "{text}");
-		assert!(text.contains("\nproblem: symbol_not_found\n"), "{text}");
-		assert_eq!(text.matches(uri).count(), 1, "{text}");
-		assert!(!text.contains("symbol not found:"), "{text}");
 	}
 }

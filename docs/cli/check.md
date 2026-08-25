@@ -88,7 +88,8 @@ suggestions. It uses these stable diagnostic codes:
 Alias-alignment and selector diagnostics have `needs_review` level. They never
 make the rule configuration invalid and do not prevent rule execution. The
 reported migration actions state what should be reviewed or extracted, but do
-not generate a replacement id or rewrite the corpus.
+not generate a replacement id or rewrite the corpus. Text output presents them
+as advisory `review hints`: reaching zero is not a conformance target.
 
 `rules show` reports a compact summary of the effective corpus after defaults,
 root configuration, fragments, inline overrides and profile filtering. Counts
@@ -473,8 +474,10 @@ code-moniker rules show . --default-rules off --format json
 ```
 
 Text output groups compiled rules by language. JSON output includes
-`expr`, `expanded_expr`, and optional `rationale`, so alias expansion and
-rule intent are visible without running a check.
+`declared_expr`, `effective_expr`, `expanded_expr`, and optional `rationale`,
+so local fragment vocabulary, the expression after merge, alias expansion, and
+rule intent are visible without running a check. The existing `expr` field
+remains a compatibility alias for `effective_expr`.
 
 ### Rule fragments
 
@@ -530,8 +533,9 @@ code-moniker rules learn refs
 code-moniker rules learn paths --format json
 ```
 
-Known topics are `basics`, `paths`, `refs`, `collections`, `metrics`, and
-`profiles`.
+Known topics are `basics`, `taxonomy`, `paths`, `fragments`, `refs`,
+`collections`, `domains`, `metrics`, `aggregates`, `relations`, `directives`,
+and `profiles`.
 
 ### Evaluate a rules fragment against a snippet
 

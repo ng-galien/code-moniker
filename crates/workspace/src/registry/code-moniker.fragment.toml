@@ -38,7 +38,7 @@ expr     = """
 message  = "`workspace::registry` is a workspace port catalog; it must not import consumer-facing models."
 rationale = """
 WorkspaceRegistry is the public catalog of workspace ports. It is consumed by extract, stats,
-check, MCP, and manifest, so it must not depend on any consumer representation such as LMNAV
+check, MCP, and manifest, so it must not depend on consumer presentation templates, view models,
 or CLI command models.
 
 Topology:
@@ -84,7 +84,7 @@ Topology:
           v                             v                             v
    +------------+                +------------+                +------------+
    | extract    |                | mcp        |                | manifest   |
-   | output rows|                | LMNAV      |                | deps output|
+   | output rows|                | Markdown   |                | deps output|
    +------------+                +------------+                +------------+
           v                             v                             v
    +------------+                +------------+                +------------+

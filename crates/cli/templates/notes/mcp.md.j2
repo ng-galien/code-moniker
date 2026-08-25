@@ -1,0 +1,61 @@
+# Project notes
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+- completeness: {% if partial %}partial (notes next cursor {{ next_cursor }}){% else %}full{% endif %}{{ "\n" -}}
+- action: {{ action | inline_code }}
+- notes: {{ total }}
+- volume: {{ volume | inline_code }}
+
+{% if scope %}
+## Scope
+
+- moniker: {% if scope.moniker %}{{ scope.moniker | moniker | inline_code }}{% else %}{{ "all" | inline_code }}{% endif %}{{ "\n" -}}
+{% if scope.orphan is not none %}
+- orphan: {{ scope.orphan }}
+{% endif %}
+- include-done: {{ scope.include_done }}
+
+{% endif %}
+## {% if deleted %}Deleted note{% elif action == "list" %}Notes{% else %}Note{% endif %}{{ "\n" -}}
+
+{% if notes %}
+{% for note in notes %}
+### {{ note.id | inline_code }} — {{ note.title | md_heading }}
+
+- kind: {{ note.kind | inline_code }}
+- status: {{ note.status | inline_code }}
+- created-by: {{ note.created_by | inline_code }}
+- moniker: {{ note.moniker | moniker | inline_code }}
+- resolution: {{ note.resolution | md_text }}
+{% if note.target %}
+- target: {{ note.target | moniker | inline_code }}
+{% endif %}
+{% if note.file %}
+- file: {{ note.file | inline_code }}{% if note.slice %}:{{ note.slice[0] }}-{{ note.slice[1] }}{% endif %}{{ "\n" -}}
+{% endif %}
+- updated-at: {{ note.updated_at | inline_code }}
+{% if note.body %}
+
+#### Body
+
+{{ note.body | code_block }}
+{% endif %}
+
+#### Commands
+
+{% for command in note.commands %}
+- {{ command | inline_code }}
+{% endfor %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% endif %}
+{% if next_call %}
+## Next
+
+- {{ ("code_moniker_notes" ~ next_call) | inline_code }}
+{% endif %}

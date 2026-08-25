@@ -37,7 +37,7 @@ code_moniker_read
   uri:"crates/core/src/lang/mod.rs"
   ast:true
   max_depth:6
-  max_nodes:100
+  max_nodes:20
 ```
 
 `uri` accepts:
@@ -60,19 +60,22 @@ smallest matching declaration.
 | `language` | string | none | parser tag for `source`; requires `source` |
 | `ast` | boolean | `false` | required only when `uri` selects indexed source |
 | `max_depth` | integer | `6` | `>= 0`; client-selected traversal limit |
-| `max_nodes` | integer | `100` | `>= 1`; client-selected emission limit |
+| `max_nodes` | integer | profile cap | `>= 1`; capped to `20` for `small`, `80` for `medium`, and `500` for `full` |
 | `named_only` | boolean | `true` | `false` includes punctuation and anonymous grammar nodes |
 | `include_text` | boolean | `false` | attaches normalized source text to leaf nodes |
 | `max_text_chars` | integer | `80` | `0..=1000`, used only with `include_text:true` |
 
 Direct source is limited to 1 MiB. The normal MCP output contract still
-applies: `compact:true` and `budget:"small"` are the defaults, and `max_chars`
-can impose a smaller hard response ceiling.
+applies: `compact:true` and `budget:"small"` are the defaults. The budget is a
+structural volume profile; syntax-tree depth and node limits are applied before
+the response is rendered.
 
-Code Moniker keeps bounded defaults for interactive and agent use, but does not
-impose a universal maximum on `max_depth` or `max_nodes`. An explicit client
-budget is used as supplied; clients are responsible for choosing limits that
-fit their latency and memory constraints.
+Code Moniker keeps bounded defaults for interactive and agent use. The MCP
+volume profile supplies the default `max_nodes` and caps an explicit larger
+value before the query runs: `20` for `small`, `80` for `medium`, and `500` for
+`full`. `max_depth` remains client-selected. The typed daemon query has no
+additional universal node maximum; direct daemon clients remain responsible
+for choosing a limit that fits their latency and memory constraints.
 
 ### MCP response
 
@@ -196,7 +199,7 @@ running the query.
 
 ## Authoritative artifacts
 
-- MCP request and LMNAV response:
+- MCP request and rendered Markdown response:
   `crates/cli/src/mcp/tools/read.rs`
 - Typed Rust query and response DTOs:
   `crates/query/src/lib.rs`

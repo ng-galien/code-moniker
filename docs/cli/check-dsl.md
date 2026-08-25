@@ -974,6 +974,8 @@ language or rule family. Workspace inventory, group and transitive-path roots
 have dedicated catalog scenarios linked in
 [Workspace roots](#workspace-roots). Focused executable DSL learning scenarios
 live in [samples/learn](../../samples/learn), including
+[taxonomy](../../samples/learn/taxonomy.cm.md) for architectural patterns,
+components, scoped components, aliases, and diagnostic interpretation, and
 [fragments](../../samples/learn/fragments.cm.md) for view URIs and namespaced
 rule ids. Agent-facing contract: `agents/skills/code-moniker/references/fragments.md`.
 Suppression directives live in [suppressions](check.md#suppressions). They

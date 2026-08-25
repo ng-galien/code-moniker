@@ -5,24 +5,26 @@ an absolute root: `code-moniker mcp <absolute-root> --transport stdio`. HTTP rem
 `code-moniker mcp <root> --transport http --port <p>` and endpoint `/mcp`.
 The stdio supervisor keeps the client pipe stable across an atomic CLI reinstall
 and refreshes the advertised tool list after its replacement worker initializes.
-Use either transport as the complete agent surface:
-do not shell out to the daemon or replay the same exploration through direct
-queries. Responses
+Use either transport as the complete symbolic agent surface. The preliminary
+static `code-moniker rules show .` taxonomy map described by the skill is a
+separate orientation step because the current MCP rules list does not expose
+the same matrix and corpus diagnostics. Do not shell out to the daemon or
+replay the same indexed exploration through direct queries. Responses
 are compact text with `uri`, `completeness`, and a result body. A `next`
 section appears only when the server has a useful pagination or navigation
 follow-up; its generated calls are ready to execute.
 
 `compact` defaults to `true` on agent-facing read tools. `budget:"small"`
-also defaults to a deterministic 8,000-character ceiling; `medium` is 20,000
-and `full` is 64,000. `max_chars` can override the level. A budget truncation
-is explicit and preserves a small executable `next` block when possible.
+selects the smallest result volume; `medium` and `full` request broader pages,
+traversals, witnesses, and optional detail. Tools apply that profile before
+rendering and expose executable pagination when more results remain. Rendered
+text is never cut to a character count.
 
-With `compact:true`, every canonical symbol URI in descriptive data is rendered
-in the existing compact moniker form, for example
-`rs:crates/cli/src/mcp.tools.fn:run()`. Unlike the former response-local
-aliases, this compact form can be passed directly to symbol tools. Canonical
-URIs and `symbol:<file>:<def>` ids remain accepted. Generated calls use
-reusable compact monikers in compact mode and can be copied verbatim.
+With `compact:true`, typed symbol identities in descriptive data use reusable
+compact monikers, for example `rs:crates/cli/src/mcp.tools.fn:run()`. The same
+value can be passed directly to symbol tools. Canonical URIs and
+`symbol:<file>:<def>` ids remain accepted. Generated calls use compact monikers
+in compact mode and can be copied verbatim.
 
 Use `compact:false` when canonical URIs on every data occurrence and the fuller
 set of guided follow-ups are worth the extra tokens. Generated pagination calls
@@ -50,7 +52,8 @@ needed.
 
 ## Working discipline
 
-1. **Verify identity, then start scoped**: `code_moniker_read uri:"workspace"
+1. **After taxonomy orientation, verify identity and read the general index**:
+   `code_moniker_read uri:"workspace"
    expected_roots:["<current absolute workspace root>"]` requires
    `expected_roots` and fails with `workspace_mismatch` unless the server is
    bound to exactly that root set.
@@ -80,9 +83,10 @@ needed.
    node, edge, incoming-port and outgoing-port rows. Preserve `prefix`, `path`,
    `min_count`, `limit` and the returned cursor on every page.
 5. **Bound everything**: keep `budget:"small"`, a narrow `limit` or
-   `max_items`, and `compact:true`. For AST reads, keep the defaults
-   `max_depth:6`, `max_nodes:100`, `named_only:true`; leaf text and punctuation
-   are explicit opt-ins. Truncation is reported, never silent.
+   `max_items`, and `compact:true`. For AST reads, keep `max_depth:6`, the
+   profile-bound node cap (`20` small, `80` medium, `500` full), and
+   `named_only:true`; explicit larger node limits are capped before execution.
+   Leaf text and punctuation are opt-ins. Truncation is reported, never silent.
 6. **Stop progressively**: do not page, broaden scope, request source code or
    switch to `medium`/`full` unless the current evidence is insufficient for
    the question. Never fetch a second rendering of facts you already have.
@@ -115,9 +119,11 @@ code_moniker_query query:'symbol.search name:"parse_query" limit:5 project name 
 ```
 
 The same typed protocol exposes
-`syntax.tree focus:"src/service.ts" max_depth:6 max_nodes:100`. Prefer the
+`syntax.tree focus:"src/service.ts" max_depth:6 max_nodes:20`. Prefer the
 intent form `code_moniker_read uri:"src/service.ts" ast:true`; use the generic
-query only when testing the daemon contract.
+query only when testing the daemon contract. On MCP, the selected output
+profile caps node volume before execution (`20` small, `80` medium, `500`
+full), including an explicit larger value.
 
 The default response renders projected URIs as reusable compact monikers.
 `compact:false` returns canonical typed JSON and is intentionally more

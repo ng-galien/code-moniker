@@ -1,0 +1,127 @@
+fragment = "daemon-project-views"
+
+[aliases]
+daemon_project_views = """
+  source ~ '**/module:views'
+  OR source ~ '**/module:views/**'
+  OR source ~ '**/lang:rs/module:/^(config|explore|model|resolve)$/'
+  OR source ~ '**/lang:rs/module:/^(config|explore|model|resolve)$/**'
+  OR source ~ '**/lang:rs/dir:views/**'
+"""
+presentation_renderer_target = """
+  target ~ '**/external_pkg:code_moniker_cli'
+  OR target ~ '**/external_pkg:code_moniker_cli/**'
+"""
+
+[[refs.where]]
+id = "daemon-and-presentation-dependency-keeps-project-views-renderer-independent"
+severity = "error"
+expr = """
+  $daemon_project_views
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $presentation_renderer_target
+"""
+message = "Daemon project-view resolution must stay independent from consumer renderers."
+rationale = """
+Project-view resolution consumes workspace facts and returns query DTOs. Keeping it independent
+from CLI presentation lets every consumer render the same architectural evidence without moving
+transport or formatting policy into the daemon.
+"""
+
+[[views]]
+id = "daemon-project-views"
+title = "Daemon project-view projection"
+scope = "."
+intent = "Understand project-view discovery and evidence projection before changing architectural maps."
+summary = """
+The views module parses strict project-defined view specs from code-moniker fragments, resolves
+their symbol and rule evidence against the workspace snapshot, and returns typed query DTOs.
+Consumer renderers remain outside the daemon.
+"""
+
+[[views.boundaries]]
+id = "model"
+owns = [
+  "view spec shape",
+  "evidence projection options",
+  "moniker display policy",
+]
+rationale = """
+The model is the stable contract between fragment TOML and query projection. It describes view
+data and evidence options, not how a particular transport formats the result.
+"""
+symbols = [
+  "module:model/struct:ViewSpec",
+  "module:model/struct:BoundarySpec",
+  "module:model/struct:GotchaSpec",
+  "module:model/enum:MonikerDisplay",
+]
+rules = [
+  "daemon-and-presentation-dependency-keeps-project-views-renderer-independent",
+]
+
+[[views.boundaries]]
+id = "config"
+owns = [
+  "fragment discovery",
+  "view TOML parsing",
+  "view validation",
+]
+rationale = "View files are anchored to code-moniker fragments; discovery and validation belong to the daemon query owner."
+symbols = [
+  "module:config/fn:load",
+  "module:config/fn:discover_view_files",
+  "module:config/fn:validate_view",
+]
+
+[[views.boundaries]]
+id = "resolve"
+owns = [
+  "symbol evidence lookup",
+  "rule evidence lookup",
+  "source excerpts",
+]
+rationale = """
+Resolution turns strict selectors into current workspace facts. This is where views cross from
+declarative TOML into indexed code evidence.
+"""
+symbols = [
+  "module:resolve/fn:resolve_symbols",
+  "module:resolve/fn:resolve_rules",
+  "module:resolve/struct:SymbolEvidence",
+  "module:resolve/struct:RuleEvidence",
+]
+
+[[views.boundaries]]
+id = "projection"
+owns = [
+  "typed view list DTOs",
+  "typed view detail DTOs",
+  "bounded evidence projection",
+]
+rationale = """
+Projection turns the resolved model into the stable query DTOs consumed by CLI, MCP, and future
+surfaces. It contains no Markdown or transport formatting.
+"""
+symbols = [
+  "module:explore/fn:read",
+  "module:explore/fn:build_list",
+  "module:explore/fn:build_detail",
+  "module:explore/fn:evidence_dtos",
+]
+
+[[views.gotchas]]
+id = "views-are-maps-not-dumps"
+rationale = """
+View projection preserves orientation signal: rules are represented once, boundaries link to
+rule ids, and symbol evidence prefers current navigable owners over incidental locals or params.
+"""
+symbols = [
+  "module:explore/fn:rule_map",
+  "module:explore/fn:rule_refs",
+  "module:resolve/fn:select_symbol_evidence",
+]
+rules = [
+  "daemon-and-presentation-dependency-keeps-project-views-renderer-independent",
+]
+check = "cargo test -p code-moniker --features mcp --no-default-features read_views_lists_and_renders_fragment_view --lib"

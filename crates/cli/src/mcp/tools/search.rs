@@ -1,22 +1,20 @@
 use code_moniker_query::{Query, QueryResult, SymbolDto, SymbolSearchQuery};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::{compact_argument, line_range_suffix};
+use super::common::{AgentOutputOptions, line_range_suffix};
 use super::scope::{
-	Paging, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
-	append_call_number_arg, append_call_string_arg,
+	Paging, ScopeRowView, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
+	append_call_number_arg, append_call_string_arg, scope_rows,
 };
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
+#[cfg(test)]
+use crate::presentation::RenderOptions;
+use crate::presentation::{TemplateOutput, symbols as symbols_presentation};
 
 const DEFAULT_CONTEXT_LINES: usize = 0;
 const MAX_CONTEXT_LINES: usize = 20;
-const ZERO_HIT_HINT: &str = concat!(
-	"  hint: search scores symbol names, not natural language; ",
-	"retry with an identifier-shaped token ",
-	"or use code_moniker_symbols name:\"<regex>\"\n"
-);
-
 pub(super) struct SearchTool;
 
 impl SearchTool {
@@ -113,8 +111,14 @@ impl McpTool for SearchTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let request = SearchRequest::from_arguments(arguments).map_err(ToolError::failed)?;
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let request = SearchRequest::from_arguments(arguments, output.agent_options())
+			.map_err(ToolError::failed)?;
 		search_symbols(context, &request).map_err(ToolError::failed)
 	}
 }
@@ -125,15 +129,14 @@ struct SearchRequest {
 	paging: Paging,
 	include_code: bool,
 	context_lines: usize,
-	compact: bool,
+	output: AgentOutputOptions,
 }
 
 impl SearchRequest {
-	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+	fn from_arguments(arguments: &Value, output: AgentOutputOptions) -> anyhow::Result<Self> {
 		if arguments.get("include_non_navigable").is_some() {
 			anyhow::bail!("`include_non_navigable` is unsupported by fuzzy search");
 		}
-		let compact = compact_argument(arguments)?;
 		Ok(Self {
 			query: arguments
 				.get("query")
@@ -141,7 +144,7 @@ impl SearchRequest {
 				.ok_or_else(|| anyhow::anyhow!("`query` is required"))?
 				.to_string(),
 			scope: SymbolScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments_for_output(arguments, compact)?,
+			paging: Paging::from_arguments_for_volume(arguments, output)?,
 			include_code: arguments
 				.get("include_code")
 				.and_then(Value::as_bool)
@@ -151,7 +154,7 @@ impl SearchRequest {
 				.and_then(Value::as_u64)
 				.unwrap_or(DEFAULT_CONTEXT_LINES as u64)
 				.min(MAX_CONTEXT_LINES as u64) as usize,
-			compact,
+			output,
 		})
 	}
 }
@@ -185,122 +188,131 @@ fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Resu
 	let QueryResult::SymbolList(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for search");
 	};
-	Ok(render_daemon_search_lmnav(
+	Ok(ToolResult::templated(daemon_search_template(
 		context.scheme(),
 		request,
 		response.next_cursor.as_ref(),
 		&result.rows,
 		result.total,
-	))
+	)?))
 }
 
-fn render_daemon_search_lmnav(
+fn daemon_search_template(
 	scheme: &str,
 	request: &SearchRequest,
 	next_cursor: Option<&code_moniker_query::QueryCursor>,
 	rows: &[SymbolDto],
 	total: usize,
-) -> ToolResult {
+) -> anyhow::Result<TemplateOutput> {
 	let start = request.paging.cursor.min(total);
 	let end = start.saturating_add(rows.len()).min(total);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {scheme}workspace/search\n"));
+	let mut next_calls = Vec::new();
 	if let Some(next) = next_cursor {
-		output.push_str(&format!(
-			"completeness: partial (hits {start}-{end} of {total}, next cursor {})\n",
-			next.offset
-		));
-	} else {
-		output.push_str("completeness: full\n");
+		next_calls.push(SearchCallView {
+			arguments: search_call_arguments(request, request.paging.limit, Some(next)),
+		});
 	}
-	output.push_str(&format!("hits: {total}\n"));
-	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
-	output.push_str("scope:\n");
-	for line in request.scope.describe() {
-		output.push_str(&line);
-		output.push('\n');
+	if !request.output.compact {
+		next_calls.push(SearchCallView {
+			arguments: search_call_arguments(request, request.output.default_page_limit(), None),
+		});
 	}
-	output.push_str(&format!("  query: {}\n\n", request.query));
-	output.push_str("results:\n");
-	if rows.is_empty() {
-		output.push_str("  <empty>\n");
-		if total == 0 {
-			output.push_str(ZERO_HIT_HINT);
-		}
-	} else {
-		for row in rows {
-			render_daemon_search_row(&mut output, row);
-		}
-	}
-	if next_cursor.is_some() || !request.compact {
-		output.push_str("\nnext:\n");
-	}
-	if let Some(next) = next_cursor {
-		append_daemon_search_next_call(&mut output, request, request.paging.limit, next);
-	}
-	if !request.compact {
-		append_search_next_call(&mut output, request, 50);
-	}
-	ToolResult::success(output).with_monikers(rows.iter().map(|row| row.uri.as_str()))
+	let context = SearchView {
+		uri: format!("{scheme}workspace/search"),
+		partial: next_cursor.is_some(),
+		start,
+		end,
+		total,
+		next_cursor: next_cursor.map(|cursor| cursor.offset),
+		limit: request.paging.limit,
+		volume: request.output.budget.as_str(),
+		scope: scope_rows(&request.scope),
+		query: &request.query,
+		rows: rows.iter().map(SearchRowView::from).collect(),
+		zero_hit: total == 0,
+		next_calls,
+	};
+	symbols_presentation::search(&context)
 }
 
-fn render_daemon_search_row(output: &mut String, row: &SymbolDto) {
-	output.push_str(&format!(
-		"  - {} {} {}{}\n",
-		row.kind,
-		row.name,
-		row.file,
-		line_range_suffix(row.line_range)
-	));
-	if let Some(score) = row.score {
-		output.push_str(&format!("    score: {score}\n"));
-	}
-	if let Some(reason) = &row.match_reason {
-		output.push_str(&format!("    reason: {reason}\n"));
-	}
-	output.push_str(&format!("    uri: {}\n", row.uri));
-	if let Some(source) = &row.source {
-		output.push_str("    code:\n");
-		for line in &source.lines {
-			output.push_str(&format!("      {:>4} | {}\n", line.number, line.text));
+#[derive(Serialize)]
+struct SearchView<'a> {
+	uri: String,
+	partial: bool,
+	start: usize,
+	end: usize,
+	total: usize,
+	next_cursor: Option<usize>,
+	limit: usize,
+	volume: &'static str,
+	scope: Vec<ScopeRowView>,
+	query: &'a str,
+	rows: Vec<SearchRowView<'a>>,
+	zero_hit: bool,
+	next_calls: Vec<SearchCallView>,
+}
+
+#[derive(Serialize)]
+struct SearchRowView<'a> {
+	kind: &'a str,
+	name: &'a str,
+	location: String,
+	score: Option<u32>,
+	reason: Option<&'a str>,
+	uri: &'a str,
+	code: Vec<String>,
+}
+
+impl<'a> From<&'a SymbolDto> for SearchRowView<'a> {
+	fn from(row: &'a SymbolDto) -> Self {
+		Self {
+			kind: &row.kind,
+			name: &row.name,
+			location: format!("{}{}", row.file, line_range_suffix(row.line_range)),
+			score: row.score,
+			reason: row.match_reason.as_deref(),
+			uri: &row.uri,
+			code: row
+				.source
+				.as_ref()
+				.map(|source| {
+					source
+						.lines
+						.iter()
+						.map(|line| format!("{:>4} | {}", line.number, line.text))
+						.collect()
+				})
+				.unwrap_or_default(),
 		}
 	}
 }
 
-fn append_daemon_search_next_call(
-	output: &mut String,
+#[derive(Serialize)]
+struct SearchCallView {
+	arguments: String,
+}
+
+fn search_call_arguments(
 	request: &SearchRequest,
 	limit: usize,
-	cursor: &code_moniker_query::QueryCursor,
-) {
-	output.push_str("  - code_moniker_search");
-	append_call_string_arg(output, "query", &request.query);
-	request.scope.append_call_args(output);
+	cursor: Option<&code_moniker_query::QueryCursor>,
+) -> String {
+	let mut arguments = String::new();
+	append_call_string_arg(&mut arguments, "query", &request.query);
+	request.scope.append_call_args(&mut arguments);
 	if request.include_code {
-		append_call_bool_arg(output, "include_code", true);
-		append_call_number_arg(output, "context_lines", request.context_lines);
+		append_call_bool_arg(&mut arguments, "include_code", true);
+		append_call_number_arg(&mut arguments, "context_lines", request.context_lines);
 	}
-	append_call_number_arg(output, "limit", limit);
-	append_call_cursor_arg(output, "cursor", cursor);
-	if !request.compact {
-		append_call_bool_arg(output, "compact", false);
+	append_call_number_arg(&mut arguments, "limit", limit);
+	if let Some(cursor) = cursor {
+		append_call_cursor_arg(&mut arguments, "cursor", cursor);
 	}
-	output.push('\n');
-}
-
-fn append_search_next_call(output: &mut String, request: &SearchRequest, limit: usize) {
-	output.push_str("  - code_moniker_search");
-	append_call_string_arg(output, "query", &request.query);
-	request.scope.append_call_args(output);
-	if request.include_code {
-		append_call_bool_arg(output, "include_code", true);
-		append_call_number_arg(output, "context_lines", request.context_lines);
+	append_call_string_arg(&mut arguments, "budget", request.output.budget.as_str());
+	if !request.output.compact {
+		append_call_bool_arg(&mut arguments, "compact", false);
 	}
-	append_call_number_arg(output, "limit", limit);
-	if !request.compact {
-		append_call_bool_arg(output, "compact", false);
-	}
-	output.push('\n');
+	arguments
 }
 
 #[cfg(test)]
@@ -308,16 +320,52 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn zero_hit_search_explains_name_scoring() {
-		let request = SearchRequest::from_arguments(&serde_json::json!({
-			"query": "run check command"
-		}))
-		.expect("search request");
+	fn volume_profiles_shape_search_pages_before_rendering() {
+		for (budget, expected) in [("small", 20), ("medium", 80), ("full", 500)] {
+			let arguments = serde_json::json!({"query": "run", "budget": budget});
+			let output = AgentOutputOptions::from_arguments(&arguments).expect("output options");
+			let request =
+				SearchRequest::from_arguments(&arguments, output).expect("search request");
+			assert_eq!(request.paging.limit, expected, "{budget}");
+		}
 
-		let rendered = render_daemon_search_lmnav("code+moniker://", &request, None, &[], 0).text;
+		let arguments = serde_json::json!({
+			"query": "run",
+			"budget": "medium",
+			"compact": false
+		});
+		let output = AgentOutputOptions::from_arguments(&arguments).expect("output options");
+		let request = SearchRequest::from_arguments(&arguments, output).expect("search request");
+		let rendered = daemon_search_template("code+moniker://", &request, None, &[], 0)
+			.expect("search template")
+			.render(RenderOptions {
+				compact: false,
+				scheme: "code+moniker://",
+				runtime: None,
+			})
+			.expect("rendered search");
+		assert!(rendered.contains("page-size: 80"), "{rendered}");
+		assert!(rendered.contains("budget=\"medium\""), "{rendered}");
+		assert!(rendered.contains("compact=false"), "{rendered}");
+	}
+
+	#[test]
+	fn zero_hit_search_explains_name_scoring() {
+		let arguments = serde_json::json!({"query": "run check command"});
+		let output = AgentOutputOptions::from_arguments(&arguments).expect("output options");
+		let request = SearchRequest::from_arguments(&arguments, output).expect("search request");
+
+		let rendered = daemon_search_template("code+moniker://", &request, None, &[], 0)
+			.expect("search template")
+			.render(RenderOptions {
+				compact: true,
+				scheme: "code+moniker://",
+				runtime: None,
+			})
+			.expect("rendered search");
 
 		assert!(
-			rendered.contains("hint: search scores symbol names"),
+			rendered.contains("scores symbol names"),
 			"a zero-hit search must explain name scoring, got:\n{rendered}"
 		);
 		assert!(

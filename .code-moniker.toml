@@ -41,6 +41,9 @@ components = [
   "dsl",
   "index",
   "mcp",
+  "presentation",
+  "presentation@mcp",
+  "presentation@cli",
   "query",
   "roaring-bitmap",
   "rules",
@@ -78,7 +81,6 @@ workspace_public_boundary_target = """
   OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|glob|lang|lines|linkage|live|notes|registry|snapshot|source|sources|tsconfig|walk)$/**'
 """
 workspace_crate_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
-cli_workspace_index = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace_index'"
 workspace_notes_persistence_target = """
   target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:/^(NotesStore|notes_dir|notes_path|notes_root_for_paths)$/'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:store/**'
@@ -109,11 +111,16 @@ rust_test_caller = """
 """
 mcp_tool_contract = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^output_contract"
 mcp_tool_input_schema = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^input_schema"
-mcp_registry_output = "kind = 'method' AND name =~ ^(call|finalize_error) AND uri ~ '**/module:mcp/module:tools/struct:ToolRegistry/**'"
-mcp_output_finalize = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
-mcp_compact_renderer = "kind = 'fn' AND name =~ ^compact_response_monikers AND uri ~ '**/module:mcp/module:tools/module:common/**'"
-mcp_shared_compact_identity = "kind = 'fn' AND name =~ ^compact_identity AND uri ~ '**/dir:crates/dir:workspace/dir:src/module:code/module:symbols/**'"
-mcp_budget_renderer = "kind = 'fn' AND name =~ ^apply_output_budget AND uri ~ '**/module:mcp/module:tools/module:common/**'"
+presentation_at_mcp_finalizer = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
+presentation_at_mcp_tool_execution = "kind = 'fn' AND name =~ ^execute_tool AND uri ~ '**/module:mcp/module:tools/**'"
+presentation_at_mcp_plain_output_call = "kind = 'calls' AND target ~ '**/module:mcp/module:tools/struct:ToolResult/method:success**'"
+mcp_refresh_caller = "source ~ '**/module:mcp/module:tools/module:refresh/**'"
+presentation_moniker_filter = "kind = 'fn' AND name =~ ^compact_presentation_uri AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:presentation/**'"
+presentation_shared_compact_identity = "kind = 'fn' AND name =~ ^compact_identity AND uri ~ '**/dir:crates/dir:workspace/dir:src/module:code/module:symbols/**'"
+presentation_renderer = "kind = 'fn' AND name =~ ^render_value AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:presentation/**'"
+presentation_markdown_validator = "kind = 'fn' AND name =~ ^validate_agent_markdown AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:presentation/module:tests/**'"
+presentation_at_cli_rules_writer = "kind = 'fn' AND name =~ ^write_show_text AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:rules/**'"
+presentation_callable = "kind = 'fn' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:presentation/**' AND NOT moniker ~ '**/module:tests/**'"
 syntax_tree_query = "kind = 'struct' AND name = 'SyntaxTreeQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
 syntax_tree_response = "kind = 'fn' AND name =~ ^syntax_tree_response AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
 syntax_parse_query = "kind = 'struct' AND name = 'SyntaxParseQuery' AND moniker ~ '**/dir:crates/dir:query/dir:src/module:lib/**'"
@@ -122,7 +129,7 @@ query_snapshot_requirement = "kind = 'method' AND name =~ ^requires_workspace_sn
 mcp_daemon_runtime_query = "kind = 'method' AND name =~ ^query AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:context/enum:DaemonRuntime/**'"
 daemon_handle_query = "kind = 'fn' AND name =~ ^handle_query AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:daemon/**'"
 language_parse_source = "kind = 'fn' AND name =~ ^parse_source AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**'"
-syntax_tree_limit_validator = "kind = 'fn' AND name =~ ^validate_limits AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+daemon_syntax_tree_limit_validator = "kind = 'fn' AND name =~ ^validate_limits AND moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
 language_extractor_contract = "kind = 'trait' AND name = 'LangExtractor' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/module:extractor/**'"
 parsed_document_contract = "kind = 'struct' AND name = 'ParsedDocument' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/module:document/**'"
 language_sdk_pipeline_extract = "kind = 'fn' AND name = 'extract' AND moniker ~ '**/dir:crates/dir:core/dir:src/module:lang/**/module:sdk_pipeline/**'"
@@ -184,32 +191,10 @@ enable = ["(^|\\.)daemon\\."]
 # ─── Agent output boundary ──────────────────────────────────────────────
 
 [[workspace.path]]
-id        = "mcp-compaction-owned-by-output-boundary"
+id        = "presentation-dependency-reuses-shared-compact-identity"
 severity  = "error"
-from      = "$mcp_registry_output"
-to        = "$mcp_compact_renderer"
-via       = "$mcp_output_finalize"
-expect    = "all_paths_via"
-require_non_empty = true
-relation  = ["calls", "method_call"]
-max_depth = 8
-max_symbols = 200
-max_edges = 500
-max_pairs = 20
-min_coverage = 30
-message   = "MCP compaction bypasses `OutputContract::finalize`: {path}"
-rationale = """
-Agent-facing responses are compact by default. Every registry path to the moniker
-compactor must cross the single output boundary so individual MCP tools cannot drift
-into mixed URI formats or apply transformations in a different order. Body monikers
-and generated follow-up calls intentionally share this same transformation.
-"""
-
-[[workspace.path]]
-id        = "mcp-compaction-reuses-shared-identity-renderer"
-severity  = "error"
-from      = "$mcp_compact_renderer"
-to        = "$mcp_shared_compact_identity"
+from      = "$presentation_moniker_filter"
+to        = "$presentation_shared_compact_identity"
 expect    = "reachable"
 require_non_empty = true
 relation  = ["calls", "method_call"]
@@ -218,56 +203,157 @@ max_symbols = 50
 max_edges = 100
 max_pairs = 4
 min_coverage = 100
-message   = "MCP compaction no longer reuses the workspace compact identity renderer: {path}"
+message   = "Presentation moniker filters no longer reuse the workspace compact identity renderer: {path}"
 rationale = """
-The MCP output boundary may add presentation aliases such as `workspace`, but symbol
-monikers must keep using the one workspace-owned compact representation. This prevents
-follow-ups and response bodies from inventing a transport-specific URI dialect.
+Presentation may add a contextual `workspace` call alias, but symbol monikers keep using
+the one workspace-owned compact representation. Explicit template filters therefore stay
+reusable as tool inputs without inventing a presentation-specific identity dialect.
+"""
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-ownership-publishes-output-options"
+severity  = "error"
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^decorates_schema) OR (any(out_refs, kind = 'calls' AND target.name = 'add_compact_output_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_output_budget_schema'))"
+message   = "`OutputContract` must publish compact rendering and volume-profile options for agent-facing tools."
+rationale = "The public MCP contract must expose its presentation and result-volume controls from the same central boundary."
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-call-flow-parses-output-options"
+severity  = "error"
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^output_options) OR any(out_refs, kind = 'calls' AND target.name = 'from_arguments')"
+message   = "`OutputContract` must parse compact rendering and volume-profile arguments before tool execution."
+rationale = "Central schema ownership is incomplete if individual tools can receive unchecked output options."
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-call-flow-parses-options-before-tools"
+severity  = "error"
+expr      = "NOT $presentation_at_mcp_tool_execution OR text =~ '(?s)output_options.*tool.call'"
+message   = "MCP tool execution must parse output options before invoking the selected tool."
+rationale = """
+Volume is an input to query and DTO projection, not a transformation of rendered text.
+Parsing the shared options before the tool call makes that ordering part of the executable
+contract and lets each tool choose bounded counts, depth, witnesses, and optional detail.
+"""
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-single-responsibility-keeps-volume-out-of-finalizer"
+severity  = "error"
+expr      = "NOT $presentation_at_mcp_finalizer OR text !~ '(?i)(budget|character|chars\\(|bytes|truncate|default_page_limit)'"
+message   = "`OutputContract::finalize` must not derive or enforce result volume after rendering."
+rationale = """
+The finalizer owns lazy template execution and shared rendering options only. Character
+counting, string slicing, and post-render budget recovery destroy document structure and
+confuse a semantic volume profile with a byte-oriented transport ceiling.
+"""
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-ownership-volume-profile-controls-pagination"
+severity  = "error"
+expr      = "name !~ ^from_arguments_for_volume OR text =~ 'default_page_limit'"
+message   = "Volume-aware pagination must derive its default page size from `AgentOutputOptions`."
+rationale = """
+Small, medium, and full describe how many facts a tool projects before rendering. Keeping
+that decision in `Paging` makes continuation explicit and prevents compact formatting from
+silently changing result coverage.
+"""
+
+[[rust.shape.callable.where]]
+id        = "presentation-dependency-renders-with-minijinja"
+severity  = "error"
+expr      = "NOT $presentation_renderer OR text =~ '(?s)Environment::new.*add_template.*get_template.*render'"
+message   = "The shared presentation renderer must execute registered MiniJinja templates."
+rationale = """
+MiniJinja is the single rendering engine for CLI and MCP text documents. Keeping template
+registration and execution in one function centralizes filters, whitespace behavior, and
+future presentation policy without moving architecture decisions into `core`.
+"""
+
+[[rust.shape.callable.where]]
+id        = "presentation-separation-of-concerns-keeps-markdown-out-of-rust"
+severity  = "error"
+expr      = "NOT $presentation_callable OR text !~ '(push_str|writeln!|write!)'"
+message   = "Presentation functions must render templates instead of assembling Markdown in Rust."
+rationale = """
+Rust owns typed projection DTOs and reusable field filters; `.md.j2` files own document
+hierarchy and wording. Mixing both responsibilities recreates one-off CLI and MCP formatters
+and makes the two surfaces drift again.
+"""
+
+[[rust.shape.callable.where]]
+id        = "presentation-hygiene-forbids-global-response-rewriters"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND moniker ~ '**/dir:crates/dir:cli/dir:src/**') OR name !~ '(?i)^(rewrite|compact|truncate|postprocess).*response'"
+message   = "Global response-string compaction is forbidden; use explicit template field filters."
+rationale = """
+Rendered Markdown is an opaque completed document. Searching and replacing identities in
+that string cannot distinguish metadata, source literals, prose, tables, or executable
+follow-ups. Typed DTO fields and MiniJinja filters preserve those semantic boundaries.
+"""
+
+[[rust.shape.callable.where]]
+id        = "presentation-hygiene-validates-commonmark"
+severity  = "error"
+expr      = "NOT $presentation_markdown_validator OR text =~ '(?s)Parser::new_ext.*ENABLE_TABLES'"
+message   = "Agent Markdown validation must parse CommonMark with table support."
+rationale = """
+Snapshots show intended wording, while a real Markdown parser verifies document structure,
+heading hierarchy, tables, and the absence of leaked template or raw-HTML syntax.
+"""
+
+[[rust.shape.callable.where]]
+id        = "presentation@cli-call-flow-renders-rules-through-shared-engine"
+severity  = "error"
+expr      = "NOT $presentation_at_cli_rules_writer OR text =~ 'rules_presentation::show'"
+message   = "CLI `rules show` text must use the shared presentation pipeline."
+rationale = """
+The CLI taxonomy map and the MCP agent documents are separate views, but they must share
+the same template engine and Markdown contract rather than maintain unrelated string writers.
+"""
+
+[[refs.where]]
+id        = "presentation@mcp-call-flow-renders-template-output-only-at-finalizer"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND source ~ '**/module:mcp/module:tools/**' AND kind = 'calls' AND target ~ '**/module:presentation/struct:TemplateOutput/method:render**') OR source.name =~ ^finalize"
+message   = "MCP tools must return `TemplateOutput`; only `OutputContract::finalize` may render it."
+rationale = """
+Lazy rendering keeps compact URI options and runtime metadata at the shared output boundary
+while leaving result volume in the tool projection. Direct tool rendering would split that
+call flow and make output behavior depend on the individual tool.
+"""
+
+[[refs.where]]
+id        = "mcp-and-presentation@mcp-ownership-reserves-plain-output-for-refresh"
+severity  = "error"
+expr      = "NOT ($rust_production_source AND $presentation_at_mcp_plain_output_call) OR $mcp_refresh_caller OR $rust_test_caller"
+message   = "Agent-facing MCP tools must return template output; plain text is reserved for workspace refresh."
+rationale = """
+Refresh returns one bounded operational acknowledgement and deliberately uses the plain
+contract. Every agent-facing discovery, analysis, and diagnostic document remains typed
+until the shared finalizer renders its template, including tool problems.
 """
 
 [[workspace.path]]
-id        = "mcp-budget-owned-by-output-boundary"
+id        = "presentation-and-presentation@mcp-call-flow-connects-finalizer-to-shared-renderer"
 severity  = "error"
-from      = "$mcp_registry_output"
-to        = "$mcp_budget_renderer"
-via       = "$mcp_output_finalize"
-expect    = "all_paths_via"
+from      = "$presentation_at_mcp_finalizer"
+to        = "$presentation_renderer"
+expect    = "reachable"
 require_non_empty = true
 relation  = ["calls", "method_call"]
-max_depth = 8
-max_symbols = 200
-max_edges = 500
-max_pairs = 20
-min_coverage = 30
-message   = "MCP output budgeting bypasses `OutputContract::finalize`: {path}"
+max_depth = 6
+max_symbols = 100
+max_edges = 200
+max_pairs = 4
+min_coverage = 100
+message   = "`OutputContract::finalize` no longer reaches the shared MiniJinja renderer: {path}"
 rationale = """
-The hard response ceiling belongs to the same boundary as compaction. Central ownership
-keeps the public schema, validation, transformation order, and truncation behavior aligned.
+Every templated MCP document must cross one lazy rendering boundary. Requiring a concrete
+path from finalization to `render_value` prevents the shared engine from becoming unused
+ceremony while individual tools assemble or render their own documents.
 """
 
 [[rust.shape.callable.where]]
-id        = "mcp-output-finalizer-applies-compact-before-budget"
-severity  = "error"
-expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^finalize) OR text =~ '(?s)compact_response_monikers.*apply_output_budget'"
-message   = "`OutputContract::finalize` must apply moniker compaction before the hard output budget."
-rationale = "The boundary contract is incomplete if either transformation disappears or their order is reversed."
-
-[[rust.shape.callable.where]]
-id        = "mcp-output-contract-publishes-agent-options"
-severity  = "error"
-expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^decorates_schema) OR (any(out_refs, kind = 'calls' AND target.name = 'add_compact_output_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_output_budget_schema'))"
-message   = "`OutputContract` must publish compact and hard-budget options for agent-facing tools."
-rationale = "The public MCP contract must expose the token-economy controls from the same central boundary."
-
-[[rust.shape.callable.where]]
-id        = "mcp-output-contract-validates-agent-options"
-severity  = "error"
-expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^validate_arguments) OR (any(out_refs, kind = 'calls' AND target.name = 'compact_argument') AND any(out_refs, kind = 'calls' AND target.name = 'validate_output_budget'))"
-message   = "`OutputContract` must validate compact and hard-budget arguments before tool execution."
-rationale = "Central schema ownership is incomplete if individual tools can receive unchecked transport options."
-
-[[rust.shape.callable.where]]
-id        = "mcp-agent-tools-declare-agent-output-contract"
+id        = "mcp-composition-root-declares-agent-output-contract"
 severity  = "error"
 expr      = "NOT $mcp_tool_contract OR parent.name =~ ^(McpTool|RefreshTool)$ OR text =~ 'OutputContract::Agent'"
 message   = "Every agent-facing MCP tool must explicitly return `OutputContract::Agent`."
@@ -278,25 +364,11 @@ only explicit exception because it returns a small operational acknowledgement.
 """
 
 [[rust.shape.callable.where]]
-id        = "mcp-tool-schemas-do-not-own-output-contract-options"
+id        = "mcp-and-presentation@mcp-ownership-centralizes-output-option-schema"
 severity  = "error"
-expr      = "NOT $mcp_tool_input_schema OR text !~ '\"(compact|budget|max_chars)\"\\s*:'"
-message   = "Per-tool schemas must not redeclare `compact`, `budget`, or `max_chars`; `OutputContract` owns them."
+expr      = "NOT $mcp_tool_input_schema OR text !~ '\"(compact|budget)\"\\s*:'"
+message   = "Per-tool schemas must not redeclare `compact` or `budget`; `OutputContract` owns them."
 rationale = "One schema owner prevents new or renamed MCP tools from losing or redefining token-economy controls."
-
-[[refs.where]]
-id        = "mcp-tools-do-not-bypass-output-finalizer"
-severity  = "error"
-expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = 'compact_response_monikers') OR $rust_test_caller OR source.name =~ ^finalize"
-message   = "Production code may call `compact_response_monikers` only from `OutputContract::finalize`."
-rationale = "Distributed renderer calls recreate mixed canonical and compact URI output."
-
-[[refs.where]]
-id        = "mcp-tools-do-not-bypass-output-budget"
-severity  = "error"
-expr      = "NOT ($rust_production_source AND kind = 'calls' AND target.name = 'apply_output_budget') OR $rust_test_caller OR source.name =~ ^finalize"
-message   = "Production code may call `apply_output_budget` only from `OutputContract::finalize`."
-rationale = "Distributed budgeting creates inconsistent ceilings and allows error paths to escape the public contract."
 
 # ─── Graph query truth and completeness ────────────────────────────
 
@@ -442,7 +514,7 @@ rationale = "The same registered language parsers must serve extraction, indexed
 id        = "syntax-tree-response-calls-limit-validator"
 severity  = "error"
 from      = "$syntax_tree_response"
-to        = "$syntax_tree_limit_validator"
+to        = "$daemon_syntax_tree_limit_validator"
 expect    = "reachable"
 require_non_empty = true
 relation  = ["calls"]
@@ -451,14 +523,14 @@ max_symbols = 20
 max_edges = 20
 max_pairs = 1
 min_coverage = 100
-message   = "The daemon AST response bypasses its hard-limit validator: {path}"
-rationale = "This fail-closed path proves the validator exists and every on-demand syntax-tree response enters it."
+message   = "The daemon AST response bypasses its structural-limit validator: {path}"
+rationale = "This fail-closed path proves the validator exists and every on-demand syntax-tree response checks its node and leaf-text limits."
 
 [[workspace.path]]
 id        = "syntax-parse-response-calls-limit-validator"
 severity  = "error"
 from      = "$syntax_parse_response"
-to        = "$syntax_tree_limit_validator"
+to        = "$daemon_syntax_tree_limit_validator"
 expect    = "reachable"
 require_non_empty = true
 relation  = ["calls"]
@@ -467,8 +539,8 @@ max_symbols = 20
 max_edges = 20
 max_pairs = 1
 min_coverage = 100
-message   = "The stateless AST response bypasses its hard-limit validator: {path}"
-rationale = "Direct source parsing must share the same output bounds as indexed syntax trees."
+message   = "The stateless AST response bypasses its structural-limit validator: {path}"
+rationale = "Direct source parsing must validate the same node and leaf-text limits as indexed syntax trees."
 
 [[workspace.path]]
 id        = "mcp-read-delegates-bounded-ast-schema"
@@ -505,11 +577,11 @@ message   = "`SyntaxParseQuery` must keep source identity and every AST output b
 rationale = "Stateless parsing is public protocol input and must remain both self-contained and bounded."
 
 [[rust.shape.callable.where]]
-id        = "syntax-tree-daemon-enforces-hard-bounds"
+id        = "daemon-ownership-validates-syntax-tree-node-and-text-bounds"
 severity  = "error"
-expr      = "NOT $syntax_tree_limit_validator OR text =~ '(?s)SYNTAX_TREE_MAX_DEPTH.*SYNTAX_TREE_MAX_NODES.*SYNTAX_TREE_MAX_TEXT_CHARS'"
-message   = "`validate_limits` must enforce the shared hard depth, node, and leaf-text limits."
-rationale = "Schema defaults are advisory; the daemon boundary must reject oversized direct protocol requests."
+expr      = "NOT $daemon_syntax_tree_limit_validator OR text =~ '(?s)max_nodes\\s*==\\s*0.*SYNTAX_TREE_MAX_TEXT_CHARS'"
+message   = "`validate_limits` must reject a zero node budget and excessive leaf text."
+rationale = "Depth and node volume are explicit client-selected traversal limits; the daemon still rejects a vacuous node budget and enforces the shared per-leaf text ceiling."
 
 [[rust.shape.callable.where]]
 id        = "mcp-read-publishes-bounded-ast-options"
@@ -742,15 +814,14 @@ workspace boundary instead of duplicating file access in each consumer.
 """
 
 [[refs.where]]
-id        = "notes-state-owned-by-workspace-index"
+id        = "daemon-ownership-owns-workspace-notes-state"
 severity  = "error"
-expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_notes_state_target => ($cli_workspace_index OR $crate_daemon)"
-message   = "`WorkspaceNotes` may only be held by the shared workspace index adapter or the workspace daemon."
+expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_notes_state_target => $crate_daemon"
+message   = "`WorkspaceNotes` may only be held by the workspace daemon outside its owning workspace crate."
 rationale = """
 `WorkspaceNotes` is the shared state handle for note reload, snapshots, and mutation. CLI
-features should not instantiate or hold it directly; they should consume the daemon-backed
-contract (or the legacy workspace index while it still exists) so live refresh and MCP/TUI
-behavior stay consistent.
+features must not instantiate or hold it directly; they consume the daemon-backed contract
+so live refresh and every client surface observe one authoritative note state.
 """
 
 [[refs.where]]
@@ -825,10 +896,10 @@ severity  = "error"
 expr      = "$crate_daemon AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
 message   = "`code-moniker-daemon` must not depend on CLI, MCP, TUI, or other consumer implementation crates."
 rationale = """
-The daemon is the resident workspace host. Its main contract is query DTOs, while legacy
-agent views are exposed as a daemon query during the MCP migration to preserve feature
-parity. Even then, the daemon must not import consumer implementation crates; shared
-presentation behavior must either live in daemon-owned code or move to a neutral crate.
+The daemon is the resident workspace host. Its main contract is query DTOs, including
+project views exposed as typed daemon queries. The daemon must not import consumer
+implementation crates: it owns evidence resolution and query DTOs, while presentation belongs
+to the consuming surface.
 """
 
 # ─── Naming hygiene per layer ────────────────────────────────────────

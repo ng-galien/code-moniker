@@ -1,20 +1,22 @@
 use std::path::{Path, PathBuf};
 
 use code_moniker_query::{
-	Query, QueryResult, RuleDto, RulesCheckQuery, RulesCheckResult, RulesCheckRootResult,
-	RulesListQuery,
+	Query, QueryResult, RuleDto, RulesCheckQuery, RulesCheckResult, RulesListQuery,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::compact_argument;
+use super::common::{AgentOutputOptions, OutputBudget};
 use super::scope::{
 	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg, string_list,
 };
-use super::{McpTool, OutputContract, ToolDescriptor, ToolError, ToolResult};
+use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use code_moniker_check::RuleSeverity;
 
 use crate::mcp::context::McpContext;
+use crate::presentation::TemplateOutput;
+use crate::presentation::rules as rules_presentation;
 
 const DEFAULT_RULES_URI: &str = "workspace";
 
@@ -108,11 +110,17 @@ impl McpTool for RulesTool {
 		OutputContract::Agent
 	}
 
-	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let request = rules_request_from_arguments(arguments).map_err(ToolError::failed)?;
+	fn call(
+		&self,
+		context: &McpContext,
+		arguments: &Value,
+		output: OutputOptions,
+	) -> Result<ToolResult, ToolError> {
+		let request = rules_request_from_arguments(arguments, output.agent_options())
+			.map_err(ToolError::failed)?;
 		match request.action {
-			RulesAction::List => list_rules(context, &request).map(ToolResult::success),
-			RulesAction::Run => run_rules(context, &request),
+			RulesAction::List => list_rules(context, &request).map(ToolResult::templated),
+			RulesAction::Run => run_rules(context, &request).map(ToolResult::templated),
 		}
 		.map_err(ToolError::failed)
 	}
@@ -128,12 +136,14 @@ struct RulesRequest {
 	files: Vec<PathBuf>,
 	report: bool,
 	paging: Paging,
-	compact: bool,
+	output: AgentOutputOptions,
 }
 
-fn rules_request_from_arguments(arguments: &Value) -> anyhow::Result<RulesRequest> {
+fn rules_request_from_arguments(
+	arguments: &Value,
+	output: AgentOutputOptions,
+) -> anyhow::Result<RulesRequest> {
 	let action = rules_action_from_arguments(arguments)?;
-	let compact = compact_argument(arguments)?;
 	let langs = string_list(arguments, "lang")?
 		.into_iter()
 		.map(|lang| lang.to_ascii_lowercase())
@@ -171,8 +181,8 @@ fn rules_request_from_arguments(arguments: &Value) -> anyhow::Result<RulesReques
 			.get("report")
 			.and_then(Value::as_bool)
 			.unwrap_or(true),
-		paging: Paging::from_arguments_for_output(arguments, compact)?,
-		compact,
+		paging: Paging::from_arguments_for_volume(arguments, output)?,
+		output,
 	})
 }
 
@@ -194,7 +204,7 @@ fn rules_action_from_arguments(arguments: &Value) -> anyhow::Result<RulesAction>
 	}
 }
 
-fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
+fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<TemplateOutput> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let response = context.query_refreshed(
 		Query::RulesList(RulesListQuery {
@@ -215,54 +225,42 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 	};
 	let start = request.paging.cursor.min(result.total);
 	let end = start.saturating_add(result.rows.len()).min(result.total);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}\n", normalize_rules_uri(context.scheme())));
+	let mut next_calls = Vec::new();
 	if let Some(next) = response.next_cursor.as_ref() {
-		output.push_str(&format!(
-			"completeness: partial (rules {start}-{end} of {}, next cursor {})\n",
-			result.total, next.offset
-		));
-	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str(&format!("rules: {}\n", result.total));
-	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
-	render_rules_scope(&mut output, request);
-	output.push_str("rules:\n");
-	if result.rows.is_empty() {
-		output.push_str("  <empty>\n");
-	} else {
-		for spec in &result.rows {
-			render_rule_dto(&mut output, spec);
-		}
-	}
-	if response.next_cursor.is_some() || !request.compact {
-		output.push_str("\nnext:\n");
-	}
-	if let Some(next) = response.next_cursor.as_ref() {
-		append_rules_next_call(
-			&mut output,
+		next_calls.push(rules_next_call(
 			context.scheme(),
 			request,
 			RulesAction::List,
 			request.paging.limit,
 			Some(next),
-		);
+		));
 	}
-	if !request.compact {
-		append_rules_next_call(
-			&mut output,
+	if !request.output.compact {
+		next_calls.push(rules_next_call(
 			context.scheme(),
 			request,
 			RulesAction::Run,
 			20,
 			None,
-		);
+		));
 	}
-	Ok(output)
+	let view = McpRulesListView {
+		uri: normalize_rules_uri(context.scheme()),
+		partial: response.next_cursor.is_some(),
+		start,
+		end,
+		total: result.total,
+		next_cursor: response.next_cursor.as_ref().map(|cursor| cursor.offset),
+		limit: request.paging.limit,
+		volume: request.output.budget.as_str(),
+		scope: rules_scope_view(request),
+		rules: &result.rows,
+		next_calls,
+	};
+	rules_presentation::mcp_list(&view)
 }
 
-fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<ToolResult> {
+fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<TemplateOutput> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let response = context.query_refreshed(
 		Query::RulesCheck(RulesCheckQuery {
@@ -281,57 +279,43 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Too
 	let QueryResult::RulesCheck(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for rules run");
 	};
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}\n", normalize_rules_uri(context.scheme())));
+	let mut next_calls = Vec::new();
 	if let Some(next) = response.next_cursor.as_ref() {
-		output.push_str(&format!(
-			"completeness: partial (rules rows next cursor {})\n",
-			next.offset
-		));
-	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str("action: run\n");
-	output.push_str("corpus: daemon_index\n");
-	if let Some(generation) = response.generation {
-		output.push_str(&format!("generation: {}\n", generation.0));
-	}
-	output.push_str(&format!("verdict: {}\n", result.verdict.as_str()));
-	output.push_str(&format!("exit: {}\n", result.exit));
-	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
-	render_rules_scope(&mut output, request);
-	output.push_str("report:\n");
-	render_rules_check_result(&mut output, &result);
-	if let Some(next) = response.next_cursor.as_ref() {
-		output.push_str("\nnext:\n");
-		append_rules_next_call(
-			&mut output,
+		next_calls.push(rules_next_call(
 			context.scheme(),
 			request,
 			RulesAction::Run,
 			request.paging.limit,
 			Some(next),
-		);
-	} else if !request.compact {
-		output.push_str("\nnext:\n");
+		));
 	}
-	if !request.compact {
-		append_rules_next_call(
-			&mut output,
+	if !request.output.compact {
+		next_calls.push(rules_next_call(
 			context.scheme(),
 			request,
 			RulesAction::List,
 			50,
 			None,
-		);
+		));
 	}
+	let view = McpRulesRunView {
+		uri: normalize_rules_uri(context.scheme()),
+		partial: response.next_cursor.is_some(),
+		next_cursor: response.next_cursor.as_ref().map(|cursor| cursor.offset),
+		generation: response.generation.map(|generation| generation.0),
+		limit: request.paging.limit,
+		volume: request.output.budget.as_str(),
+		scope: rules_scope_view(request),
+		result: &result,
+		next_calls,
+	};
 	let candidates = result
 		.rule_reports
 		.iter()
 		.filter_map(|report| report.path_analysis.as_ref())
 		.flat_map(|path| &path.witness)
 		.flat_map(|step| [step.source.as_str(), step.target.as_str()]);
-	Ok(ToolResult::success(output).with_monikers(candidates))
+	Ok(rules_presentation::mcp_run(&view)?.with_monikers(candidates))
 }
 
 fn ensure_workspace_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
@@ -359,46 +343,77 @@ fn parse_severity(value: &str) -> anyhow::Result<RuleSeverity> {
 	}
 }
 
-fn render_rules_scope(output: &mut String, request: &RulesRequest) {
-	output.push_str("scope:\n");
-	output.push_str(&format!(
-		"  profile: {}\n",
-		request.profile.as_deref().unwrap_or("<all>")
-	));
-	output.push_str(&format!("  rules: {}\n", request.rules.display()));
-	if !request.langs.is_empty() {
-		output.push_str(&format!("  lang: {}\n", request.langs.join(", ")));
-	}
-	if !request.severities.is_empty() {
-		let severities = request
+#[derive(Serialize)]
+struct McpRulesScopeView<'a> {
+	profile: &'a str,
+	rules: String,
+	langs: &'a [String],
+	severities: Vec<&'static str>,
+	files: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct McpRulesListView<'a> {
+	uri: String,
+	partial: bool,
+	start: usize,
+	end: usize,
+	total: usize,
+	next_cursor: Option<usize>,
+	limit: usize,
+	volume: &'static str,
+	scope: McpRulesScopeView<'a>,
+	rules: &'a [RuleDto],
+	next_calls: Vec<McpRulesNextCall>,
+}
+
+#[derive(Serialize)]
+struct McpRulesRunView<'a> {
+	uri: String,
+	partial: bool,
+	next_cursor: Option<usize>,
+	generation: Option<u64>,
+	limit: usize,
+	volume: &'static str,
+	scope: McpRulesScopeView<'a>,
+	result: &'a RulesCheckResult,
+	next_calls: Vec<McpRulesNextCall>,
+}
+
+#[derive(Serialize)]
+struct McpRulesNextCall {
+	uri: String,
+	arguments: String,
+}
+
+fn rules_scope_view(request: &RulesRequest) -> McpRulesScopeView<'_> {
+	McpRulesScopeView {
+		profile: request.profile.as_deref().unwrap_or("all"),
+		rules: request.rules.display().to_string(),
+		langs: &request.langs,
+		severities: request
 			.severities
 			.iter()
 			.map(|severity| severity.as_str())
-			.collect::<Vec<_>>();
-		output.push_str(&format!("  severity: {}\n", severities.join(", ")));
-	}
-	if !request.files.is_empty() {
-		let files = request
+			.collect(),
+		files: request
 			.files
 			.iter()
 			.map(|file| file.display().to_string())
-			.collect::<Vec<_>>();
-		output.push_str(&format!("  file: {}\n", files.join(", ")));
+			.collect(),
 	}
-	output.push('\n');
 }
 
-fn append_rules_next_call(
-	output: &mut String,
+fn rules_next_call(
 	scheme: &str,
 	request: &RulesRequest,
 	action: RulesAction,
 	limit: usize,
 	cursor: Option<&code_moniker_query::QueryCursor>,
-) {
-	output.push_str(&format!("  - code_moniker_rules uri=\"{scheme}workspace\""));
+) -> McpRulesNextCall {
+	let mut arguments = String::new();
 	append_call_string_arg(
-		output,
+		&mut arguments,
 		"action",
 		match action {
 			RulesAction::List => "list",
@@ -406,196 +421,45 @@ fn append_rules_next_call(
 		},
 	);
 	if let Some(profile) = &request.profile {
-		append_call_string_arg(output, "profile", profile);
+		append_call_string_arg(&mut arguments, "profile", profile);
 	}
 	if request.rules != Path::new(".code-moniker.toml") {
-		append_call_string_arg(output, "rules", &request.rules.display().to_string());
+		append_call_string_arg(
+			&mut arguments,
+			"rules",
+			&request.rules.display().to_string(),
+		);
 	}
 	match action {
 		RulesAction::List => {
 			for lang in &request.langs {
-				append_call_string_arg(output, "lang", lang);
+				append_call_string_arg(&mut arguments, "lang", lang);
 			}
 			for severity in &request.severities {
-				append_call_string_arg(output, "severity", severity.as_str());
+				append_call_string_arg(&mut arguments, "severity", severity.as_str());
 			}
 		}
 		RulesAction::Run => {
 			for file in &request.files {
-				append_call_string_arg(output, "file", &file.display().to_string());
+				append_call_string_arg(&mut arguments, "file", &file.display().to_string());
 			}
 			if !request.report {
-				append_call_bool_arg(output, "report", false);
+				append_call_bool_arg(&mut arguments, "report", false);
 			}
 		}
 	}
-	append_call_number_arg(output, "limit", limit);
+	append_call_number_arg(&mut arguments, "limit", limit);
 	if let Some(cursor) = cursor {
-		append_call_cursor_arg(output, "cursor", cursor);
+		append_call_cursor_arg(&mut arguments, "cursor", cursor);
 	}
-	if !request.compact {
-		append_call_bool_arg(output, "compact", false);
+	if request.output.budget != OutputBudget::Small {
+		append_call_string_arg(&mut arguments, "budget", request.output.budget.as_str());
 	}
-	output.push('\n');
-}
-
-fn render_rule_dto(output: &mut String, spec: &RuleDto) {
-	output.push_str(&format!(
-		"  - {} [{}] root={} subject={} plan={} domain={}\n",
-		spec.id, spec.severity, spec.rule_root, spec.subject, spec.plan, spec.domain
-	));
-	if !spec.capabilities.is_empty() {
-		output.push_str(&format!(
-			"    capabilities: {}\n",
-			spec.capabilities.join(", ")
-		));
+	if !request.output.compact {
+		append_call_bool_arg(&mut arguments, "compact", false);
 	}
-	if let Some(message) = &spec.message {
-		output.push_str(&format!("    message: {message}\n"));
-	}
-	if let Some(rationale) = &spec.rationale {
-		output.push_str("    rationale:\n");
-		render_indented_block(output, rationale.trim());
-	}
-}
-
-fn render_rules_check_result(output: &mut String, result: &RulesCheckResult) {
-	for root in &result.roots {
-		render_rules_root_summary(output, root);
-	}
-	if !result.violations.is_empty() {
-		output.push_str("    violations:\n");
-		for violation in &result.violations {
-			output.push_str(&format!(
-				"    - {}:{}-{} [{}] {}: {}\n",
-				violation.path,
-				violation.lines.0,
-				violation.lines.1,
-				violation.rule_id,
-				violation.severity,
-				violation.message
-			));
-		}
-	}
-	if !result.errors.is_empty() {
-		output.push_str("    errors:\n");
-		for error in &result.errors {
-			output.push_str(&format!("    - {}: {}\n", error.path, error.error));
-		}
-	}
-	if !result.rule_reports.is_empty() {
-		output.push_str(&format!(
-			"    rule_reports: {}\n",
-			result.rule_reports.len()
-		));
-		for report in result.rule_reports.iter().filter(|report| {
-			report.verdict.is_some()
-				|| report.coverage.is_some()
-				|| report.path_analysis.is_some()
-				|| report.inconclusive.is_some_and(|count| count > 0)
-		}) {
-			render_structural_rule_report(output, report);
-		}
-	}
-}
-
-fn render_structural_rule_report(output: &mut String, report: &code_moniker_query::RuleReportDto) {
-	output.push_str(&format!(
-		"    - {}: verdict={}, evaluated={}, violations={}\n",
-		report.rule_id,
-		report.verdict.as_deref().unwrap_or("not_applicable"),
-		report.evaluated,
-		report.violations
-	));
-	if let Some(coverage) = &report.coverage {
-		output.push_str(&format!(
-			"      coverage: {}% (minimum {}%, decided {}/{}, resolved={}, external={}, candidate={}, dynamic={}, blocked={}, unresolved={})\n",
-			coverage.percent,
-			coverage.min_percent,
-			coverage.decided,
-			coverage.total,
-			coverage.resolved,
-			coverage.external,
-			coverage.candidate,
-			coverage.dynamic,
-			coverage.blocked,
-			coverage.unresolved
-		));
-	}
-	let Some(path) = &report.path_analysis else {
-		return;
-	};
-	output.push_str(&format!(
-		"      path: expect={} relations={} selectors={}/{}/{} pairs={} explored={} symbols/{} edges limits(depth={}, symbols={}, edges={}, pairs={})\n",
-		path.expectation,
-		path.relation.join(","),
-		path.source_symbols,
-		path.target_symbols,
-		path.via_symbols,
-		path.evaluated_pairs,
-		path.explored_symbols,
-		path.explored_edges,
-		path.max_depth,
-		path.max_symbols,
-		path.max_edges,
-		path.max_pairs
-	));
-	if !path.reasons.is_empty() {
-		output.push_str(&format!("      reasons: {}\n", path.reasons.join(", ")));
-	}
-	for step in &path.witness {
-		let location = step
-			.line_range
-			.map(|(start, end)| format!("{}:{start}-{end}", step.file))
-			.unwrap_or_else(|| step.file.clone());
-		output.push_str(&format!(
-			"      witness: {} -[{}]-> {} ({location})\n",
-			step.source, step.relation, step.target
-		));
-	}
-}
-
-fn render_rules_root_summary(output: &mut String, root: &RulesCheckRootResult) {
-	output.push_str(&format!("  root: {}\n", root.root));
-	output.push_str(&format!(
-		"    {} violation(s): {} warning(s), {} rule error(s); {} scan error(s)\n",
-		root.summary.total_violations,
-		root.summary.total_warnings,
-		root.summary.total_rule_errors,
-		root.summary.total_errors
-	));
-	if !root.summary.violations_by_srcset.is_empty() {
-		output.push_str(&format!(
-			"    violations_by_srcset: {}\n",
-			root.summary
-				.violations_by_srcset
-				.iter()
-				.map(|(srcset, count)| format!("{srcset}={count}"))
-				.collect::<Vec<_>>()
-				.join(", ")
-		));
-	}
-	for failed in &root.summary.failed_rules {
-		output.push_str(&format!(
-			"    - {}: {} {} violation(s)\n",
-			failed.rule_id, failed.severity, failed.violations
-		));
-	}
-}
-
-fn render_indented_block(output: &mut String, text: &str) {
-	render_prefixed_block(output, text, "  ");
-}
-
-fn render_prefixed_block(output: &mut String, text: &str, prefix: &str) {
-	if text.is_empty() {
-		output.push_str(prefix);
-		output.push_str("<empty>\n");
-		return;
-	}
-	for line in text.lines() {
-		output.push_str(prefix);
-		output.push_str(line);
-		output.push('\n');
+	McpRulesNextCall {
+		uri: format!("{scheme}workspace"),
+		arguments,
 	}
 }

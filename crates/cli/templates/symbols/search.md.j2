@@ -1,0 +1,57 @@
+# Symbol search
+
+{% if runtime %}
+- runtime: {{ runtime | inline_code }}
+{% endif %}
+- uri: {{ uri | inline_code }}
+{% if partial %}
+- completeness: partial (hits {{ start }}-{{ end }} of {{ total }}, next cursor {{ next_cursor }})
+{% else %}
+- completeness: full
+{% endif %}
+- hits: {{ total }}
+- page-size: {{ limit }}
+- volume: {{ volume | inline_code }}
+
+## Scope
+
+{% for row in scope %}
+- {{ row.label | md_text }}: {{ row.value | md_text }}
+{% endfor %}
+- query: {{ query | inline_code }}
+
+## Results
+
+{% if rows %}
+{% for row in rows %}
+### {{ row.kind | inline_code }} {{ row.name | inline_code }} {{ row.location | inline_code }}
+
+{% if row.score is not none %}
+- score: {{ row.score }}
+{% endif %}
+{% if row.reason %}
+- reason: {{ row.reason | md_text }}
+{% endif %}
+- uri: {{ row.uri | moniker | inline_code }}
+{% if row.code %}
+
+#### Code
+
+{{ row.code | join("\n") | code_block }}
+{% endif %}
+
+{% endfor %}
+{% else %}
+_empty_
+{% if zero_hit %}
+
+The search index scores symbol names, not natural language. Retry with an identifier-shaped token, or use {{ "code_moniker_symbols name=\"<regex>\"" | inline_code }}.
+{% endif %}
+{% endif %}
+{% if next_calls %}
+## Next
+
+{% for call in next_calls %}
+- {{ ("code_moniker_search" ~ call.arguments) | inline_code }}
+{% endfor %}
+{% endif %}

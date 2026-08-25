@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -411,11 +411,13 @@ dependencies = [
  "ignore",
  "insta",
  "libc",
+ "minijinja",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "proptest",
+ "pulldown-cmark",
  "rayon",
  "regex",
  "rmcp",
@@ -434,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-check"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",
@@ -455,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "cc",
  "insta",
@@ -482,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "code-moniker-check",
@@ -509,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon-client"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "code-moniker-query",
@@ -523,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-query"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -538,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-workspace"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",
@@ -1746,10 +1748,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memo-map"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38d1115007560874e373613744c6fba374c17688327a71c1476d1a5954cc857b"
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minijinja"
+version = "2.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86886cf6dbf4e614b19c9a1eec9775f021869d7eadde0fc73921a81b90c9b4c9"
+dependencies = [
+ "memo-map",
+ "serde",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -2073,6 +2091,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]
@@ -3363,6 +3392,12 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-ident"

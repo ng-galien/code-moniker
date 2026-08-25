@@ -46,10 +46,9 @@ expr     = """
 """
 message  = "CLI command runtime `{source.moniker}` calls peer command entrypoint `{target.moniker}`; shared behavior needs a neutral owner."
 rationale = """
-Command runtimes should not become APIs for one another. The historical CLI fragment protected
-this separation before that rule disappeared during a DSL migration. This warning restores the
-executable part of the decision without treating support modules such as `hooks`, `tree`, or
-`mcp` as commands. Promote it to error once the command-runtime set and adapter exceptions are
+Command runtimes must not become APIs for one another. Shared behavior belongs to a neutral
+owner, while support modules such as `hooks`, `tree`, or `mcp` remain available to multiple
+commands. Promote this sentinel to error once the command-runtime set and adapter exceptions are
 confirmed; refine the aliases if a legitimate peer call is identified.
 """
 

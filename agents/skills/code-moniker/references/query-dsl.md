@@ -47,7 +47,8 @@ selected daemon's reported index generation.
   symbol-targeting verbs. Ambiguous natural references fail with concrete
   canonical candidates instead of choosing one silently.
 - Numbers bare: `limit:10`.
-- `syntax.tree` defaults to named nodes, depth 6 and 100 nodes. Set
+- `syntax.tree` defaults to named nodes and depth 6. The MCP output profile caps
+  node volume to 20 (`small`), 80 (`medium`), or 500 (`full`). Set
   `named_only:false` only when punctuation or anonymous grammar nodes matter;
   `include_text:true max_text_chars:80` attaches normalized text to leaves.
 - Multi-value fields OR-combine. Natural forms are equivalent:
