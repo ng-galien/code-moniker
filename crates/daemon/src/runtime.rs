@@ -212,6 +212,24 @@ fn spawn_initial_preload(
 	WorkspaceCancellation,
 	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
 ) {
+	spawn_initial_preload_with_watcher(daemon, published, lifecycle, events, |daemon| {
+		restart_live_watcher(daemon).map_err(|error| anyhow::anyhow!(error.to_string()))
+	})
+}
+
+pub(super) fn spawn_initial_preload_with_watcher<F>(
+	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
+	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	start_watcher: F,
+) -> (
+	WorkspaceCancellation,
+	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
+)
+where
+	F: FnOnce(&mut WorkspaceDaemon) -> anyhow::Result<()> + Send + 'static,
+{
 	let cancellation = WorkspaceCancellation::default();
 	let worker_cancellation = cancellation.clone();
 	let preload_span = telemetry::detached_operation_span("daemon.initial_preload");
@@ -226,8 +244,7 @@ fn spawn_initial_preload(
 						!worker_cancellation.is_cancelled(),
 						"workspace preload cancelled"
 					);
-					restart_live_watcher(&mut daemon)
-						.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+					start_watcher(&mut daemon)?;
 				}
 				Ok(())
 			})();

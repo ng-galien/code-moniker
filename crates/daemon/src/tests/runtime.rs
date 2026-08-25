@@ -27,6 +27,50 @@ fn windows_supervisor_handle_child() {
 	std::thread::sleep(std::time::Duration::from_millis(250));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub struct Indexed;\n").expect("write fixture");
+	let daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+	let daemon = Arc::new(Mutex::new(daemon));
+	let published = Arc::new(RwLock::new(None));
+	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
+	let (events, _) = tokio::sync::broadcast::channel(8);
+	let (watcher_entered_tx, watcher_entered_rx) = std::sync::mpsc::channel();
+	let (release_watcher_tx, release_watcher_rx) = std::sync::mpsc::channel();
+
+	let (_, worker) = spawn_initial_preload_with_watcher(
+		daemon,
+		published.clone(),
+		lifecycle.clone(),
+		events,
+		move |_| {
+			watcher_entered_tx.send(()).expect("announce watcher start");
+			release_watcher_rx.recv().expect("release watcher start");
+			Ok(())
+		},
+	);
+	watcher_entered_rx
+		.recv_timeout(std::time::Duration::from_secs(10))
+		.expect("initial index reaches watcher startup");
+	let phase_while_watcher_is_blocked = lifecycle
+		.read()
+		.unwrap_or_else(|error| error.into_inner())
+		.phase;
+	let snapshot_published_while_watcher_is_blocked = published
+		.read()
+		.unwrap_or_else(|error| error.into_inner())
+		.is_some();
+	release_watcher_tx.send(()).expect("release watcher");
+	worker
+		.await
+		.expect("preload worker joins")
+		.expect("preload succeeds");
+
+	assert_eq!(phase_while_watcher_is_blocked, WorkspacePhase::Ready);
+	assert!(snapshot_published_while_watcher_is_blocked);
+}
+
 #[test]
 fn daemon_token_is_128_bits_encoded_as_hex() {
 	let token = generate_token().expect("generate daemon token");
