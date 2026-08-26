@@ -111,8 +111,11 @@ jobs:
           } else {
             $git = (Get-Command git -CommandType Application).Source
           }
-          if (!(Test-Path $git) -or !$git.Contains(" ")) {
-            throw "the selected absolute Git path must exist and contain spaces: $git"
+          if (!(Test-Path $git)) {
+            throw "the selected absolute Git path must exist: $git"
+          }
+          if ("${{ matrix.git-release }}" -eq "2.47.1" -and !$git.Contains(" ")) {
+            throw "the portable Git path must contain spaces: $git"
           }
           $version = (& $git --version).Trim()
           "CODE_MONIKER_CI_GIT=$git" | Out-File $env:GITHUB_ENV -Append
@@ -385,6 +388,7 @@ jobs:
             docker run --rm --entrypoint /bin/sh -v "$PWD:/work" "$image" -c '
               apk add --no-cache git >/dev/null
               git --version
+              git config --global --add safe.directory /work/git-runtime-workspace
               git -C /work/git-runtime-workspace init --quiet
               git -C /work/git-runtime-workspace config user.email code-moniker@example.test
               git -C /work/git-runtime-workspace config user.name "Code Moniker"
