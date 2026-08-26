@@ -207,6 +207,19 @@ enable = [
 	"mcp-and-presentation@mcp-ownership-reserves-plain-output-for-refresh$",
 ]
 
+# Blocking project contracts run together through `cargo moniker-check`. The
+# broader `agent` and `smells` profiles remain non-blocking audit surfaces.
+[profiles.ci]
+enable = [
+	"(^|\\.)daemon\\.",
+	"git-",
+	"mcp-and-presentation@mcp-(ownership-publishes-output-options|call-flow-parses-output-options|call-flow-parses-options-before-tools|call-flow-selects-text-budget-or-json-full|ownership-centralizes-output-option-schema|single-responsibility-keeps-volume-out-of-finalizer)$",
+	"presentation@mcp-call-flow-renders-template-output-only-at-finalizer$",
+	"presentation-and-presentation@mcp-call-flow-connects-finalizer-to-shared-renderer$",
+	"mcp-composition-root-declares-agent-output-contract$",
+	"mcp-and-presentation@mcp-ownership-reserves-plain-output-for-refresh$",
+]
+
 # ─── Agent output boundary ──────────────────────────────────────────────
 
 [[workspace.path]]

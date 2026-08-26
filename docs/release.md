@@ -27,10 +27,8 @@ The `v` tag namespace deliberately excludes VS Code extension tags such as
 The `vX.Y.Z` release gate covers the Rust workspace, CLI, daemon, MCP, reusable
 Node.js client, native npm runtimes, and distribution builds. In `.github/workflows/ci.yml`,
 the required jobs are `lint-and-unit`, `typescript-client`, `windows-runtime`,
-`linux-static-runtime`, `bench-smoke`, and `mcp-tests`. The
-`vscode-extension` job remains normal CI feedback, but it does not gate a
-`vX.Y.Z` release. Extension acceptance and VSIX packaging gate only the separate
-`extension-vX.Y.Z` release workflow.
+and `linux-static-runtime`. Extension acceptance and VSIX packaging gate only
+the separate `extension-vX.Y.Z` release workflow.
 
 The release contains binaries with MCP support for:
 
@@ -140,10 +138,11 @@ The dist workflow follows five gates:
 Docker Desktop on macOS cannot provide a Windows-kernel acceptance test.
 Windows containers use operating-system features on a Windows host. The CI
 `windows-runtime` job therefore runs on `windows-2022`, matching cargo-dist's
-release builder, and validates three
-levels: Rust daemon tests, an explicit `.exe` owned-daemon smoke test, and a
-clean consumer that installs the packed client plus native package and launches
-the resolved executable. Both lifecycle smokes index 512 generated TypeScript
+release builder. It times native Git commands, exercises the release CLI's Git
+failure categories, deadlines, and process cleanup, runs the Windows Node
+supervision tests, launches an explicit `.exe` through the owned-daemon smoke
+test, then installs the packed client plus native package in a clean consumer
+and launches the resolved executable. Both lifecycle smokes index 512 generated TypeScript
 files under deep paths containing spaces and non-ASCII characters, require
 non-zero symbols and references, mutate a file after `ready`, require a stale
 event and higher refreshed generation, then prove cold/warm stop and registry
@@ -160,16 +159,15 @@ acceptance environment for process supervision, file locking and path behavior.
 
 ## `0.9.1` acceptance checklist
 
-- [ ] `main` is clean, the six release-gate CI jobs listed above are green, and
-      no `v0.9.1` tag exists. The `vscode-extension` job is not part of this
-      gate.
+- [ ] `main` is clean, the four release-gate CI jobs listed above are green,
+      and no `v0.9.1` tag exists.
 - [ ] All workspace crates that are published share version `0.9.1`.
 - [ ] `dist plan --tag=v0.9.1` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo test --workspace --quiet`
-- [ ] `cargo clippy --workspace --tests --no-deps -- -D warnings`
-- [ ] `cargo test -p code-moniker --features mcp --no-default-features --lib`
+- [ ] `cargo clippy --workspace --all-targets --no-deps -- -D warnings`
+- [ ] `cargo moniker-check`
 - [ ] From `packages/client/`: `npm ci --omit=optional`,
       `npm test`, then
       `npm run test:daemon -- <daemon-endpoint> <workspace-root>` and

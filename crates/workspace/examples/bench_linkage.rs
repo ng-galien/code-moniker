@@ -132,7 +132,7 @@ fn trace_phase(name: &str, elapsed: Duration) {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BenchOptions {
 	paths: Vec<PathBuf>,
 	project: Option<String>,
@@ -251,22 +251,6 @@ impl BenchOptions {
 		}
 		files.sort();
 		Ok(files)
-	}
-}
-
-impl Default for BenchOptions {
-	fn default() -> Self {
-		Self {
-			paths: Vec::new(),
-			project: None,
-			cache_dir: None,
-			lang: None,
-			exclude_path_fragments: Vec::new(),
-			incremental_paths: Vec::new(),
-			incremental_symbol_edit: None,
-			unresolved_groups: None,
-			debug_calls: Vec::new(),
-		}
 	}
 }
 

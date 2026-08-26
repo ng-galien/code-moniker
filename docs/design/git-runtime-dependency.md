@@ -184,9 +184,11 @@ The Windows job therefore compiles Code Moniker exactly once, in the packaged
 release shape. Cold native Git timing, CLI diagnostics, process-tree cleanup,
 Node supervision and packaged-daemon tests all reuse that binary. Completed
 Windows dependencies are cached even when a later black-box proof fails. Rust
-unit tests, the MCP-only feature surface and benchmark compilation share one
-Linux job and one Cargo cache; Windows repeats only behavior that depends on
-Windows process and path semantics. The Windows client runs its unit surface
+formatting, all-target Clippy, unit tests, the global project Code Moniker check,
+and schema generation share one Linux job and one Cargo cache. Clippy covers the
+benchmark targets without compiling and executing a separate optimized
+Criterion profile. Windows repeats only behavior that depends on Windows
+process and path semantics. The Windows client runs its unit surface
 rather than duplicating the full consumer and package suite already run on
 Linux. Within each job, generated client sources and the compiled package are
 produced once, then reused by unit, consumer, package and daemon proofs. The

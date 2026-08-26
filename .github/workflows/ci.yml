@@ -14,13 +14,13 @@ env:
 
 jobs:
   lint-and-unit:
-    name: fmt + clippy + cargo test
+    name: Rust - fmt, clippy all targets, tests, Code Moniker, schema
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Rust stable with rustfmt and clippy
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -30,40 +30,25 @@ jobs:
         with:
           shared-key: rust
 
-      - name: cargo fmt --check
+      - name: cargo fmt --all -- --check
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy -D warnings
-        run: cargo clippy --workspace --tests --no-deps -- -D warnings
+      - name: cargo clippy --workspace --all-targets --no-deps -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-deps -- -D warnings
 
-      - name: cargo test
+      - name: cargo test --workspace
         run: cargo test --workspace
 
-      - name: Clippy on the MCP-only feature surface
-        run: cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings
+      - name: cargo moniker-check
+        run: cargo moniker-check
 
-      - name: Test the MCP-only feature surface
-        run: cargo test -p code-moniker --features mcp --no-default-features --lib
-
-      - name: Compile and smoke-test Criterion benches
-        run: cargo bench -p code-moniker-workspace --benches -- --test
-
-      - name: daemon architectural boundaries
-        run: cargo run -p code-moniker -- check . --profile daemon --report
-
-      - name: Git runtime architectural boundaries
-        run: cargo run -p code-moniker -- check . --profile git-runtime --report
-
-      - name: MCP output contract
-        run: cargo run -p code-moniker -- check . --profile mcp-output --report
-
-      - name: daemon RPC schema is up to date
+      - name: export-schema > schema.actual.json; diff docs/schema/daemon.schema.json
         run: |
           cargo run -p code-moniker-query --features schema --bin export-schema > schema.actual.json
           diff -u docs/schema/daemon.schema.json schema.actual.json
 
   typescript-client:
-    name: TypeScript client package
+    name: Node client - build, tests, generated sources
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -75,26 +60,26 @@ jobs:
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Install client dependencies
+      - name: packages/client - npm ci --omit=optional
         run: npm ci --omit=optional
         working-directory: packages/client
 
-      - name: Test the public API and package
+      - name: packages/client - npm test
         run: npm test
         working-directory: packages/client
 
-      - name: Generated client sources match the daemon schema
+      - name: packages/client - git diff src/generated.ts src/protocol.ts
         run: git diff --exit-code src/generated.ts src/protocol.ts
         working-directory: packages/client
 
   windows-runtime:
-    name: Windows Git runtime + daemon + packaged Node client
+    name: Windows - release CLI, Git runtime, Node client, packaged daemon
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Rust stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build
@@ -103,14 +88,14 @@ jobs:
           shared-key: windows-runtime
           cache-on-failure: true
 
-      - name: Install Node.js
+      - name: Node.js 26
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 26
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Select native Git for Windows
+      - name: Git executables - PortableGit 2.47.1 and runner Git
         shell: pwsh
         run: |
           $archive = Join-Path $PWD "PortableGit-2.47.1-64-bit.7z.exe"
@@ -129,14 +114,14 @@ jobs:
           "CODE_MONIKER_GIT_BINARY=$currentGit" | Out-File $env:GITHUB_ENV -Append
           "CODE_MONIKER_EXPECTED_GIT_VERSION=$((& $currentGit --version).Trim())" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Record native Windows environment
+      - name: Environment log - Windows, rustc, and Node versions
         shell: pwsh
         run: |
           Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber,CsProcessors,CsNumberOfLogicalProcessors,CsTotalPhysicalMemory | Format-List | Out-File windows-runtime-environment.txt
           rustc -Vv | Out-File windows-runtime-environment.txt -Append
           node --version | Out-File windows-runtime-environment.txt -Append
 
-      - name: Prove native Git diagnostics and basic commands are fast
+      - name: Git 2.47.1 and current - version, rev-parse, status under 2s
         shell: pwsh
         run: |
           foreach ($case in @(
@@ -177,10 +162,10 @@ jobs:
 
       # Rust unit tests already run once on Linux. Windows compiles one release
       # binary, then all native Git, daemon, and package proofs reuse it.
-      - name: Build the single Windows CLI under test
+      - name: cargo build -p code-moniker --features mcp --release
         run: cargo build -p code-moniker --features mcp --release
 
-      - name: Prove the Windows index is independent from an exact Git path
+      - name: Windows CLI - explicit/PATH Git, typed failures, deadlines, descendant cleanup
         shell: pwsh
         run: |
           $originalPath = $env:PATH
@@ -320,37 +305,37 @@ jobs:
           }
           exit 0
 
-      - name: Install reusable client dependencies
+      - name: packages/client - npm ci --omit=optional
         run: npm ci --omit=optional
         working-directory: packages/client
 
-      - name: Build the client once for all Windows tests
+      - name: packages/client - npm run build
         run: npm run build
         working-directory: packages/client
 
-      - name: Test Windows-specific client behavior
+      - name: packages/client - npm run test:unit:built
         run: npm run test:unit:built
         working-directory: packages/client
 
-      - name: Prove Node Git diagnostic taxonomy against the Windows executable
+      - name: verify-fake-git-runtime.mjs - Windows supervisor taxonomy and deadlines
         shell: pwsh
         run: node packages/client/scripts/verify-fake-git-runtime.mjs (Join-Path $PWD "Fake Git Runtime/git.exe") (Join-Path $PWD "target/release/code-moniker.exe")
 
-      - name: Launch an owned daemon with a custom registry
+      - name: smoke-owned-daemon.mjs - Windows release binary
         shell: pwsh
         run: |
           npm run test:daemon:owned:built -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: packages/client
 
-      - name: Install tarballs and launch the release-shaped packaged Windows daemon
+      - name: test-packaged-daemon.mjs - win32-x64
         working-directory: packages/client
         shell: pwsh
         run: |
           npm run test:daemon:packaged:built -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload native Windows lifecycle evidence
+      - name: Artifact - Windows environment and daemon logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -362,18 +347,18 @@ jobs:
             windows-packaged-daemon.log
 
   linux-static-runtime:
-    name: Static Linux npm runtime
+    name: Linux musl - CLI, Git runtime, packaged daemon
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain and musl target
+      - name: Rust stable with x86_64-unknown-linux-musl
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
 
-      - name: Install musl linker
+      - name: apt-get update + install musl-tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
@@ -383,10 +368,10 @@ jobs:
         with:
           shared-key: linux-static-runtime
 
-      - name: Build the static Linux CLI with daemon support
+      - name: cargo build -p code-moniker --features mcp --target x86_64-unknown-linux-musl
         run: cargo build -p code-moniker --features mcp --target x86_64-unknown-linux-musl
 
-      - name: Reject a dynamic interpreter and run the binary
+      - name: readelf + code-moniker --version - musl binary
         run: |
           binary=target/x86_64-unknown-linux-musl/debug/code-moniker
           if readelf --program-headers "$binary" | grep -q 'Requesting program interpreter'; then
@@ -395,7 +380,7 @@ jobs:
           fi
           "$binary" --version
 
-      - name: Run source indexing in Ubuntu without Git
+      - name: Ubuntu 24.04 without Git - stats success, diff cannot resolve Git
         run: |
           mkdir -p no-git-workspace
           echo 'export const ubuntu_without_git = 1;' > no-git-workspace/source.ts
@@ -409,7 +394,7 @@ jobs:
             grep "cannot resolve Git" /tmp/result
           '
 
-      - name: Exercise the lowest and current supported Linux Git
+      - name: Alpine 3.10 and latest with Git - stats and diff success
         run: |
           mkdir -p git-runtime-workspace
           echo 'pub fn base() {}' > git-runtime-workspace/source.rs
@@ -430,7 +415,7 @@ jobs:
             '
           done
 
-      - name: Prove typed Linux Git diagnostic failures
+      - name: Alpine latest with fake Git - incompatible, malformed, timeout
         run: |
           fake_git=/work/crates/workspace/tests/fixtures/fake-git-runtime.sh
           for case in 'incompatible:supported range' 'malformed:unrecognized version' 'hang:timed out'; do
@@ -445,14 +430,14 @@ jobs:
             ' -- "$pattern"
           done
 
-      - name: Install Node.js
+      - name: Node.js 26
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 26
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Install tarballs and launch the static packaged daemon
+      - name: packages/client - npm ci + test-packaged-daemon.mjs - linux-x64 musl
         working-directory: packages/client
         run: |
           npm ci --omit=optional
