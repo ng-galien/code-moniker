@@ -254,6 +254,11 @@ jobs:
           Set-Content -Path (Join-Path $fakeProject "Program.cs") -Value $fakeSource
           dotnet publish $fakeProject --configuration Release --runtime win-x64 --self-contained false -p:UseAppHost=true -p:AssemblyName=git --output (Split-Path $fakeGit)
           if (!(Test-Path $fakeGit)) { throw "dotnet did not publish the fake Git executable" }
+          # Exclude the one-time .NET app-host startup from Git's two-second
+          # production deadline. Native Git was timed cold above; this fixture
+          # exists to exercise typed failures and process-tree cleanup.
+          & $fakeGit --version | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "fake Git warm-up failed" }
           $env:CODE_MONIKER_GIT_BINARY = $fakeGit
           $descendantPidFile = Join-Path $PWD "fake-git-descendant.pid"
           $env:CODE_MONIKER_FAKE_GIT_PID_FILE = $descendantPidFile
