@@ -258,11 +258,11 @@ jobs:
           $descendantPidFile = Join-Path $PWD "fake-git-descendant.pid"
           $env:CODE_MONIKER_FAKE_GIT_PID_FILE = $descendantPidFile
           foreach ($case in @(
-            @{ mode = "incompatible"; pattern = "supported range"; max = 2 },
-            @{ mode = "malformed"; pattern = "unrecognized version"; max = 2 },
-            @{ mode = "malformed_repository"; pattern = "unexpected output"; max = 2 },
-            @{ mode = "hang"; pattern = "timed out"; max = 3 },
-            @{ mode = "descendant"; pattern = "timed out"; max = 4 }
+            @{ mode = "incompatible"; pattern = "incompatible_version"; max = 2 },
+            @{ mode = "malformed"; pattern = "malformed_version"; max = 2 },
+            @{ mode = "malformed_repository"; pattern = "malformed_output"; max = 2 },
+            @{ mode = "hang"; pattern = "timed_out"; max = 3 },
+            @{ mode = "descendant"; pattern = "timed_out"; max = 4 }
           )) {
             $env:CODE_MONIKER_FAKE_GIT_MODE = $case.mode
             $result = ""
