@@ -142,12 +142,7 @@ export class NodeDaemonRuntime {
 	}
 
 	daemonProcessAlive(pid: number): boolean {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === "EPERM";
-		}
+		return processAlive(pid);
 	}
 
 	daemonClaimFresh(entry: DaemonRegistryEntry): boolean {
@@ -506,7 +501,12 @@ function tryLaunchDetached(
 		}
 
 		function isRunning(): boolean {
-			return child.exitCode === null && child.signalCode === null;
+			return (
+				child.exitCode === null &&
+				child.signalCode === null &&
+				child.pid !== undefined &&
+				processAlive(child.pid)
+			);
 		}
 
 		function terminate(): void {
@@ -514,6 +514,15 @@ function tryLaunchDetached(
 				child.kill();
 			}
 		}
+	}
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
 	}
 }
 
