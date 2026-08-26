@@ -109,7 +109,7 @@ jobs:
             & $archive "-o$install" -y | Out-Null
             $git = Join-Path $install "cmd/git.exe"
           } else {
-            $git = (Get-Command git -CommandType Application).Source
+            $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
           }
           if (!(Test-Path $git)) {
             throw "the selected absolute Git path must exist: $git"
