@@ -188,10 +188,11 @@ unit tests, the MCP-only feature surface and benchmark compilation share one
 Linux job and one Cargo cache; Windows repeats only behavior that depends on
 Windows process and path semantics. The Windows client runs its unit surface
 rather than duplicating the full consumer and package suite already run on
-Linux. The distinct static Linux build remains necessary because it is a
-different shipped target. Superseded CI runs are cancelled when a newer commit
-is pushed to the same pull request, and every job has an explicit runtime
-ceiling.
+Linux. Within each job, generated client sources and the compiled package are
+produced once, then reused by unit, consumer, package and daemon proofs. The
+distinct static Linux build remains necessary because it is a different shipped
+target. Superseded CI runs are cancelled when a newer commit is pushed to the
+same pull request, and every job has an explicit runtime ceiling.
 
 Adding a Git reliability scenario must not add another Code Moniker build job
 unless it proves a distinct shipped target or compilation contract that cannot

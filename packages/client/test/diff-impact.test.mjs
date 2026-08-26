@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -276,7 +276,10 @@ test("the Git diagnostic ignores empty inherited PATH segments", async () => {
 				repository: ".",
 				base: "HEAD",
 				head: "HEAD",
-				environment: { PATH: `${join(tmpdir(), "no-git-here")}${process.platform === "win32" ? ";" : ":"}` },
+				environment: {
+					PATH: `${join(tmpdir(), "no-git-here")}${process.platform === "win32" ? ";" : ":"}`,
+					CODE_MONIKER_GIT_BINARY: undefined,
+				},
 			},
 			() => ({ async launch() { throw new Error("runtime must not launch"); } }),
 		),

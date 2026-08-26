@@ -84,9 +84,7 @@ jobs:
         working-directory: packages/client
 
       - name: Generated client sources match the daemon schema
-        run: |
-          npm run generate
-          git diff --exit-code src/generated.ts src/protocol.ts
+        run: git diff --exit-code src/generated.ts src/protocol.ts
         working-directory: packages/client
 
   windows-runtime:
@@ -326,8 +324,12 @@ jobs:
         run: npm ci --omit=optional
         working-directory: packages/client
 
+      - name: Build the client once for all Windows tests
+        run: npm run build
+        working-directory: packages/client
+
       - name: Test Windows-specific client behavior
-        run: npm run test:unit
+        run: npm run test:unit:built
         working-directory: packages/client
 
       - name: Prove Node Git diagnostic taxonomy against the Windows executable
@@ -337,7 +339,7 @@ jobs:
       - name: Launch an owned daemon with a custom registry
         shell: pwsh
         run: |
-          npm run test:daemon:owned -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
+          npm run test:daemon:owned:built -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: packages/client
 
@@ -345,7 +347,7 @@ jobs:
         working-directory: packages/client
         shell: pwsh
         run: |
-          npm run test:daemon:packaged -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
+          npm run test:daemon:packaged:built -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload native Windows lifecycle evidence
