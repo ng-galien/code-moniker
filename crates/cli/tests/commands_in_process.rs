@@ -2251,6 +2251,83 @@ fn check_default_rules_can_be_disabled_from_config() {
 }
 
 #[test]
+fn check_default_rules_off_requires_project_rules_to_define_their_aliases() {
+	let dir = write_fixture("a.ts", "function acceptedName() {}\n");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	let path = dir.path().join("a.ts");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.function.where]]
+		id = "project-name"
+		expr = "$camel"
+		"#,
+	)
+	.unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::UsageError, "stdout={out}\nstderr={err}");
+	assert!(err.contains("unknown alias `$camel`"), "{err}");
+
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[aliases]
+		camel = "name =~ ^[a-z_][A-Za-z0-9]*$"
+
+		[[ts.function.where]]
+		id = "project-name"
+		expr = "$camel"
+		"#,
+	)
+	.unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(out.trim().is_empty(), "{out}");
+}
+
+#[test]
+fn check_project_alias_overrides_embedded_alias_when_defaults_are_on() {
+	let dir = write_fixture("a.ts", "function acceptedName() {}\n");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = true
+
+		[aliases]
+		camel = "name = projectOnly"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
+	assert!(out.contains("ts.function.name-camelcase"), "{out}");
+}
+
+#[test]
 fn check_default_rules_on_overrides_disabled_config() {
 	let dir = write_fixture("a.ts", "function helper() {}\n");
 	let rules_path = dir.path().join(".code-moniker.toml");

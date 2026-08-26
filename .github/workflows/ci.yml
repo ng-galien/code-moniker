@@ -37,6 +37,9 @@ jobs:
       - name: daemon architectural boundaries
         run: cargo run -p code-moniker -- check . --profile daemon --report
 
+      - name: MCP output contract
+        run: cargo run -p code-moniker -- check . --profile mcp-output --report
+
       - name: daemon RPC schema is up to date
         run: |
           cargo run -p code-moniker-query --features schema --bin export-schema > schema.actual.json

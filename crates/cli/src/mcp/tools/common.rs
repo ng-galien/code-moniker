@@ -7,6 +7,24 @@ pub(in crate::mcp) enum OutputBudget {
 	Full,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::mcp) enum OutputFormat {
+	Text,
+	Json,
+}
+
+impl OutputFormat {
+	pub(in crate::mcp) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		match arguments.get("format") {
+			None => Ok(Self::Text),
+			Some(Value::String(value)) if value == "text" => Ok(Self::Text),
+			Some(Value::String(value)) if value == "json" => Ok(Self::Json),
+			Some(Value::String(value)) => anyhow::bail!("unknown output format `{value}`"),
+			Some(_) => anyhow::bail!("`format` must be a string"),
+		}
+	}
+}
+
 impl OutputBudget {
 	pub(in crate::mcp) fn as_str(self) -> &'static str {
 		match self {
@@ -28,6 +46,19 @@ impl AgentOutputOptions {
 		let compact = compact_argument(arguments)?;
 		let budget = output_budget(arguments)?;
 		Ok(Self { compact, budget })
+	}
+
+	pub(in crate::mcp) fn for_format(
+		arguments: &Value,
+		format: OutputFormat,
+	) -> anyhow::Result<Self> {
+		if format == OutputFormat::Json {
+			return Ok(Self {
+				compact: false,
+				budget: OutputBudget::Full,
+			});
+		}
+		Self::from_arguments(arguments)
 	}
 
 	pub(in crate::mcp) fn default_page_limit(self) -> usize {
@@ -52,7 +83,25 @@ pub(in crate::mcp) fn add_output_budget_schema(schema: &mut Value) {
 			"type": "string",
 			"enum": ["small", "medium", "full"],
 			"default": "small",
-			"description": "Response volume profile. Tools map small, medium, and full to bounded result counts, traversal depth, witnesses, and optional detail before rendering; explicit per-tool limits are capped by the selected profile."
+			"description": "Markdown volume profile. Tools map small, medium, and full to bounded result counts, traversal depth, witnesses, and optional detail before text rendering. Ignored when format=json because structured output always uses the full profile."
+		}),
+	);
+}
+
+pub(in crate::mcp) fn add_output_format_schema(schema: &mut Value) {
+	let Some(object) = schema.as_object_mut() else {
+		return;
+	};
+	let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) else {
+		return;
+	};
+	properties.insert(
+		"format".to_string(),
+		serde_json::json!({
+			"type": "string",
+			"enum": ["text", "json"],
+			"default": "text",
+			"description": "Response representation. text returns Markdown or plain text content only; json returns structuredContent only. The response never contains both."
 		}),
 	);
 }
@@ -123,7 +172,7 @@ pub(in crate::mcp) fn compact_argument(arguments: &Value) -> anyhow::Result<bool
 
 #[cfg(test)]
 mod tests {
-	use super::{AgentOutputOptions, OutputBudget, compact_argument};
+	use super::{AgentOutputOptions, OutputBudget, OutputFormat, compact_argument};
 	use serde_json::json;
 
 	#[test]
@@ -150,5 +199,19 @@ mod tests {
 		assert!(AgentOutputOptions::from_arguments(&json!({"budget": 42})).is_err());
 		assert!(AgentOutputOptions::from_arguments(&json!({"budget": false})).is_err());
 		assert!(AgentOutputOptions::from_arguments(&json!({"budget": null})).is_err());
+	}
+
+	#[test]
+	fn json_output_ignores_the_budget_and_uses_full_projection() {
+		for arguments in [
+			json!({"format": "json"}),
+			json!({"format": "json", "budget": "small"}),
+			json!({"format": "json", "budget": "not-a-budget"}),
+		] {
+			let output = AgentOutputOptions::for_format(&arguments, OutputFormat::Json)
+				.expect("JSON full projection");
+			assert_eq!(output.budget, OutputBudget::Full);
+			assert!(!output.compact);
+		}
 	}
 }

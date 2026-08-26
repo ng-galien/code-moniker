@@ -11,8 +11,15 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-26
+
 ### Fixed
 
+- **Every MCP tool honors one selected output representation.** Text remains
+  the default and renders the budgeted Markdown template into `content`.
+  `format: "json"` ignores the text budget, selects the full projection, and
+  returns only `structuredContent`; syntax reads expose `SyntaxTreeResult`
+  directly so machine consumers no longer parse presentation text.
 - **Packaged agent skills install every canonical asset.** The embedded skill
   inventory now includes fragment guidance, rejects unresolved local Markdown
   references, and stays aligned with the canonical and packaged skill trees.

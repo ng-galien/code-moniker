@@ -54,6 +54,9 @@ components = [
 ]
 
 [aliases]
+# Project rules remain self-contained when the embedded default pack is disabled.
+camel = "name =~ ^[a-z_][A-Za-z0-9]*$"
+
 # Standalone crates (each at `crates/<name>/`). The crate dirs are unique
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
 crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
@@ -112,6 +115,9 @@ rust_test_caller = """
 mcp_tool_contract = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^output_contract"
 mcp_tool_input_schema = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**' AND kind = 'method' AND name =~ ^input_schema"
 presentation_at_mcp_finalizer = "kind = 'method' AND name =~ ^finalize AND uri ~ '**/module:mcp/module:tools/enum:OutputContract/**'"
+presentation_at_mcp_output_selector = "kind = 'method' AND parent.name = 'ToolResult' AND name =~ ^into_(json|plain_text|agent_text)$"
+presentation_at_mcp_output_profile = "kind = 'method' AND parent.name = 'AgentOutputOptions' AND name = 'for_format'"
+mcp_call_result_boundary = "kind = 'fn' AND name = 'call_result' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:server/**'"
 presentation_at_mcp_tool_execution = "kind = 'fn' AND name =~ ^execute_tool AND uri ~ '**/module:mcp/module:tools/**'"
 presentation_at_mcp_plain_output_call = "kind = 'calls' AND target ~ '**/module:mcp/module:tools/struct:ToolResult/method:success**'"
 mcp_refresh_caller = "source ~ '**/module:mcp/module:tools/module:refresh/**'"
@@ -188,6 +194,15 @@ enable = [
 [profiles.daemon]
 enable = ["(^|\\.)daemon\\."]
 
+[profiles.mcp-output]
+enable = [
+	"mcp-and-presentation@mcp-(ownership-publishes-output-options|call-flow-parses-output-options|call-flow-parses-options-before-tools|call-flow-selects-text-budget-or-json-full|ownership-centralizes-output-option-schema|single-responsibility-keeps-volume-out-of-finalizer)$",
+	"presentation@mcp-call-flow-renders-template-output-only-at-finalizer$",
+	"presentation-and-presentation@mcp-call-flow-connects-finalizer-to-shared-renderer$",
+	"mcp-composition-root-declares-agent-output-contract$",
+	"mcp-and-presentation@mcp-ownership-reserves-plain-output-for-refresh$",
+]
+
 # ─── Agent output boundary ──────────────────────────────────────────────
 
 [[workspace.path]]
@@ -213,16 +228,23 @@ reusable as tool inputs without inventing a presentation-specific identity diale
 [[rust.shape.callable.where]]
 id        = "mcp-and-presentation@mcp-ownership-publishes-output-options"
 severity  = "error"
-expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^decorates_schema) OR (any(out_refs, kind = 'calls' AND target.name = 'add_compact_output_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_output_budget_schema'))"
-message   = "`OutputContract` must publish compact rendering and volume-profile options for agent-facing tools."
-rationale = "The public MCP contract must expose its presentation and result-volume controls from the same central boundary."
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^decorates_schema) OR (any(out_refs, kind = 'calls' AND target.name = 'add_output_format_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_compact_output_schema') AND any(out_refs, kind = 'calls' AND target.name = 'add_output_budget_schema'))"
+message   = "`OutputContract` must publish format, compact rendering, and volume-profile options for MCP tools."
+rationale = "The public MCP contract must expose representation, presentation, and result-volume controls from the same central boundary."
 
 [[rust.shape.callable.where]]
 id        = "mcp-and-presentation@mcp-call-flow-parses-output-options"
 severity  = "error"
-expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^output_options) OR any(out_refs, kind = 'calls' AND target.name = 'from_arguments')"
-message   = "`OutputContract` must parse compact rendering and volume-profile arguments before tool execution."
-rationale = "Central schema ownership is incomplete if individual tools can receive unchecked output options."
+expr      = "NOT (parent.name = 'OutputContract' AND name =~ ^output_options) OR text =~ '(?s)OutputFormat::from_arguments.*AgentOutputOptions::for_format'"
+message   = "`OutputContract` must select the representation before deriving presentation options."
+rationale = "Central schema ownership is incomplete if individual tools can receive unchecked output options. Parsing format first also lets JSON ignore the text budget and select the full projection centrally."
+
+[[rust.shape.callable.where]]
+id        = "mcp-and-presentation@mcp-call-flow-selects-text-budget-or-json-full"
+severity  = "error"
+expr      = "(NOT $presentation_at_mcp_output_selector OR (name = 'into_json' AND text =~ '(?s)text.clear\\(\\).*structured_content = Some') OR (name =~ ^into_(plain_text|agent_text)$ AND text =~ 'structured_content = None')) AND (NOT $presentation_at_mcp_output_profile OR text =~ '(?s)OutputFormat::Json.*OutputBudget::Full') AND (NOT $mcp_call_result_boundary OR text =~ '(?s)structured_content.is_some\\(\\).*Vec::new')"
+message   = "MCP output must select Markdown with its text budget or exclusive full structured JSON."
+rationale = "JSON-RPC is the transport envelope, not the tool representation. Text responses render the budgeted template into content; JSON responses ignore the text budget, select the full typed projection, and publish only structuredContent. Keeping the choice in the shared selector prevents a Markdown layout change from breaking machine clients and prevents any tool from returning both channels."
 
 [[rust.shape.callable.where]]
 id        = "mcp-and-presentation@mcp-call-flow-parses-options-before-tools"
@@ -366,9 +388,9 @@ only explicit exception because it returns a small operational acknowledgement.
 [[rust.shape.callable.where]]
 id        = "mcp-and-presentation@mcp-ownership-centralizes-output-option-schema"
 severity  = "error"
-expr      = "NOT $mcp_tool_input_schema OR text !~ '\"(compact|budget)\"\\s*:'"
-message   = "Per-tool schemas must not redeclare `compact` or `budget`; `OutputContract` owns them."
-rationale = "One schema owner prevents new or renamed MCP tools from losing or redefining token-economy controls."
+expr      = "NOT $mcp_tool_input_schema OR text !~ '\"(format|compact|budget)\"\\s*:'"
+message   = "Per-tool schemas must not redeclare `format`, `compact`, or `budget`; `OutputContract` owns them."
+rationale = "One schema owner prevents new or renamed MCP tools from losing or redefining representation and token-economy controls."
 
 # ─── Graph query truth and completeness ────────────────────────────
 

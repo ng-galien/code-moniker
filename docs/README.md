@@ -25,6 +25,7 @@ then drop into the reference pages only when you need exact grammar details.
 | Need | Page |
 | ---- | ---- |
 | Understand moniker URI grammar and matching | [Moniker URI](design/moniker-uri.md) |
+| Understand MCP text/JSON selection, templates, and budgets | [Agent output boundary](design/agent-output-boundary.md) |
 
 ## Workspace
 

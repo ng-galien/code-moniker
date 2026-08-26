@@ -409,7 +409,9 @@ binary. It does not enable or disable rules written in your
 | `--default-rules off` | force project-only rules for this invocation |
 
 Use `--default-rules off` when the TOML file should be the complete rule
-set. If the rules file is missing in that mode, no rules run.
+set. The embedded aliases are part of that pack and are not loaded either;
+project rules must define every alias they reference. If the rules file is
+missing in that mode, no rules run.
 
 Inline overlays can also set `default_rules = false` for that invocation.
 When several sources set it, the last inline overlay wins over the project

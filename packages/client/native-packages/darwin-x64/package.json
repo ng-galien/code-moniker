@@ -1,6 +1,6 @@
 {
 	"name": "@code-moniker/cli-darwin-x64",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "Code Moniker CLI for macOS x64.",
 	"license": "MIT",
 	"repository": {

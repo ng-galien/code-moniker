@@ -1,10 +1,71 @@
-use code_moniker_query::{Command, CommandRequest};
+use code_moniker_query::{Command, CommandRequest, CommandResponse, WorkspaceStatus};
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{McpTool, OutputContract, OutputOptions, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
 pub(in crate::mcp) struct RefreshTool;
+
+#[derive(Serialize)]
+struct RefreshResult {
+	uri: &'static str,
+	completeness: &'static str,
+	generation: Option<u64>,
+	files: usize,
+	symbols: usize,
+	references: usize,
+	stale: bool,
+	message: String,
+}
+
+impl RefreshResult {
+	fn from_response(response: CommandResponse) -> Result<Self, ToolError> {
+		let CommandResponse {
+			generation,
+			message,
+			status,
+		} = response;
+		let WorkspaceStatus {
+			files,
+			symbols,
+			references,
+			stale,
+			..
+		} = *status.ok_or_else(|| {
+			ToolError::failed("daemon refresh response did not include workspace status")
+		})?;
+		Ok(Self {
+			uri: "workspace",
+			completeness: "full",
+			generation: generation.map(|generation| generation.0),
+			files,
+			symbols,
+			references,
+			stale,
+			message,
+		})
+	}
+
+	fn into_tool_result(self) -> Result<ToolResult, ToolError> {
+		let generation = self
+			.generation
+			.map(|generation| generation.to_string())
+			.unwrap_or_else(|| "<unknown>".to_string());
+		let text = format!(
+			"uri: {}\ncompleteness: {}\n\nrefreshed: generation {generation}\nfiles: {}\ndefs: {}\nrefs: {}\nstale: {}\n{}\n",
+			self.uri,
+			self.completeness,
+			self.files,
+			self.symbols,
+			self.references,
+			if self.stale { "stale" } else { "fresh" },
+			self.message
+		);
+		let structured_content = serde_json::to_value(&self).map_err(ToolError::failed)?;
+		Ok(ToolResult::success(text).with_structured_content(structured_content))
+	}
+}
 
 impl RefreshTool {
 	pub(super) const NAME: &'static str = "code_moniker_refresh";
@@ -48,20 +109,6 @@ impl McpTool for RefreshTool {
 				command: Command::WorkspaceRefresh,
 			})
 			.map_err(ToolError::failed)?;
-		let generation = response
-			.generation
-			.map(|generation| generation.0.to_string())
-			.unwrap_or_else(|| "<unknown>".to_string());
-		let status = response.status.as_ref().ok_or_else(|| {
-			ToolError::failed("daemon refresh response did not include workspace status")
-		})?;
-		Ok(ToolResult::success(format!(
-			"uri: workspace\ncompleteness: full\n\nrefreshed: generation {generation}\nfiles: {}\ndefs: {}\nrefs: {}\nstale: {}\n{}\n",
-			status.files,
-			status.symbols,
-			status.references,
-			if status.stale { "stale" } else { "fresh" },
-			response.message
-		)))
+		RefreshResult::from_response(response)?.into_tool_result()
 	}
 }

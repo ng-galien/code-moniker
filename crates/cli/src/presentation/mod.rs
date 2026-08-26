@@ -59,6 +59,10 @@ impl TemplateOutput {
 			options,
 		)
 	}
+
+	pub(crate) fn context(&self) -> &Value {
+		&self.context
+	}
 }
 
 pub(crate) fn render<T>(

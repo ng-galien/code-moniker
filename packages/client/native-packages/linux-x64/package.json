@@ -1,6 +1,6 @@
 {
 	"name": "@code-moniker/cli-linux-x64",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "Statically linked Code Moniker CLI for Linux x64.",
 	"license": "MIT",
 	"repository": {

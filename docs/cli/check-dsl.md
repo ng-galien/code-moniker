@@ -912,7 +912,9 @@ Merge: with `--default-rules on`, user TOML overrides the embedded preset
 by rule id (replace in place) or appends new rules. `require_doc_comment`
 overrides if set. Aliases from the user merge on top of embedded ones with
 the same replace-by-name rule. With `--default-rules off`, the user TOML is
-loaded as the complete config. `check --rules-inline <TOML>` accepts the
+loaded as the complete config, including its alias vocabulary: no embedded
+alias remains available unless the user TOML defines it again.
+`check --rules-inline <TOML>` accepts the
 same TOML shape as a command-line overlay; inline overlays merge after the
 project file and discovered fragments, in command-line order.
 `workspace.source_group` is structural workspace configuration, not a rule

@@ -375,11 +375,7 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 		let QueryResult::SyntaxTree(result) = response.result else {
 			anyhow::bail!("daemon returned an unexpected result for syntax.parse");
 		};
-		return Ok(ToolResult::templated(syntax_tree_output(
-			&result,
-			"syntax.parse",
-			request.output.budget.as_str(),
-		)?));
+		return syntax_tree_tool_result(&result, "syntax.parse", request.output.budget.as_str());
 	}
 	let response = context.query_refreshed(
 		Query::SyntaxTree(SyntaxTreeQuery {
@@ -399,7 +395,19 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 	Ok(ToolResult::templated(
 		syntax_tree_output(&result, "syntax.tree", request.output.budget.as_str())?
 			.with_monikers([result.focus.as_str()]),
-	))
+	)
+	.with_structured_content(serde_json::to_value(&result)?))
+}
+
+fn syntax_tree_tool_result(
+	result: &SyntaxTreeResult,
+	operation: &str,
+	volume: &'static str,
+) -> anyhow::Result<ToolResult> {
+	Ok(
+		ToolResult::templated(syntax_tree_output(result, operation, volume)?)
+			.with_structured_content(serde_json::to_value(result)?),
+	)
 }
 
 fn syntax_tree_output(

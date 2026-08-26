@@ -158,6 +158,120 @@ fn stdio_transport_serves_the_bound_workspace_without_stdout_noise() {
 }
 
 #[test]
+fn stdio_stateless_syntax_parse_honors_text_and_json_formats() {
+	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
+	let workspace = tempfile::tempdir().expect("workspace");
+	let root = workspace.path().canonicalize().expect("canonical root");
+	let mut child = spawn_stdio_read(&root);
+	let stdout = child.stdout.take().expect("child stdout");
+	let (response_tx, response_rx) = std::sync::mpsc::channel();
+	let reader = thread::spawn(move || {
+		for line in BufReader::new(stdout).lines() {
+			if response_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+	receive_response(&response_rx, 1, Duration::from_secs(2)).expect("MCP initialize");
+
+	let request = serde_json::json!({
+		"jsonrpc": "2.0",
+		"id": 2,
+		"method": "tools/call",
+		"params": {
+			"name": "code_moniker_read",
+			"arguments": {
+				"source": "SELECT 1;",
+				"language": "sql",
+				"uri": "snippet.sql",
+				"max_depth": 32,
+				"max_nodes": 100
+			}
+		}
+	});
+	writeln!(child.stdin.as_mut().expect("child stdin"), "{request}")
+		.expect("write stateless syntax.parse request");
+	let response = receive_response(&response_rx, 2, Duration::from_secs(2))
+		.expect("stateless syntax.parse response");
+	assert_ne!(
+		response["result"]["isError"].as_bool(),
+		Some(true),
+		"{response:#}"
+	);
+	let text = response["result"]["content"][0]["text"]
+		.as_str()
+		.expect("human-readable syntax tree");
+	assert!(text.contains("# Syntax tree"), "{text}");
+	assert!(
+		response["result"]["structuredContent"].is_null(),
+		"text format must not expose structured content: {response:#}"
+	);
+
+	let json_source = format!(
+		"SELECT {};",
+		(0..40)
+			.map(|index| format!("{index} AS value_{index}"))
+			.collect::<Vec<_>>()
+			.join(", ")
+	);
+	let request = serde_json::json!({
+		"jsonrpc": "2.0",
+		"id": 3,
+		"method": "tools/call",
+		"params": {
+			"name": "code_moniker_read",
+			"arguments": {
+				"source": json_source,
+				"language": "sql",
+				"uri": "snippet.sql",
+				"max_depth": 1_000,
+				"max_nodes": 1_000,
+				"format": "json",
+				"budget": "small"
+			}
+		}
+	});
+	writeln!(child.stdin.as_mut().expect("child stdin"), "{request}")
+		.expect("write JSON syntax.parse request");
+	let response = receive_response(&response_rx, 3, Duration::from_secs(2))
+		.expect("JSON syntax.parse response");
+	assert_ne!(
+		response["result"]["isError"].as_bool(),
+		Some(true),
+		"{response:#}"
+	);
+	let syntax = &response["result"]["structuredContent"];
+	assert_eq!(syntax["file"], "snippet.sql", "{response:#}");
+	assert_eq!(syntax["language"], "sql", "{response:#}");
+	assert_eq!(syntax["has_error"], false, "{response:#}");
+	assert_eq!(syntax["truncated"], false, "{response:#}");
+	assert_eq!(syntax["root"]["kind"], "source_file", "{response:#}");
+	assert!(
+		syntax["emitted_nodes"]
+			.as_u64()
+			.is_some_and(|count| count > 20),
+		"JSON must ignore the small Markdown budget: {response:#}"
+	);
+	assert!(
+		syntax["total_nodes"]
+			.as_u64()
+			.is_some_and(|count| count > 20),
+		"{response:#}"
+	);
+	assert_eq!(
+		response["result"]["content"],
+		serde_json::json!([]),
+		"JSON format must not also return text content: {response:#}"
+	);
+
+	drop(child.stdin.take());
+	wait_for_exit(&mut child, Duration::from_secs(2));
+	assert!(child.wait().expect("reap MCP").success());
+	reader.join().expect("stdout reader");
+	assert_no_daemon_registry(&root);
+}
+
+#[test]
 fn simultaneous_stdio_servers_keep_workspace_facts_isolated() {
 	let _test_guard = STDIO_TEST_LOCK.lock().expect("stdio test lock");
 	let first = tempfile::tempdir().expect("first workspace");

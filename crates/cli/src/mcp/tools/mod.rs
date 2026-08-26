@@ -45,6 +45,7 @@ pub(super) enum OutputContract {
 
 impl OutputContract {
 	fn decorates_schema(self, schema: &mut Value) {
+		common::add_output_format_schema(schema);
 		if self == Self::Agent {
 			common::add_compact_output_schema(schema);
 			common::add_output_budget_schema(schema);
@@ -52,55 +53,51 @@ impl OutputContract {
 	}
 
 	fn output_options(self, arguments: &Value) -> Result<OutputOptions, ToolError> {
+		let format = common::OutputFormat::from_arguments(arguments).map_err(ToolError::failed)?;
 		match self {
-			Self::Agent => common::AgentOutputOptions::from_arguments(arguments)
-				.map(OutputOptions::agent)
+			Self::Agent => common::AgentOutputOptions::for_format(arguments, format)
+				.map(|agent| OutputOptions::agent(agent, format))
 				.map_err(ToolError::failed),
-			Self::Plain => Ok(OutputOptions::plain()),
+			Self::Plain => Ok(OutputOptions::plain(format)),
 		}
 	}
 
 	fn finalize(
 		self,
-		mut result: ToolResult,
+		result: ToolResult,
 		options: OutputOptions,
 		scheme: &str,
 		runtime: Option<&str>,
 	) -> Result<ToolResult, ToolError> {
-		if self == Self::Plain {
-			return Ok(result);
+		match (options.format, self) {
+			(common::OutputFormat::Json, _) => result.into_json(),
+			(common::OutputFormat::Text, Self::Plain) => Ok(result.into_plain_text()),
+			(common::OutputFormat::Text, Self::Agent) => {
+				result.into_agent_text(options.agent_options(), scheme, runtime)
+			}
 		}
-		let agent = options.agent_options();
-		let template = result.template.take().ok_or_else(|| {
-			ToolError::failed("agent output must be produced by the shared template renderer")
-		})?;
-		result.text = TemplateOutput::render(
-			&template,
-			RenderOptions {
-				compact: agent.compact,
-				scheme,
-				runtime,
-			},
-		)
-		.map_err(ToolError::failed)?;
-		Ok(result)
 	}
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct OutputOptions {
 	agent: Option<common::AgentOutputOptions>,
+	format: common::OutputFormat,
 }
 
 impl OutputOptions {
-	fn agent(options: common::AgentOutputOptions) -> Self {
+	fn agent(options: common::AgentOutputOptions, format: common::OutputFormat) -> Self {
 		Self {
 			agent: Some(options),
+			format,
 		}
 	}
 
-	fn plain() -> Self {
-		Self { agent: None }
+	fn plain(format: common::OutputFormat) -> Self {
+		Self {
+			agent: None,
+			format,
+		}
 	}
 
 	pub(super) fn agent_options(self) -> common::AgentOutputOptions {
@@ -125,6 +122,7 @@ impl ToolDescriptor {
 pub(super) struct ToolResult {
 	pub(super) text: String,
 	pub(super) is_error: bool,
+	pub(super) structured_content: Option<Value>,
 	template: Option<TemplateOutput>,
 }
 
@@ -133,6 +131,7 @@ impl ToolResult {
 		Self {
 			text: text.into(),
 			is_error: false,
+			structured_content: None,
 			template: None,
 		}
 	}
@@ -141,14 +140,78 @@ impl ToolResult {
 		Self {
 			text: String::new(),
 			is_error: false,
+			structured_content: None,
 			template: Some(template),
 		}
+	}
+
+	pub(super) fn error(text: impl Into<String>) -> Self {
+		Self {
+			text: text.into(),
+			is_error: true,
+			structured_content: None,
+			template: None,
+		}
+	}
+
+	pub(super) fn with_structured_content(mut self, value: Value) -> Self {
+		self.structured_content = Some(value);
+		self
+	}
+
+	fn into_json(mut self) -> Result<Self, ToolError> {
+		let structured_content = self
+			.structured_content
+			.take()
+			.or_else(|| {
+				self.template
+					.as_ref()
+					.map(|template| template.context().clone())
+			})
+			.ok_or_else(|| ToolError::failed("JSON output requires a structured result"))?;
+		self.text.clear();
+		self.template = None;
+		self.structured_content = Some(structured_content);
+		Ok(self)
+	}
+
+	fn into_plain_text(mut self) -> Self {
+		self.structured_content = None;
+		self.template = None;
+		self
+	}
+
+	fn into_agent_text(
+		mut self,
+		agent: common::AgentOutputOptions,
+		scheme: &str,
+		runtime: Option<&str>,
+	) -> Result<Self, ToolError> {
+		self.structured_content = None;
+		let template = self.template.take().ok_or_else(|| {
+			ToolError::failed("agent output must be produced by the shared template renderer")
+		})?;
+		self.text = TemplateOutput::render(
+			&template,
+			RenderOptions {
+				compact: agent.compact,
+				scheme,
+				runtime,
+			},
+		)
+		.map_err(ToolError::failed)?;
+		Ok(self)
+	}
+
+	pub(super) fn into_response_parts(self) -> (bool, String, Option<Value>) {
+		(self.is_error, self.text, self.structured_content)
 	}
 
 	fn templated_error(template: TemplateOutput) -> Self {
 		Self {
 			text: String::new(),
 			is_error: true,
+			structured_content: None,
 			template: Some(template),
 		}
 	}
@@ -286,15 +349,7 @@ impl ToolRegistry {
 			.into_iter()
 			.find(|tool| tool.descriptor().name == name)?
 			.output_contract();
-		if contract != OutputContract::Agent {
-			return None;
-		}
-		let options = contract
-			.output_options(arguments)
-			.or_else(|_| contract.output_options(&serde_json::json!({})))
-			.ok()?;
-		let result = agent_problem_result(name, arguments, message).ok()?;
-		contract.finalize(result, options, scheme, runtime).ok()
+		finalize_problem(contract, name, arguments, scheme, runtime, message)
 	}
 
 	pub(super) fn call(
@@ -312,6 +367,30 @@ impl ToolRegistry {
 		};
 		execute_tool(tool, context, arguments)
 	}
+}
+
+fn finalize_problem(
+	contract: OutputContract,
+	name: &str,
+	arguments: &Value,
+	scheme: &str,
+	runtime: Option<&str>,
+	message: &str,
+) -> Option<ToolResult> {
+	let options = contract
+		.output_options(arguments)
+		.or_else(|_| contract.output_options(&serde_json::json!({})))
+		.ok()?;
+	let view = mcp_problem_view(name, arguments, message);
+	let result = match contract {
+		OutputContract::Agent => problem_presentation::mcp(&view)
+			.map(ToolResult::templated_error)
+			.ok()?,
+		OutputContract::Plain => {
+			ToolResult::error(message).with_structured_content(serde_json::to_value(&view).ok()?)
+		}
+	};
+	contract.finalize(result, options, scheme, runtime).ok()
 }
 
 fn execute_tool(
@@ -338,11 +417,22 @@ struct McpProblemView<'a> {
 	fix_hint: &'static str,
 }
 
+#[cfg(test)]
 fn agent_problem_result(
 	tool: &str,
 	arguments: &Value,
 	message: &str,
 ) -> Result<ToolResult, ToolError> {
+	problem_presentation::mcp(&mcp_problem_view(tool, arguments, message))
+		.map(ToolResult::templated_error)
+		.map_err(ToolError::failed)
+}
+
+fn mcp_problem_view<'a>(
+	tool: &'a str,
+	arguments: &'a Value,
+	message: &'a str,
+) -> McpProblemView<'a> {
 	let uri = arguments
 		.get("uri")
 		.and_then(Value::as_str)
@@ -364,15 +454,12 @@ fn agent_problem_result(
 	} else {
 		"Retry with a supported URI and bounded arguments."
 	};
-	let view = McpProblemView {
+	McpProblemView {
 		uri,
 		tool,
 		problem,
 		fix_hint,
-	};
-	problem_presentation::mcp(&view)
-		.map(ToolResult::templated_error)
-		.map_err(ToolError::failed)
+	}
 }
 
 impl ToolDescriptor {
@@ -395,7 +482,131 @@ fn json_object_schema(schema: Value) -> JsonObject {
 
 #[cfg(test)]
 mod tests {
-	use super::{OutputContract, ToolResult, agent_problem_result};
+	use serde::Serialize;
+
+	use super::{OutputContract, ToolRegistry, ToolResult, agent_problem_result};
+	use crate::presentation::TemplateOutput;
+
+	#[derive(Serialize)]
+	struct ContractFixture<'a> {
+		uri: &'a str,
+		count: usize,
+	}
+
+	const CONTRACT_TEMPLATE: &str = "# Fixture\n\n- uri: `{{ uri }}`\n- count: {{ count }}\n";
+
+	fn fixture_result() -> ToolResult {
+		ToolResult::templated(
+			TemplateOutput::new(
+				"mcp-contract-fixture.md.j2",
+				CONTRACT_TEMPLATE,
+				&ContractFixture {
+					uri: "workspace",
+					count: 2,
+				},
+			)
+			.expect("fixture template"),
+		)
+	}
+
+	#[test]
+	fn agent_contract_selects_exactly_one_representation() {
+		let text = OutputContract::Agent
+			.finalize(
+				fixture_result(),
+				OutputContract::Agent
+					.output_options(&serde_json::json!({}))
+					.expect("text options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("text representation");
+		assert!(text.text.contains("# Fixture"));
+		assert!(text.structured_content.is_none());
+
+		let json = OutputContract::Agent
+			.finalize(
+				fixture_result(),
+				OutputContract::Agent
+					.output_options(&serde_json::json!({"format": "json"}))
+					.expect("JSON options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("JSON representation");
+		assert!(json.text.is_empty());
+		assert_eq!(json.structured_content.unwrap()["count"], 2);
+	}
+
+	#[test]
+	fn structured_override_is_used_only_for_json() {
+		let result = || {
+			fixture_result().with_structured_content(serde_json::json!({
+				"raw": "typed-query-result"
+			}))
+		};
+		let text = OutputContract::Agent
+			.finalize(
+				result(),
+				OutputContract::Agent
+					.output_options(&serde_json::json!({"format": "text"}))
+					.expect("text options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("text representation");
+		assert!(text.text.contains("# Fixture"));
+		assert!(text.structured_content.is_none());
+
+		let json = OutputContract::Agent
+			.finalize(
+				result(),
+				OutputContract::Agent
+					.output_options(&serde_json::json!({"format": "json"}))
+					.expect("JSON options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("JSON representation");
+		assert!(json.text.is_empty());
+		assert_eq!(
+			json.structured_content.unwrap()["raw"],
+			"typed-query-result"
+		);
+	}
+
+	#[test]
+	fn plain_contract_selects_exactly_one_representation() {
+		let result = || {
+			ToolResult::success("refreshed: generation 7")
+				.with_structured_content(serde_json::json!({"generation": 7}))
+		};
+		let text = OutputContract::Plain
+			.finalize(
+				result(),
+				OutputContract::Plain
+					.output_options(&serde_json::json!({}))
+					.expect("text options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("text representation");
+		assert_eq!(text.text, "refreshed: generation 7");
+		assert!(text.structured_content.is_none());
+
+		let json = OutputContract::Plain
+			.finalize(
+				result(),
+				OutputContract::Plain
+					.output_options(&serde_json::json!({"format": "json"}))
+					.expect("JSON options"),
+				"code+moniker://",
+				None,
+			)
+			.expect("JSON representation");
+		assert!(json.text.is_empty());
+		assert_eq!(json.structured_content.unwrap()["generation"], 7);
+	}
 
 	#[test]
 	fn agent_contract_rejects_pre_rendered_text() {
@@ -438,5 +649,26 @@ mod tests {
 		assert_eq!(result.text.matches(uri).count(), 0, "{}", result.text);
 		crate::presentation::tests::validate_agent_markdown(&result.text, "Tool problem", false)
 			.expect("problem Markdown");
+	}
+
+	#[test]
+	fn known_tool_errors_honor_the_selected_representation() {
+		let registry = ToolRegistry::new();
+		for tool in ["code_moniker_read", "code_moniker_refresh"] {
+			let result = registry
+				.render_problem(
+					tool,
+					&serde_json::json!({"format": "json", "budget": "small"}),
+					"code+moniker://",
+					Some("test-runtime"),
+					"workspace_busy",
+				)
+				.expect("known tool problem");
+			assert!(result.is_error, "{tool}");
+			assert!(result.text.is_empty(), "{tool}: {}", result.text);
+			let structured = result.structured_content.expect("structured problem");
+			assert_eq!(structured["tool"], tool);
+			assert_eq!(structured["problem"], "workspace_busy");
+		}
 	}
 }

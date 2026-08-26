@@ -181,6 +181,19 @@ fn tools_list_returns_mcp_shape() {
 			.unwrap()
 			.starts_with("When to use:")
 	);
+	for tool in &tools {
+		assert_eq!(
+			tool["inputSchema"]["properties"]["format"]["enum"],
+			json!(["text", "json"]),
+			"{} must publish the shared output representation contract",
+			tool["name"]
+		);
+		assert_eq!(
+			tool["inputSchema"]["properties"]["format"]["default"], "text",
+			"{} must default to text-only output",
+			tool["name"]
+		);
+	}
 	for name in [
 		"code_moniker_read",
 		"code_moniker_context",
@@ -563,7 +576,6 @@ fn read_tool_schema_and_parser_leave_syntax_limits_to_the_client() {
 			"{name} must not expose an artificial maximum: {property:?}"
 		);
 	}
-
 	let temp = tempfile::tempdir().expect("tempdir");
 	let context = preloading_context(vec![temp.path().to_path_buf()]);
 	let registry = ToolRegistry::new();
@@ -584,6 +596,21 @@ fn read_tool_schema_and_parser_leave_syntax_limits_to_the_client() {
 			.expect("client-selected MCP syntax limit");
 		assert!(!result.is_error, "{}", result.text);
 	}
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"language": "sql",
+				"source": "SELECT 1;",
+				"format": "yaml"
+			}),
+		)
+		.expect_err("unknown output format must be rejected");
+	assert!(
+		error.to_string().contains("unknown output format"),
+		"{error}"
+	);
 }
 
 #[test]

@@ -282,8 +282,21 @@ fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &
 
 fn call_result(name: &str, result: Result<ToolResult, super::tools::ToolError>) -> CallToolResult {
 	match result {
-		Ok(result) if result.is_error => CallToolResult::error(vec![Content::text(result.text)]),
-		Ok(result) => CallToolResult::success(vec![Content::text(result.text)]),
+		Ok(result) => {
+			let (is_error, text, structured_content) = result.into_response_parts();
+			let content = if structured_content.is_some() {
+				Vec::new()
+			} else {
+				vec![Content::text(text)]
+			};
+			let mut response = if is_error {
+				CallToolResult::error(content)
+			} else {
+				CallToolResult::success(content)
+			};
+			response.structured_content = structured_content;
+			response
+		}
 		Err(error) if error.is_unknown_tool() => {
 			CallToolResult::error(vec![Content::text(format!("unknown tool: {name}"))])
 		}
@@ -337,5 +350,19 @@ mod tests {
 		});
 
 		assert_eq!(*captured.lock().unwrap(), Some(true));
+	}
+
+	#[test]
+	fn structured_tool_errors_do_not_also_emit_text_content() {
+		let result = ToolResult::error("refresh failed")
+			.with_structured_content(serde_json::json!({"problem": "refresh failed"}));
+		let response = call_result("code_moniker_refresh", Ok(result));
+
+		assert_eq!(response.is_error, Some(true));
+		assert!(response.content.is_empty());
+		assert_eq!(
+			response.structured_content.unwrap()["problem"],
+			"refresh failed"
+		);
 	}
 }
