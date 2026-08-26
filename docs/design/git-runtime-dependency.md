@@ -174,6 +174,29 @@ separate one-second ceiling. The Node adapter keeps the same fixed two-second
 metadata budget and thirty-second general command budget; this reliability
 contract is not exposed as a new public tuning option.
 
+## CI evidence budget
+
+Runner time and compute are part of the reliability budget. The Git contract
+must add focused evidence to an existing platform artifact instead of creating
+another compilation matrix.
+
+The Windows job therefore compiles Code Moniker exactly once, in the packaged
+release shape. Cold native Git timing, CLI diagnostics, process-tree cleanup,
+Node supervision and packaged-daemon tests all reuse that binary. Completed
+Windows dependencies are cached even when a later black-box proof fails. Rust
+unit tests, the MCP-only feature surface and benchmark compilation share one
+Linux job and one Cargo cache; Windows repeats only behavior that depends on
+Windows process and path semantics. The Windows client runs its unit surface
+rather than duplicating the full consumer and package suite already run on
+Linux. The distinct static Linux build remains necessary because it is a
+different shipped target. Superseded CI runs are cancelled when a newer commit
+is pushed to the same pull request, and every job has an explicit runtime
+ceiling.
+
+Adding a Git reliability scenario must not add another Code Moniker build job
+unless it proves a distinct shipped target or compilation contract that cannot
+reuse an existing artifact.
+
 ## Production process inventory
 
 Git is the only optional third-party executable dependency launched by shipped

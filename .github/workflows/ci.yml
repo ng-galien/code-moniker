@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -12,6 +16,7 @@ jobs:
   lint-and-unit:
     name: fmt + clippy + cargo test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -34,6 +39,15 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      - name: Clippy on the MCP-only feature surface
+        run: cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings
+
+      - name: Test the MCP-only feature surface
+        run: cargo test -p code-moniker --features mcp --no-default-features --lib
+
+      - name: Compile and smoke-test Criterion benches
+        run: cargo bench -p code-moniker-workspace --benches -- --test
+
       - name: daemon architectural boundaries
         run: cargo run -p code-moniker -- check . --profile daemon --report
 
@@ -51,6 +65,7 @@ jobs:
   typescript-client:
     name: TypeScript client package
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -77,6 +92,7 @@ jobs:
   windows-runtime:
     name: Windows Git runtime + daemon + packaged Node client
     runs-on: windows-2022
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -87,6 +103,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.1
         with:
           shared-key: windows-runtime
+          cache-on-failure: true
 
       - name: Install Node.js
         uses: actions/setup-node@v7.0.0
@@ -113,14 +130,6 @@ jobs:
           "CODE_MONIKER_CI_GIT_CURRENT=$currentGit" | Out-File $env:GITHUB_ENV -Append
           "CODE_MONIKER_GIT_BINARY=$currentGit" | Out-File $env:GITHUB_ENV -Append
           "CODE_MONIKER_EXPECTED_GIT_VERSION=$((& $currentGit --version).Trim())" | Out-File $env:GITHUB_ENV -Append
-
-      - name: Test Windows daemon primitives
-        run: cargo test -p code-moniker-query -p code-moniker-daemon -p code-moniker-daemon-client
-
-      - name: Prove Windows source refresh is independent from Git
-        run: |
-          cargo test -p code-moniker-workspace complete_source_refresh_does_not_invoke_the_git_change_overlay
-          cargo test -p code-moniker-workspace git_runtime
 
       - name: Record native Windows environment
         shell: pwsh
@@ -168,7 +177,9 @@ jobs:
             }
           }
 
-      - name: Build the release-shaped Windows CLI with daemon support
+      # Rust unit tests already run once on Linux. Windows compiles one release
+      # binary, then all native Git, daemon, and package proofs reuse it.
+      - name: Build the single Windows CLI under test
         run: cargo build -p code-moniker --features mcp --release
 
       - name: Prove the Windows index is independent from an exact Git path
@@ -256,12 +267,13 @@ jobs:
             }
           }
           "@
-          $fakeProject = Join-Path $env:RUNNER_TEMP "code-moniker-fake-git"
-          dotnet new console --framework net8.0 --output $fakeProject --force
-          Set-Content -Path (Join-Path $fakeProject "Program.cs") -Value $fakeSource
-          dotnet publish $fakeProject --configuration Release --runtime win-x64 --self-contained false -p:UseAppHost=true -p:AssemblyName=git --output (Split-Path $fakeGit)
-          if (!(Test-Path $fakeGit)) { throw "dotnet did not publish the fake Git executable" }
-          # Exclude the one-time .NET app-host startup from Git's two-second
+          $fakeSourcePath = Join-Path $env:RUNNER_TEMP "code-moniker-fake-git.cs"
+          Set-Content -Path $fakeSourcePath -Value $fakeSource
+          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (!(Test-Path $csc)) { throw "the Windows runner does not provide the .NET Framework compiler: $csc" }
+          & $csc /nologo /optimize+ /target:exe "/out:$fakeGit" $fakeSourcePath
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $fakeGit)) { throw "csc did not compile the fake Git executable" }
+          # Exclude the one-time .NET runtime startup from Git's two-second
           # production deadline. Native Git was timed cold above; this fixture
           # exists to exercise typed failures and process-tree cleanup.
           & $fakeGit --version | Out-Null
@@ -314,8 +326,8 @@ jobs:
         run: npm ci --omit=optional
         working-directory: packages/client
 
-      - name: Test the reusable client package
-        run: npm test
+      - name: Test Windows-specific client behavior
+        run: npm run test:unit
         working-directory: packages/client
 
       - name: Prove Node Git diagnostic taxonomy against the Windows executable
@@ -350,6 +362,7 @@ jobs:
   linux-static-runtime:
     name: Static Linux npm runtime
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -442,32 +455,3 @@ jobs:
         run: |
           npm ci --omit=optional
           npm run test:daemon:packaged -- linux-x64 ../../target/x86_64-unknown-linux-musl/debug/code-moniker
-
-  bench-smoke:
-    name: criterion benches compile and run once
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Bench smoke (single iteration, no measurement)
-        run: cargo bench -p code-moniker-workspace --benches -- --test
-
-  mcp-tests:
-    name: mcp feature tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy on the mcp feature surface
-        run: cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings
-
-      - name: Test the mcp feature surface
-        run: cargo test -p code-moniker --features mcp --no-default-features --lib
