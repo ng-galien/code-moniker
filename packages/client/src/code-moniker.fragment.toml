@@ -33,19 +33,12 @@ same bounded failure behavior and explicit client-side provenance as daemon-owne
 [[ts.shape.callable.where]]
 id = "sdk-git-ownership-process-launches-stay-in-runtime"
 severity = "error"
-expr = "NOT ($client_git_adapter AND NOT name =~ '^__cb_' AND text =~ 'spawn\\(') OR name =~ '^(runDirectProcess|killWindowsProcessTree)$'"
-message = "Client-side process launches must stay inside the bounded Git runtime and its Windows cleanup."
+expr = "NOT ($client_git_adapter AND NOT name =~ '^__cb_' AND text =~ 'spawn\\(') OR name = 'runDirectProcess'"
+message = "Client-side process launches must stay inside the bounded Git runtime."
 rationale = """
-The diff-impact adapter launches only the native supervisor (or Git directly outside Windows) and
-the Windows process-tree cleanup utility. Keeping both launch sites explicit prevents bypasses.
+The diff-impact adapter launches only the native supervisor on Windows or Git directly elsewhere.
+Keeping that launch site explicit prevents bypasses.
 """
-
-[[ts.shape.callable.where]]
-id = "sdk-git-lifecycle-kills-platform-process-tree"
-severity = "error"
-expr = "NOT ($client_git_adapter AND name = 'terminateProcess') OR (text =~ 'process\\.kill\\(-pid' AND text =~ 'killWindowsProcessTree')"
-message = "Node Git cleanup must terminate the Unix process group and enter Windows tree cleanup."
-rationale = "The direct child is not the bounded unit when Git helpers inherit captured output pipes."
 
 [[ts.shape.callable.where]]
 id = "sdk-git-lifecycle-windows-git-uses-native-supervisor"
@@ -53,10 +46,3 @@ severity = "error"
 expr = "NOT ($client_git_adapter AND name = 'runProcess') OR (text =~ 'runWindowsSupervisedProcess' AND text =~ 'supervisor_incompatible')"
 message = "Windows Git execution must fail closed through the packaged native supervisor."
 rationale = "The Rust supervisor attaches Git to a kill-on-close Job Object before resuming it; Node cannot provide equivalent ownership with a post-exit PID heuristic."
-
-[[ts.shape.callable.where]]
-id = "sdk-git-lifecycle-taskkill-is-recursive-and-bounded"
-severity = "error"
-expr = "NOT ($client_git_adapter AND name = 'killWindowsProcessTree') OR (text =~ '\"/T\"' AND text =~ '\"/F\"' AND text =~ 'PROCESS_CLEANUP_TIMEOUT_MS')"
-message = "Windows supervisor cleanup must request recursive forced task termination under its own deadline."
-rationale = "Taskkill bounds only a failed supervisor watchdog; Git descendants are owned by the Rust Job Object."

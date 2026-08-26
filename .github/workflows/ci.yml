@@ -75,12 +75,8 @@ jobs:
         working-directory: packages/client
 
   windows-runtime:
-    name: Windows Git ${{ matrix.git-release }} + daemon + packaged Node client
+    name: Windows Git runtime + daemon + packaged Node client
     runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        git-release: ["2.47.1", current]
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -102,25 +98,21 @@ jobs:
       - name: Select native Git for Windows
         shell: pwsh
         run: |
-          if ("${{ matrix.git-release }}" -eq "2.47.1") {
-            $archive = Join-Path $PWD "PortableGit-2.47.1-64-bit.7z.exe"
-            $install = Join-Path $PWD "Git Runtime 2.47.1"
-            Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.47.1-64-bit.7z.exe" -OutFile $archive
-            & $archive "-o$install" -y | Out-Null
-            $git = Join-Path $install "cmd/git.exe"
-          } else {
-            $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+          $archive = Join-Path $PWD "PortableGit-2.47.1-64-bit.7z.exe"
+          $install = Join-Path $PWD "Git Runtime 2.47.1"
+          Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.47.1-64-bit.7z.exe" -OutFile $archive
+          & $archive "-o$install" -y | Out-Null
+          $portableGit = Join-Path $install "cmd/git.exe"
+          $currentGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+          foreach ($git in @($portableGit, $currentGit)) {
+            if (!(Test-Path $git)) { throw "the selected absolute Git path must exist: $git" }
           }
-          if (!(Test-Path $git)) {
-            throw "the selected absolute Git path must exist: $git"
-          }
-          if ("${{ matrix.git-release }}" -eq "2.47.1" -and !$git.Contains(" ")) {
-            throw "the portable Git path must contain spaces: $git"
-          }
-          $version = (& $git --version).Trim()
-          "CODE_MONIKER_CI_GIT=$git" | Out-File $env:GITHUB_ENV -Append
-          "CODE_MONIKER_GIT_BINARY=$git" | Out-File $env:GITHUB_ENV -Append
-          "CODE_MONIKER_EXPECTED_GIT_VERSION=$version" | Out-File $env:GITHUB_ENV -Append
+          if (!$portableGit.Contains(" ")) { throw "the portable Git path must contain spaces: $portableGit" }
+          "CODE_MONIKER_CI_GIT=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_CI_GIT_247=$portableGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_CI_GIT_CURRENT=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_GIT_BINARY=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_EXPECTED_GIT_VERSION=$((& $currentGit --version).Trim())" | Out-File $env:GITHUB_ENV -Append
 
       - name: Test Windows daemon primitives
         run: cargo test -p code-moniker-query -p code-moniker-daemon -p code-moniker-daemon-client
@@ -140,34 +132,40 @@ jobs:
       - name: Prove native Git diagnostics and basic commands are fast
         shell: pwsh
         run: |
-          $git = $env:CODE_MONIKER_CI_GIT
-          "git=$git" | Out-File windows-runtime-environment.txt -Append
-          $watch = [Diagnostics.Stopwatch]::StartNew()
-          & $git --version | Out-File windows-runtime-environment.txt -Append
-          $exitCode = $LASTEXITCODE
-          $watch.Stop()
-          $version = $watch.Elapsed
-          if ($exitCode -ne 0) { throw "git --version failed with exit code $exitCode" }
-          New-Item -ItemType Directory -Path git-probe-workspace | Out-Null
-          & $git -C git-probe-workspace init --quiet
-          if ($LASTEXITCODE -ne 0) { throw "git init failed with exit code $LASTEXITCODE" }
-          $watch = [Diagnostics.Stopwatch]::StartNew()
-          & $git -C git-probe-workspace rev-parse --is-inside-work-tree | Out-File windows-runtime-environment.txt -Append
-          $exitCode = $LASTEXITCODE
-          $watch.Stop()
-          $repository = $watch.Elapsed
-          if ($exitCode -ne 0) { throw "git rev-parse failed with exit code $exitCode" }
-          $watch = [Diagnostics.Stopwatch]::StartNew()
-          & $git -C git-probe-workspace status --porcelain | Out-File windows-runtime-environment.txt -Append
-          $exitCode = $LASTEXITCODE
-          $watch.Stop()
-          $status = $watch.Elapsed
-          if ($exitCode -ne 0) { throw "git status failed with exit code $exitCode" }
-          "version_ms=$($version.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
-          "repository_ms=$($repository.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
-          "status_ms=$($status.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
-          if ($version.TotalSeconds -ge 2 -or $repository.TotalSeconds -ge 2 -or $status.TotalSeconds -ge 2) {
-            throw "Git version, repository probe, and status must each complete in under 2 seconds"
+          foreach ($case in @(
+            @{ name = "2.47.1"; git = $env:CODE_MONIKER_CI_GIT_247 },
+            @{ name = "current"; git = $env:CODE_MONIKER_CI_GIT_CURRENT }
+          )) {
+            $git = $case.git
+            $workspace = "git-probe-workspace-$($case.name)"
+            "git_$($case.name)=$git" | Out-File windows-runtime-environment.txt -Append
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git --version | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $version = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git --version failed with exit code $exitCode" }
+            New-Item -ItemType Directory -Path $workspace | Out-Null
+            & $git -C $workspace init --quiet
+            if ($LASTEXITCODE -ne 0) { throw "git init failed with exit code $LASTEXITCODE" }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git -C $workspace rev-parse --is-inside-work-tree | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $repository = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git rev-parse failed with exit code $exitCode" }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git -C $workspace status --porcelain | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $status = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git status failed with exit code $exitCode" }
+            "$($case.name)_version_ms=$($version.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            "$($case.name)_repository_ms=$($repository.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            "$($case.name)_status_ms=$($status.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            if ($version.TotalSeconds -ge 2 -or $repository.TotalSeconds -ge 2 -or $status.TotalSeconds -ge 2) {
+              throw "Git version, repository probe, and status must each complete in under 2 seconds"
+            }
           }
 
       - name: Build the release-shaped Windows CLI with daemon support
@@ -176,27 +174,36 @@ jobs:
       - name: Prove the Windows index is independent from an exact Git path
         shell: pwsh
         run: |
-          $git = $env:CODE_MONIKER_CI_GIT
-          Set-Content -Path git-probe-workspace/source.rs -Value "pub fn base() {}"
-          & $git -C git-probe-workspace config user.email code-moniker@example.test
-          & $git -C git-probe-workspace config user.name "Code Moniker"
-          & $git -C git-probe-workspace add source.rs
-          & $git -C git-probe-workspace commit --quiet -m base
-          Add-Content -Path git-probe-workspace/source.rs -Value "pub fn changed() {}"
-          $env:CODE_MONIKER_GIT_BINARY = $git
-          & target/release/code-moniker.exe stats git-probe-workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & target/release/code-moniker.exe diff git-probe-workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item Env:CODE_MONIKER_GIT_BINARY
-          $env:PATH = "$(Split-Path $git);$env:PATH"
-          & target/release/code-moniker.exe diff git-probe-workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
-          if ($LASTEXITCODE -ne 0) { throw "PATH discovery did not use the selected Git" }
+          $originalPath = $env:PATH
+          foreach ($case in @(
+            @{ name = "2.47.1"; git = $env:CODE_MONIKER_CI_GIT_247 },
+            @{ name = "current"; git = $env:CODE_MONIKER_CI_GIT_CURRENT }
+          )) {
+            $git = $case.git
+            $workspace = "git-probe-workspace-$($case.name)"
+            Set-Content -Path "$workspace/source.rs" -Value "pub fn base() {}"
+            & $git -C $workspace config user.email code-moniker@example.test
+            & $git -C $workspace config user.name "Code Moniker"
+            & $git -C $workspace add source.rs
+            & $git -C $workspace commit --quiet -m base
+            Add-Content -Path "$workspace/source.rs" -Value "pub fn changed() {}"
+            $env:CODE_MONIKER_GIT_BINARY = $git
+            & target/release/code-moniker.exe stats $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Remove-Item Env:CODE_MONIKER_GIT_BINARY
+            $env:PATH = "$(Split-Path $git);$originalPath"
+            & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { throw "PATH discovery did not use Git $($case.name)" }
+          }
+          $env:PATH = $originalPath
+          $workspace = "git-probe-workspace-current"
           $env:CODE_MONIKER_GIT_BINARY = (Join-Path $PWD "missing git.exe")
-          & target/release/code-moniker.exe stats git-probe-workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+          & target/release/code-moniker.exe stats $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $watch = [Diagnostics.Stopwatch]::StartNew()
-          & target/release/code-moniker.exe diff git-probe-workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+          & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
           $exitCode = $LASTEXITCODE
           $watch.Stop()
           if ($exitCode -eq 0) { throw "diff unexpectedly accepted a missing explicit Git path" }
@@ -272,7 +279,7 @@ jobs:
             $env:CODE_MONIKER_FAKE_GIT_MODE = $case.mode
             $result = ""
             $watch = [Diagnostics.Stopwatch]::StartNew()
-            $result = & target/release/code-moniker.exe diff git-probe-workspace 2>&1 | Out-String
+            $result = & target/release/code-moniker.exe diff $workspace 2>&1 | Out-String
             $exitCode = $LASTEXITCODE
             $watch.Stop()
             $result | Tee-Object -FilePath windows-git-runtime.log -Append
@@ -332,7 +339,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-daemon-lifecycle-${{ matrix.git-release }}-${{ github.run_id }}
+          name: windows-daemon-lifecycle-${{ github.run_id }}
           path: |
             windows-runtime-environment.txt
             windows-git-runtime.log

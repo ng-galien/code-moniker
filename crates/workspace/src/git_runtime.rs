@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -51,11 +50,6 @@ pub struct GitRootDiagnostic {
 	pub root: PathBuf,
 	pub state: GitRootState,
 	pub repository_root: Option<PathBuf>,
-	pub detail: GitRootDetail,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GitRootDetail {
 	pub failure: Option<GitFailure>,
 	pub message: String,
 }
@@ -90,10 +84,8 @@ impl GitDiagnostic {
 					root: root.clone(),
 					state: GitRootState::Unavailable,
 					repository_root: None,
-					detail: GitRootDetail {
-						failure: None,
-						message: "Git diagnostic is still checking".to_string(),
-					},
+					failure: None,
+					message: "Git diagnostic is still checking".to_string(),
 				})
 				.collect(),
 		}
@@ -129,7 +121,7 @@ impl Default for GitRuntimeConfig {
 pub struct GitRuntime {
 	config: GitRuntimeConfig,
 	diagnostic: Arc<RwLock<GitDiagnostic>>,
-	root_diagnostics: Arc<RwLock<HashMap<Vec<PathBuf>, GitDiagnostic>>>,
+	root_diagnostics: Arc<RwLock<Vec<GitRootDiagnostic>>>,
 	probe_gate: Arc<Mutex<()>>,
 	resolver: Arc<GitResolver>,
 }
@@ -185,10 +177,11 @@ pub fn process_git_runtime() -> &'static GitRuntime {
 
 impl GitRuntime {
 	pub fn new(config: GitRuntimeConfig, roots: &[PathBuf]) -> Self {
+		let checking = GitDiagnostic::checking(roots);
 		Self {
 			config,
-			diagnostic: Arc::new(RwLock::new(GitDiagnostic::checking(roots))),
-			root_diagnostics: Arc::new(RwLock::new(HashMap::new())),
+			diagnostic: Arc::new(RwLock::new(GitDiagnostic::checking(&[]))),
+			root_diagnostics: Arc::new(RwLock::new(checking.roots)),
 			probe_gate: Arc::new(Mutex::new(())),
 			resolver: Arc::new(GitResolver::default()),
 		}
@@ -199,29 +192,33 @@ impl GitRuntime {
 	}
 
 	pub fn diagnostic(&self) -> GitDiagnostic {
-		self.diagnostic
+		let mut diagnostic = self
+			.diagnostic
 			.read()
 			.unwrap_or_else(|error| error.into_inner())
-			.clone()
+			.clone();
+		diagnostic.roots = self
+			.root_diagnostics
+			.read()
+			.unwrap_or_else(|error| error.into_inner())
+			.clone();
+		diagnostic
 	}
 
 	pub fn diagnostic_for(&self, roots: &[PathBuf]) -> GitDiagnostic {
 		if roots.is_empty() {
 			return self.diagnostic();
 		}
-		let diagnostics = self
+		let diagnostic = self
+			.diagnostic
+			.read()
+			.unwrap_or_else(|error| error.into_inner())
+			.clone();
+		let root_diagnostics = self
 			.root_diagnostics
 			.read()
 			.unwrap_or_else(|error| error.into_inner());
-		if let Some(diagnostic) = diagnostics.get(roots) {
-			return diagnostic.clone();
-		}
-		diagnostics
-			.iter()
-			.filter(|(cached_roots, _)| roots.iter().all(|root| cached_roots.contains(root)))
-			.min_by_key(|(cached_roots, _)| cached_roots.len())
-			.map(|(_, diagnostic)| project_diagnostic(diagnostic, roots))
-			.unwrap_or_else(|| GitDiagnostic::checking(roots))
+		compose_root_diagnostic(diagnostic, &root_diagnostics, roots)
 	}
 
 	pub fn probe(&self, roots: &[PathBuf]) -> GitDiagnostic {
@@ -243,13 +240,33 @@ impl GitRuntime {
 	}
 
 	pub fn text(&self, cwd: &Path, args: &[&str]) -> Result<String, GitRuntimeError> {
-		let output = self.run(cwd, args)?;
-		let result = output_text(output);
-		if let Err(error) = &result {
-			record_root_execution_failure(self, cwd, error);
-		}
-		result
+		output_text(self.run(cwd, args)?)
 	}
+}
+
+fn compose_root_diagnostic(
+	mut diagnostic: GitDiagnostic,
+	cached_roots: &[GitRootDiagnostic],
+	roots: &[PathBuf],
+) -> GitDiagnostic {
+	let missing_root = roots
+		.iter()
+		.any(|root| !cached_roots.iter().any(|candidate| candidate.root == *root));
+	if diagnostic.state == GitDiagnosticState::Available && missing_root {
+		diagnostic.state = GitDiagnosticState::Checking;
+	}
+	let process_diagnostic = diagnostic.clone();
+	diagnostic.roots = roots
+		.iter()
+		.map(|root| {
+			cached_roots
+				.iter()
+				.find(|candidate| candidate.root == *root)
+				.cloned()
+				.unwrap_or_else(|| root_for_process_diagnostic(&process_diagnostic, root))
+		})
+		.collect();
+	diagnostic
 }
 
 pub fn git_fast_text(cwd: &Path, args: &[&str]) -> Result<String, GitRuntimeError> {
@@ -261,11 +278,7 @@ pub fn git_fast_text(cwd: &Path, args: &[&str]) -> Result<String, GitRuntimeErro
 		runtime.config.probe_timeout,
 		PROBE_OUTPUT_LIMIT,
 	)?;
-	let result = output_text(output);
-	if let Err(error) = &result {
-		record_root_execution_failure(runtime, cwd, error);
-	}
-	result
+	output_text(output)
 }
 
 pub fn run_git_executable_bounded(
@@ -300,7 +313,11 @@ fn run_runtime(
 	let resolved = usable_git(runtime)?;
 	let result = run_bounded(&resolved.executable, cwd, args, timeout, output_limit);
 	if let Err(error) = &result {
-		record_execution_failure(runtime, &resolved, cwd, error);
+		if error.category == "command_failed" && is_not_repository_failure(&error.message) {
+			record_not_repository(runtime, cwd, error);
+		} else if error.category != "command_failed" {
+			record_execution_failure(runtime, &resolved, cwd, error);
+		}
 	}
 	result
 }
@@ -341,33 +358,39 @@ fn probe_runtime(runtime: &GitRuntime, roots: &[PathBuf], force: bool) -> GitDia
 	};
 	diagnostic.checked_at_unix_ms = Some(checked_at_unix_ms);
 	diagnostic.duration_ms = Some(duration_ms(started.elapsed()));
+	let mut process_diagnostic = diagnostic.clone();
+	process_diagnostic.roots.clear();
 	*runtime
 		.diagnostic
 		.write()
-		.unwrap_or_else(|error| error.into_inner()) = diagnostic.clone();
+		.unwrap_or_else(|error| error.into_inner()) = process_diagnostic;
 	if !roots.is_empty() {
-		runtime
+		let mut cached_roots = runtime
 			.root_diagnostics
 			.write()
-			.unwrap_or_else(|error| error.into_inner())
-			.insert(roots.to_vec(), diagnostic.clone());
+			.unwrap_or_else(|error| error.into_inner());
+		for root in &diagnostic.roots {
+			if let Some(cached) = cached_roots
+				.iter_mut()
+				.find(|cached| cached.root == root.root)
+			{
+				*cached = root.clone();
+			} else {
+				cached_roots.push(root.clone());
+			}
+		}
 	}
 	diagnostic
 }
 
-fn project_diagnostic(diagnostic: &GitDiagnostic, roots: &[PathBuf]) -> GitDiagnostic {
-	let mut projected = diagnostic.clone();
-	projected.roots = roots
-		.iter()
-		.filter_map(|root| {
-			diagnostic
-				.roots
-				.iter()
-				.find(|candidate| candidate.root == *root)
-				.cloned()
-		})
-		.collect();
-	projected
+fn root_for_process_diagnostic(diagnostic: &GitDiagnostic, root: &Path) -> GitRootDiagnostic {
+	if let Some(failure) = &diagnostic.failure {
+		return unavailable_root_diagnostic(root, &failure.category, &failure.message);
+	}
+	GitDiagnostic::checking(&[root.to_path_buf()])
+		.roots
+		.pop()
+		.expect("one checking root")
 }
 
 fn probe_gate_timeout(runtime: &GitRuntime, roots: &[PathBuf], elapsed: Duration) -> GitDiagnostic {
@@ -656,26 +679,22 @@ fn probe_root(
 				root: root.to_path_buf(),
 				state: GitRootState::NotRepository,
 				repository_root: None,
-				detail: GitRootDetail {
-					failure: Some(GitFailure {
-						category: "not_repository".to_string(),
-						message: sanitize(&error.message),
-					}),
-					message: "root is not inside a Git worktree".to_string(),
-				},
+				failure: Some(GitFailure {
+					category: "not_repository".to_string(),
+					message: sanitize(&error.message),
+				}),
+				message: "root is not inside a Git worktree".to_string(),
 			}
 		}
 		Err(error) => GitRootDiagnostic {
 			root: root.to_path_buf(),
 			state: GitRootState::Unavailable,
 			repository_root: None,
-			detail: GitRootDetail {
-				failure: Some(GitFailure {
-					category: error.category,
-					message: error.message.to_owned(),
-				}),
-				message: error.message,
-			},
+			failure: Some(GitFailure {
+				category: error.category,
+				message: error.message.to_owned(),
+			}),
+			message: error.message,
 		},
 	}
 }
@@ -729,13 +748,11 @@ fn available_root_diagnostic(
 					root: root.to_path_buf(),
 					state: GitRootState::Unavailable,
 					repository_root: None,
-					detail: GitRootDetail {
-						failure: Some(GitFailure {
-							category: error.category,
-							message: error.message.to_owned(),
-						}),
-						message: error.message,
-					},
+					failure: Some(GitFailure {
+						category: error.category,
+						message: error.message.to_owned(),
+					}),
+					message: error.message,
 				};
 			}
 		};
@@ -768,18 +785,16 @@ fn available_root_diagnostic(
 			GitRootState::NotRepository
 		},
 		repository_root,
-		detail: GitRootDetail {
-			failure: (!inside && !bare).then(|| GitFailure {
-				category: "not_repository".to_string(),
-				message: "root is not a Git repository".to_string(),
-			}),
-			message: if inside {
-				"Git worktree is available".to_string()
-			} else if bare {
-				"Git repository has no worktree".to_string()
-			} else {
-				"root is not a Git repository".to_string()
-			},
+		failure: (!inside && !bare).then(|| GitFailure {
+			category: "not_repository".to_string(),
+			message: "root is not a Git repository".to_string(),
+		}),
+		message: if inside {
+			"Git worktree is available".to_string()
+		} else if bare {
+			"Git repository has no worktree".to_string()
+		} else {
+			"root is not a Git repository".to_string()
 		},
 	}
 }
@@ -789,13 +804,11 @@ fn unavailable_root_diagnostic(root: &Path, category: &str, message: &str) -> Gi
 		root: root.to_path_buf(),
 		state: GitRootState::Unavailable,
 		repository_root: None,
-		detail: GitRootDetail {
-			failure: Some(GitFailure {
-				category: category.to_string(),
-				message: sanitize(message),
-			}),
+		failure: Some(GitFailure {
+			category: category.to_string(),
 			message: sanitize(message),
-		},
+		}),
+		message: sanitize(message),
 	}
 }
 
@@ -811,13 +824,11 @@ fn exhausted_root_diagnostic(root: &Path) -> GitRootDiagnostic {
 		root: root.to_path_buf(),
 		state: GitRootState::Unavailable,
 		repository_root: None,
-		detail: GitRootDetail {
-			failure: Some(GitFailure {
-				category: "timed_out".to_string(),
-				message: "Git diagnostic time budget was exhausted".to_string(),
-			}),
+		failure: Some(GitFailure {
+			category: "timed_out".to_string(),
 			message: "Git diagnostic time budget was exhausted".to_string(),
-		},
+		}),
+		message: "Git diagnostic time budget was exhausted".to_string(),
 	}
 }
 
@@ -846,13 +857,13 @@ fn record_execution_failure(
 	diagnostic.checked_at_unix_ms = Some(unix_timestamp_ms());
 	diagnostic.duration_ms = None;
 	apply_execution_failure(&mut diagnostic, error);
-	for diagnostic in runtime
+	for root in runtime
 		.root_diagnostics
 		.write()
 		.unwrap_or_else(|poisoned| poisoned.into_inner())
-		.values_mut()
+		.iter_mut()
 	{
-		apply_execution_failure(diagnostic, error);
+		apply_root_failure(root, error);
 	}
 }
 
@@ -871,40 +882,45 @@ fn executable_permission_lost(_executable: &Path) -> bool {
 }
 
 fn record_root_execution_failure(runtime: &GitRuntime, cwd: &Path, error: &GitRuntimeError) {
-	apply_root_execution_failure(
-		&mut runtime
-			.diagnostic
-			.write()
-			.unwrap_or_else(|poisoned| poisoned.into_inner()),
-		cwd,
-		error,
-	);
-	for diagnostic in runtime
+	for root in runtime
 		.root_diagnostics
 		.write()
 		.unwrap_or_else(|poisoned| poisoned.into_inner())
-		.values_mut()
+		.iter_mut()
 	{
-		apply_root_execution_failure(diagnostic, cwd, error);
+		if cwd.starts_with(&root.root) || root.root.starts_with(cwd) {
+			apply_root_failure(root, error);
+		}
 	}
 }
 
-fn apply_root_execution_failure(
-	diagnostic: &mut GitDiagnostic,
-	cwd: &Path,
-	error: &GitRuntimeError,
-) {
-	for root in &mut diagnostic.roots {
+fn record_not_repository(runtime: &GitRuntime, cwd: &Path, error: &GitRuntimeError) {
+	for root in runtime
+		.root_diagnostics
+		.write()
+		.unwrap_or_else(|poisoned| poisoned.into_inner())
+		.iter_mut()
+	{
 		if cwd.starts_with(&root.root) || root.root.starts_with(cwd) {
-			root.state = GitRootState::Unavailable;
+			root.state = GitRootState::NotRepository;
 			root.repository_root = None;
-			root.detail.failure = Some(GitFailure {
-				category: error.category.clone(),
-				message: error.message.clone(),
+			root.failure = Some(GitFailure {
+				category: "not_repository".to_string(),
+				message: sanitize(&error.message),
 			});
-			root.detail.message.clone_from(&error.message);
+			root.message = "root is not inside a Git worktree".to_string();
 		}
 	}
+}
+
+fn apply_root_failure(root: &mut GitRootDiagnostic, error: &GitRuntimeError) {
+	root.state = GitRootState::Unavailable;
+	root.repository_root = None;
+	root.failure = Some(GitFailure {
+		category: error.category.clone(),
+		message: error.message.clone(),
+	});
+	root.message.clone_from(&error.message);
 }
 
 fn apply_execution_failure(diagnostic: &mut GitDiagnostic, error: &GitRuntimeError) {
@@ -921,11 +937,11 @@ fn apply_execution_failure(diagnostic: &mut GitDiagnostic, error: &GitRuntimeErr
 	});
 	for root in &mut diagnostic.roots {
 		root.state = GitRootState::Unavailable;
-		root.detail.failure = Some(GitFailure {
+		root.failure = Some(GitFailure {
 			category: category.to_owned(),
 			message: message.to_owned(),
 		});
-		root.detail.message.clone_from(&message);
+		root.message.clone_from(&message);
 	}
 }
 
@@ -1481,13 +1497,11 @@ fn unavailable_roots(roots: &[PathBuf], category: &str, message: &str) -> Vec<Gi
 			root: root.clone(),
 			state: GitRootState::Unavailable,
 			repository_root: None,
-			detail: GitRootDetail {
-				failure: Some(GitFailure {
-					category: category.to_string(),
-					message: sanitize(message),
-				}),
+			failure: Some(GitFailure {
+				category: category.to_string(),
 				message: sanitize(message),
-			},
+			}),
+			message: sanitize(message),
 		})
 		.collect()
 }
@@ -1803,11 +1817,93 @@ mod tests {
 		assert_eq!(root_diagnostic.roots[0].state, GitRootState::Unavailable);
 		assert_eq!(
 			root_diagnostic.roots[0]
-				.detail
 				.failure
 				.as_ref()
 				.map(|failure| failure.category.as_str()),
 			Some("timed_out")
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn rejected_git_argument_does_not_poison_root_availability() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let temp = tempfile::tempdir().expect("tempdir");
+		let git = temp.path().join("fake git");
+		std::fs::write(
+			&git,
+			"#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.50.1'; elif [ \"$2\" = --show-toplevel ]; then pwd; elif [ \"$3\" = bad-ref ]; then echo 'fatal: bad revision' >&2; exit 128; else printf 'true\\nfalse\\n'; fi\n",
+		)
+		.expect("fake git");
+		let mut permissions = std::fs::metadata(&git).expect("metadata").permissions();
+		permissions.set_mode(0o755);
+		std::fs::set_permissions(&git, permissions).expect("permissions");
+		let roots = vec![temp.path().to_path_buf()];
+		let runtime = GitRuntime::new(
+			GitRuntimeConfig {
+				explicit_binary: Some(git),
+				probe_timeout: Duration::from_secs(5),
+				command_timeout: Duration::from_secs(1),
+				output_limit: 1024,
+			},
+			&roots,
+		);
+		assert_eq!(runtime.probe(&roots).roots[0].state, GitRootState::Worktree);
+
+		let error = runtime
+			.text(temp.path(), &["rev-parse", "--verify", "bad-ref"])
+			.expect_err("the invalid revision must still fail");
+		assert_eq!(error.category, "command_failed");
+		assert_eq!(
+			runtime.diagnostic_for(&roots).roots[0].state,
+			GitRootState::Worktree
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn repository_loss_invalidates_the_cached_root_diagnostic() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let temp = tempfile::tempdir().expect("tempdir");
+		let root = temp.path().join("workspace");
+		std::fs::create_dir(&root).expect("workspace");
+		std::fs::create_dir(root.join(".git")).expect("git directory");
+		let git = temp.path().join("fake git");
+		std::fs::write(
+			&git,
+			"#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.50.1'; elif [ ! -d \"$PWD/.git\" ]; then echo 'fatal: not a git repository' >&2; exit 128; elif [ \"$2\" = --show-toplevel ]; then pwd; else printf 'true\\nfalse\\n'; fi\n",
+		)
+		.expect("fake git");
+		let mut permissions = std::fs::metadata(&git).expect("metadata").permissions();
+		permissions.set_mode(0o755);
+		std::fs::set_permissions(&git, permissions).expect("permissions");
+		let roots = vec![root.clone()];
+		let runtime = GitRuntime::new(
+			GitRuntimeConfig {
+				explicit_binary: Some(git),
+				probe_timeout: Duration::from_secs(5),
+				command_timeout: Duration::from_secs(1),
+				output_limit: 1024,
+			},
+			&roots,
+		);
+		assert_eq!(runtime.probe(&roots).roots[0].state, GitRootState::Worktree);
+
+		std::fs::remove_dir(root.join(".git")).expect("remove git directory");
+		let error = runtime
+			.text(&root, &["status"])
+			.expect_err("the command must observe repository loss");
+		assert_eq!(error.category, "command_failed");
+		let diagnostic = runtime.diagnostic_for(&roots);
+		assert_eq!(diagnostic.roots[0].state, GitRootState::NotRepository);
+		assert_eq!(
+			diagnostic.roots[0]
+				.failure
+				.as_ref()
+				.map(|failure| failure.category.as_str()),
+			Some("not_repository")
 		);
 	}
 
@@ -1917,7 +2013,7 @@ mod tests {
 		let runtime = GitRuntime::new(
 			GitRuntimeConfig {
 				explicit_binary: Some(git),
-				probe_timeout: Duration::from_secs(1),
+				probe_timeout: Duration::from_secs(5),
 				command_timeout: Duration::from_millis(100),
 				output_limit: 1024,
 			},
@@ -1948,7 +2044,7 @@ mod tests {
 		let runtime = GitRuntime::new(
 			GitRuntimeConfig {
 				explicit_binary: Some(git),
-				probe_timeout: Duration::from_secs(1),
+				probe_timeout: Duration::from_secs(5),
 				command_timeout: Duration::from_millis(100),
 				output_limit: 1024,
 			},
@@ -1958,7 +2054,6 @@ mod tests {
 		assert_eq!(diagnostic.roots[0].state, GitRootState::Unavailable);
 		assert_eq!(
 			diagnostic.roots[0]
-				.detail
 				.failure
 				.as_ref()
 				.map(|failure| failure.category.as_str()),
@@ -2008,8 +2103,7 @@ mod tests {
 				.all(|root| root.state == GitRootState::Unavailable)
 		);
 		assert!(diagnostic.roots.iter().all(|root| {
-			root.detail
-				.failure
+			root.failure
 				.as_ref()
 				.map(|failure| failure.category.as_str())
 				== Some("timed_out")
@@ -2019,7 +2113,7 @@ mod tests {
 
 	#[cfg(unix)]
 	#[test]
-	fn root_diagnostics_are_cached_by_workspace_roots() {
+	fn root_diagnostics_are_cached_per_root() {
 		use std::os::unix::fs::PermissionsExt;
 
 		let temp = tempfile::tempdir().expect("tempdir");
@@ -2039,7 +2133,7 @@ mod tests {
 		let runtime = GitRuntime::new(
 			GitRuntimeConfig {
 				explicit_binary: Some(git),
-				probe_timeout: Duration::from_millis(100),
+				probe_timeout: Duration::from_secs(5),
 				command_timeout: Duration::from_millis(100),
 				output_limit: 1024,
 			},
@@ -2054,6 +2148,54 @@ mod tests {
 		runtime.probe(&second);
 		assert_eq!(runtime.diagnostic_for(&first).roots[0].root, first[0]);
 		assert_eq!(runtime.diagnostic_for(&second).roots[0].root, second[0]);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn targeted_reprobe_refreshes_the_aggregate_diagnostic() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let temp = tempfile::tempdir().expect("tempdir");
+		let git = temp.path().join("fake git");
+		std::fs::write(
+			&git,
+			"#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.50.1'; elif [ \"$2\" = --show-toplevel ]; then pwd; else printf 'true\\nfalse\\n'; fi\n",
+		)
+		.expect("fake git");
+		let mut permissions = std::fs::metadata(&git).expect("metadata").permissions();
+		permissions.set_mode(0o755);
+		std::fs::set_permissions(&git, permissions).expect("permissions");
+		let roots = vec![temp.path().join("one"), temp.path().join("two")];
+		for root in &roots {
+			std::fs::create_dir(root).expect("root");
+		}
+		let runtime = GitRuntime::new(
+			GitRuntimeConfig {
+				explicit_binary: Some(git),
+				probe_timeout: Duration::from_secs(5),
+				command_timeout: Duration::from_secs(1),
+				output_limit: 1024,
+			},
+			&roots,
+		);
+		runtime.probe(&roots);
+		record_root_execution_failure(
+			&runtime,
+			&roots[0],
+			&GitRuntimeError {
+				category: "timed_out".to_string(),
+				message: "temporary root failure".to_string(),
+			},
+		);
+		assert_eq!(
+			runtime.diagnostic_for(&roots).roots[0].state,
+			GitRootState::Unavailable
+		);
+
+		runtime.probe(&roots[..1]);
+		let aggregate = runtime.diagnostic_for(&roots);
+		assert_eq!(aggregate.roots[0].state, GitRootState::Worktree);
+		assert_eq!(aggregate.roots[1].state, GitRootState::Worktree);
 	}
 
 	#[cfg(windows)]

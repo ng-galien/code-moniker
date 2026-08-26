@@ -20,7 +20,6 @@ const GIT_PROBE_OUTPUT_LIMIT = 64 * 1024;
 const GIT_PROBE_TIMEOUT_MS = 2_000;
 const GIT_COMMAND_TIMEOUT_MS = 30_000;
 const PROCESS_CLEANUP_TIMEOUT_MS = 1_000;
-const MAX_GIT_COMMAND_TIMEOUT_MS = 2_147_483_647 - PROCESS_CLEANUP_TIMEOUT_MS;
 const GIT_BINARY_ENV = "CODE_MONIKER_GIT_BINARY";
 const SUPPORTED_GIT_VERSION_RANGE = ">=2.22.0";
 const GIT_RESOLUTION_RETRY_BACKOFF_MS = 1_000;
@@ -34,7 +33,6 @@ export interface GitDiffImpactOptions {
 	project?: string;
 	ticket?: string;
 	gitBinary?: string;
-	gitTimeoutMs?: number;
 	environment?: Record<string, string | undefined>;
 	binaryCandidates?: readonly [string, ...string[]];
 }
@@ -633,7 +631,7 @@ class GitRevisionSource {
 	private git(args: string[], includeRepository = true): Promise<string> {
 		return this.client.run(
 			includeRepository ? [...this.repositoryArguments, ...args] : args,
-			this.options.gitTimeoutMs ?? GIT_COMMAND_TIMEOUT_MS,
+			GIT_COMMAND_TIMEOUT_MS,
 			GIT_OUTPUT_LIMIT,
 		);
 	}
@@ -940,13 +938,15 @@ class GitClient {
 			const notRepository = failure.category === "command_failed"
 				&& /not a git repository/i.test(failure.message);
 			if (notRepository) failure.category = "not_repository";
-			const state = error instanceof GitRuntimeError ? error.state : processFailureState(error);
+			const state = notRepository
+				? "unavailable"
+				: error instanceof GitRuntimeError ? error.state : processFailureState(error);
 			this.currentDiagnostic = {
 				...this.currentDiagnostic,
 				state,
 				checkedAt: new Date().toISOString(),
 				durationMs: Math.ceil(performance.now() - started),
-				repositoryState: "unavailable",
+				repositoryState: notRepository ? "not_repository" : "unavailable",
 				failure,
 			};
 			throw new GitRuntimeError(
@@ -998,13 +998,6 @@ class GitClient {
 	}
 
 	async run(args: string[], timeoutMs: number, maxBuffer: number): Promise<string> {
-		if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_GIT_COMMAND_TIMEOUT_MS) {
-			return Promise.reject(new ProcessExecutionError(
-				`gitTimeoutMs must be an integer between 1 and ${MAX_GIT_COMMAND_TIMEOUT_MS}`,
-				false,
-				"invalid_configuration",
-			));
-		}
 		try {
 			return await runProcess(
 				this.executable,
@@ -1015,11 +1008,19 @@ class GitClient {
 				this.supervisorCandidates,
 			);
 		} catch (error) {
+			const failure = processFailure(error);
+			if (failure.category === "command_failed") {
+				throw new GitRuntimeError(
+					this.currentDiagnostic.state,
+					{ ...this.diagnostic(), failure },
+					messageOf(error),
+				);
+			}
 			const state = processFailureState(error);
 			this.currentDiagnostic = {
 				...this.currentDiagnostic,
 				state,
-				failure: processFailure(error),
+				failure,
 				checkedAt: new Date().toISOString(),
 			};
 			throw new GitRuntimeError(state, this.diagnostic(), messageOf(error));
@@ -1492,9 +1493,7 @@ interface GitSupervisorEnvelope {
 	protocolVersion: number;
 	executable: string;
 	outcome: "ok" | "error";
-	exitCode: number | null;
 	stdoutBase64: string | null;
-	stderrBase64: string | null;
 	category: string | null;
 	message: string | null;
 }
@@ -1550,7 +1549,7 @@ async function runWindowsSupervisedProcess(
 			envelope.category ?? "supervisor_protocol_error",
 		);
 	}
-	if (envelope.exitCode !== 0 || envelope.category !== null || envelope.message !== null) {
+	if (envelope.category !== null || envelope.message !== null) {
 		throw supervisorProtocolError("successful response contains failure fields");
 	}
 	return decodeSupervisorOutput(envelope.stdoutBase64, "stdout", maxBuffer).toString("utf8");
@@ -1575,7 +1574,7 @@ function parseGitSupervisorEnvelope(
 	if (envelope.executable !== executable) throw supervisorProtocolError("executable identity mismatch");
 	if (envelope.outcome !== "ok" && envelope.outcome !== "error") throw supervisorProtocolError("invalid outcome");
 	if (envelope.outcome === "error") {
-		if (envelope.exitCode !== null || envelope.stdoutBase64 !== null || envelope.stderrBase64 !== null) {
+		if (envelope.stdoutBase64 !== null) {
 			throw supervisorProtocolError("failure response contains output fields");
 		}
 		if (typeof envelope.category !== "string" || typeof envelope.message !== "string") {
@@ -1583,7 +1582,6 @@ function parseGitSupervisorEnvelope(
 		}
 	} else {
 		decodeSupervisorOutput(envelope.stdoutBase64, "stdout", maxBuffer);
-		decodeSupervisorOutput(envelope.stderrBase64, "stderr", maxBuffer);
 	}
 	return envelope as GitSupervisorEnvelope;
 }
@@ -1599,7 +1597,7 @@ function decodeSupervisorOutput(value: unknown, stream: string, maxBuffer: numbe
 }
 
 function supervisorEnvelopeLimit(maxBuffer: number): number {
-	return (Math.ceil(maxBuffer / 3) * 4 * 2) + (64 * 1024);
+	return (Math.ceil(maxBuffer / 3) * 4) + (64 * 1024);
 }
 
 function supervisorProtocolError(detail: string): ProcessExecutionError {
@@ -1621,38 +1619,11 @@ async function terminateProcess(
 			// The process may have exited between the timer and termination.
 		}
 	}
-	if (pid !== undefined && process.platform === "win32") {
-		await killWindowsProcessTree(pid);
-	}
 	try {
 		kill("SIGKILL");
 	} catch {
 		// Exit observation below remains the source of truth.
 	}
-}
-
-function killWindowsProcessTree(pid: number): Promise<void> {
-	const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
-	if (systemRoot === undefined || !isAbsolute(systemRoot)) return Promise.resolve();
-	return new Promise((resolveCleanup) => {
-		const taskkill = spawn(join(systemRoot, "System32", "taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
-			stdio: "ignore",
-			windowsHide: true,
-		});
-		let done = false;
-		const timer = setTimeout(() => {
-			try { taskkill.kill("SIGKILL"); } catch { /* cleanup is best effort */ }
-			finish();
-		}, PROCESS_CLEANUP_TIMEOUT_MS);
-		taskkill.once("error", finish);
-		taskkill.once("close", finish);
-		function finish() {
-			if (done) return;
-			done = true;
-			clearTimeout(timer);
-			resolveCleanup();
-		}
-	});
 }
 
 function messageOf(error: unknown): string {

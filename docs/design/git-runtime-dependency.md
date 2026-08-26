@@ -159,20 +159,20 @@ output pipes close. On Windows the Node adapter never launches Git directly:
 it invokes the hidden, versioned `__git-runtime` mode of the same packaged
 Code Moniker binary selected for the owned daemon. That helper attaches Git to
 the Job Object before resuming it, owns the captured pipes, and returns one
-strict JSON envelope with base64 output. A missing, old, partial or malformed
+strict JSON envelope with bounded base64 stdout. A missing, old, partial or malformed
 helper response fails closed; there is no direct-Node fallback.
 The helper bypasses CLI telemetry so revision arguments and remote URLs never
 enter a command-span payload.
 
 The Rust command deadline remains authoritative. Node gives the helper one
-additional second to return its envelope, then gives helper process-tree
-cleanup at most one further second. A normal Windows timeout therefore returns
-at the Git deadline; the exceptional helper-failure path remains bounded by the
-command budget plus two seconds and reports that cleanup was not observed when
-appropriate. Direct Unix cleanup has one separate one-second ceiling. The Node adapter exposes
-`gitTimeoutMs` for an explicit caller-selected command budget; it must be an
-integer between 1 and 2,147,482,647 milliseconds so the supervisor watchdog
-remains inside Node's timer range.
+additional second to return its envelope, then gives direct helper termination
+at most one further second. Closing the helper closes its kill-on-close Job
+Object and therefore terminates Git and its descendants. A normal Windows
+timeout returns at the Git deadline; the exceptional helper-failure path remains
+bounded by the command budget plus two seconds. Direct Unix cleanup has one
+separate one-second ceiling. The Node adapter keeps the same fixed two-second
+metadata budget and thirty-second general command budget; this reliability
+contract is not exposed as a new public tuning option.
 
 ## Production process inventory
 
@@ -184,7 +184,6 @@ runtime behavior. Every production launch has one of these owners:
 | `workspace::git_runtime` | resolved absolute Git executable | optional dependency |
 | client `diff-impact::runDirectProcess` | resolved absolute Git executable on Unix; packaged Code Moniker supervisor on Windows | optional dependency or self-runtime, client process scope |
 | CLI `git_runtime_supervisor` | resolved absolute Git executable | hidden protocol v1 helper; Windows Job Object owner for the client |
-| client `diff-impact::killWindowsProcessTree` | absolute `%SystemRoot%\\System32\\taskkill.exe` | bounded failed-supervisor cleanup utility, never a Git backend |
 | `daemon-client::start_daemon_process` | Code Moniker daemon executable | self-runtime |
 | client `node::tryLaunchDetached` | packaged Code Moniker daemon | self-runtime |
 | CLI MCP supervisor | Code Moniker stdio worker | self-runtime |
@@ -200,17 +199,11 @@ The structural rules
 `workspace-git-fast-metadata-uses-probe-budget`,
 `workspace-git-ownership-process-launches-stay-in-runtime`,
 `workspace-git-lifecycle-bounded-process-execution`,
-`workspace-git-lifecycle-reaps-terminated-process`,
-`workspace-git-lifecycle-isolates-windows-tree-before-resume`,
-`workspace-git-lifecycle-isolates-unix-process-group`,
-`workspace-git-lifecycle-kills-unix-process-group`,
 `sdk-git-call-flow-enters-bounded-runtime`,
 `sdk-git-fast-metadata-uses-probe-budget`,
 `sdk-git-lifecycle-bounded-process-execution`,
 `sdk-git-ownership-process-launches-stay-in-runtime`,
-`sdk-git-lifecycle-kills-platform-process-tree`,
 `sdk-git-lifecycle-windows-git-uses-native-supervisor`,
-`sdk-git-lifecycle-taskkill-is-recursive-and-bounded`,
 `daemon-git-lifecycle-diagnostic-waits-for-readiness`, and
 `daemon-git-call-flow-gates-only-dependent-queries` make these boundaries
 executable architecture.

@@ -174,6 +174,66 @@ test("cross-language renames are kept in inventory but excluded from semantic an
 	}
 });
 
+test("a blob command failure does not mark the Git runtime unavailable", async (context) => {
+	if (process.platform === "win32") {
+		context.skip("the portable shell wrapper is covered on Unix");
+		return;
+	}
+	const directory = await mkdtemp(join(tmpdir(), "code-moniker-blob-failure-"));
+	const repository = join(directory, "repository");
+	const fakeGit = join(directory, "fake git");
+	const git = (...args) => execFileSync("git", ["-C", repository, ...args], { encoding: "utf8" }).trim();
+	try {
+		execFileSync("git", ["init", "--quiet", repository]);
+		git("config", "user.email", "code-moniker@example.test");
+		git("config", "user.name", "Code Moniker");
+		await writeFile(join(repository, "module.rs"), "pub fn value() -> i32 { 1 }\n");
+		git("add", "module.rs");
+		git("commit", "--quiet", "-m", "base");
+		const base = git("rev-parse", "HEAD");
+		await writeFile(join(repository, "module.rs"), "pub fn value() -> i32 { 2 }\n");
+		git("commit", "--quiet", "-am", "head");
+		const head = git("rev-parse", "HEAD");
+		await writeFile(
+			fakeGit,
+			"#!/bin/sh\nfor arg in \"$@\"; do if [ \"$arg\" = show ]; then echo 'fatal: simulated missing blob' >&2; exit 128; fi; done\nexec git \"$@\"\n",
+		);
+		await chmod(fakeGit, 0o755);
+		const runtime = {
+			async launch() {
+				return { entry: {}, process: { terminate() {}, isRunning() { return false; } } };
+			},
+			async connect() {
+				return {
+					supportsQuery: (query) => query === "diff-impact.compare",
+					diffImpact: {
+						async compare(options) {
+							return {
+								scope: options.scope,
+								summary: { files: 0, analyzable_files: 0, symbol_changes: 0, ref_changes: 0, retargeted_refs: 0, residual_files: 0 },
+								files: [], symbol_changes: [], ref_changes: [], diagnostics: [],
+							};
+						},
+					},
+					close() {},
+				};
+			},
+			async stopOwned() {},
+		};
+
+		const output = await runGitDiffImpact(
+			{ repository, base, head, project: "sample", gitBinary: fakeGit },
+			() => runtime,
+		);
+		assert.equal(output.artifact.inventory.files[0].analyzed, false);
+		assert.match(output.artifact.inventory.files[0].omission, /simulated missing blob/);
+		assert.equal(output.artifact.runtimeDependencies.git.state, "available");
+		assert.equal(output.artifact.runtimeDependencies.git.failure, null);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("the Git diagnostic rejects a non-absolute explicit executable without PATH fallback", async () => {
 	const runtime = {
 		async launch() { throw new Error("runtime must not launch"); },
@@ -319,6 +379,34 @@ test("a successful repository probe with malformed flags is unavailable", async 
 	}
 });
 
+test("a non-repository probe has a consistent unavailable diagnostic", async (context) => {
+	if (process.platform === "win32") {
+		context.skip("the compiled fake Git runtime is exercised by the Windows CI job");
+		return;
+	}
+	const directory = await mkdtemp(join(tmpdir(), "code-moniker-non-repository-git-"));
+	const fakeGit = join(directory, "fake git");
+	try {
+		await writeFile(fakeGit, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.47.1'; else echo 'fatal: not a git repository' >&2; exit 128; fi\n");
+		await chmod(fakeGit, 0o755);
+		await assert.rejects(
+			runGitDiffImpact(
+				{ repository: directory, base: "HEAD", head: "HEAD", gitBinary: fakeGit },
+				() => ({ async launch() { throw new Error("runtime must not launch"); } }),
+			),
+			(error) => {
+				assert.equal(error.state, "unavailable");
+				assert.equal(error.diagnostic.state, "unavailable");
+				assert.equal(error.diagnostic.repositoryState, "not_repository");
+				assert.equal(error.diagnostic.failure.category, "not_repository");
+				return true;
+			},
+		);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("a repository probe timeout preserves the timed_out taxonomy", async (context) => {
 	if (process.platform === "win32") {
 		context.skip("the compiled fake Git runtime is exercised by the Windows CI job");
@@ -380,7 +468,6 @@ esac
 					base: "HEAD",
 					head: "HEAD",
 					gitBinary: fakeGit,
-					gitTimeoutMs: 30_000,
 				},
 				() => ({ async launch() { throw new Error("runtime must not launch"); } }),
 			),

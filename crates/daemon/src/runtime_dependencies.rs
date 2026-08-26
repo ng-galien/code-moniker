@@ -104,7 +104,7 @@ pub(crate) fn git_change_dependency(
 		let failure = diagnostic
 			.roots
 			.iter()
-			.find_map(|root| root.detail.failure.as_ref())
+			.find_map(|root| root.failure.as_ref())
 			.map(|failure| RuntimeDependencyFailureDto {
 				category: failure.category.clone(),
 				message: failure.message.clone(),
@@ -157,7 +157,6 @@ pub(crate) fn gate_git_roots(roots: &[PathBuf]) -> Result<(), QueryError> {
 	let retryable_root = current.roots.iter().any(|root| {
 		root.state == GitRootState::RepositoryOnly
 			|| root
-				.detail
 				.failure
 				.as_ref()
 				.is_some_and(|failure| git_failure_is_retryable(failure.category.as_str()))
@@ -260,14 +259,13 @@ fn dependency_roots(
 				.as_ref()
 				.map(|path| path.display().to_string()),
 			failure: root
-				.detail
 				.failure
 				.as_ref()
 				.map(|failure| RuntimeDependencyFailureDto {
 					category: failure.category.clone(),
 					message: failure.message.clone(),
 				}),
-			message: root.detail.message.clone(),
+			message: root.message.clone(),
 		})
 		.collect()
 }
@@ -372,7 +370,7 @@ fn git_unavailable_error(diagnostic: &GitDiagnostic) -> QueryError {
 			diagnostic
 				.roots
 				.iter()
-				.filter_map(|root| root.detail.failure.as_ref())
+				.filter_map(|root| root.failure.as_ref())
 				.find(|failure| failure.category == "incompatible_version")
 		}) {
 			return query_error_from_failure("runtime_dependency_incompatible", failure);
@@ -385,7 +383,7 @@ fn git_unavailable_error(diagnostic: &GitDiagnostic) -> QueryError {
 	if let Some(failure) = diagnostic
 		.roots
 		.iter()
-		.filter_map(|root| root.detail.failure.as_ref())
+		.filter_map(|root| root.failure.as_ref())
 		.find(|failure| failure.category == "timed_out")
 	{
 		return query_error_from_failure("runtime_dependency_timed_out", failure);
@@ -393,7 +391,7 @@ fn git_unavailable_error(diagnostic: &GitDiagnostic) -> QueryError {
 	if let Some(failure) = diagnostic
 		.roots
 		.iter()
-		.filter_map(|root| root.detail.failure.as_ref())
+		.filter_map(|root| root.failure.as_ref())
 		.find(|failure| failure.category != "not_repository")
 	{
 		return query_error_from_failure("runtime_dependency_unavailable", failure);
@@ -463,7 +461,7 @@ fn root_state(state: GitRootState) -> RuntimeDependencyRootState {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use code_moniker_workspace::git_runtime::{GitFailure, GitRootDetail, GitRootDiagnostic};
+	use code_moniker_workspace::git_runtime::{GitFailure, GitRootDiagnostic};
 
 	#[test]
 	fn checking_diagnostic_projects_selected_roots_without_blocking_status() {
@@ -496,19 +494,15 @@ mod tests {
 					root: roots[0].clone(),
 					state: GitRootState::Worktree,
 					repository_root: Some(roots[0].clone()),
-					detail: GitRootDetail {
-						failure: None,
-						message: "available".to_string(),
-					},
+					failure: None,
+					message: "available".to_string(),
 				},
 				GitRootDiagnostic {
 					root: roots[1].clone(),
 					state: GitRootState::NotRepository,
 					repository_root: None,
-					detail: GitRootDetail {
-						failure: None,
-						message: "not a repository".to_string(),
-					},
+					failure: None,
+					message: "not a repository".to_string(),
 				},
 			],
 		};
@@ -578,13 +572,11 @@ mod tests {
 				root,
 				state: GitRootState::Unavailable,
 				repository_root: None,
-				detail: GitRootDetail {
-					failure: Some(GitFailure {
-						category: "timed_out".to_string(),
-						message: "Git root probe timed out".to_string(),
-					}),
+				failure: Some(GitFailure {
+					category: "timed_out".to_string(),
 					message: "Git root probe timed out".to_string(),
-				},
+				}),
+				message: "Git root probe timed out".to_string(),
 			}],
 		};
 		assert_eq!(
@@ -612,10 +604,8 @@ mod tests {
 				root: PathBuf::from("workspace"),
 				state: GitRootState::Unavailable,
 				repository_root: None,
-				detail: GitRootDetail {
-					failure: Some(failure),
-					message: "Git version is incompatible".to_string(),
-				},
+				failure: Some(failure),
+				message: "Git version is incompatible".to_string(),
 			}],
 		};
 		let error = git_unavailable_error(&diagnostic);

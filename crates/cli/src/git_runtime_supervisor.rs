@@ -16,9 +16,7 @@ struct GitRuntimeEnvelope {
 	protocol_version: u32,
 	executable: String,
 	outcome: &'static str,
-	exit_code: Option<i32>,
 	stdout_base64: Option<String>,
-	stderr_base64: Option<String>,
 	category: Option<String>,
 	message: Option<String>,
 }
@@ -59,12 +57,8 @@ pub(crate) fn run<W1: Write, W2: Write>(
 				protocol_version: PROTOCOL_VERSION,
 				executable: args.executable.display().to_string(),
 				outcome: "ok",
-				exit_code: Some(0),
 				stdout_base64: Some(
 					base64::engine::general_purpose::STANDARD.encode(output.stdout),
-				),
-				stderr_base64: Some(
-					base64::engine::general_purpose::STANDARD.encode(output.stderr),
 				),
 				category: None,
 				message: None,
@@ -87,9 +81,7 @@ fn write_error<W1: Write, W2: Write>(
 			protocol_version: PROTOCOL_VERSION,
 			executable: args.executable.display().to_string(),
 			outcome: "error",
-			exit_code: None,
 			stdout_base64: None,
-			stderr_base64: None,
 			category: Some(error.category),
 			message: Some(error.message),
 		},

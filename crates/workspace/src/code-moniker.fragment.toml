@@ -79,42 +79,6 @@ one launch primitive. A command that can wait forever or retain unbounded stdout
 indexing process even when workspace readiness itself is independent from Git.
 """
 
-[[rust.shape.callable.where]]
-id       = "workspace-git-lifecycle-reaps-terminated-process"
-severity = "error"
-expr     = "NOT ($git_runtime_layer AND name = 'terminate_child') OR (any(out_refs, kind = 'method_call' AND target.name = 'kill') AND any(out_refs, kind = 'method_call' AND target.name = 'wait'))"
-message  = "Git timeout termination must reap the launched process."
-rationale = """
-Killing without waiting leaves a zombie on Unix and an unresolved process lifecycle on Windows.
-The Unix launcher also creates and terminates a dedicated process group so Git helpers cannot keep
-captured pipes open after the diagnostic or command budget expires.
-"""
-
-[[rust.shape.callable.where]]
-id       = "workspace-git-lifecycle-isolates-windows-tree-before-resume"
-severity = "error"
-expr     = "NOT ($git_runtime_layer AND name = 'run_bounded') OR (text =~ 'CREATE_SUSPENDED' AND text =~ 'WindowsProcessJob::attach' AND text =~ 'resume_suspended_process')"
-message  = "The Windows Git process must enter its kill-on-close Job Object before it can create descendants."
-rationale = """
-Starting Git suspended closes the spawn-to-assignment race: either Job Object creation,
-configuration, assignment, and thread resumption all succeed, or the command fails closed with a
-typed process-isolation error. Timeouts can therefore terminate Git helpers that retain output pipes.
-"""
-
-[[rust.shape.callable.where]]
-id       = "workspace-git-lifecycle-isolates-unix-process-group"
-severity = "error"
-expr     = "NOT ($git_runtime_layer AND name = 'run_bounded') OR text =~ 'process_group\\(0\\)'"
-message  = "Every Unix Git command must start in its own process group."
-rationale = "A dedicated process group gives the bounded launcher ownership of Git helpers and their inherited output pipes."
-
-[[rust.shape.callable.where]]
-id       = "workspace-git-lifecycle-kills-unix-process-group"
-severity = "error"
-expr     = "NOT ($git_runtime_layer AND name = 'terminate_child' AND text =~ 'libc::kill') OR text =~ 'kill\\(-\\(child\\.id\\(\\) as i32\\)'"
-message  = "Unix Git cleanup must signal the process group, not only the direct child."
-rationale = "Killing the negative PGID prevents a helper from retaining stdout or stderr after Git exits or times out."
-
 [[refs.where]]
 id       = "workspace-crate-does-not-import-cli"
 severity = "warn"
