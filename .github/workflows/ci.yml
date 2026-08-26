@@ -288,11 +288,12 @@ jobs:
           Remove-Item Env:CODE_MONIKER_FAKE_GIT_MODE
           Remove-Item Env:CODE_MONIKER_FAKE_GIT_PID_FILE
           Remove-Item Env:CODE_MONIKER_GIT_BINARY
-          New-Item -ItemType Directory -Path non-repository | Out-Null
-          $nonRepository = & target/release/code-moniker.exe diff non-repository 2>&1 | Out-String
+          $nonRepositoryPath = Join-Path $env:RUNNER_TEMP "code-moniker-non-repository"
+          New-Item -ItemType Directory -Path $nonRepositoryPath | Out-Null
+          $nonRepository = & target/release/code-moniker.exe diff $nonRepositoryPath 2>&1 | Out-String
           $exitCode = $LASTEXITCODE
           $nonRepository | Tee-Object -FilePath windows-git-runtime.log -Append
-          if ($exitCode -eq 0 -or $nonRepository -notmatch "worktree") {
+          if ($exitCode -eq 0 -or $nonRepository -notmatch "not_repository") {
             throw "non-repository workspace did not return a typed worktree failure"
           }
 
