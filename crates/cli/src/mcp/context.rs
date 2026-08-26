@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, TryLockError};
 
-use code_moniker_daemon::WorkspaceDaemon;
+use code_moniker_daemon::{WorkspaceDaemon, augment_workspace_status, gate_git_query};
 use code_moniker_daemon_client::DaemonClient;
 use code_moniker_query::{
 	CommandRequest, CommandResponse, Consistency, DaemonWorkspaceConfig, Page, ProtocolRequest,
 	ProtocolResponse, Query, QueryError, QueryRequest, QueryResponse, QueryResult,
-	WorkspaceLifecycle, WorkspacePhase,
+	WorkspaceLifecycle, WorkspacePhase, config_roots,
 };
 
 use crate::session::SessionOptions;
@@ -157,19 +157,28 @@ impl DaemonRuntime {
 	}
 
 	#[cfg(test)]
-	pub(crate) fn in_process(daemon: WorkspaceDaemon) -> Self {
+	pub(crate) fn in_process(daemon: WorkspaceDaemon, roots: Vec<PathBuf>) -> Self {
 		Self::InProcess {
-			daemon: Arc::new(Mutex::new(daemon)),
-			preload_config: None,
+			daemon: Arc::new(Mutex::new(daemon.with_process_scope("stdio-worker"))),
+			preload_config: Some(DaemonWorkspaceConfig {
+				roots: roots
+					.iter()
+					.map(|root| root.display().to_string())
+					.collect(),
+				project: None,
+				cache_dir: None,
+				live_refresh: None,
+			}),
 			lifecycle: Arc::new(Mutex::new(WorkspaceLifecycle::ready())),
 		}
 	}
 
 	pub(crate) fn in_process_preload(config: DaemonWorkspaceConfig) -> anyhow::Result<Self> {
 		Ok(Self::InProcess {
-			daemon: Arc::new(Mutex::new(WorkspaceDaemon::new_with_config(
-				config.clone(),
-			)?)),
+			daemon: Arc::new(Mutex::new(
+				WorkspaceDaemon::new_with_config(config.clone())?
+					.with_process_scope("stdio-worker"),
+			)),
 			preload_config: Some(config),
 			lifecycle: Arc::new(Mutex::new(WorkspaceLifecycle::loading())),
 		})
@@ -198,24 +207,24 @@ impl DaemonRuntime {
 			}
 			Self::InProcess {
 				daemon,
-				preload_config: _,
+				preload_config,
 				lifecycle,
 			} => {
 				let current = current_lifecycle(lifecycle)?;
 				if request.query.requires_workspace_snapshot() {
 					ensure_workspace_available(&current)?;
 				}
-				let mut daemon = lock_daemon(daemon)?;
-				let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(request)));
-				match response {
-					ProtocolResponse::Query(response) => {
-						let mut response = *response;
-						project_workspace_lifecycle(&mut response, &current);
-						Ok(response)
-					}
-					ProtocolResponse::Error(error) => Err(query_error(error)),
-					other => anyhow::bail!("unexpected daemon query response: {other:?}"),
+				let roots = preload_config
+					.as_ref()
+					.map(config_roots)
+					.unwrap_or_default();
+				gate_git_query(&request.query, &roots).map_err(query_error)?;
+				let mut response = query_in_process(daemon, request)?;
+				project_workspace_lifecycle(&mut response, &current);
+				if let QueryResult::WorkspaceStatus(status) = &mut response.result {
+					augment_workspace_status(status, &roots, "stdio-worker");
 				}
+				Ok(response)
 			}
 		}
 	}
@@ -227,14 +236,19 @@ impl DaemonRuntime {
 			}),
 			Self::InProcess {
 				daemon,
-				preload_config: _,
+				preload_config,
 				lifecycle,
 			} => {
 				ensure_workspace_available(&current_lifecycle(lifecycle)?)?;
 				let mut daemon = lock_daemon(daemon)?;
 				let response = daemon.handle_protocol(ProtocolRequest::Command(request));
 				match response {
-					ProtocolResponse::Command(response) => {
+					ProtocolResponse::Command(mut response) => {
+						if let Some(config) = preload_config
+							&& let Some(status) = &mut response.status
+						{
+							augment_workspace_status(status, &config_roots(config), "stdio-worker");
+						}
 						if let Some(status) = &response.status {
 							*lifecycle.lock().map_err(|_| {
 								anyhow::anyhow!("workspace lifecycle lock poisoned")
@@ -250,6 +264,18 @@ impl DaemonRuntime {
 				}
 			}
 		}
+	}
+}
+
+fn query_in_process(
+	daemon: &Mutex<WorkspaceDaemon>,
+	request: QueryRequest,
+) -> anyhow::Result<QueryResponse> {
+	let mut daemon = lock_daemon(daemon)?;
+	match daemon.handle_protocol(ProtocolRequest::Query(Box::new(request))) {
+		ProtocolResponse::Query(response) => Ok(*response),
+		ProtocolResponse::Error(error) => Err(query_error(error)),
+		other => anyhow::bail!("unexpected daemon query response: {other:?}"),
 	}
 }
 

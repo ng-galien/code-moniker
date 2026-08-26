@@ -5,6 +5,7 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::environment;
+use crate::git_runtime::GitRuntimeError;
 
 use super::super::diff::{
 	ChangeFile, ChangeScan, DiffHunk, DiffScope, FileDiff, FileDiffStatus, GitWorktree, HeadSide,
@@ -38,6 +39,7 @@ pub struct ReviewDiffs {
 	scope_label: String,
 	head_rev: Option<String>,
 	base_by_root: FxHashMap<PathBuf, String>,
+	acquisition_failures: Vec<GitRuntimeError>,
 }
 
 impl ReviewDiffs {
@@ -63,6 +65,13 @@ impl ReviewDiffs {
 
 	pub fn any_root_resolved(&self) -> bool {
 		!self.base_by_root.is_empty()
+	}
+
+	pub fn acquisition_failure(&self) -> Option<&GitRuntimeError> {
+		self.acquisition_failures
+			.iter()
+			.find(|failure| failure.category == "timed_out")
+			.or_else(|| self.acquisition_failures.first())
 	}
 
 	fn base_rev_for(&self, repo_root: &Path) -> &str {
@@ -91,6 +100,7 @@ pub fn collect_review_diffs_scoped(roots: &[(String, PathBuf)], scope: &DiffScop
 			HeadSide::Worktree => None,
 		},
 		base_by_root: FxHashMap::default(),
+		acquisition_failures: Vec::new(),
 	};
 	for (label, path) in roots {
 		collect_root_diffs(&mut review_diffs, label, path, scope);
@@ -102,7 +112,8 @@ fn collect_root_diffs(out: &mut ReviewDiffs, label: &str, path: &Path, scope: &D
 	let repo = match GitWorktree::discover(path) {
 		Ok(repo) => repo,
 		Err(message) => {
-			out.diagnostics.push(message);
+			out.diagnostics.push(message.to_string());
+			out.acquisition_failures.push(message);
 			return;
 		}
 	};
@@ -110,16 +121,21 @@ fn collect_root_diffs(out: &mut ReviewDiffs, label: &str, path: &Path, scope: &D
 		Ok(base_rev) => base_rev,
 		Err(message) => {
 			out.diagnostics.push(format!("{label}: {message}"));
+			out.acquisition_failures.push(message);
 			return;
 		}
 	};
 	match collect_changed_files(repo.root(), path, &base_rev, &scope.head) {
-		Ok(mut root_diffs) => out.diffs.append(&mut root_diffs),
-		Err(error) => out
-			.diagnostics
-			.push(format!("{label}: cannot inspect git changes: {error}")),
+		Ok(mut root_diffs) => {
+			out.diffs.append(&mut root_diffs);
+			out.base_by_root.insert(repo.root().to_path_buf(), base_rev);
+		}
+		Err(error) => {
+			out.diagnostics
+				.push(format!("{label}: cannot inspect git changes: {error}"));
+			out.acquisition_failures.push(error);
+		}
 	}
-	out.base_by_root.insert(repo.root().to_path_buf(), base_rev);
 }
 
 pub fn build_semantic_review(scan: &ChangeScan<'_>) -> SemanticReview {

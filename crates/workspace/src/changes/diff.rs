@@ -4,7 +4,6 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::moniker::Moniker;
@@ -13,6 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
+use crate::git_runtime::{GitRuntimeError, git_fast_text, process_git_runtime};
 use crate::gitignore::GitignoreStack;
 use crate::lines::LineIndex;
 use crate::snapshot::SymbolLocation;
@@ -64,17 +64,20 @@ pub struct GitRevision {
 }
 
 pub fn git_revision(path: &Path) -> Result<GitRevision, String> {
-	let worktree = GitWorktree::discover(path)?;
-	let commit = git_cli_text(worktree.root(), &["rev-parse", "HEAD"])?
+	let worktree = GitWorktree::discover(path).map_err(|error| error.to_string())?;
+	let commit = git_cli_fast_text(worktree.root(), &["rev-parse", "HEAD"])
+		.map_err(|error| error.to_string())?
 		.trim()
 		.to_string();
-	let branch = git_cli_text(worktree.root(), &["branch", "--show-current"])?
+	let branch = git_cli_fast_text(worktree.root(), &["branch", "--show-current"])
+		.map_err(|error| error.to_string())?
 		.trim()
 		.to_string();
-	let status = git_cli_text(
+	let status = git_cli_fast_text(
 		worktree.root(),
 		&["status", "--porcelain=v1", "--untracked-files=normal"],
-	)?;
+	)
+	.map_err(|error| error.to_string())?;
 	Ok(GitRevision {
 		branch: if branch.is_empty() {
 			"detached".to_string()
@@ -245,14 +248,25 @@ impl DiffScope {
 pub(in crate::changes) fn resolve_base_rev(
 	git_root: &Path,
 	base: &BaseRev,
-) -> Result<String, String> {
+) -> Result<String, GitRuntimeError> {
 	match base {
-		BaseRev::Rev(rev) => git_cli_text(git_root, &["rev-parse", "--verify", "--quiet", rev])
-			.map(|_| rev.clone())
-			.map_err(|_| format!("cannot resolve revision `{rev}`")),
-		BaseRev::MergeBase(a, b) => git_cli_text(git_root, &["merge-base", a, b])
+		BaseRev::Rev(rev) => {
+			git_cli_fast_text(git_root, &["rev-parse", "--verify", "--quiet", rev])
+				.map(|_| rev.clone())
+				.map_err(|error| GitRuntimeError {
+					category: error.category,
+					message: format!("cannot resolve revision `{rev}`: {}", error.message),
+				})
+		}
+		BaseRev::MergeBase(a, b) => git_cli_runtime_text(git_root, &["merge-base", a, b])
 			.map(|out| out.trim().to_string())
-			.map_err(|error| format!("cannot resolve merge-base of `{a}` and `{b}`: {error}")),
+			.map_err(|error| GitRuntimeError {
+				category: error.category,
+				message: format!(
+					"cannot resolve merge-base of `{a}` and `{b}`: {}",
+					error.message
+				),
+			}),
 	}
 }
 
@@ -317,13 +331,13 @@ pub fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 					)),
 				}
 			}
-			Err(message) => {
+			Err(error) => {
 				changes.resources.push(GitResourceStatus {
 					label: root.label.to_string(),
 					git_root: None,
-					message: message.clone(),
+					message: error.message.clone(),
 				});
-				changes.diagnostics.push(message);
+				changes.diagnostics.push(error.to_string());
 			}
 		}
 	}
@@ -746,7 +760,7 @@ pub(in crate::changes) fn collect_changed_files(
 	source_root: &Path,
 	base_rev: &str,
 	head: &HeadSide,
-) -> Result<Vec<FileDiff>, String> {
+) -> Result<Vec<FileDiff>, GitRuntimeError> {
 	let pathspec = git_pathspec(git_root, source_root);
 	let mut name_status_args = vec![
 		"diff",
@@ -761,7 +775,11 @@ pub(in crate::changes) fn collect_changed_files(
 	name_status_args.extend(["--", &pathspec]);
 	let mut out = Vec::new();
 	for row in git_cli_lines(git_root, &name_status_args)? {
-		let (status, repo_rel, origin) = parse_name_status(&row)?;
+		let (status, repo_rel, origin) =
+			parse_name_status(&row).map_err(|message| GitRuntimeError {
+				category: "malformed_output".to_string(),
+				message,
+			})?;
 		let scope_refs = HunkScope {
 			base_rev,
 			head,
@@ -816,7 +834,7 @@ struct HunkScope<'a> {
 	origin: Option<&'a RenameOrigin>,
 }
 
-fn hunk_diff_text(git_root: &Path, scope: &HunkScope<'_>) -> Result<String, String> {
+fn hunk_diff_text(git_root: &Path, scope: &HunkScope<'_>) -> Result<String, GitRuntimeError> {
 	let new_path = path_to_git(scope.repo_rel);
 	let mut args = vec!["diff", "--unified=0"];
 	if scope.origin.is_some() {
@@ -832,7 +850,7 @@ fn hunk_diff_text(git_root: &Path, scope: &HunkScope<'_>) -> Result<String, Stri
 		args.push(old_path);
 	}
 	args.push(&new_path);
-	git_cli_text(git_root, &args)
+	git_cli_runtime_text(git_root, &args)
 }
 
 type ParsedNameStatus = (FileDiffStatus, PathBuf, Option<RenameOrigin>);
@@ -870,17 +888,32 @@ pub(in crate::changes) struct GitWorktree {
 }
 
 impl GitWorktree {
-	pub(in crate::changes) fn discover(path: &Path) -> Result<Self, String> {
-		let output = git_cli_command(path)?
-			.args(["rev-parse", "--show-toplevel"])
-			.output()
-			.map_err(|e| format!("cannot run git rev-parse in {}: {e}", path.display()))?;
-		if !output.status.success() {
-			return Err(format!("{} is not inside a Git repository", path.display()));
-		}
-		let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-		if root.is_empty() {
-			return Err(format!("{} is not inside a Git worktree", path.display()));
+	pub(in crate::changes) fn discover(path: &Path) -> Result<Self, GitRuntimeError> {
+		let root = git_cli_fast_text(path, &["rev-parse", "--show-toplevel"])
+			.map_err(|error| {
+				if error
+					.message
+					.to_ascii_lowercase()
+					.contains("not a git repository")
+				{
+					GitRuntimeError {
+						category: "not_repository".to_string(),
+						message: format!("{} is not inside a Git worktree", path.display()),
+					}
+				} else {
+					error
+				}
+			})?
+			.trim()
+			.to_string();
+		if root.is_empty() || !Path::new(&root).is_absolute() {
+			return Err(GitRuntimeError {
+				category: "malformed_output".to_string(),
+				message: format!(
+					"Git worktree probe returned an invalid absolute path for {}",
+					path.display()
+				),
+			});
 		}
 		Ok(Self {
 			root: normalize_path(Path::new(&root)),
@@ -892,8 +925,8 @@ impl GitWorktree {
 	}
 }
 
-fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> {
-	Ok(git_cli_text(git_root, args)?
+fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, GitRuntimeError> {
+	Ok(git_cli_runtime_text(git_root, args)?
 		.lines()
 		.map(str::trim)
 		.filter(|line| !line.is_empty())
@@ -914,39 +947,17 @@ pub(in crate::changes) fn git_show(
 }
 
 fn git_cli_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
-	let output = git_cli_command(git_root)?
-		.args(args)
-		.output()
-		.map_err(|e| format!("cannot run git {:?}: {e}", args))?;
-	if !output.status.success() {
-		return Err(format!(
-			"git {:?} failed: {}",
-			args,
-			String::from_utf8_lossy(&output.stderr).trim()
-		));
-	}
-	Ok(String::from_utf8_lossy(&output.stdout).to_string())
+	process_git_runtime()
+		.text(git_root, args)
+		.map_err(|error| error.to_string())
 }
 
-fn git_cli_command(cwd: &Path) -> Result<Command, String> {
-	let mut command = Command::new(git_program()?);
-	command.env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(cwd);
-	Ok(command)
+fn git_cli_runtime_text(git_root: &Path, args: &[&str]) -> Result<String, GitRuntimeError> {
+	process_git_runtime().text(git_root, args)
 }
 
-fn git_program() -> Result<PathBuf, String> {
-	git_program_from_path(std::env::var_os("PATH").as_deref())
-}
-
-fn git_program_from_path(path: Option<&OsStr>) -> Result<PathBuf, String> {
-	let Some(path) = path else {
-		return Err("cannot run git: PATH is unavailable".to_string());
-	};
-	let executable = if cfg!(windows) { "git.exe" } else { "git" };
-	std::env::split_paths(path)
-		.map(|directory| directory.join(executable))
-		.find(|candidate| candidate.is_file())
-		.ok_or_else(|| format!("cannot run git: {executable} is not present in PATH"))
+fn git_cli_fast_text(git_root: &Path, args: &[&str]) -> Result<String, GitRuntimeError> {
+	git_fast_text(git_root, args)
 }
 
 fn git_pathspec(git_root: &Path, source_root: &Path) -> String {
@@ -1007,16 +1018,7 @@ fn parse_hunk_side(raw: &str) -> Option<Option<LineSpan>> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn missing_git_is_rejected_before_process_creation() {
-		let temp = tempfile::tempdir().expect("tempdir");
-		let path = std::env::join_paths([temp.path()]).expect("PATH");
-		let error = git_program_from_path(Some(&path)).expect_err("git.exe must be absent");
-
-		assert!(error.starts_with("cannot run git:"), "{error}");
-		assert!(error.ends_with("is not present in PATH"), "{error}");
-	}
+	use std::process::Command;
 
 	fn no_source_groups() -> &'static DeclaredSourceGroups {
 		static GROUPS: std::sync::OnceLock<DeclaredSourceGroups> = std::sync::OnceLock::new();

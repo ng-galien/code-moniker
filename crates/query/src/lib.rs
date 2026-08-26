@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -785,80 +785,84 @@ impl QueryRequest {
 	}
 
 	pub fn validate(&self) -> Result<(), QueryError> {
-		let bounded_limit = match &self.query {
-			Query::SymbolGraph(query) => Some(("symbol.graph", query.limit)),
-			Query::IdentityChildren(query) => Some(("identity.children", query.limit)),
-			_ => None,
-		};
-		if let Some((operation, limit)) = bounded_limit
-			&& !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&limit)
-		{
-			return Err(QueryError::new(
-				"invalid_result_limit",
-				format!("{operation} limit={limit} is outside 1..={MAX_BOUNDED_RESULT_ITEMS}"),
-			));
-		}
-		if let Query::ChangeContext(query) = &self.query
-			&& !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&query.max_items)
-		{
-			return Err(QueryError::new(
-				"invalid_result_limit",
-				format!(
-					"change.context max_items={} is outside 1..={MAX_CHANGE_CONTEXT_ITEMS}",
-					query.max_items
-				),
-			));
-		}
-		let limits = match &self.query {
-			Query::GraphPath(query) => Some(query.limits()),
-			Query::GraphCorridor(query) => Some(query.limits()),
-			_ => None,
-		};
-		if let Some(limits) = limits {
-			limits.validate().map_err(|error| {
-				QueryError::new(
-					"invalid_graph_limits",
-					format!(
-						"{}={} is outside the supported graph bounds",
-						error.field, error.value
-					),
-				)
-			})?;
-		}
-		if let Query::GraphPath(query) = &self.query {
-			validate_relations(&query.relation).map_err(|error| {
-				let code = if query.relation.is_empty() {
-					"missing_required"
-				} else {
-					error.code
-				};
-				QueryError::new(code, format!("{}: {}", error.field, error.message))
-			})?;
-		}
-		if let Query::GraphCorridor(query) = &self.query {
-			query.validate_scope().map_err(|error| {
-				let code = if error.message.starts_with("at least one") {
-					"missing_required"
-				} else {
-					error.code
-				};
-				QueryError::new(code, format!("{}: {}", error.field, error.message))
-			})?;
-			if self.page.cursor.is_some() {
-				return Err(QueryError::new(
-					"graph_corridor_not_paginated",
-					"graph.corridor is stateless and returns one complete bounded result; narrow its semantic scope or bounds instead of using a cursor",
-				));
-			}
-			if self.page.limit != Page::default().limit {
-				return Err(QueryError::new(
-					"graph_corridor_not_paginated",
-					"graph.corridor does not accept a page limit; narrow its semantic scope or graph bounds instead",
-				));
-			}
-		}
-		Ok(())
+		validate_query_request(self)
 	}
+}
+
+fn validate_query_request(request: &QueryRequest) -> Result<(), QueryError> {
+	let bounded_limit = match &request.query {
+		Query::SymbolGraph(query) => Some(("symbol.graph", query.limit)),
+		Query::IdentityChildren(query) => Some(("identity.children", query.limit)),
+		_ => None,
+	};
+	if let Some((operation, limit)) = bounded_limit
+		&& !(1..=MAX_BOUNDED_RESULT_ITEMS).contains(&limit)
+	{
+		return Err(QueryError::new(
+			"invalid_result_limit",
+			format!("{operation} limit={limit} is outside 1..={MAX_BOUNDED_RESULT_ITEMS}"),
+		));
+	}
+	if let Query::ChangeContext(query) = &request.query
+		&& !(1..=MAX_CHANGE_CONTEXT_ITEMS).contains(&query.max_items)
+	{
+		return Err(QueryError::new(
+			"invalid_result_limit",
+			format!(
+				"change.context max_items={} is outside 1..={MAX_CHANGE_CONTEXT_ITEMS}",
+				query.max_items
+			),
+		));
+	}
+	let limits = match &request.query {
+		Query::GraphPath(query) => Some(query.limits()),
+		Query::GraphCorridor(query) => Some(query.limits()),
+		_ => None,
+	};
+	if let Some(limits) = limits {
+		limits.validate().map_err(|error| {
+			QueryError::new(
+				"invalid_graph_limits",
+				format!(
+					"{}={} is outside the supported graph bounds",
+					error.field, error.value
+				),
+			)
+		})?;
+	}
+	if let Query::GraphPath(query) = &request.query {
+		validate_relations(&query.relation).map_err(|error| {
+			let code = if query.relation.is_empty() {
+				"missing_required"
+			} else {
+				error.code
+			};
+			QueryError::new(code, format!("{}: {}", error.field, error.message))
+		})?;
+	}
+	if let Query::GraphCorridor(query) = &request.query {
+		query.validate_scope().map_err(|error| {
+			let code = if error.message.starts_with("at least one") {
+				"missing_required"
+			} else {
+				error.code
+			};
+			QueryError::new(code, format!("{}: {}", error.field, error.message))
+		})?;
+		if request.page.cursor.is_some() {
+			return Err(QueryError::new(
+				"graph_corridor_not_paginated",
+				"graph.corridor is stateless and returns one complete bounded result; narrow its semantic scope or bounds instead of using a cursor",
+			));
+		}
+		if request.page.limit != Page::default().limit {
+			return Err(QueryError::new(
+				"graph_corridor_not_paginated",
+				"graph.corridor does not accept a page limit; narrow its semantic scope or graph bounds instead",
+			));
+		}
+	}
+	Ok(())
 }
 
 pub const MAX_GRAPH_DEPTH: usize = 64;
@@ -1374,37 +1378,45 @@ impl schemars::JsonSchema for GraphSymbolScope {
 	}
 
 	fn json_schema(generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
-		use schemars::schema::{ObjectValidation, SchemaObject, SubschemaValidation};
-
-		let mut schema = GraphSymbolScopeSchema::json_schema(generator).into_object();
-		let properties = schema
-			.object
-			.as_ref()
-			.map(|object| object.properties.clone())
-			.unwrap_or_default();
-		let any_of = ["path", "lang", "kind", "shape", "srcset"]
-			.into_iter()
-			.map(|field| {
-				let mut object = ObjectValidation::default();
-				object.required.insert(field.to_string());
-				if let Some(property) = properties.get(field) {
-					let mut property = property.clone().into_object();
-					property.array().min_items = Some(1);
-					object.properties.insert(field.to_string(), property.into());
-				}
-				SchemaObject {
-					object: Some(Box::new(object)),
-					..Default::default()
-				}
-				.into()
-			})
-			.collect();
-		schema
-			.subschemas
-			.get_or_insert_with(|| Box::new(SubschemaValidation::default()))
-			.any_of = Some(any_of);
-		schema.into()
+		graph_symbol_scope_schema(generator)
 	}
+}
+
+#[cfg(feature = "schema")]
+fn graph_symbol_scope_schema(
+	generator: &mut schemars::r#gen::SchemaGenerator,
+) -> schemars::schema::Schema {
+	use schemars::JsonSchema;
+	use schemars::schema::{ObjectValidation, SchemaObject, SubschemaValidation};
+
+	let mut schema = GraphSymbolScopeSchema::json_schema(generator).into_object();
+	let properties = schema
+		.object
+		.as_ref()
+		.map(|object| object.properties.clone())
+		.unwrap_or_default();
+	let any_of = ["path", "lang", "kind", "shape", "srcset"]
+		.into_iter()
+		.map(|field| {
+			let mut object = ObjectValidation::default();
+			object.required.insert(field.to_string());
+			if let Some(property) = properties.get(field) {
+				let mut property = property.clone().into_object();
+				property.array().min_items = Some(1);
+				object.properties.insert(field.to_string(), property.into());
+			}
+			SchemaObject {
+				object: Some(Box::new(object)),
+				..Default::default()
+			}
+			.into()
+		})
+		.collect();
+	schema
+		.subschemas
+		.get_or_insert_with(|| Box::new(SubschemaValidation::default()))
+		.any_of = Some(any_of);
+	schema.into()
 }
 
 #[cfg(feature = "schema")]
@@ -2520,6 +2532,93 @@ pub struct WorkspaceStatus {
 	pub stale_summary: String,
 	#[serde(default)]
 	pub timings: WorkspaceTimingsDto,
+	#[serde(default)]
+	pub runtime_dependencies: Vec<RuntimeDependencyDto>,
+	#[serde(default)]
+	pub effective_capabilities: Vec<EffectiveCapabilityDto>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeDependencyState {
+	Checking,
+	Available,
+	Unavailable,
+	Incompatible,
+	TimedOut,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeDependencyResolutionSource {
+	ExplicitConfiguration,
+	InheritedPath,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeDependencyRootState {
+	Worktree,
+	RepositoryOnly,
+	NotRepository,
+	Unavailable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RuntimeDependencyFailureDto {
+	pub category: String,
+	pub message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RuntimeDependencyRootDto {
+	pub root: String,
+	pub state: RuntimeDependencyRootState,
+	pub repository_root: Option<String>,
+	pub failure: Option<RuntimeDependencyFailureDto>,
+	pub message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RuntimeDependencyDto {
+	pub name: String,
+	pub process_scope: String,
+	pub state: RuntimeDependencyState,
+	pub resolution_source: Option<RuntimeDependencyResolutionSource>,
+	pub executable: Option<String>,
+	pub version: Option<String>,
+	pub supported_version_range: String,
+	pub compatible: Option<bool>,
+	pub failure: Option<RuntimeDependencyFailureDto>,
+	pub checked_at_unix_ms: Option<u64>,
+	pub duration_ms: Option<u64>,
+	pub roots: Vec<RuntimeDependencyRootDto>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveCapabilityState {
+	Checking,
+	Available,
+	Degraded,
+	Unavailable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct EffectiveCapabilityDto {
+	pub name: String,
+	pub state: EffectiveCapabilityState,
+	pub dependency: Option<String>,
+	pub scope: String,
+	pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2899,6 +2998,7 @@ pub struct ChangeContextResult {
 	pub rules: Vec<RuleApplicabilityDto>,
 	pub changed_files: Vec<ChangeReviewFile>,
 	pub changed_symbols: Vec<ChangeReviewSymbol>,
+	pub change_dependency: RuntimeDependencyDto,
 	pub suggested_checks: Vec<String>,
 	pub coverage: ChangeContextCoverageDto,
 }
@@ -3162,6 +3262,8 @@ pub enum DaemonEvent {
 pub struct QueryError {
 	pub code: String,
 	pub message: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub category: Option<String>,
 }
 
 impl QueryError {
@@ -3169,7 +3271,13 @@ impl QueryError {
 		Self {
 			code: code.into(),
 			message: message.into(),
+			category: None,
 		}
+	}
+
+	pub fn with_category(mut self, category: impl Into<String>) -> Self {
+		self.category = Some(category.into());
+		self
 	}
 }
 
@@ -3977,6 +4085,43 @@ fn format_workspace_status(out: &mut String, status: &WorkspaceStatus) {
 			);
 		}
 	}
+	for dependency in &status.runtime_dependencies {
+		let _ = writeln!(
+			out,
+			"runtime_dependency: {} state={:?} source={:?} executable={} version={} range={} duration_ms={}",
+			dependency.name,
+			dependency.state,
+			dependency.resolution_source,
+			dependency.executable.as_deref().unwrap_or("unresolved"),
+			dependency.version.as_deref().unwrap_or("unknown"),
+			dependency.supported_version_range,
+			dependency
+				.duration_ms
+				.map_or_else(|| "pending".to_string(), |duration| duration.to_string()),
+		);
+		for root in &dependency.roots {
+			let _ = writeln!(
+				out,
+				"- root={} state={:?} repository={}",
+				root.root,
+				root.state,
+				root.repository_root.as_deref().unwrap_or("none")
+			);
+		}
+	}
+	for capability in &status.effective_capabilities {
+		let _ = writeln!(
+			out,
+			"effective_capability: {} state={:?} scope={}{}",
+			capability.name,
+			capability.state,
+			capability.scope,
+			capability
+				.reason
+				.as_deref()
+				.map_or_else(String::new, |reason| format!(" reason={reason}")),
+		);
+	}
 }
 
 fn format_tree_children(out: &mut String, result: &TreeChildrenResult, projection: &[String]) {
@@ -4228,6 +4373,18 @@ fn format_change_context(out: &mut String, result: &ChangeContextResult) {
 	}
 	format_context_graph(out, &result.graph);
 	let coverage = result.coverage;
+	let _ = writeln!(
+		out,
+		"change_dependency: git {:?}",
+		result.change_dependency.state
+	);
+	if let Some(failure) = &result.change_dependency.failure {
+		let _ = writeln!(
+			out,
+			"change_failure: {} — {}",
+			failure.category, failure.message
+		);
+	}
 	let _ = writeln!(out, "coverage:");
 	let _ = writeln!(
 		out,
@@ -6486,7 +6643,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 21);
+		assert_eq!(PROTOCOL_VERSION, 22);
 	}
 
 	#[test]

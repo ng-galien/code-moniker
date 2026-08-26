@@ -300,12 +300,13 @@ test("JavaScript callers must choose a workspace target before any socket opens"
 	assert.equal(conflicting.url, undefined);
 });
 
-test("structured daemon errors preserve their machine-readable code", async () => {
+test("structured daemon errors preserve their machine-readable code and category", async () => {
 	const daemon = new FakeDaemon({
 		errors: {
 			moniker_query: {
 				message: "workspace is stale",
 				code: "workspace_stale",
+				category: "timed_out",
 			},
 		},
 	});
@@ -316,6 +317,7 @@ test("structured daemon errors preserve their machine-readable code", async () =
 		(error) =>
 			error instanceof DaemonRpcError &&
 			error.code === "workspace_stale" &&
+			error.category === "timed_out" &&
 			error.message === "workspace is stale",
 	);
 	client.close();

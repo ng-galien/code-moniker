@@ -18,7 +18,11 @@ export type Command =
       srcset: string;
     };
 export type WorkspaceGeneration = number;
+export type EffectiveCapabilityState = "checking" | "available" | "degraded" | "unavailable";
 export type WorkspacePhase = "loading" | "ready" | "refreshing" | "failed";
+export type RuntimeDependencyResolutionSource = "explicit_configuration" | "inherited_path";
+export type RuntimeDependencyRootState = "worktree" | "repository_only" | "not_repository" | "unavailable";
+export type RuntimeDependencyState = "checking" | "available" | "unavailable" | "incompatible" | "timed_out";
 export type MemorySourceRefreshModeDto = "bulk" | "incremental";
 export type WorkspaceEventKind = "stale" | "refreshed" | "failed" | "notes" | "git_base";
 export type Query =
@@ -2184,6 +2188,7 @@ export interface CommandResponse {
   status?: WorkspaceStatus | null;
 }
 export interface WorkspaceStatus {
+  effective_capabilities?: EffectiveCapabilityDto[];
   failure?: WorkspaceFailureDto | null;
   files: number;
   generation?: WorkspaceGeneration | null;
@@ -2192,10 +2197,18 @@ export interface WorkspaceStatus {
   references: number;
   root: string;
   roots: WorkspaceRootStatus[];
+  runtime_dependencies?: RuntimeDependencyDto[];
   stale: boolean;
   stale_summary: string;
   symbols: number;
   timings?: WorkspaceTimingsDto;
+}
+export interface EffectiveCapabilityDto {
+  dependency?: string | null;
+  name: string;
+  reason?: string | null;
+  scope: string;
+  state: EffectiveCapabilityState;
 }
 export interface WorkspaceFailureDto {
   message: string;
@@ -2213,6 +2226,31 @@ export interface WorkspaceRootStatus {
   stale: boolean;
   stale_summary: string;
   symbols: number;
+}
+export interface RuntimeDependencyDto {
+  checked_at_unix_ms?: number | null;
+  compatible?: boolean | null;
+  duration_ms?: number | null;
+  executable?: string | null;
+  failure?: RuntimeDependencyFailureDto | null;
+  name: string;
+  process_scope: string;
+  resolution_source?: RuntimeDependencyResolutionSource | null;
+  roots: RuntimeDependencyRootDto[];
+  state: RuntimeDependencyState;
+  supported_version_range: string;
+  version?: string | null;
+}
+export interface RuntimeDependencyFailureDto {
+  category: string;
+  message: string;
+}
+export interface RuntimeDependencyRootDto {
+  failure?: RuntimeDependencyFailureDto | null;
+  message: string;
+  repository_root?: string | null;
+  root: string;
+  state: RuntimeDependencyRootState;
 }
 export interface WorkspaceTimingsDto {
   change_overlay_ms: number;
@@ -2236,6 +2274,7 @@ export interface MemorySourceRefreshDto {
   unchanged: number;
 }
 export interface QueryError {
+  category?: string | null;
   code: string;
   message: string;
 }
@@ -2826,6 +2865,7 @@ export interface DiffImpactSide {
   visibility: string;
 }
 export interface ChangeContextResult {
+  change_dependency: RuntimeDependencyDto;
   changed_files: ChangeReviewFile[];
   changed_symbols: ChangeReviewSymbol[];
   coverage: ChangeContextCoverageDto;

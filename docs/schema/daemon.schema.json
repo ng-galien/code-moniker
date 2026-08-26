@@ -417,6 +417,7 @@
     "ChangeContextResult": {
       "type": "object",
       "required": [
+        "change_dependency",
         "changed_files",
         "changed_symbols",
         "coverage",
@@ -427,6 +428,9 @@
         "suggested_checks"
       ],
       "properties": {
+        "change_dependency": {
+          "$ref": "#/definitions/RuntimeDependencyDto"
+        },
         "changed_files": {
           "type": "array",
           "items": {
@@ -1575,6 +1579,46 @@
           "type": "boolean"
         }
       }
+    },
+    "EffectiveCapabilityDto": {
+      "type": "object",
+      "required": [
+        "name",
+        "scope",
+        "state"
+      ],
+      "properties": {
+        "dependency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/EffectiveCapabilityState"
+        }
+      }
+    },
+    "EffectiveCapabilityState": {
+      "type": "string",
+      "enum": [
+        "checking",
+        "available",
+        "degraded",
+        "unavailable"
+      ]
     },
     "FailedRuleDto": {
       "type": "object",
@@ -4144,6 +4188,12 @@
         "message"
       ],
       "properties": {
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "code": {
           "type": "string"
         },
@@ -5287,6 +5337,166 @@
           "minimum": 0.0
         }
       }
+    },
+    "RuntimeDependencyDto": {
+      "type": "object",
+      "required": [
+        "name",
+        "process_scope",
+        "roots",
+        "state",
+        "supported_version_range"
+      ],
+      "properties": {
+        "checked_at_unix_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "executable": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RuntimeDependencyFailureDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "process_scope": {
+          "type": "string"
+        },
+        "resolution_source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RuntimeDependencyResolutionSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuntimeDependencyRootDto"
+          }
+        },
+        "state": {
+          "$ref": "#/definitions/RuntimeDependencyState"
+        },
+        "supported_version_range": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RuntimeDependencyFailureDto": {
+      "type": "object",
+      "required": [
+        "category",
+        "message"
+      ],
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "RuntimeDependencyResolutionSource": {
+      "type": "string",
+      "enum": [
+        "explicit_configuration",
+        "inherited_path"
+      ]
+    },
+    "RuntimeDependencyRootDto": {
+      "type": "object",
+      "required": [
+        "message",
+        "root",
+        "state"
+      ],
+      "properties": {
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RuntimeDependencyFailureDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "repository_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/RuntimeDependencyRootState"
+        }
+      }
+    },
+    "RuntimeDependencyRootState": {
+      "type": "string",
+      "enum": [
+        "worktree",
+        "repository_only",
+        "not_repository",
+        "unavailable"
+      ]
+    },
+    "RuntimeDependencyState": {
+      "type": "string",
+      "enum": [
+        "checking",
+        "available",
+        "unavailable",
+        "incompatible",
+        "timed_out"
+      ]
     },
     "SourceLine": {
       "type": "object",
@@ -6810,6 +7020,13 @@
         "symbols"
       ],
       "properties": {
+        "effective_capabilities": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EffectiveCapabilityDto"
+          }
+        },
         "failure": {
           "default": null,
           "anyOf": [
@@ -6862,6 +7079,13 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/WorkspaceRootStatus"
+          }
+        },
+        "runtime_dependencies": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuntimeDependencyDto"
           }
         },
         "stale": {
@@ -6955,5 +7179,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 21
+  "x-code-moniker-protocol-version": 22
 }

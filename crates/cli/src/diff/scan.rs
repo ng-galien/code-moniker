@@ -19,9 +19,9 @@ pub fn semantic_review(args: &DiffArgs) -> anyhow::Result<SemanticReview> {
 	let (path, scope) = resolve_target(args)?;
 	let sources = environment::discover_sources(std::slice::from_ref(&path), args.project.clone())?;
 	let diffs = collect_review_diffs_scoped(&review_root_keys(&sources), &scope);
-	if scope != DiffScope::worktree() && !diffs.any_root_resolved() {
+	if !diffs.any_root_resolved() {
 		anyhow::bail!(
-			"cannot resolve the requested revisions: {:?}",
+			"cannot collect Git changes for any selected root: {:?}",
 			diffs.diagnostics
 		);
 	}

@@ -12,6 +12,7 @@ daemon_read_query = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:query/mo
 daemon_stateful_query = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:query/module:/^(context|notes)$/**'"
 daemon_source_sets = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:source_sets/**'"
 daemon_syntax = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:syntax/**'"
+daemon_runtime_dependencies = "moniker ~ '**/dir:crates/dir:daemon/dir:src/module:runtime_dependencies/**'"
 
 runtime_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:runtime/**'"
 lifecycle_target = "target ~ '**/dir:crates/dir:daemon/dir:src/module:lifecycle/**'"
@@ -39,6 +40,29 @@ message  = "Daemon `lib.rs` callable `{name}` is implementation logic; keep the 
 rationale = """
 The crate root is the public composition surface. Runtime transport, mutable daemon state,
 lifecycle transitions, query evaluation, and shared projections each have a dedicated module.
+"""
+
+[[rust.shape.callable.where]]
+id       = "daemon-git-lifecycle-diagnostic-waits-for-readiness"
+severity = "error"
+expr     = "NOT ($daemon_runtime AND name = 'spawn_runtime_dependency_probe_with') OR text =~ '(?s)notified\\(\\)\\.await.*spawn_blocking'"
+message  = "The process-scoped Git diagnostic must start only after the initial snapshot is published ready."
+rationale = """
+Git is an optional runtime dependency, not an index prerequisite. The diagnostic remains an
+essential gate for Git-backed capabilities, but a missing, incompatible, or hanging Git executable
+must never delay the first workspace snapshot or hold the workspace mutex.
+"""
+
+[[rust.shape.callable.where]]
+id       = "daemon-git-call-flow-gates-only-dependent-queries"
+severity = "error"
+expr     = "NOT ($daemon_runtime AND name = 'dispatch_request') OR text =~ '(?s)query\\.validate\\(\\).*stateless_protocol_response.*request_needs_initial_snapshot.*gate_git_query_async'"
+message  = "Daemon dispatch must apply the Git diagnostic gate before Git-backed queries without gating stateless work."
+rationale = """
+The gate maps effective capabilities instead of making Git a daemon-wide health check. Change review
+requires a compatible Git worktree; change context keeps graph, notes, and rules while its change
+evidence degrades; coupling can degrade; daemon-side
+`diff-impact.compare` consumes virtual source sets and must remain independent from Git.
 """
 
 [[rust.shape.type.where]]

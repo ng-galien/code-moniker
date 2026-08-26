@@ -10,6 +10,7 @@ pub(crate) mod daemon;
 pub(crate) mod diff;
 pub(crate) mod extract;
 pub(crate) mod fs_nofollow;
+pub(crate) mod git_runtime_supervisor;
 pub(crate) mod hooks;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
@@ -39,10 +40,11 @@ pub use args::McpArgs;
 pub use args::{
 	AgentArgs, AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
 	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, ColorChoice, Command, DaemonArgs,
-	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, HookInstallArgs,
-	LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode,
-	QueryArgs, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat,
-	RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat, ToolBackend, ToolFilesArgs,
+	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, GitRuntimeArgs,
+	HookInstallArgs, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat,
+	OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs,
+	RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat,
+	ToolBackend, ToolFilesArgs,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate, RefMatch};
@@ -68,6 +70,7 @@ impl From<Exit> for ExitCode {
 
 pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match &cli.command {
+		Command::GitRuntime(args) => git_runtime_supervisor::run(args, stdout, stderr),
 		Command::Extract(args) => extract::run(args, stdout, stderr),
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => check::run(args, stdout, stderr),

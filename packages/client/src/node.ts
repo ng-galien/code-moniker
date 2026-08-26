@@ -107,6 +107,12 @@ export class NodeDaemonRuntime {
 		this.binaryCandidates = options.binaryCandidates;
 	}
 
+	resolveBinaryCandidates(
+		override?: readonly [string, ...string[]],
+	): readonly [string, ...string[]] {
+		return override ?? this.binaryCandidates ?? defaultBinaryCandidates();
+	}
+
 	listDaemons(): DaemonRegistryEntry[] {
 		const entries: DaemonRegistryEntry[] = [];
 		for (const item of this.readRegistry()) {
@@ -195,10 +201,7 @@ export class NodeDaemonRuntime {
 	}
 
 	async launch(options: LaunchDaemonOptions): Promise<OwnedDaemon> {
-		const binaryCandidates =
-			options.binaryCandidates ??
-			this.binaryCandidates ??
-			defaultBinaryCandidates();
+		const binaryCandidates = this.resolveBinaryCandidates(options.binaryCandidates);
 		const processHandle = await launchDetached(
 			binaryCandidates,
 			daemonArguments(options.workspaceRoots, options.supervisorPid),

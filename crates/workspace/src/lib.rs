@@ -4,6 +4,7 @@ pub mod changes;
 pub mod code;
 pub mod environment;
 pub mod extract;
+pub mod git_runtime;
 pub mod gitignore;
 pub mod glob;
 pub mod lang;

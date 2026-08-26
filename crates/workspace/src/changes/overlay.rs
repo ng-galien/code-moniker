@@ -62,6 +62,38 @@ pub fn build_semantic_review(
 	super::semantic::review::build_semantic_review(&change_scan(material))
 }
 
+pub fn build_semantic_review_for_roots(
+	material: &CodeIndexMaterial,
+	selected_roots: &[usize],
+) -> Result<super::semantic::review::SemanticReview, crate::git_runtime::GitRuntimeError> {
+	let scan = change_scan(material);
+	let roots = selected_roots
+		.iter()
+		.filter_map(|index| scan.roots.get(*index))
+		.map(|root| (root.label.to_string(), root.path.to_path_buf()))
+		.collect::<Vec<_>>();
+	let diffs = super::semantic::review::collect_review_diffs(&roots);
+	if !diffs.any_root_resolved() {
+		let failure = diffs.acquisition_failure().cloned().unwrap_or_else(|| {
+			crate::git_runtime::GitRuntimeError {
+				category: "command_failed".to_string(),
+				message: "Git change acquisition failed without a typed cause".to_string(),
+			}
+		});
+		return Err(crate::git_runtime::GitRuntimeError {
+			category: failure.category,
+			message: format!(
+				"cannot collect Git changes for any selected root: {}; {}",
+				failure.message,
+				diffs.diagnostics.join("; ")
+			),
+		});
+	}
+	Ok(super::semantic::review::build_semantic_review_from(
+		&scan, &diffs,
+	))
+}
+
 fn change_scan(material: &CodeIndexMaterial) -> ChangeScan<'_> {
 	ChangeScan {
 		roots: material

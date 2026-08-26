@@ -80,6 +80,7 @@ query_target = """
 """
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:git_runtime/**'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:LocalWorkspaceRegistry'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|glob|lang|lines|linkage|live|notes|registry|snapshot|source|sources|tsconfig|walk)$/**'
 """
@@ -193,6 +194,9 @@ enable = [
 
 [profiles.daemon]
 enable = ["(^|\\.)daemon\\."]
+
+[profiles.git-runtime]
+enable = ["git-"]
 
 [profiles.mcp-output]
 enable = [

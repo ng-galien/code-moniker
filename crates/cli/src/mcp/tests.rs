@@ -57,7 +57,7 @@ fn daemon_context(paths: Vec<PathBuf>) -> McpContext {
 	let context = McpContext::new(
 		opts,
 		"code+moniker://".to_string(),
-		DaemonRuntime::in_process(WorkspaceDaemon::new(paths).expect("daemon")),
+		DaemonRuntime::in_process(WorkspaceDaemon::new(paths.clone()).expect("daemon"), paths),
 	);
 	context
 		.command(CommandRequest {
@@ -728,6 +728,24 @@ roots = [{ path = "src/main/java", srcset = "main" }]
 		temp.path(),
 		"class App {\n  void run() { helper(); }\n  void helper() {}\n}\n",
 	);
+	let git = |args: &[&str]| {
+		let output = std::process::Command::new("git")
+			.arg("-C")
+			.arg(temp.path())
+			.args(args)
+			.output()
+			.expect("run git");
+		assert!(
+			output.status.success(),
+			"git {args:?}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	};
+	git(&["init"]);
+	git(&["config", "user.email", "cm@example.test"]);
+	git(&["config", "user.name", "Code Moniker"]);
+	git(&["add", "."]);
+	git(&["commit", "-m", "initial"]);
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let moniker = app_symbol_moniker(&context);
 	let compact = code_moniker_workspace::code::compact_identity(&moniker, "code+moniker://")

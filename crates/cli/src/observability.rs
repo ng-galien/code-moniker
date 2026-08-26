@@ -225,6 +225,7 @@ pub(super) fn command_span(cli: &Cli) -> tracing::Span {
 
 fn command_name(command: &Command) -> &'static str {
 	match command {
+		Command::GitRuntime(_) => "git-runtime",
 		Command::Extract(_) => "extract",
 		Command::Stats(_) => "stats",
 		Command::Check(_) => "check",
@@ -497,6 +498,7 @@ fn project_telemetry_config(cli: &Cli) -> TelemetryConfig {
 #[cfg(feature = "telemetry")]
 fn project_config_path(cli: &Cli) -> PathBuf {
 	let context = match &cli.command {
+		Command::GitRuntime(_) => None,
 		Command::Extract(args) => Some(args.path.as_path()),
 		Command::Stats(args) => args.paths.first().map(PathBuf::as_path),
 		Command::Check(args) => Some(args.path.as_path()),
