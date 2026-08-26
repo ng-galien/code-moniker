@@ -308,6 +308,7 @@ jobs:
           if ($exitCode -eq 0 -or $nonRepository -notmatch "not_repository") {
             throw "non-repository workspace did not return a typed worktree failure"
           }
+          exit 0
 
       - name: Install reusable client dependencies
         run: npm ci --omit=optional
