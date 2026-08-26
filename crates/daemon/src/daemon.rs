@@ -33,12 +33,15 @@ use crate::query::{
 	symbol_usages_response, tree_children_response, view_read_response,
 };
 use crate::runtime::{PublishedSnapshot, SnapshotQueryContext};
+use crate::runtime_dependencies::optional_git_change_failure;
 use crate::source_sets::{
 	MEMORY_SOURCE_LIMITS, parse_memory_source_set, refresh_memory_source_set,
 	validate_memory_source_set_limits, validate_srcset,
 };
 use crate::{syntax, telemetry};
 
+// The daemon aggregate intentionally owns the cohesive workspace services and process provenance dispatched below.
+// code-moniker: ignore[smell-god-type-local-metrics]
 pub struct WorkspaceDaemon {
 	pub(super) roots: Vec<PathBuf>,
 	pub(super) config_root: PathBuf,
@@ -46,6 +49,7 @@ pub struct WorkspaceDaemon {
 	pub(super) cache: LocalResourceCache,
 	pub(super) notes: WorkspaceNotes,
 	pub(super) live: DaemonLiveState,
+	pub(super) process_scope: &'static str,
 }
 
 pub(super) struct DaemonLiveState {
@@ -114,9 +118,15 @@ impl WorkspaceDaemon {
 			cache: init.cache,
 			notes: WorkspaceNotes::default(),
 			live: init.live,
+			process_scope: "daemon",
 		};
 		daemon.live.events = events;
 		Ok(daemon)
+	}
+
+	pub fn with_process_scope(mut self, process_scope: &'static str) -> Self {
+		self.process_scope = process_scope;
+		self
 	}
 
 	pub fn handle_protocol(&mut self, request: ProtocolRequest) -> ProtocolResponse {
@@ -439,9 +449,25 @@ fn handle_query(
 			"workspace snapshot is still loading; retry after workspace.status reports phase ready",
 		));
 	}
-	if requires_fresh_change_material {
-		daemon.request_change_overlay()?;
-	}
+	let global_change_overlay = match &request.query {
+		Query::ChangeReview(query) => query.workspace.is_none() || daemon.roots.len() == 1,
+		Query::ChangeContext(query) => query.workspace.is_none() || daemon.roots.len() == 1,
+		_ => false,
+	};
+	let git_change_failure = optional_git_change_failure(&request.query, &daemon.roots)?;
+	let change_overlay_failure =
+		if matches!(&request.query, Query::ChangeReview(_)) && global_change_overlay {
+			daemon.request_change_overlay()?;
+			None
+		} else if matches!(&request.query, Query::ChangeContext(_))
+			&& global_change_overlay
+			&& git_change_failure.is_none()
+		{
+			daemon.request_change_overlay().err()
+		} else {
+			None
+		};
+	let change_overlay_failure = git_change_failure.or(change_overlay_failure);
 	if request.consistency == Consistency::Current
 		&& daemon.registry.queries().staleness().is_stale()
 	{
@@ -462,7 +488,7 @@ fn handle_query(
 		config_root: &response_config_root,
 		generation: current_generation,
 	};
-	dispatch_loaded_query(daemon, snapshot, response, request)
+	dispatch_loaded_query(daemon, snapshot, response, request, change_overlay_failure)
 }
 
 fn live_watcher_failed_status(
@@ -534,10 +560,13 @@ fn dispatch_loaded_query(
 	snapshot: Arc<WorkspaceSnapshot>,
 	response: ResponseContext<'_>,
 	request: QueryRequest,
+	change_overlay_failure: Option<QueryError>,
 ) -> Result<QueryResponse, QueryError> {
 	let QueryRequest { query, page, .. } = request;
 	match query {
-		Query::ChangeContext(query) => change_context_response(daemon, &snapshot, response, query),
+		Query::ChangeContext(query) => {
+			change_context_response(daemon, &snapshot, response, query, change_overlay_failure)
+		}
 		Query::Notes(query) => notes_response(daemon, &snapshot, query, page, response.generation),
 		query => {
 			let context = SnapshotQueryContext {

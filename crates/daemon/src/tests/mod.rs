@@ -42,7 +42,8 @@ use crate::query::{
 };
 use crate::runtime::{
 	DaemonRpcService, generate_token, publish_current_snapshot, query_error,
-	spawn_initial_preload_with_watcher, workspace_unavailable_response,
+	spawn_initial_preload_with_watcher, spawn_runtime_dependency_probe_with,
+	workspace_unavailable_response,
 };
 use crate::source_sets::{
 	MemorySourceLimits, parse_memory_source_set, validate_memory_source_set_limits,

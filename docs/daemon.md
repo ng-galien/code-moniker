@@ -119,6 +119,13 @@ Linkage construction runs after the shared code index is ready. Git change
 material is built only for the explicit change query currently being served;
 it does not attach Git to later refreshes. Complete source refresh, status and
 symbol queries do not discover a repository or start Git.
+After the initial snapshot is published ready, a separate process-scoped Git
+diagnostic resolves and probes the optional Git runtime outside the workspace
+mutex. `workspace.status` reports both that dependency state and the resulting
+effective capability state. Git-backed queries are gated by the bounded
+diagnostic, while index readiness and Git-independent queries remain available.
+The resolution, timeout, failure and capability contract is documented in
+[`design/git-runtime-dependency.md`](design/git-runtime-dependency.md).
 `workspace.status` exposes catalog, extraction, semantic-index, linkage and
 total build timings; phase
 durations may overlap and therefore need not sum to the total.

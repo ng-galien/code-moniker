@@ -2,4 +2,4 @@
 jobs = 10
 
 [alias]
-moniker-check = "run -p code-moniker -- check . --profile agent"
+moniker-check = "run -p code-moniker -- check . --profile ci --report"

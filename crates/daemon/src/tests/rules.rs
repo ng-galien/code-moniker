@@ -309,6 +309,21 @@ fn applicable_rules_and_change_context_are_symbol_scoped_with_canonical_source_g
 	assert_eq!(context.coverage.callees_emitted, 1);
 	assert!(context.coverage.callees_total >= context.coverage.callees_emitted);
 	assert_eq!(context.coverage.rules_emitted, 1);
+	assert!(context.changed_files.is_empty());
+	assert!(context.changed_symbols.is_empty());
+	assert_eq!(context.change_dependency.process_scope, "daemon");
+	assert_eq!(
+		context.change_dependency.state,
+		code_moniker_query::RuntimeDependencyState::Unavailable
+	);
+	assert_eq!(
+		context
+			.change_dependency
+			.failure
+			.as_ref()
+			.map(|failure| failure.category.as_str()),
+		Some("runtime_dependency_checking")
+	);
 	assert_eq!(context.suggested_checks.len(), 1);
 	assert!(
 		context.suggested_checks[0].starts_with("code_moniker_rules "),

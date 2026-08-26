@@ -23,6 +23,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	#[command(name = "__git-runtime", hide = true)]
+	GitRuntime(GitRuntimeArgs),
 	#[command(about = "Extract a moniker graph from a file or directory.")]
 	Extract(ExtractArgs),
 	#[command(about = "Report extraction metrics for a file or directory.")]
@@ -50,6 +52,21 @@ pub enum Command {
 		about = "Extract declared dependencies from a build manifest (auto-detected by filename) or every manifest under a directory."
 	)]
 	Manifest(ManifestArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct GitRuntimeArgs {
+	#[arg(long, value_name = "ABSOLUTE_PATH")]
+	pub executable: PathBuf,
+
+	#[arg(long, value_name = "MILLISECONDS")]
+	pub timeout_ms: u64,
+
+	#[arg(long, value_name = "BYTES")]
+	pub output_limit: usize,
+
+	#[arg(last = true, required = true, allow_hyphen_values = true)]
+	pub arguments: Vec<String>,
 }
 
 #[derive(Debug, ClapArgs)]

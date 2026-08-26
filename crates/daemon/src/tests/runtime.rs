@@ -39,12 +39,24 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 	let (events, _) = tokio::sync::broadcast::channel(8);
 	let (watcher_entered_tx, watcher_entered_rx) = std::sync::mpsc::channel();
 	let (release_watcher_tx, release_watcher_rx) = std::sync::mpsc::channel();
+	let (probe_completed_tx, probe_completed_rx) = std::sync::mpsc::channel();
+	let readiness_published = Arc::new(tokio::sync::Notify::new());
+	let dependency_probe = spawn_runtime_dependency_probe_with(
+		readiness_published.clone(),
+		vec![temp.path().to_path_buf()],
+		move |_| {
+			probe_completed_tx
+				.send(())
+				.expect("announce dependency probe")
+		},
+	);
 
 	let (_, worker) = spawn_initial_preload_with_watcher(
 		daemon,
 		published.clone(),
 		lifecycle.clone(),
 		events,
+		readiness_published,
 		move |registration| {
 			watcher_entered_tx.send(()).expect("announce watcher start");
 			release_watcher_rx.recv().expect("release watcher start");
@@ -63,11 +75,15 @@ async fn initial_preload_publishes_ready_before_live_watcher_can_block() {
 		.unwrap_or_else(|error| error.into_inner())
 		.is_some();
 	let daemon_available_while_watcher_is_blocked = daemon_probe.try_lock().is_ok();
+	probe_completed_rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("dependency probe runs after readiness without waiting for the watcher");
 	release_watcher_tx.send(()).expect("release watcher");
 	worker
 		.await
 		.expect("preload worker joins")
 		.expect("preload succeeds");
+	dependency_probe.await.expect("dependency probe joins");
 
 	assert_eq!(phase_while_watcher_is_blocked, WorkspacePhase::Ready);
 	assert!(snapshot_published_while_watcher_is_blocked);
@@ -108,6 +124,7 @@ async fn initial_watcher_failure_is_exposed_by_rpc_workspace_status() {
 		published.clone(),
 		lifecycle.clone(),
 		events.clone(),
+		Arc::new(tokio::sync::Notify::new()),
 		move |_| anyhow::bail!("watch registration failed"),
 	);
 	worker
@@ -163,6 +180,7 @@ async fn stale_initial_watcher_success_remains_fallback_coverage() {
 		published,
 		lifecycle.clone(),
 		events,
+		Arc::new(tokio::sync::Notify::new()),
 		move |registration| {
 			controller
 				.lock()
@@ -204,6 +222,7 @@ async fn stale_initial_watcher_failure_cannot_override_a_replacement() {
 		published,
 		lifecycle.clone(),
 		events,
+		Arc::new(tokio::sync::Notify::new()),
 		move |_| {
 			controller
 				.lock()

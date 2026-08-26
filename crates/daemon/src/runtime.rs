@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Runtime composition intentionally clones Arc handles into independently owned services/tasks.
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
 #[cfg(unix)]
@@ -32,6 +34,9 @@ use crate::helpers::root_labels;
 use crate::lifecycle::{
 	refresh_full_cancellable, reject_conflicting_daemons, workspace_failure_dto,
 	workspace_status_result, workspace_status_without_snapshot,
+};
+use crate::runtime_dependencies::{
+	augment_workspace_status, gate_git_query, query_has_git_change_portion,
 };
 use crate::telemetry;
 
@@ -83,6 +88,7 @@ async fn serve_async(
 	let workspace_roots = root_labels(&daemon.roots);
 	let build = current_build_identity(env!("CARGO_PKG_VERSION"))?;
 	let shutdown = Arc::new(tokio::sync::Notify::new());
+	let readiness_published = Arc::new(tokio::sync::Notify::new());
 	let daemon = Arc::new(Mutex::new(daemon));
 	let published = Arc::new(RwLock::new(None));
 	let lifecycle = Arc::new(RwLock::new(WorkspaceLifecycle::loading()));
@@ -139,8 +145,15 @@ async fn serve_async(
 		entry.live_refresh.as_deref().unwrap_or("on-demand")
 	);
 
-	let (preload_cancellation, mut preload) =
-		spawn_initial_preload(daemon.clone(), published, lifecycle.clone(), events.clone());
+	let dependency_probe =
+		spawn_runtime_dependency_probe(readiness_published.clone(), config_roots(&config));
+	let (preload_cancellation, mut preload) = spawn_initial_preload(
+		daemon.clone(),
+		published,
+		lifecycle.clone(),
+		events.clone(),
+		readiness_published,
+	);
 	let preload_result = tokio::select! {
 		result = &mut preload => result,
 		_ = shutdown.notified() => {
@@ -170,6 +183,7 @@ async fn serve_async(
 		failure = maintain_registry_claim(&config, &entry) => Some(failure),
 	};
 	stop_server(handle, &registry_path, &entry).await;
+	dependency_probe.abort();
 	if let Some(failure) = claim_failure {
 		anyhow::bail!("daemon registry claim lost for {workspace_root}: {failure}");
 	}
@@ -209,13 +223,19 @@ fn spawn_initial_preload(
 	published: Arc<RwLock<Option<PublishedSnapshot>>>,
 	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
 	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	readiness_published: Arc<tokio::sync::Notify>,
 ) -> (
 	WorkspaceCancellation,
 	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
 ) {
-	spawn_initial_preload_with_watcher(daemon, published, lifecycle, events, |registration| {
-		registration.start().map(Some)
-	})
+	spawn_initial_preload_with_watcher(
+		daemon,
+		published,
+		lifecycle,
+		events,
+		readiness_published,
+		|registration| registration.start().map(Some),
+	)
 }
 
 pub(super) fn spawn_initial_preload_with_watcher<F>(
@@ -223,6 +243,7 @@ pub(super) fn spawn_initial_preload_with_watcher<F>(
 	published: Arc<RwLock<Option<PublishedSnapshot>>>,
 	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
 	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	readiness_published: Arc<tokio::sync::Notify>,
 	start_watcher: F,
 ) -> (
 	WorkspaceCancellation,
@@ -248,15 +269,25 @@ where
 							!worker_cancellation.is_cancelled(),
 							"workspace preload cancelled"
 						);
-						let status =
-							publish_preload_snapshot(&daemon, &published, &lifecycle, &events);
+						let status = publish_preload_snapshot(
+							&daemon,
+							&published,
+							&lifecycle,
+							&events,
+							&readiness_published,
+						);
 						(
 							status,
 							Some(daemon.begin_initial_live_watcher_registration()),
 						)
 					} else {
-						let status =
-							publish_preload_snapshot(&daemon, &published, &lifecycle, &events);
+						let status = publish_preload_snapshot(
+							&daemon,
+							&published,
+							&lifecycle,
+							&events,
+							&readiness_published,
+						);
 						(status, None)
 					}
 				};
@@ -323,6 +354,7 @@ fn publish_preload_snapshot(
 	published: &RwLock<Option<PublishedSnapshot>>,
 	lifecycle: &RwLock<WorkspaceLifecycle>,
 	events: &tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	readiness_published: &tokio::sync::Notify,
 ) -> WorkspaceStatus {
 	publish_current_snapshot(daemon, published);
 	let status = workspace_status_result(&daemon.roots, &daemon.registry);
@@ -335,7 +367,31 @@ fn publish_preload_snapshot(
 		generation: status.generation,
 		stale_summary: None,
 	});
+	readiness_published.notify_one();
 	status
+}
+
+fn spawn_runtime_dependency_probe(
+	readiness_published: Arc<tokio::sync::Notify>,
+	roots: Vec<PathBuf>,
+) -> tokio::task::JoinHandle<()> {
+	spawn_runtime_dependency_probe_with(readiness_published, roots, |roots| {
+		crate::runtime_dependencies::probe_runtime_dependencies(roots);
+	})
+}
+
+pub(super) fn spawn_runtime_dependency_probe_with<F>(
+	readiness_published: Arc<tokio::sync::Notify>,
+	roots: Vec<PathBuf>,
+	probe: F,
+) -> tokio::task::JoinHandle<()>
+where
+	F: FnOnce(&[PathBuf]) + Send + 'static,
+{
+	tokio::spawn(async move {
+		readiness_published.notified().await;
+		let _ = tokio::task::spawn_blocking(move || probe(&roots)).await;
+	})
 }
 
 fn validate_supervisor_pid(supervisor_pid: Option<u32>) -> anyhow::Result<()> {
@@ -633,58 +689,62 @@ pub(super) fn publish_current_snapshot(
 	*published.write().unwrap_or_else(|err| err.into_inner()) = Some(publication);
 }
 
-impl DaemonRpcService {
-	#[tracing::instrument(
-		parent = None,
-		name = "daemon.request",
-		skip_all,
-		fields(
-			request.kind = protocol_request_kind(&request),
-			request.operation = protocol_request_operation(&request),
-			request.consistency = protocol_request_consistency(&request),
-			request.payload = %bounded_debug(&request, TELEMETRY_REQUEST_PAYLOAD_LIMIT),
-			response.status = tracing::field::Empty,
-			response.generation = tracing::field::Empty,
-			error.message = tracing::field::Empty,
+async fn dispatch_request(
+	service: &DaemonRpcService,
+	request: ProtocolRequest,
+) -> Result<ProtocolResponse, ErrorObjectOwned> {
+	let request_kind = protocol_request_kind(&request);
+	let request_operation = protocol_request_operation(&request);
+	let started = Instant::now();
+	let result = if let ProtocolRequest::Query(query) = &request
+		&& let Err(error) = query.validate()
+	{
+		Ok(ProtocolResponse::Error(error))
+	} else if let Some(response) = stateless_protocol_response(&request) {
+		Ok(response)
+	} else if request_needs_initial_snapshot(&request, &service.published, &service.lifecycle) {
+		Ok(workspace_unavailable_response(request, &service.lifecycle))
+	} else if let ProtocolRequest::Query(query) = &request
+		&& let Err(error) = gate_git_query_async(&query.query, &service.roots).await
+	{
+		Ok(ProtocolResponse::Error(error))
+	} else if concurrent_snapshot_request(&request) {
+		dispatch_published_snapshot(service.published.clone(), request).await
+	} else {
+		dispatch_workspace_request(
+			service.daemon.clone(),
+			service.published.clone(),
+			service.lifecycle.clone(),
+			service.roots.clone(),
+			request,
 		)
-	)]
-	pub(super) async fn dispatch(
-		&self,
-		request: ProtocolRequest,
-	) -> Result<ProtocolResponse, ErrorObjectOwned> {
-		let request_kind = protocol_request_kind(&request);
-		let request_operation = protocol_request_operation(&request);
-		let started = Instant::now();
-		let result = if let ProtocolRequest::Query(query) = &request
-			&& let Err(error) = query.validate()
-		{
-			Ok(ProtocolResponse::Error(error))
-		} else if let Some(response) = stateless_protocol_response(&request) {
-			Ok(response)
-		} else if request_needs_initial_snapshot(&request, &self.published, &self.lifecycle) {
-			Ok(workspace_unavailable_response(request, &self.lifecycle))
-		} else if concurrent_snapshot_request(&request) {
-			dispatch_published_snapshot(self.published.clone(), request).await
-		} else {
-			dispatch_workspace_request(
-				self.daemon.clone(),
-				self.published.clone(),
-				self.lifecycle.clone(),
-				self.roots.clone(),
-				request,
-			)
-			.await
-		};
-		let span = tracing::Span::current();
-		let response_status = record_protocol_response(&span, &result);
-		telemetry::record_daemon_request(
-			request_kind,
-			request_operation,
-			response_status,
-			started.elapsed(),
-		);
-		result
+		.await
+	};
+	let span = tracing::Span::current();
+	let response_status = record_protocol_response(&span, &result);
+	telemetry::record_daemon_request(
+		request_kind,
+		request_operation,
+		response_status,
+		started.elapsed(),
+	);
+	result
+}
+
+async fn gate_git_query_async(query: &Query, roots: &[PathBuf]) -> Result<(), QueryError> {
+	if !query_has_git_change_portion(query) {
+		return Ok(());
 	}
+	let roots = roots.to_vec();
+	let query = query.clone();
+	tokio::task::spawn_blocking(move || gate_git_query(&query, &roots))
+		.await
+		.map_err(|error| {
+			QueryError::new(
+				"runtime_dependency_unavailable",
+				format!("Git diagnostic task failed: {error}"),
+			)
+		})?
 }
 
 fn protocol_request_kind(request: &ProtocolRequest) -> &'static str {
@@ -889,13 +949,19 @@ impl DaemonRpcServer for DaemonRpcService {
 		};
 		if let QueryResult::WorkspaceStatus(status) = &mut response.result {
 			status.producer = self.handshake.build.clone();
+			augment_workspace_status(status, &self.roots, "daemon");
 		}
 		Ok(response)
 	}
 
 	async fn command(&self, request: CommandRequest) -> Result<CommandResponse, ErrorObjectOwned> {
 		match self.dispatch(ProtocolRequest::Command(request)).await? {
-			ProtocolResponse::Command(response) => Ok(response),
+			ProtocolResponse::Command(mut response) => {
+				if let Some(status) = &mut response.status {
+					augment_workspace_status(status, &self.roots, "daemon");
+				}
+				Ok(response)
+			}
 			ProtocolResponse::Error(error) => Err(query_error(error)),
 			other => Err(internal_error(format!(
 				"unexpected command response: {other:?}"
@@ -927,6 +993,29 @@ impl DaemonRpcServer for DaemonRpcService {
 			}
 		}
 		Ok(())
+	}
+}
+
+impl DaemonRpcService {
+	#[tracing::instrument(
+		parent = None,
+		name = "daemon.request",
+		skip_all,
+		fields(
+			request.kind = protocol_request_kind(&request),
+			request.operation = protocol_request_operation(&request),
+			request.consistency = protocol_request_consistency(&request),
+			request.payload = %bounded_debug(&request, TELEMETRY_REQUEST_PAYLOAD_LIMIT),
+			response.status = tracing::field::Empty,
+			response.generation = tracing::field::Empty,
+			error.message = tracing::field::Empty,
+		)
+	)]
+	pub(super) async fn dispatch(
+		&self,
+		request: ProtocolRequest,
+	) -> Result<ProtocolResponse, ErrorObjectOwned> {
+		dispatch_request(self, request).await
 	}
 }
 

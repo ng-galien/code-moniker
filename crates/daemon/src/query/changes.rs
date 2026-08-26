@@ -23,7 +23,11 @@ pub(crate) fn change_review_response(
 	query: ChangeReviewQuery,
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
-	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let selected = selected_roots(roots, query.workspace.as_deref())?;
+	let selected_indices = selected
+		.iter()
+		.filter_map(|selected| roots.iter().position(|root| root == *selected))
+		.collect::<Vec<_>>();
 	let material = cache
 		.index_material(snapshot.index.generation)
 		.ok_or_else(|| {
@@ -37,7 +41,13 @@ pub(crate) fn change_review_response(
 		index.generation = snapshot.index.generation.value(),
 	);
 	let review = review_span
-		.in_scope(|| code_moniker_workspace::changes::build_semantic_review(material.as_ref()));
+		.in_scope(|| {
+			code_moniker_workspace::changes::build_semantic_review_for_roots(
+				material.as_ref(),
+				&selected_indices,
+			)
+		})
+		.map_err(|error| crate::runtime_dependencies::git_acquisition_error(&error))?;
 	let result = change_review_dto(&review);
 	Ok(QueryResponse {
 		generation: current_generation,
@@ -286,6 +296,8 @@ fn diff_impact_symbol(
 	}
 }
 
+// DTO projection necessarily owns the identity plus the three borrowed symbol facets.
+// code-moniker: ignore[smell-clone-reflex]
 fn diff_impact_side(
 	side: &code_moniker_workspace::changes::semantic::model::SymbolSide,
 ) -> DiffImpactSide {

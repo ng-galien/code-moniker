@@ -11,7 +11,14 @@ Scopes:
   side is read from git blobs, the worktree never leaks into the window.
 - `code-moniker diff <A>...<B> [PATH]` — merge-base form for PR review.
 
-Unresolvable revisions exit 2 with the revision named on stderr.
+Unresolvable revisions, an unavailable Git runtime, and a target for which no
+Git worktree can be resolved exit 2 with a typed diagnostic on stderr. The CLI
+never renders an empty successful review when Git acquisition failed.
+
+All Git discovery and commands use the diagnosed absolute Git executable. The
+runtime checks `CODE_MONIKER_GIT_BINARY` before inherited `PATH`, requires Git
+`>=2.22.0`, and bounds both diagnostic and normal command duration and output.
+See [the Git runtime dependency decision](../design/git-runtime-dependency.md).
 
 The same facts are served live by the daemon (`code-moniker query
 'change.review'`, capability `change.review`, HEAD..worktree only) and to

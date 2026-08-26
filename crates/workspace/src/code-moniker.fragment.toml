@@ -31,9 +31,53 @@ linkage_internal_ref = """
   OR kind = 'instantiates'
 """
 changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
+git_runtime_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:git_runtime/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
 test_module = "moniker ~ '**/module:tests/**'"
 cli_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
+
+[[rust.shape.callable.where]]
+id       = "workspace-git-call-flow-enters-bounded-runtime"
+severity = "error"
+expr     = "NOT ($changes_layer AND name = 'git_cli_text') OR (any(out_refs, target.name = 'process_git_runtime') AND any(out_refs, target.name = 'text'))"
+message  = "Workspace Git change acquisition must enter the process-wide bounded Git runtime."
+rationale = """
+Code Moniker deliberately retains the Git CLI to preserve native revision, diff, rename, worktree,
+and configuration semantics. Reliability comes from one execution owner: callers may not resolve
+or launch Git themselves because that would bypass the diagnostic gate, absolute executable path,
+timeouts, output caps, credential sanitization, and typed failures.
+"""
+
+[[rust.shape.callable.where]]
+id       = "workspace-git-fast-metadata-uses-probe-budget"
+severity = "error"
+expr     = "(NOT ($changes_layer AND name = 'git_cli_fast_text') OR any(out_refs, target.name = 'git_fast_text')) AND (NOT ($changes_layer AND name = 'resolve_base_rev') OR any(out_refs, target.name = 'git_cli_fast_text')) AND (NOT ($changes_layer AND name = 'git_revision') OR count(out_refs, target.name = 'git_cli_fast_text') >= 3) AND (NOT ($changes_layer AND parent.name = 'GitWorktree' AND name = 'discover') OR any(out_refs, target.name = 'git_cli_fast_text'))"
+message  = "Git worktree discovery, revision identity, and status must use the fast command budget."
+rationale = """
+Repository discovery and local metadata are interactive diagnostic gates. They use the two-second,
+64 KiB probe limits rather than the larger diff and history command budget.
+"""
+
+[[rust.shape.callable.where]]
+id       = "workspace-git-ownership-process-launches-stay-in-runtime"
+severity = "error"
+expr     = "NOT ($workspace_crate AND NOT $test_module AND text =~ '(^|[^A-Za-z])Command::new\\(') OR $git_runtime_layer"
+message  = "Production process launches in the workspace crate belong to the Git runtime owner."
+rationale = """
+Git is the workspace crate's only production executable dependency. A direct process launch in
+another module would bypass absolute resolution, bounded output, timeout cleanup and diagnostics.
+"""
+
+[[rust.shape.callable.where]]
+id       = "workspace-git-lifecycle-bounded-process-execution"
+severity = "error"
+expr     = "NOT ($git_runtime_layer AND name = 'run_bounded') OR (text =~ 'timeout' AND text =~ 'output_limit' AND any(out_refs, kind = 'method_call' AND target.name = 'try_wait') AND any(out_refs, target.name = 'terminate_child'))"
+message  = "The Git process owner must bound duration and output, then kill and reap timed-out children."
+rationale = """
+Every Git command, including fast diagnostics such as `git --version` and repository probes, shares
+one launch primitive. A command that can wait forever or retain unbounded stdout/stderr can stall an
+indexing process even when workspace readiness itself is independent from Git.
+"""
 
 [[refs.where]]
 id       = "workspace-crate-does-not-import-cli"

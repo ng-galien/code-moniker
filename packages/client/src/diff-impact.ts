@@ -1,7 +1,8 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, delimiter, extname, isAbsolute, join, resolve } from "node:path";
 
 import type {
 	DiffImpactCompareFile,
@@ -15,6 +16,15 @@ import type { NodeDaemonRuntime, OwnedDaemon } from "./node.js";
 import type { CodeMonikerClient } from "./client.js";
 
 const GIT_OUTPUT_LIMIT = 32 * 1024 * 1024;
+const GIT_PROBE_OUTPUT_LIMIT = 64 * 1024;
+const GIT_PROBE_TIMEOUT_MS = 2_000;
+const GIT_COMMAND_TIMEOUT_MS = 30_000;
+const PROCESS_CLEANUP_TIMEOUT_MS = 1_000;
+const GIT_BINARY_ENV = "CODE_MONIKER_GIT_BINARY";
+const SUPPORTED_GIT_VERSION_RANGE = ">=2.22.0";
+const GIT_RESOLUTION_RETRY_BACKOFF_MS = 1_000;
+const gitResolutionFlights = new Map<string, Promise<ResolvedGitExecutable>>();
+const gitResolutionRetryAfter = new Map<string, number>();
 
 export interface GitDiffImpactOptions {
 	repository: string;
@@ -39,7 +49,7 @@ export interface DiffImpactFileInventory {
 }
 
 export interface DiffImpactArtifact {
-	schemaVersion: 1;
+	schemaVersion: 2;
 	kind: "code-moniker.diff-impact";
 	repository: string;
 	project: string;
@@ -49,6 +59,9 @@ export interface DiffImpactArtifact {
 		head: { requested: string; resolved: string };
 	};
 	scope: string;
+	runtimeDependencies: {
+		git: GitRuntimeDiagnostic;
+	};
 	inventory: {
 		files: DiffImpactFileInventory[];
 		totals: Record<DiffImpactFileInventory["status"], number>;
@@ -69,6 +82,26 @@ export interface DiffImpactArtifact {
 	limitations: string[];
 }
 
+export type GitRuntimeDiagnosticState =
+	| "available"
+	| "unavailable"
+	| "incompatible"
+	| "timed_out";
+
+export interface GitRuntimeDiagnostic {
+	state: GitRuntimeDiagnosticState;
+	processScope: "client";
+	resolutionSource: "explicit_configuration" | "inherited_path";
+	executable: string | null;
+	version: string | null;
+	supportedRange: typeof SUPPORTED_GIT_VERSION_RANGE;
+	compatible: boolean;
+	failure: { category: string; message: string } | null;
+	checkedAt: string;
+	durationMs: number;
+	repositoryState: "worktree" | "repository_only" | "not_repository" | "unavailable";
+}
+
 export interface DiffImpactOutput {
 	artifact: DiffImpactArtifact;
 	json: string;
@@ -87,11 +120,14 @@ export interface GitChange {
 interface PreparedDiffImpact {
 	base: string;
 	head: string;
+	gitDiagnostic: GitRuntimeDiagnostic;
 	files: DiffImpactCompareFile[];
 	baseDocuments: WorkspaceSourceDocumentDto[];
 	headDocuments: WorkspaceSourceDocumentDto[];
 	inventory: DiffImpactFileInventory[];
 }
+
+type SupervisorCandidates = () => readonly [string, ...string[]];
 
 export async function runGitDiffImpact(
 	options: GitDiffImpactOptions,
@@ -107,7 +143,10 @@ export async function runGitDiffImpact(
 	let owned: OwnedDaemon | undefined;
 	let client: CodeMonikerClient | undefined;
 	try {
-		source = await GitRevisionSource.open(options);
+		const supervisorCandidates: SupervisorCandidates | undefined = process.platform === "win32"
+			? () => options.binaryCandidates ?? runtime.resolveBinaryCandidates()
+			: undefined;
+		source = await GitRevisionSource.open(options, supervisorCandidates);
 		const prepared = await source.prepare();
 		owned = await runtime.launch({
 			workspaceRoots: [workspace],
@@ -417,20 +456,33 @@ export function canonicalJson(value: unknown): string {
 class GitRevisionSource {
 	private constructor(
 		private readonly options: GitDiffImpactOptions,
+		private readonly client: GitClient,
 		private readonly repositoryArguments: string[],
 		private readonly temporaryDirectory?: string,
 	) {}
 
-	static async open(options: GitDiffImpactOptions): Promise<GitRevisionSource> {
+	static async open(
+		options: GitDiffImpactOptions,
+		supervisorCandidates?: SupervisorCandidates,
+	): Promise<GitRevisionSource> {
+		const client = await GitClient.open(options, supervisorCandidates);
 		const local = await isDirectory(options.repository);
 		if (local) {
-			return new GitRevisionSource(options, ["-C", resolve(options.repository)]);
+			const repository = resolve(options.repository);
+			await client.probeRepository(repository, "worktree");
+			return new GitRevisionSource(options, client, ["-C", repository]);
 		}
 		const temporaryDirectory = await mkdtemp(join(tmpdir(), "code-moniker-git-"));
 		const gitDirectory = join(temporaryDirectory, "repository.git");
-		const source = new GitRevisionSource(options, ["--git-dir", gitDirectory], temporaryDirectory);
+		const source = new GitRevisionSource(
+			options,
+			client,
+			["--git-dir", gitDirectory],
+			temporaryDirectory,
+		);
 		try {
 			await source.git(["init", "--bare", gitDirectory], false);
+			await client.probeRepository(gitDirectory, "repository_only", true);
 			await source.git(["--git-dir", gitDirectory, "remote", "add", "origin", options.repository], false);
 			await source.git(["--git-dir", gitDirectory, "config", "remote.origin.promisor", "true"], false);
 			await source.git(["--git-dir", gitDirectory, "config", "remote.origin.partialclonefilter", "blob:none"], false);
@@ -502,6 +554,7 @@ class GitRevisionSource {
 		return {
 			base,
 			head,
+			gitDiagnostic: this.diagnostic(),
 			files,
 			baseDocuments: baseDocuments.sort(byUri),
 			headDocuments: headDocuments.sort(byUri),
@@ -531,7 +584,12 @@ class GitRevisionSource {
 		const revision = this.temporaryDirectory === undefined
 			? requested
 			: `refs/code-moniker/${remoteLabel}`;
-		return (await this.git([...this.repositoryArguments, "rev-parse", "--verify", `${revision}^{commit}`], false)).trim();
+		return (await this.client.runFastMetadata([
+			...this.repositoryArguments,
+			"rev-parse",
+			"--verify",
+			`${revision}^{commit}`,
+		])).trim();
 	}
 
 	private async changes(base: string, head: string): Promise<GitChange[]> {
@@ -571,7 +629,15 @@ class GitRevisionSource {
 	}
 
 	private git(args: string[], includeRepository = true): Promise<string> {
-		return runProcess(this.options.gitBinary ?? "git", includeRepository ? [...this.repositoryArguments, ...args] : args, this.options.environment);
+		return this.client.run(
+			includeRepository ? [...this.repositoryArguments, ...args] : args,
+			GIT_COMMAND_TIMEOUT_MS,
+			GIT_OUTPUT_LIMIT,
+		);
+	}
+
+	diagnostic(): GitRuntimeDiagnostic {
+		return this.client.diagnostic();
 	}
 }
 
@@ -600,7 +666,7 @@ function buildArtifact(
 		limitations.push(`${skipped.length} changed files were omitted because their language or content was not analyzable.`);
 	}
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		kind: "code-moniker.diff-impact",
 		repository: redactCredentials(options.repository),
 		project,
@@ -610,6 +676,9 @@ function buildArtifact(
 			head: { requested: options.head, resolved: prepared.head },
 		},
 		scope: `${prepared.base}..${prepared.head}`,
+		runtimeDependencies: {
+			git: prepared.gitDiagnostic,
+		},
 		inventory: { files: prepared.inventory, totals },
 		semantic,
 		tests: { basis: "analyzed-path-and-extractor-kind", files: testFiles, symbolChanges: testSymbols },
@@ -746,24 +815,815 @@ async function isDirectory(path: string): Promise<boolean> {
 	}
 }
 
+class GitClient {
+	private constructor(
+		private readonly executable: string,
+		private readonly environment: NodeJS.ProcessEnv,
+		private readonly supervisorCandidates: SupervisorCandidates | undefined,
+		private readonly source: GitRuntimeDiagnostic["resolutionSource"],
+		private currentDiagnostic: GitRuntimeDiagnostic,
+	) {}
+
+	static async open(
+		options: GitDiffImpactOptions,
+		supervisorCandidates?: SupervisorCandidates,
+	): Promise<GitClient> {
+		const started = performance.now();
+		const checkedAt = new Date().toISOString();
+		const environment = gitEnvironment(options.environment);
+		const source = options.gitBinary !== undefined || environment[GIT_BINARY_ENV] !== undefined
+			? "explicit_configuration"
+			: "inherited_path";
+		let resolved: ResolvedGitExecutable;
+		try {
+			resolved = await resolveGitExecutableBounded(
+				options.gitBinary,
+				environment,
+				GIT_PROBE_TIMEOUT_MS,
+			);
+		} catch (error) {
+			throw gitResolutionDiagnosticError(
+				error,
+				source,
+				checkedAt,
+				performance.now() - started,
+			);
+		}
+		let versionOutput: string;
+		try {
+			const remaining = Math.max(1, Math.ceil(
+				GIT_PROBE_TIMEOUT_MS - (performance.now() - started),
+			));
+			versionOutput = await runProcess(
+				resolved.executable,
+				["--version"],
+				environment,
+				remaining,
+				GIT_PROBE_OUTPUT_LIMIT,
+				supervisorCandidates,
+			);
+		} catch (error) {
+			throw gitDiagnosticError(error, resolved, checkedAt, performance.now() - started);
+		}
+		const version = parseGitVersion(versionOutput);
+		if (version === null) {
+			throw new GitRuntimeError("unavailable", {
+				state: "unavailable",
+				processScope: "client",
+				resolutionSource: resolved.source,
+				executable: resolved.executable,
+				version: versionOutput.trim() || null,
+				supportedRange: SUPPORTED_GIT_VERSION_RANGE,
+				compatible: false,
+				failure: {
+					category: "malformed_version",
+					message: `Git returned an unrecognized version: ${JSON.stringify(versionOutput.trim())}`,
+				},
+				checkedAt,
+				durationMs: Math.ceil(performance.now() - started),
+				repositoryState: "unavailable",
+			}, `Git returned an unrecognized version: ${JSON.stringify(versionOutput.trim())}`);
+		}
+		const compatible = compareVersion(version, [2, 22, 0]) >= 0;
+		const diagnostic: GitRuntimeDiagnostic = {
+			state: compatible ? "available" : "incompatible",
+			processScope: "client",
+			resolutionSource: resolved.source,
+			executable: resolved.executable,
+			version: version.text,
+			supportedRange: SUPPORTED_GIT_VERSION_RANGE,
+			compatible,
+			failure: compatible ? null : {
+				category: "incompatible_version",
+				message: `Git ${version.text} is outside the supported range ${SUPPORTED_GIT_VERSION_RANGE}`,
+			},
+			checkedAt,
+			durationMs: Math.ceil(performance.now() - started),
+			repositoryState: "unavailable",
+		};
+		if (!compatible) {
+			throw new GitRuntimeError(
+				"incompatible",
+				diagnostic,
+				`Git ${version.text} is outside the supported range ${SUPPORTED_GIT_VERSION_RANGE}`,
+			);
+		}
+		return new GitClient(
+			resolved.executable,
+			environment,
+			supervisorCandidates,
+			resolved.source,
+			diagnostic,
+		);
+	}
+
+	async probeRepository(
+		repository: string,
+		expected: "worktree" | "repository_only",
+		bare = false,
+	): Promise<void> {
+		const started = performance.now();
+		const prefix = bare ? ["--git-dir", repository] : ["-C", repository];
+		let output: string;
+		try {
+			output = await this.run(
+				[...prefix, "rev-parse", "--is-inside-work-tree", "--is-bare-repository"],
+				GIT_PROBE_TIMEOUT_MS,
+				GIT_PROBE_OUTPUT_LIMIT,
+			);
+		} catch (error) {
+			const failure = error instanceof GitRuntimeError
+				? { ...(error.diagnostic.failure ?? processFailure(error)) }
+				: processFailure(error);
+			const notRepository = failure.category === "command_failed"
+				&& /not a git repository/i.test(failure.message);
+			if (notRepository) failure.category = "not_repository";
+			const state = notRepository
+				? "unavailable"
+				: error instanceof GitRuntimeError ? error.state : processFailureState(error);
+			this.currentDiagnostic = {
+				...this.currentDiagnostic,
+				state,
+				checkedAt: new Date().toISOString(),
+				durationMs: Math.ceil(performance.now() - started),
+				repositoryState: notRepository ? "not_repository" : "unavailable",
+				failure,
+			};
+			throw new GitRuntimeError(
+				state,
+				this.diagnostic(),
+				messageOf(error),
+			);
+		}
+		const repositoryFlags = output.trim().split(/\r?\n/);
+		const state = repositoryFlags.length === 2
+			&& repositoryFlags[0] === "true"
+			&& repositoryFlags[1] === "false"
+			? "worktree"
+			: repositoryFlags.length === 2
+				&& repositoryFlags[0] === "false"
+				&& repositoryFlags[1] === "true"
+					? "repository_only"
+					: null;
+		if (state === null) {
+			const message = `Git repository probe returned unexpected output: ${JSON.stringify(output.trim())}`;
+			this.currentDiagnostic = {
+				...this.currentDiagnostic,
+				state: "unavailable",
+				checkedAt: new Date().toISOString(),
+				durationMs: Math.ceil(performance.now() - started),
+				repositoryState: "unavailable",
+				failure: { category: "malformed_output", message },
+			};
+			throw new GitRuntimeError("unavailable", this.diagnostic(), message);
+		}
+		this.currentDiagnostic = {
+			...this.currentDiagnostic,
+			checkedAt: new Date().toISOString(),
+			durationMs: Math.ceil(performance.now() - started),
+			repositoryState: state,
+			failure: state === expected ? null : {
+				category: "not_repository",
+				message: `repository ${repository} is ${state}, expected ${expected}`,
+			},
+		};
+		if (state !== expected) {
+			this.currentDiagnostic.state = "unavailable";
+			throw new GitRuntimeError(
+				"unavailable",
+				this.diagnostic(),
+				`repository ${repository} is ${state}, expected ${expected}`,
+			);
+		}
+	}
+
+	async run(args: string[], timeoutMs: number, maxBuffer: number): Promise<string> {
+		try {
+			return await runProcess(
+				this.executable,
+				args,
+				this.environment,
+				timeoutMs,
+				maxBuffer,
+				this.supervisorCandidates,
+			);
+		} catch (error) {
+			const failure = processFailure(error);
+			if (failure.category === "command_failed") {
+				throw new GitRuntimeError(
+					this.currentDiagnostic.state,
+					{ ...this.diagnostic(), failure },
+					messageOf(error),
+				);
+			}
+			const state = processFailureState(error);
+			this.currentDiagnostic = {
+				...this.currentDiagnostic,
+				state,
+				failure,
+				checkedAt: new Date().toISOString(),
+			};
+			throw new GitRuntimeError(state, this.diagnostic(), messageOf(error));
+		}
+	}
+
+	runFastMetadata(args: string[]): Promise<string> {
+		return this.run(args, GIT_PROBE_TIMEOUT_MS, GIT_PROBE_OUTPUT_LIMIT);
+	}
+
+	diagnostic(): GitRuntimeDiagnostic {
+		return { ...this.currentDiagnostic, resolutionSource: this.source };
+	}
+}
+
+export class GitRuntimeError extends Error {
+	constructor(
+		readonly state: GitRuntimeDiagnosticState,
+		readonly diagnostic: GitRuntimeDiagnostic,
+		message: string,
+	) {
+		super(redactCredentials(message));
+		this.name = "GitRuntimeError";
+	}
+}
+
+interface ResolvedGitExecutable {
+	executable: string;
+	source: GitRuntimeDiagnostic["resolutionSource"];
+}
+
+async function resolveGitExecutable(
+	explicitOption: string | undefined,
+	environment: NodeJS.ProcessEnv,
+): Promise<ResolvedGitExecutable> {
+	const explicit = explicitOption ?? environment[GIT_BINARY_ENV];
+	if (explicit !== undefined) {
+		if (explicit.length === 0) {
+			throw unavailableGitError(
+				"explicit_configuration",
+				`${GIT_BINARY_ENV} and gitBinary must not be empty`,
+				"invalid_configuration",
+			);
+		}
+		if (!isAbsolute(explicit)) {
+			throw unavailableGitError(
+				"explicit_configuration",
+				`${GIT_BINARY_ENV} and gitBinary must name an absolute executable path`,
+				"invalid_configuration",
+			);
+		}
+		try {
+			return {
+				executable: await validateGitExecutable(explicit),
+				source: "explicit_configuration",
+			};
+		} catch (error) {
+			throw unavailableGitError(
+				"explicit_configuration",
+				`configured Git executable ${explicit} is unavailable: ${messageOf(error)}`,
+				processErrorCategory(error),
+				explicit,
+			);
+		}
+	}
+	const pathValue = inheritedPath(environment);
+	if (pathValue === undefined) {
+		throw unavailableGitError(
+			"inherited_path",
+			"cannot resolve Git because PATH is unavailable",
+			"path_unavailable",
+		);
+	}
+	const executableName = process.platform === "win32" ? "git.exe" : "git";
+	let permissionFailure: { candidate: string; error: unknown } | undefined;
+	for (const directory of pathValue.split(delimiter)) {
+		if (directory.length === 0) continue;
+		const candidate = join(directory, executableName);
+		try {
+			return {
+				executable: await validateGitExecutable(candidate),
+				source: "inherited_path",
+			};
+		} catch (error) {
+			if (processErrorCategory(error) === "permission_denied" && permissionFailure === undefined) {
+				permissionFailure = { candidate, error };
+			}
+			// Continue through the inherited PATH only; no registry or standard-path fallback.
+		}
+	}
+	if (permissionFailure !== undefined) {
+		throw unavailableGitError(
+			"inherited_path",
+			`Git candidate ${permissionFailure.candidate} is not executable: ${messageOf(permissionFailure.error)}`,
+			"permission_denied",
+			permissionFailure.candidate,
+		);
+	}
+	throw unavailableGitError("inherited_path", `Git was not found on the inherited PATH`);
+}
+
+async function validateGitExecutable(candidate: string): Promise<string> {
+	const details = await stat(candidate);
+	if (!details.isFile()) {
+		throw new ProcessExecutionError(`${candidate} is not a file`, false, "not_found");
+	}
+	if (process.platform !== "win32") await access(candidate, fsConstants.X_OK);
+	return realpath(candidate);
+}
+
+function inheritedPath(environment: NodeJS.ProcessEnv): string | undefined {
+	const key = Object.keys(environment).find((candidate) => candidate.toLowerCase() === "path");
+	return key === undefined ? undefined : environment[key];
+}
+
+function unavailableGitError(
+	source: GitRuntimeDiagnostic["resolutionSource"],
+	message: string,
+	category = "not_found",
+	executable: string | null = null,
+): GitRuntimeError {
+	return new GitRuntimeError("unavailable", {
+		state: "unavailable",
+		processScope: "client",
+		resolutionSource: source,
+		executable,
+		version: null,
+		supportedRange: SUPPORTED_GIT_VERSION_RANGE,
+		compatible: false,
+		failure: { category, message },
+		checkedAt: new Date().toISOString(),
+		durationMs: 0,
+		repositoryState: "unavailable",
+	}, message);
+}
+
+function processErrorCategory(error: unknown): string {
+	if (error instanceof ProcessExecutionError) return error.category;
+	const code = error instanceof Error && "code" in error
+		? (error as NodeJS.ErrnoException).code
+		: undefined;
+	if (code === "ENOENT") return "not_found";
+	if (code === "EACCES" || code === "EPERM") return "permission_denied";
+	return "command_failed";
+}
+
+function gitDiagnosticError(
+	error: unknown,
+	resolved: ResolvedGitExecutable,
+	checkedAt: string,
+	durationMs: number,
+): GitRuntimeError {
+	const state = processFailureState(error);
+	return new GitRuntimeError(state, {
+		state,
+		processScope: "client",
+		resolutionSource: resolved.source,
+		executable: resolved.executable,
+		version: null,
+		supportedRange: SUPPORTED_GIT_VERSION_RANGE,
+		compatible: false,
+		failure: processFailure(error),
+		checkedAt,
+		durationMs: Math.ceil(durationMs),
+		repositoryState: "unavailable",
+	}, messageOf(error));
+}
+
+function gitResolutionDiagnosticError(
+	error: unknown,
+	source: GitRuntimeDiagnostic["resolutionSource"],
+	checkedAt: string,
+	durationMs: number,
+): GitRuntimeError {
+	if (error instanceof GitRuntimeError) {
+		return new GitRuntimeError(error.state, {
+			...error.diagnostic,
+			checkedAt,
+			durationMs: Math.ceil(durationMs),
+		}, error.message);
+	}
+	const state = processFailureState(error);
+	return new GitRuntimeError(state, {
+		state,
+		processScope: "client",
+		resolutionSource: source,
+		executable: null,
+		version: null,
+		supportedRange: SUPPORTED_GIT_VERSION_RANGE,
+		compatible: false,
+		failure: processFailure(error),
+		checkedAt,
+		durationMs: Math.ceil(durationMs),
+		repositoryState: "unavailable",
+	}, messageOf(error));
+}
+
+function withResolutionDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+	return new Promise((resolveOperation, rejectOperation) => {
+		let settled = false;
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			rejectOperation(new ProcessExecutionError(
+				`Git executable resolution timed out after ${timeoutMs} ms`,
+				true,
+				"timed_out",
+			));
+		}, timeoutMs);
+		operation.then(
+			(value) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				resolveOperation(value);
+			},
+			(error: unknown) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				rejectOperation(error);
+			},
+		);
+	});
+}
+
+async function resolveGitExecutableBounded(
+	explicitOption: string | undefined,
+	environment: NodeJS.ProcessEnv,
+	timeoutMs: number,
+): Promise<ResolvedGitExecutable> {
+	const key = JSON.stringify([
+		process.platform,
+		explicitOption ?? environment[GIT_BINARY_ENV] ?? null,
+		inheritedPath(environment) ?? null,
+	]);
+	const retryAfter = gitResolutionRetryAfter.get(key);
+	if (retryAfter !== undefined && Date.now() < retryAfter) {
+		throw new ProcessExecutionError(
+			"Git executable resolution is in timeout backoff",
+			true,
+			"timed_out",
+		);
+	}
+	if (retryAfter !== undefined) gitResolutionRetryAfter.delete(key);
+	let operation = gitResolutionFlights.get(key);
+	if (operation === undefined) {
+		operation = resolveGitExecutable(explicitOption, environment);
+		gitResolutionFlights.set(key, operation);
+		void operation.then(
+			() => gitResolutionFlights.delete(key),
+			() => gitResolutionFlights.delete(key),
+		);
+	}
+	try {
+		const resolved = await withResolutionDeadline(operation, timeoutMs);
+		gitResolutionRetryAfter.delete(key);
+		return resolved;
+	} catch (error) {
+		if (error instanceof ProcessExecutionError && error.timedOut) {
+			gitResolutionRetryAfter.set(key, Date.now() + GIT_RESOLUTION_RETRY_BACKOFF_MS);
+		}
+		throw error;
+	}
+}
+
+function processFailureState(error: unknown): GitRuntimeDiagnosticState {
+	return error instanceof ProcessExecutionError && error.timedOut ? "timed_out" : "unavailable";
+}
+
+function processFailure(error: unknown): { category: string; message: string } {
+	return {
+		category: error instanceof ProcessExecutionError
+			? error.category
+			: "process_failed",
+		message: redactCredentials(messageOf(error)),
+	};
+}
+
+function parseGitVersion(output: string): { text: string; parts: [number, number, number] } | null {
+	const match = /^git version (\d+)\.(\d+)\.(\d+)(?:[.\s]|$)/i.exec(output.trim());
+	if (match === null) return null;
+	return {
+		text: output.trim(),
+		parts: [Number(match[1]), Number(match[2]), Number(match[3])],
+	};
+}
+
+function compareVersion(
+	left: { parts: [number, number, number] },
+	right: [number, number, number],
+): number {
+	for (let index = 0; index < right.length; index += 1) {
+		const comparison = left.parts[index] - right[index];
+		if (comparison !== 0) return comparison;
+	}
+	return 0;
+}
+
+class ProcessExecutionError extends Error {
+	constructor(
+		message: string,
+		readonly timedOut: boolean,
+		readonly category: string,
+	) {
+		super(message);
+		this.name = "ProcessExecutionError";
+	}
+}
+
+function gitEnvironment(overrides: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
+	const environment: NodeJS.ProcessEnv = { ...process.env, ...overrides };
+	const canonicalPathKey = process.platform === "win32" ? "Path" : "PATH";
+	const overriddenPath = overrides?.[canonicalPathKey]
+		?? Object.entries(overrides ?? {}).find(([key]) => key.toLowerCase() === "path")?.[1];
+	const inherited = overriddenPath ?? inheritedPath(process.env);
+	for (const key of Object.keys(environment)) {
+		if (key.toLowerCase() === "path") delete environment[key];
+	}
+	if (inherited !== undefined) environment[canonicalPathKey] = inherited;
+	environment.GIT_OPTIONAL_LOCKS = "0";
+	environment.LC_ALL = "C";
+	environment.LANG = "C";
+	return environment;
+}
+
 function runProcess(
 	command: string,
 	args: string[],
-	environment: Record<string, string | undefined> | undefined,
+	environment: NodeJS.ProcessEnv,
+	timeoutMs: number,
+	maxBuffer: number,
+	supervisorCandidates?: SupervisorCandidates,
+): Promise<string> {
+	if (process.platform !== "win32") {
+		return runDirectProcess(command, args, environment, timeoutMs, maxBuffer);
+	}
+	if (supervisorCandidates === undefined) {
+		return Promise.reject(new ProcessExecutionError(
+			"the packaged Code Moniker Git supervisor is unavailable on Windows",
+			false,
+			"supervisor_incompatible",
+		));
+	}
+	return runWindowsSupervisedProcess(
+		supervisorCandidates(),
+		command,
+		args,
+		environment,
+		timeoutMs,
+		maxBuffer,
+	);
+}
+
+function runDirectProcess(
+	command: string,
+	args: string[],
+	environment: NodeJS.ProcessEnv,
+	timeoutMs: number,
+	maxBuffer: number,
 ): Promise<string> {
 	return new Promise((resolveProcess, rejectProcess) => {
-		execFile(command, args, {
-			env: { ...process.env, ...environment },
-			encoding: "utf8",
-			maxBuffer: GIT_OUTPUT_LIMIT,
-		}, (error, stdout, stderr) => {
-			if (error !== null) {
-				rejectProcess(new Error(`${command} command failed: ${redactCredentials(stderr.trim() || error.message)}`));
+		const child = spawn(command, args, {
+			detached: process.platform !== "win32",
+			env: environment,
+			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
+		});
+		const stdout: Buffer[] = [];
+		const stderr: Buffer[] = [];
+		let stdoutBytes = 0;
+		let stderrBytes = 0;
+		let timedOut = false;
+		let outputExceeded = false;
+		let settled = false;
+		let cleanupStarted = false;
+		let cleanupTimer: NodeJS.Timeout | undefined;
+		let terminationUnconfirmed = false;
+		let cleanupComplete = false;
+		let closeObserved = false;
+		let exitCode: number | null | undefined;
+		let exitSignal: NodeJS.Signals | null | undefined;
+		let closeCode: number | null | undefined;
+		let closeSignal: NodeJS.Signals | null | undefined;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			stopProcess();
+		}, timeoutMs);
+		const collect = (chunks: Buffer[], stream: "stdout" | "stderr") => (chunk: Buffer) => {
+			if (stream === "stdout") stdoutBytes += chunk.length;
+			else stderrBytes += chunk.length;
+			if (stdoutBytes > maxBuffer || stderrBytes > maxBuffer) {
+				outputExceeded = true;
+				stopProcess();
 				return;
 			}
-			resolveProcess(stdout);
+			chunks.push(chunk);
+		};
+		child.stdout.on("data", collect(stdout, "stdout"));
+		child.stderr.on("data", collect(stderr, "stderr"));
+		child.once("error", (error) => finish(error));
+		child.once("exit", (code, signal) => {
+			exitCode = code;
+			exitSignal = signal;
+			if (timedOut || outputExceeded) {
+				stopProcess();
+				return;
+			}
 		});
+		child.once("close", (code, signal) => {
+			closeObserved = true;
+			closeCode = code;
+			closeSignal = signal;
+			if (!cleanupStarted || cleanupComplete) finish(null, code, signal);
+		});
+
+		function stopProcess() {
+			if (cleanupStarted) return;
+			cleanupStarted = true;
+			child.stdout.destroy();
+			child.stderr.destroy();
+			void terminateProcess(child.pid, child.kill.bind(child)).finally(() => {
+				cleanupComplete = true;
+				if (closeObserved) finish(null, closeCode, closeSignal);
+			});
+			cleanupTimer = setTimeout(() => {
+				terminationUnconfirmed = true;
+				finish(null, exitCode, exitSignal);
+			}, PROCESS_CLEANUP_TIMEOUT_MS);
+		}
+
+		function finish(error: Error | null, code?: number | null, signal?: NodeJS.Signals | null) {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (cleanupTimer !== undefined) clearTimeout(cleanupTimer);
+			const stdoutText = Buffer.concat(stdout).toString("utf8");
+			const stderrText = Buffer.concat(stderr).toString("utf8").trim();
+			if (timedOut) {
+				rejectProcess(new ProcessExecutionError(
+					`${command} command timed out after ${timeoutMs} ms${terminationUnconfirmed ? "; process termination was not observed" : ""}`,
+					true,
+					"timed_out",
+				));
+				return;
+			}
+			if (outputExceeded) {
+				rejectProcess(new ProcessExecutionError(
+					`${command} command exceeded the ${maxBuffer}-byte output limit${terminationUnconfirmed ? "; process termination was not observed" : ""}`,
+					false,
+					"output_limit",
+				));
+				return;
+			}
+			if (error !== null || code !== 0) {
+				const detail = stderrText || error?.message || `exited with code ${code} signal ${signal}`;
+				rejectProcess(new ProcessExecutionError(
+					`${command} command failed: ${redactCredentials(detail)}`,
+					false,
+					error === null ? "command_failed" : processErrorCategory(error),
+				));
+				return;
+			}
+			resolveProcess(stdoutText);
+		}
 	});
+}
+
+interface GitSupervisorEnvelope {
+	protocolVersion: number;
+	executable: string;
+	outcome: "ok" | "error";
+	stdoutBase64: string | null;
+	category: string | null;
+	message: string | null;
+}
+
+async function runWindowsSupervisedProcess(
+	supervisorCandidates: readonly [string, ...string[]],
+	command: string,
+	args: string[],
+	environment: NodeJS.ProcessEnv,
+	timeoutMs: number,
+	maxBuffer: number,
+): Promise<string> {
+	let response: string | undefined;
+	for (const candidate of supervisorCandidates) {
+		try {
+			response = await runDirectProcess(
+				candidate,
+				[
+					"__git-runtime",
+					"--executable", command,
+					"--timeout-ms", String(timeoutMs),
+					"--output-limit", String(maxBuffer),
+					"--",
+					...args,
+				],
+				environment,
+				timeoutMs + PROCESS_CLEANUP_TIMEOUT_MS,
+				supervisorEnvelopeLimit(maxBuffer),
+			);
+			break;
+		} catch (error) {
+			if (error instanceof ProcessExecutionError && error.category === "not_found") continue;
+			if (error instanceof ProcessExecutionError && error.category === "timed_out") throw error;
+			throw new ProcessExecutionError(
+				`Code Moniker Git supervisor is incompatible or failed: ${messageOf(error)}`,
+				false,
+				"supervisor_incompatible",
+			);
+		}
+	}
+	if (response === undefined) {
+		throw new ProcessExecutionError(
+			`Code Moniker Git supervisor was not found (tried: ${supervisorCandidates.join(", ")})`,
+			false,
+			"supervisor_unavailable",
+		);
+	}
+	const envelope = parseGitSupervisorEnvelope(response, command, maxBuffer);
+	if (envelope.outcome === "error") {
+		throw new ProcessExecutionError(
+			envelope.message ?? "supervised Git command failed without a message",
+			envelope.category === "timed_out",
+			envelope.category ?? "supervisor_protocol_error",
+		);
+	}
+	if (envelope.category !== null || envelope.message !== null) {
+		throw supervisorProtocolError("successful response contains failure fields");
+	}
+	return decodeSupervisorOutput(envelope.stdoutBase64, "stdout", maxBuffer).toString("utf8");
+}
+
+function parseGitSupervisorEnvelope(
+	response: string,
+	executable: string,
+	maxBuffer: number,
+): GitSupervisorEnvelope {
+	let value: unknown;
+	try {
+		value = JSON.parse(response);
+	} catch {
+		throw supervisorProtocolError("response is not complete JSON");
+	}
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw supervisorProtocolError("response is not an object");
+	}
+	const envelope = value as Partial<GitSupervisorEnvelope>;
+	if (envelope.protocolVersion !== 1) throw supervisorProtocolError("unsupported protocol version");
+	if (envelope.executable !== executable) throw supervisorProtocolError("executable identity mismatch");
+	if (envelope.outcome !== "ok" && envelope.outcome !== "error") throw supervisorProtocolError("invalid outcome");
+	if (envelope.outcome === "error") {
+		if (envelope.stdoutBase64 !== null) {
+			throw supervisorProtocolError("failure response contains output fields");
+		}
+		if (typeof envelope.category !== "string" || typeof envelope.message !== "string") {
+			throw supervisorProtocolError("failure response lacks category or message");
+		}
+	} else {
+		decodeSupervisorOutput(envelope.stdoutBase64, "stdout", maxBuffer);
+	}
+	return envelope as GitSupervisorEnvelope;
+}
+
+function decodeSupervisorOutput(value: unknown, stream: string, maxBuffer: number): Buffer {
+	if (typeof value !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+		throw supervisorProtocolError(`${stream} is not canonical base64`);
+	}
+	const decoded = Buffer.from(value, "base64");
+	if (decoded.toString("base64") !== value) throw supervisorProtocolError(`${stream} is not canonical base64`);
+	if (decoded.length > maxBuffer) throw supervisorProtocolError(`${stream} exceeds the declared limit`);
+	return decoded;
+}
+
+function supervisorEnvelopeLimit(maxBuffer: number): number {
+	return (Math.ceil(maxBuffer / 3) * 4) + (64 * 1024);
+}
+
+function supervisorProtocolError(detail: string): ProcessExecutionError {
+	return new ProcessExecutionError(
+		`Code Moniker Git supervisor protocol error: ${detail}`,
+		false,
+		"supervisor_incompatible",
+	);
+}
+
+async function terminateProcess(
+	pid: number | undefined,
+	kill: (signal?: NodeJS.Signals) => boolean,
+): Promise<void> {
+	if (pid !== undefined && process.platform !== "win32") {
+		try {
+			process.kill(-pid, "SIGKILL");
+		} catch {
+			// The process may have exited between the timer and termination.
+		}
+	}
+	try {
+		kill("SIGKILL");
+	} catch {
+		// Exit observation below remains the source of truth.
+	}
 }
 
 function messageOf(error: unknown): string {

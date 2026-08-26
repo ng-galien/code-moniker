@@ -20,6 +20,7 @@ pub(crate) fn change_context_response(
 	snapshot: &WorkspaceSnapshot,
 	response: ResponseContext<'_>,
 	query: ChangeContextQuery,
+	change_failure: Option<QueryError>,
 ) -> Result<QueryResponse, QueryError> {
 	let max_items = query.max_items;
 	let context_graph = bounded_context_graph(snapshot, response, &query, max_items)?;
@@ -31,14 +32,30 @@ pub(crate) fn change_context_response(
 		response.generation,
 	)?;
 	let (rules_total, rules) = context_rules(snapshot, response, &query, max_items)?;
-	let changes = context_changes(
-		&daemon.cache,
-		snapshot,
-		response,
-		query.workspace.clone(),
-		&context_graph.file,
-		max_items,
+	let (changes, acquisition_failure) = if change_failure.is_some() {
+		(ContextChanges::empty(), None)
+	} else {
+		match context_changes(
+			&daemon.cache,
+			snapshot,
+			response,
+			query.workspace.clone(),
+			&context_graph.file,
+			max_items,
+		) {
+			Ok(changes) => (changes, None),
+			Err(error) => (ContextChanges::empty(), Some(error)),
+		}
+	};
+	let mut change_dependency = crate::runtime_dependencies::git_change_dependency(
+		query.workspace.as_deref(),
+		response.roots,
+		daemon.process_scope,
 	)?;
+	let change_failure = change_failure.or(acquisition_failure);
+	if let Some(failure) = &change_failure {
+		crate::runtime_dependencies::apply_change_failure(&mut change_dependency, failure);
+	}
 	let profile_arg = query
 		.profile
 		.as_deref()
@@ -75,6 +92,7 @@ pub(crate) fn change_context_response(
 			rules,
 			changed_files: changes.files,
 			changed_symbols: changes.symbols,
+			change_dependency,
 			suggested_checks,
 			coverage,
 		})),
@@ -242,6 +260,16 @@ struct ContextChanges {
 	total: usize,
 	files: Vec<ChangeReviewFile>,
 	symbols: Vec<ChangeReviewSymbol>,
+}
+
+impl ContextChanges {
+	fn empty() -> Self {
+		Self {
+			total: 0,
+			files: Vec::new(),
+			symbols: Vec::new(),
+		}
+	}
 }
 
 fn context_changes(

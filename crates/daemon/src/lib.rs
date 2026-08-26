@@ -11,10 +11,14 @@ mod lifecycle;
 mod pagination;
 mod query;
 mod runtime;
+mod runtime_dependencies;
 mod source_sets;
 
 pub use daemon::WorkspaceDaemon;
 pub use runtime::{serve_foreground, serve_foreground_config, serve_foreground_config_supervised};
+pub use runtime_dependencies::{
+	augment_workspace_status, gate_git_query, probe_runtime_dependencies,
+};
 
 mod syntax;
 pub mod views;

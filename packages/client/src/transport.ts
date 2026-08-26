@@ -349,12 +349,13 @@ function rpcError(error: {
 }): DaemonRpcError {
 	const data = error.data;
 	if (data && typeof data === "object") {
-		const detail = data as { code?: unknown; message?: unknown };
+		const detail = data as { category?: unknown; code?: unknown; message?: unknown };
 		return new DaemonRpcError(
 			typeof detail.message === "string"
 				? detail.message
 				: (error.message ?? "daemon error"),
 			typeof detail.code === "string" ? detail.code : undefined,
+			typeof detail.category === "string" ? detail.category : undefined,
 		);
 	}
 	return new DaemonRpcError(error.message ?? "daemon error");

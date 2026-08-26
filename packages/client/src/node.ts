@@ -107,6 +107,12 @@ export class NodeDaemonRuntime {
 		this.binaryCandidates = options.binaryCandidates;
 	}
 
+	resolveBinaryCandidates(
+		override?: readonly [string, ...string[]],
+	): readonly [string, ...string[]] {
+		return override ?? this.binaryCandidates ?? defaultBinaryCandidates();
+	}
+
 	listDaemons(): DaemonRegistryEntry[] {
 		const entries: DaemonRegistryEntry[] = [];
 		for (const item of this.readRegistry()) {
@@ -136,12 +142,7 @@ export class NodeDaemonRuntime {
 	}
 
 	daemonProcessAlive(pid: number): boolean {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === "EPERM";
-		}
+		return processAlive(pid);
 	}
 
 	daemonClaimFresh(entry: DaemonRegistryEntry): boolean {
@@ -195,10 +196,7 @@ export class NodeDaemonRuntime {
 	}
 
 	async launch(options: LaunchDaemonOptions): Promise<OwnedDaemon> {
-		const binaryCandidates =
-			options.binaryCandidates ??
-			this.binaryCandidates ??
-			defaultBinaryCandidates();
+		const binaryCandidates = this.resolveBinaryCandidates(options.binaryCandidates);
 		const processHandle = await launchDetached(
 			binaryCandidates,
 			daemonArguments(options.workspaceRoots, options.supervisorPid),
@@ -503,7 +501,12 @@ function tryLaunchDetached(
 		}
 
 		function isRunning(): boolean {
-			return child.exitCode === null && child.signalCode === null;
+			return (
+				child.exitCode === null &&
+				child.signalCode === null &&
+				child.pid !== undefined &&
+				processAlive(child.pid)
+			);
 		}
 
 		function terminate(): void {
@@ -511,6 +514,15 @@ function tryLaunchDetached(
 				child.kill();
 			}
 		}
+	}
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
 	}
 }
 

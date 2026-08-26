@@ -210,16 +210,16 @@ fn diff_rejects_an_unresolvable_revision() {
 }
 
 #[test]
-fn diff_outside_a_git_repository_reports_a_diagnostic() {
+fn diff_outside_a_git_repository_fails_with_a_typed_diagnostic() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/lib.rs", "fn lone() {}\n");
 	let root = tmp.path().to_str().unwrap();
 
-	let (exit, out, _err) = run_with(vec!["code-moniker", "diff", root]);
+	let (exit, _out, err) = run_with(vec!["code-moniker", "diff", root]);
 
-	assert_eq!(exit, Exit::Match);
+	assert_eq!(exit, Exit::UsageError);
 	assert!(
-		out.contains("diagnostic:") && out.contains("Git"),
-		"missing git diagnostic:\n{out}"
+		err.contains("not_repository") && err.contains("Git worktree"),
+		"missing typed Git diagnostic:\n{err}"
 	);
 }

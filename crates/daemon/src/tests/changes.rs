@@ -212,3 +212,71 @@ fn change_review_query_builds_semantic_facts_on_demand() {
 		"a source refresh after change.review must publish exactly one generation"
 	);
 }
+
+#[test]
+fn change_review_workspace_selector_limits_git_material_to_one_root() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let first = temp.path().join("first");
+	let second = temp.path().join("second");
+	for root in [&first, &second] {
+		fs::create_dir(root).expect("root");
+		let git = |args: &[&str]| {
+			let output = std::process::Command::new("git")
+				.arg("-C")
+				.arg(root)
+				.args(args)
+				.output()
+				.expect("run git");
+			assert!(
+				output.status.success(),
+				"git {args:?}: {}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+		};
+		git(&["init", "--quiet"]);
+		git(&["config", "user.email", "cm@example.test"]);
+		git(&["config", "user.name", "Code Moniker"]);
+		fs::write(root.join("same.rs"), "pub fn before() {}\n").expect("base source");
+		git(&["add", "."]);
+		git(&["commit", "--quiet", "-m", "initial"]);
+		fs::write(root.join("same.rs"), "pub fn after() {}\n").expect("changed source");
+	}
+	let mut daemon = WorkspaceDaemon::new(vec![first.clone(), second.clone()]).expect("daemon");
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.expect("refresh");
+	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+		Query::ChangeReview(code_moniker_query::ChangeReviewQuery {
+			workspace: Some("first".to_string()),
+		}),
+	))));
+	let ProtocolResponse::Query(response) = response else {
+		panic!("expected query response, got {response:?}");
+	};
+	let QueryResult::ChangeReview(review) = response.result else {
+		panic!("expected change review, got {:?}", response.result);
+	};
+	assert!(!review.files.is_empty(), "{review:?}");
+	assert!(
+		review.files.iter().all(|file| {
+			file.old_path
+				.as_deref()
+				.or(file.new_path.as_deref())
+				.is_some_and(|path| path.starts_with("first/"))
+		}),
+		"{review:?}"
+	);
+	assert!(
+		review.files.iter().all(|file| {
+			!file
+				.old_path
+				.as_deref()
+				.is_some_and(|path| path.starts_with("second/"))
+				&& !file
+					.new_path
+					.as_deref()
+					.is_some_and(|path| path.starts_with("second/"))
+		}),
+		"{review:?}"
+	);
+}

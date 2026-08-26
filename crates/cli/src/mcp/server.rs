@@ -96,7 +96,9 @@ fn run_preload(
 	cancellation: WorkspaceCancellation,
 ) -> anyhow::Result<()> {
 	let result = (|| {
-		let mut daemon = WorkspaceDaemon::new_with_config(parts.config)?;
+		let roots = code_moniker_query::config_roots(&parts.config);
+		let mut daemon =
+			WorkspaceDaemon::new_with_config(parts.config)?.with_process_scope("stdio-worker");
 		daemon
 			.refresh_cancellable(cancellation.clone())
 			.map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -110,6 +112,7 @@ fn run_preload(
 			.lock()
 			.map_err(|_| anyhow::anyhow!("workspace lifecycle lock poisoned"))? =
 			code_moniker_query::WorkspaceLifecycle::ready();
+		code_moniker_daemon::probe_runtime_dependencies(&roots);
 		Ok(())
 	})();
 	if let Err(error) = &result {

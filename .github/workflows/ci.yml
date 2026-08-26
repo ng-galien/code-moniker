@@ -5,17 +5,22 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   lint-and-unit:
-    name: fmt + clippy + cargo test
+    name: Rust - fmt, clippy all targets, tests, Code Moniker, schema
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Rust stable with rustfmt and clippy
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -25,29 +30,27 @@ jobs:
         with:
           shared-key: rust
 
-      - name: cargo fmt --check
+      - name: cargo fmt --all -- --check
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy -D warnings
-        run: cargo clippy --workspace --tests --no-deps -- -D warnings
+      - name: cargo clippy --workspace --all-targets --no-deps -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-deps -- -D warnings
 
-      - name: cargo test
+      - name: cargo test --workspace
         run: cargo test --workspace
 
-      - name: daemon architectural boundaries
-        run: cargo run -p code-moniker -- check . --profile daemon --report
+      - name: cargo moniker-check
+        run: cargo moniker-check
 
-      - name: MCP output contract
-        run: cargo run -p code-moniker -- check . --profile mcp-output --report
-
-      - name: daemon RPC schema is up to date
+      - name: export-schema > schema.actual.json; diff docs/schema/daemon.schema.json
         run: |
           cargo run -p code-moniker-query --features schema --bin export-schema > schema.actual.json
           diff -u docs/schema/daemon.schema.json schema.actual.json
 
   typescript-client:
-    name: TypeScript client package
+    name: Node client - build, tests, generated sources
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -57,103 +60,305 @@ jobs:
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Install client dependencies
+      - name: packages/client - npm ci --omit=optional
         run: npm ci --omit=optional
         working-directory: packages/client
 
-      - name: Test the public API and package
+      - name: packages/client - npm test
         run: npm test
         working-directory: packages/client
 
-      - name: Generated client sources match the daemon schema
-        run: |
-          npm run generate
-          git diff --exit-code src/generated.ts src/protocol.ts
+      - name: packages/client - git diff src/generated.ts src/protocol.ts
+        run: git diff --exit-code src/generated.ts src/protocol.ts
         working-directory: packages/client
 
   windows-runtime:
-    name: Windows daemon + packaged Node client
+    name: Windows - release CLI, Git runtime, Node client, packaged daemon
     runs-on: windows-2022
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Rust stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2.9.1
         with:
           shared-key: windows-runtime
+          cache-on-failure: true
 
-      - name: Install Node.js
+      - name: Node.js 26
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 26
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Test Windows daemon primitives
-        run: cargo test -p code-moniker-query -p code-moniker-daemon -p code-moniker-daemon-client
-
-      - name: Prove Windows source refresh is independent from Git
+      - name: Git executables - PortableGit 2.47.1 and runner Git
+        shell: pwsh
         run: |
-          cargo test -p code-moniker-workspace complete_source_refresh_does_not_invoke_the_git_change_overlay
-          cargo test -p code-moniker-workspace missing_git_is_rejected_before_process_creation
+          $archive = Join-Path $PWD "PortableGit-2.47.1-64-bit.7z.exe"
+          $install = Join-Path $PWD "Git Runtime 2.47.1"
+          Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.47.1-64-bit.7z.exe" -OutFile $archive
+          & $archive "-o$install" -y | Out-Null
+          $portableGit = Join-Path $install "cmd/git.exe"
+          $currentGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+          foreach ($git in @($portableGit, $currentGit)) {
+            if (!(Test-Path $git)) { throw "the selected absolute Git path must exist: $git" }
+          }
+          if (!$portableGit.Contains(" ")) { throw "the portable Git path must contain spaces: $portableGit" }
+          "CODE_MONIKER_CI_GIT=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_CI_GIT_247=$portableGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_CI_GIT_CURRENT=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_GIT_BINARY=$currentGit" | Out-File $env:GITHUB_ENV -Append
+          "CODE_MONIKER_EXPECTED_GIT_VERSION=$((& $currentGit --version).Trim())" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Record native Windows environment
+      - name: Environment log - Windows, rustc, and Node versions
         shell: pwsh
         run: |
           Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber,CsProcessors,CsNumberOfLogicalProcessors,CsTotalPhysicalMemory | Format-List | Out-File windows-runtime-environment.txt
           rustc -Vv | Out-File windows-runtime-environment.txt -Append
           node --version | Out-File windows-runtime-environment.txt -Append
 
-      - name: Build the release-shaped Windows CLI with daemon support
+      - name: Git 2.47.1 and current - version, rev-parse, status under 2s
+        shell: pwsh
+        run: |
+          foreach ($case in @(
+            @{ name = "2.47.1"; git = $env:CODE_MONIKER_CI_GIT_247 },
+            @{ name = "current"; git = $env:CODE_MONIKER_CI_GIT_CURRENT }
+          )) {
+            $git = $case.git
+            $workspace = "git-probe-workspace-$($case.name)"
+            "git_$($case.name)=$git" | Out-File windows-runtime-environment.txt -Append
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git --version | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $version = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git --version failed with exit code $exitCode" }
+            New-Item -ItemType Directory -Path $workspace | Out-Null
+            & $git -C $workspace init --quiet
+            if ($LASTEXITCODE -ne 0) { throw "git init failed with exit code $LASTEXITCODE" }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git -C $workspace rev-parse --is-inside-work-tree | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $repository = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git rev-parse failed with exit code $exitCode" }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            & $git -C $workspace status --porcelain | Out-File windows-runtime-environment.txt -Append
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $status = $watch.Elapsed
+            if ($exitCode -ne 0) { throw "git status failed with exit code $exitCode" }
+            "$($case.name)_version_ms=$($version.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            "$($case.name)_repository_ms=$($repository.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            "$($case.name)_status_ms=$($status.TotalMilliseconds)" | Out-File windows-runtime-environment.txt -Append
+            if ($version.TotalSeconds -ge 2 -or $repository.TotalSeconds -ge 2 -or $status.TotalSeconds -ge 2) {
+              throw "Git version, repository probe, and status must each complete in under 2 seconds"
+            }
+          }
+
+      # Rust unit tests already run once on Linux. Windows compiles one release
+      # binary, then all native Git, daemon, and package proofs reuse it.
+      - name: cargo build -p code-moniker --features mcp --release
         run: cargo build -p code-moniker --features mcp --release
 
-      - name: Install reusable client dependencies
+      - name: Windows CLI - explicit/PATH Git, typed failures, deadlines, descendant cleanup
+        shell: pwsh
+        run: |
+          $originalPath = $env:PATH
+          foreach ($case in @(
+            @{ name = "2.47.1"; git = $env:CODE_MONIKER_CI_GIT_247 },
+            @{ name = "current"; git = $env:CODE_MONIKER_CI_GIT_CURRENT }
+          )) {
+            $git = $case.git
+            $workspace = "git-probe-workspace-$($case.name)"
+            Set-Content -Path "$workspace/source.rs" -Value "pub fn base() {}"
+            & $git -C $workspace config user.email code-moniker@example.test
+            & $git -C $workspace config user.name "Code Moniker"
+            & $git -C $workspace add source.rs
+            & $git -C $workspace commit --quiet -m base
+            Add-Content -Path "$workspace/source.rs" -Value "pub fn changed() {}"
+            $env:CODE_MONIKER_GIT_BINARY = $git
+            & target/release/code-moniker.exe stats $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Remove-Item Env:CODE_MONIKER_GIT_BINARY
+            $env:PATH = "$(Split-Path $git);$originalPath"
+            & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($LASTEXITCODE -ne 0) { throw "PATH discovery did not use Git $($case.name)" }
+          }
+          $env:PATH = $originalPath
+          $workspace = "git-probe-workspace-current"
+          $env:CODE_MONIKER_GIT_BINARY = (Join-Path $PWD "missing git.exe")
+          & target/release/code-moniker.exe stats $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $watch = [Diagnostics.Stopwatch]::StartNew()
+          & target/release/code-moniker.exe diff $workspace *>&1 | Tee-Object -FilePath windows-git-runtime.log -Append
+          $exitCode = $LASTEXITCODE
+          $watch.Stop()
+          if ($exitCode -eq 0) { throw "diff unexpectedly accepted a missing explicit Git path" }
+          if ($watch.Elapsed.TotalSeconds -ge 2) { throw "missing explicit Git path was not rejected within 2 seconds" }
+          $fakeDirectory = Join-Path $PWD "Fake Git Runtime"
+          New-Item -ItemType Directory -Path $fakeDirectory | Out-Null
+          $fakeGit = Join-Path $fakeDirectory "git.exe"
+          $fakeSource = @"
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          using System.Threading;
+          public static class FakeGit {
+            public static int Main(string[] args) {
+              string mode = Environment.GetEnvironmentVariable("CODE_MONIKER_FAKE_GIT_MODE");
+              if (mode == "hang") { Thread.Sleep(30000); return 0; }
+              if (mode == "malformed") { Console.WriteLine("not git"); return 0; }
+              if (mode == "malformed_repository" && Array.IndexOf(args, "--version") < 0) { Console.WriteLine("false"); return 0; }
+              if (mode == "malformed_repository") { Console.WriteLine("git version 2.47.1.windows.1"); return 0; }
+              if (mode == "descendant" && Array.IndexOf(args, "--version") < 0) {
+                var child = Process.Start(new ProcessStartInfo("ping.exe", "127.0.0.1 -n 30") {
+                  UseShellExecute = false
+                });
+                File.WriteAllText(Environment.GetEnvironmentVariable("CODE_MONIKER_FAKE_GIT_PID_FILE"), child.Id.ToString());
+                return 0;
+              }
+              if (mode == "descendant") { Console.WriteLine("git version 2.47.1.windows.1"); return 0; }
+              if (mode == "large_output" && Array.IndexOf(args, "--version") >= 0) {
+                Console.WriteLine("git version 2.47.1.windows.1");
+                Console.Error.Write(new string('x', 32768));
+                return 0;
+              }
+              if (mode == "large_output" && Array.IndexOf(args, "--is-inside-work-tree") >= 0) {
+                Console.WriteLine("true"); Console.WriteLine("false"); return 0;
+              }
+              if (mode == "large_output" && Array.IndexOf(args, "rev-parse") >= 0) {
+                Console.WriteLine("0123456789012345678901234567890123456789"); return 0;
+              }
+              if (mode == "large_output" && Array.IndexOf(args, "diff") >= 0) { return 0; }
+              if (mode == "slow_rev_parse" && Array.IndexOf(args, "--version") >= 0) {
+                Console.WriteLine("git version 2.47.1.windows.1"); return 0;
+              }
+              if (mode == "slow_rev_parse" && Array.IndexOf(args, "--is-inside-work-tree") >= 0) {
+                Console.WriteLine("true"); Console.WriteLine("false"); return 0;
+              }
+              if (mode == "slow_rev_parse" && Array.IndexOf(args, "--verify") >= 0) {
+                Thread.Sleep(30000); return 0;
+              }
+              Console.WriteLine("git version 2.21.0"); return 0;
+            }
+          }
+          "@
+          $fakeSourcePath = Join-Path $env:RUNNER_TEMP "code-moniker-fake-git.cs"
+          Set-Content -Path $fakeSourcePath -Value $fakeSource
+          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (!(Test-Path $csc)) { throw "the Windows runner does not provide the .NET Framework compiler: $csc" }
+          & $csc /nologo /optimize+ /target:exe "/out:$fakeGit" $fakeSourcePath
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $fakeGit)) { throw "csc did not compile the fake Git executable" }
+          # Exclude the one-time .NET runtime startup from Git's two-second
+          # production deadline. Native Git was timed cold above; this fixture
+          # exists to exercise typed failures and process-tree cleanup.
+          & $fakeGit --version | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "fake Git warm-up failed" }
+          $env:CODE_MONIKER_GIT_BINARY = $fakeGit
+          $descendantPidFile = Join-Path $PWD "fake-git-descendant.pid"
+          $env:CODE_MONIKER_FAKE_GIT_PID_FILE = $descendantPidFile
+          foreach ($case in @(
+            @{ mode = "incompatible"; pattern = "incompatible_version"; max = 2 },
+            @{ mode = "malformed"; pattern = "malformed_version"; max = 2 },
+            @{ mode = "malformed_repository"; pattern = "malformed_output"; max = 2 },
+            @{ mode = "hang"; pattern = "timed_out"; max = 3 },
+            @{ mode = "descendant"; pattern = "timed_out"; max = 4 }
+          )) {
+            $env:CODE_MONIKER_FAKE_GIT_MODE = $case.mode
+            $result = ""
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $result = & target/release/code-moniker.exe diff $workspace 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+            $watch.Stop()
+            $result | Tee-Object -FilePath windows-git-runtime.log -Append
+            if ($exitCode -eq 0 -or $result -notmatch $case.pattern -or $watch.Elapsed.TotalSeconds -ge $case.max) {
+              throw "fake Git case $($case.mode) did not return its bounded typed failure"
+            }
+            if ($case.mode -eq "descendant") {
+              if (!(Test-Path $descendantPidFile)) { throw "fake Git descendant did not publish its PID" }
+              $descendantPid = [int](Get-Content $descendantPidFile)
+              for ($attempt = 0; $attempt -lt 20 -and (Get-Process -Id $descendantPid -ErrorAction SilentlyContinue); $attempt++) {
+                Start-Sleep -Milliseconds 50
+              }
+              if (Get-Process -Id $descendantPid -ErrorAction SilentlyContinue) {
+                throw "Git descendant process $descendantPid survived the timeout cleanup"
+              }
+            }
+          }
+          Remove-Item Env:CODE_MONIKER_FAKE_GIT_MODE
+          Remove-Item Env:CODE_MONIKER_FAKE_GIT_PID_FILE
+          Remove-Item Env:CODE_MONIKER_GIT_BINARY
+          $nonRepositoryPath = Join-Path $env:RUNNER_TEMP "code-moniker-non-repository"
+          New-Item -ItemType Directory -Path $nonRepositoryPath | Out-Null
+          $nonRepository = & target/release/code-moniker.exe diff $nonRepositoryPath 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          $nonRepository | Tee-Object -FilePath windows-git-runtime.log -Append
+          if ($exitCode -eq 0 -or $nonRepository -notmatch "not_repository") {
+            throw "non-repository workspace did not return a typed worktree failure"
+          }
+          exit 0
+
+      - name: packages/client - npm ci --omit=optional
         run: npm ci --omit=optional
         working-directory: packages/client
 
-      - name: Test the reusable client package
-        run: npm test
+      - name: packages/client - npm run build
+        run: npm run build
         working-directory: packages/client
 
-      - name: Launch an owned daemon with a custom registry
+      - name: packages/client - npm run test:unit:built
+        run: npm run test:unit:built
+        working-directory: packages/client
+
+      - name: verify-fake-git-runtime.mjs - Windows supervisor taxonomy and deadlines
+        shell: pwsh
+        run: node packages/client/scripts/verify-fake-git-runtime.mjs (Join-Path $PWD "Fake Git Runtime/git.exe") (Join-Path $PWD "target/release/code-moniker.exe")
+
+      - name: smoke-owned-daemon.mjs - Windows release binary
         shell: pwsh
         run: |
-          npm run test:daemon:owned -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
+          npm run test:daemon:owned:built -- ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-owned-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: packages/client
 
-      - name: Install tarballs and launch the release-shaped packaged Windows daemon
+      - name: test-packaged-daemon.mjs - win32-x64
         working-directory: packages/client
         shell: pwsh
         run: |
-          npm run test:daemon:packaged -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
+          npm run test:daemon:packaged:built -- win32-x64 ../../target/release/code-moniker.exe 2>&1 | Tee-Object -FilePath ../../windows-packaged-daemon.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload native Windows lifecycle evidence
+      - name: Artifact - Windows environment and daemon logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: windows-daemon-lifecycle-${{ github.run_id }}
           path: |
             windows-runtime-environment.txt
+            windows-git-runtime.log
             windows-owned-daemon.log
             windows-packaged-daemon.log
 
   linux-static-runtime:
-    name: Static Linux npm runtime
+    name: Linux musl - CLI, Git runtime, packaged daemon
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain and musl target
+      - name: Rust stable with x86_64-unknown-linux-musl
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
 
-      - name: Install musl linker
+      - name: apt-get update + install musl-tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
@@ -163,10 +368,10 @@ jobs:
         with:
           shared-key: linux-static-runtime
 
-      - name: Build the static Linux CLI with daemon support
+      - name: cargo build -p code-moniker --features mcp --target x86_64-unknown-linux-musl
         run: cargo build -p code-moniker --features mcp --target x86_64-unknown-linux-musl
 
-      - name: Reject a dynamic interpreter and run the binary
+      - name: readelf + code-moniker --version - musl binary
         run: |
           binary=target/x86_64-unknown-linux-musl/debug/code-moniker
           if readelf --program-headers "$binary" | grep -q 'Requesting program interpreter'; then
@@ -175,54 +380,65 @@ jobs:
           fi
           "$binary" --version
 
-      - name: Run source indexing in Ubuntu without Git
+      - name: Ubuntu 24.04 without Git - stats success, diff cannot resolve Git
         run: |
           mkdir -p no-git-workspace
           echo 'export const ubuntu_without_git = 1;' > no-git-workspace/source.ts
           docker run --rm -v "$PWD:/work:ro" ubuntu:24.04 /bin/sh -c '
             test ! -e /usr/bin/git
             /work/target/x86_64-unknown-linux-musl/debug/code-moniker stats /work/no-git-workspace
-            /work/target/x86_64-unknown-linux-musl/debug/code-moniker diff /work/no-git-workspace 2>&1 | grep "git is not present in PATH"
+            if /work/target/x86_64-unknown-linux-musl/debug/code-moniker diff /work/no-git-workspace > /tmp/result 2>&1; then
+              cat /tmp/result
+              exit 1
+            fi
+            grep "cannot resolve Git" /tmp/result
           '
 
-      - name: Install Node.js
+      - name: Alpine 3.10 and latest with Git - stats and diff success
+        run: |
+          mkdir -p git-runtime-workspace
+          echo 'pub fn base() {}' > git-runtime-workspace/source.rs
+          for image in alpine:3.10 alpine:latest; do
+            docker run --rm --entrypoint /bin/sh -v "$PWD:/work" "$image" -c '
+              apk add --no-cache git >/dev/null
+              git --version
+              git config --global --add safe.directory /work/git-runtime-workspace
+              git -C /work/git-runtime-workspace init --quiet
+              git -C /work/git-runtime-workspace config user.email code-moniker@example.test
+              git -C /work/git-runtime-workspace config user.name "Code Moniker"
+              git -C /work/git-runtime-workspace add source.rs
+              git -C /work/git-runtime-workspace commit --quiet -m base || true
+              echo "pub fn changed() {}" >> /work/git-runtime-workspace/source.rs
+              CODE_MONIKER_GIT_BINARY=/usr/bin/git /work/target/x86_64-unknown-linux-musl/debug/code-moniker stats /work/git-runtime-workspace
+              CODE_MONIKER_GIT_BINARY=/usr/bin/git /work/target/x86_64-unknown-linux-musl/debug/code-moniker diff /work/git-runtime-workspace
+              git -C /work/git-runtime-workspace reset --hard --quiet HEAD
+            '
+          done
+
+      - name: Alpine latest with fake Git - incompatible, malformed, timeout
+        run: |
+          fake_git=/work/crates/workspace/tests/fixtures/fake-git-runtime.sh
+          for case in 'incompatible:supported range' 'malformed:unrecognized version' 'hang:timed out'; do
+            mode=${case%%:*}
+            pattern=${case#*:}
+            docker run --rm -v "$PWD:/work:ro" -e CODE_MONIKER_FAKE_GIT_MODE="$mode" -e CODE_MONIKER_GIT_BINARY="$fake_git" alpine:latest /bin/sh -c '
+              if /work/target/x86_64-unknown-linux-musl/debug/code-moniker diff /work/git-runtime-workspace > /tmp/result 2>&1; then
+                cat /tmp/result
+                exit 1
+              fi
+              grep "$1" /tmp/result
+            ' -- "$pattern"
+          done
+
+      - name: Node.js 26
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 26
           cache: npm
           cache-dependency-path: packages/client/package-lock.json
 
-      - name: Install tarballs and launch the static packaged daemon
+      - name: packages/client - npm ci + test-packaged-daemon.mjs - linux-x64 musl
         working-directory: packages/client
         run: |
           npm ci --omit=optional
           npm run test:daemon:packaged -- linux-x64 ../../target/x86_64-unknown-linux-musl/debug/code-moniker
-
-  bench-smoke:
-    name: criterion benches compile and run once
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Bench smoke (single iteration, no measurement)
-        run: cargo bench -p code-moniker-workspace --benches -- --test
-
-  mcp-tests:
-    name: mcp feature tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy on the mcp feature surface
-        run: cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings
-
-      - name: Test the mcp feature surface
-        run: cargo test -p code-moniker --features mcp --no-default-features --lib

@@ -240,6 +240,8 @@ pub(super) fn workspace_status_without_snapshot(
 		stale: false,
 		stale_summary: summary,
 		timings: WorkspaceTimingsDto::default(),
+		runtime_dependencies: Vec::new(),
+		effective_capabilities: Vec::new(),
 	};
 	QueryResponse {
 		generation: None,
@@ -315,6 +317,8 @@ pub(super) fn workspace_status_result(
 			.snapshot()
 			.map(workspace_timings_dto)
 			.unwrap_or_default(),
+		runtime_dependencies: Vec::new(),
+		effective_capabilities: Vec::new(),
 	}
 }
 

@@ -32,7 +32,7 @@ fn hot_symbol(snapshot: &WorkspaceSnapshot) -> SymbolId {
 		.symbols
 		.iter()
 		.find(|symbol| symbol.name == "f5_0()")
-		.map(|symbol| symbol.id.clone())
+		.map(|symbol| symbol.id)
 		.expect("hot symbol f5_0 present")
 }
 

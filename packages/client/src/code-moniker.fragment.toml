@@ -1,0 +1,48 @@
+fragment = "client-git-runtime"
+
+[aliases]
+client_git_adapter = "moniker ~ '**/dir:packages/dir:client/dir:src/module:diff-impact/**'"
+
+[[ts.shape.callable.where]]
+id = "sdk-git-call-flow-enters-bounded-runtime"
+severity = "error"
+expr = "NOT ($client_git_adapter AND parent.name = 'GitClient' AND name = 'run') OR any(out_refs, target.name = 'runProcess')"
+message = "Client-side Git operations must enter the bounded process launcher."
+rationale = """
+The Node adapter owns a separate client process environment. Its Git operations must still share
+one absolute-path, no-shell launcher so timeout, output, cleanup and diagnostic behavior cannot drift.
+"""
+
+[[ts.shape.callable.where]]
+id = "sdk-git-fast-metadata-uses-probe-budget"
+severity = "error"
+expr = "(NOT ($client_git_adapter AND name = 'runFastMetadata') OR (text =~ 'GIT_PROBE_TIMEOUT_MS' AND text =~ 'GIT_PROBE_OUTPUT_LIMIT')) AND (NOT ($client_git_adapter AND name = 'resolveRevision') OR any(out_refs, target.name = 'runFastMetadata'))"
+message = "Client-side revision identity must use the fast Git metadata budget."
+rationale = "Revision verification is an interactive metadata gate and must remain under two seconds and 64 KiB."
+
+[[ts.shape.callable.where]]
+id = "sdk-git-lifecycle-bounded-process-execution"
+severity = "error"
+expr = "NOT ($client_git_adapter AND name = 'runDirectProcess') OR (text =~ 'timeoutMs' AND text =~ 'maxBuffer' AND text =~ 'terminateProcess')"
+message = "The Node Git launcher must bound time and output and terminate the process tree."
+rationale = """
+The client adapter runs before the daemon starts. A hanging Git command must therefore have the
+same bounded failure behavior and explicit client-side provenance as daemon-owned Git execution.
+"""
+
+[[ts.shape.callable.where]]
+id = "sdk-git-ownership-process-launches-stay-in-runtime"
+severity = "error"
+expr = "NOT ($client_git_adapter AND NOT name =~ '^__cb_' AND text =~ 'spawn\\(') OR name = 'runDirectProcess'"
+message = "Client-side process launches must stay inside the bounded Git runtime."
+rationale = """
+The diff-impact adapter launches only the native supervisor on Windows or Git directly elsewhere.
+Keeping that launch site explicit prevents bypasses.
+"""
+
+[[ts.shape.callable.where]]
+id = "sdk-git-lifecycle-windows-git-uses-native-supervisor"
+severity = "error"
+expr = "NOT ($client_git_adapter AND name = 'runProcess') OR (text =~ 'runWindowsSupervisedProcess' AND text =~ 'supervisor_incompatible')"
+message = "Windows Git execution must fail closed through the packaged native supervisor."
+rationale = "The Rust supervisor attaches Git to a kill-on-close Job Object before resuming it; Node cannot provide equivalent ownership with a post-exit PID heuristic."

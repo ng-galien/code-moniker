@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +25,7 @@ let client;
 
 try {
 	seedDaemonWorkspace(workspaceRoot);
+	seedGitRepository(workspaceRoot);
 	owned = await runtime.launch({ workspaceRoots: [workspaceRoot] });
 	if (owned.entry.build.fingerprint !== expectedFingerprint) {
 		throw new Error(
@@ -35,6 +37,8 @@ try {
 	});
 	const status = await waitForReady(client);
 	assertDaemonWorkspaceIndexed(status, "packaged Windows daemon");
+	assertGitRuntimeProjected(status);
+	console.log(`workspace.status git runtime: ${JSON.stringify(status.runtime_dependencies[0])}`);
 	const mutationGeneration = await assertPostReadyMutation(
 		client,
 		workspaceRoot,
@@ -79,6 +83,38 @@ try {
 	}
 }
 
+function assertGitRuntimeProjected(status) {
+	const git = status.runtime_dependencies?.find((dependency) => dependency.name === "git");
+	const expectedExecutable = process.env.CODE_MONIKER_CI_GIT;
+	const expectedVersion = process.env.CODE_MONIKER_EXPECTED_GIT_VERSION;
+	if (
+		git?.state !== "available"
+		|| git.resolution_source !== (expectedExecutable === undefined ? "inherited_path" : "explicit_configuration")
+		|| typeof git.executable !== "string"
+		|| !/^git version \d+\.\d+\.\d+/.test(git.version ?? "")
+		|| git.compatible !== true
+		|| !git.roots?.some((root) => root.state === "worktree")
+		|| (expectedExecutable !== undefined && normalizedPath(git.executable) !== normalizedPath(realpathSync(expectedExecutable)))
+		|| (expectedVersion !== undefined && git.version !== expectedVersion)
+	) {
+		throw new Error(`workspace.status did not project the usable Git runtime: ${JSON.stringify(git)}`);
+	}
+}
+
+function seedGitRepository(root) {
+	const git = process.env.CODE_MONIKER_CI_GIT ?? "git";
+	const run = (...args) => execFileSync(git, ["-C", root, ...args], { stdio: "ignore" });
+	run("init", "--quiet");
+	run("config", "user.email", "code-moniker@example.test");
+	run("config", "user.name", "Code Moniker");
+	run("add", ".");
+	run("commit", "--quiet", "-m", "daemon smoke base");
+}
+
+function normalizedPath(path) {
+	return path.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").toLowerCase();
+}
+
 function assertStoppedAndUnclaimed(runtime, owned, workspaceRoot, label) {
 	if (owned.process.isRunning()) {
 		throw new Error(`${label} process ${owned.entry.pid} is still running`);
@@ -92,10 +128,13 @@ async function waitForReady(client) {
 	const deadline = Date.now() + 60_000;
 	while (Date.now() <= deadline) {
 		const status = await client.workspace.status();
+		const git = status.runtime_dependencies?.find((dependency) => dependency.name === "git");
 		if (
 			status.phase === "ready" &&
 			typeof status.generation === "number" &&
-			status.generation >= 1
+			status.generation >= 1 &&
+			git !== undefined &&
+			git.state !== "checking"
 		) {
 			return status;
 		}

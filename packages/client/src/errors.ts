@@ -2,6 +2,7 @@ export class DaemonRpcError extends Error {
 	constructor(
 		message: string,
 		readonly code?: string,
+		readonly category?: string,
 	) {
 		super(message);
 		this.name = "DaemonRpcError";

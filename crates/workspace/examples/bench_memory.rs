@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
 	Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BenchOptions {
 	paths: Vec<PathBuf>,
 	project: Option<String>,
@@ -226,19 +226,6 @@ impl BenchOptions {
 		}
 		files.sort();
 		Ok(files)
-	}
-}
-
-impl Default for BenchOptions {
-	fn default() -> Self {
-		Self {
-			paths: Vec::new(),
-			project: None,
-			cache_dir: None,
-			lang: None,
-			exclude_path_fragments: Vec::new(),
-			skip_changes: false,
-		}
 	}
 }
 
@@ -423,7 +410,7 @@ fn estimate_changes(changes: &ChangeOverlay, estimate: &mut MemoryEstimate) {
 		changes
 			.changed_symbols
 			.iter()
-			.map(|symbol| std::mem::size_of_val(symbol))
+			.map(std::mem::size_of_val)
 			.sum(),
 		format!("{} changed symbols", changes.changed_symbols.len()),
 	);
@@ -477,10 +464,7 @@ fn change_resource_payload(resource: &ChangeResource) -> usize {
 
 fn change_payload(change: &ChangeRecord) -> usize {
 	std::mem::size_of_val(&change.id)
-		+ change
-			.source
-			.as_ref()
-			.map_or(0, |source| std::mem::size_of_val(source))
+		+ change.source.as_ref().map_or(0, std::mem::size_of_val)
 		+ change.source_uri.as_ref().map_or(0, String::capacity)
 		+ change.symbol.as_ref().map_or(0, std::mem::size_of_val)
 		+ change.identity.capacity()
