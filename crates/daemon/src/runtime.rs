@@ -17,6 +17,7 @@ use code_moniker_query::{
 	config_roots, current_build_identity, registry_path_for_config, remove_registry_entry_if_own,
 	update_registry_entry_if_own, validate_daemon_start_config, workspace_label,
 };
+use code_moniker_workspace::live::LiveWorkspaceWatcher;
 use code_moniker_workspace::snapshot::{WorkspaceCancellation, WorkspaceSnapshot};
 use code_moniker_workspace::source::LocalResourceCache;
 use jsonrpsee::core::{SubscriptionResult, async_trait};
@@ -24,13 +25,13 @@ use jsonrpsee::server::{PendingSubscriptionSink, Server};
 use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::daemon::{
-	WorkspaceDaemon, concurrent_snapshot_query, handle_stale_snapshot_query,
-	stateless_protocol_response,
+	LiveWatcherRegistration, WorkspaceDaemon, concurrent_snapshot_query,
+	handle_stale_snapshot_query, stateless_protocol_response,
 };
 use crate::helpers::root_labels;
 use crate::lifecycle::{
-	refresh_full_cancellable, reject_conflicting_daemons, restart_live_watcher,
-	workspace_failure_dto, workspace_status_result, workspace_status_without_snapshot,
+	refresh_full_cancellable, reject_conflicting_daemons, workspace_failure_dto,
+	workspace_status_result, workspace_status_without_snapshot,
 };
 use crate::telemetry;
 
@@ -212,26 +213,86 @@ fn spawn_initial_preload(
 	WorkspaceCancellation,
 	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
 ) {
+	spawn_initial_preload_with_watcher(daemon, published, lifecycle, events, |registration| {
+		registration.start().map(Some)
+	})
+}
+
+pub(super) fn spawn_initial_preload_with_watcher<F>(
+	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	published: Arc<RwLock<Option<PublishedSnapshot>>>,
+	lifecycle: Arc<RwLock<WorkspaceLifecycle>>,
+	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+	start_watcher: F,
+) -> (
+	WorkspaceCancellation,
+	tokio::task::JoinHandle<anyhow::Result<WorkspaceStatus>>,
+)
+where
+	F: FnOnce(LiveWatcherRegistration) -> anyhow::Result<Option<LiveWorkspaceWatcher>>
+		+ Send
+		+ 'static,
+{
 	let cancellation = WorkspaceCancellation::default();
 	let worker_cancellation = cancellation.clone();
 	let preload_span = telemetry::detached_operation_span("daemon.initial_preload");
 	let worker = tokio::task::spawn_blocking(move || {
 		preload_span.in_scope(|| {
-			let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
 			let result = (|| {
-				if daemon.registry.queries().snapshot().is_none() {
-					refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
-						.map_err(|error| anyhow::anyhow!(error.to_string()))?;
-					anyhow::ensure!(
-						!worker_cancellation.is_cancelled(),
-						"workspace preload cancelled"
-					);
-					restart_live_watcher(&mut daemon)
-						.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+				let (status, registration) = {
+					let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
+					if daemon.registry.queries().snapshot().is_none() {
+						refresh_full_cancellable(&mut daemon, worker_cancellation.clone())
+							.map_err(|error| anyhow::anyhow!(error.to_string()))?;
+						anyhow::ensure!(
+							!worker_cancellation.is_cancelled(),
+							"workspace preload cancelled"
+						);
+						let status =
+							publish_preload_snapshot(&daemon, &published, &lifecycle, &events);
+						(
+							status,
+							Some(daemon.begin_initial_live_watcher_registration()),
+						)
+					} else {
+						let status =
+							publish_preload_snapshot(&daemon, &published, &lifecycle, &events);
+						(status, None)
+					}
+				};
+				let Some((watcher_epoch, registration)) = registration else {
+					return Ok(status);
+				};
+				let watcher = match start_watcher(registration) {
+					Ok(watcher) => watcher,
+					Err(error) => {
+						let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
+						if !daemon.record_live_watcher_failure(watcher_epoch, format!("{error:#}"))
+						{
+							let reconciliation = daemon.live_watcher_reconciliation_plan();
+							daemon.registry.live_commands().mark_stale(reconciliation);
+							return Ok(workspace_status_result(&daemon.roots, &daemon.registry));
+						}
+						return Err(error);
+					}
+				};
+				anyhow::ensure!(
+					!worker_cancellation.is_cancelled(),
+					"workspace preload cancelled while starting live watcher"
+				);
+				let Some(watcher) = watcher else {
+					return Ok(status);
+				};
+				let mut daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
+				if !daemon.install_initial_live_watcher(watcher_epoch, watcher) {
+					return Ok(status);
 				}
-				Ok(())
+				let reconciliation = daemon.live_watcher_reconciliation_plan();
+				daemon.registry.live_commands().mark_stale(reconciliation);
+				Ok(workspace_status_result(&daemon.roots, &daemon.registry))
 			})();
-			if let Err(error) = result {
+			if let Err(error) = &result {
+				let daemon = daemon.lock().unwrap_or_else(|err| err.into_inner());
 				let failure = daemon
 					.registry
 					.queries()
@@ -250,23 +311,31 @@ fn spawn_initial_preload(
 					generation: None,
 					stale_summary: Some(failure.message),
 				});
-				return Err(error);
 			}
-			publish_current_snapshot(&daemon, &published);
-			let status = workspace_status_result(&daemon.roots, &daemon.registry);
-			*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
-				phase: status.phase,
-				failure: status.failure.clone(),
-			};
-			let _ = events.send(WorkspaceEventDto {
-				kind: WorkspaceEventKind::Refreshed,
-				generation: status.generation,
-				stale_summary: None,
-			});
-			Ok(status)
+			result
 		})
 	});
 	(cancellation, worker)
+}
+
+fn publish_preload_snapshot(
+	daemon: &WorkspaceDaemon,
+	published: &RwLock<Option<PublishedSnapshot>>,
+	lifecycle: &RwLock<WorkspaceLifecycle>,
+	events: &tokio::sync::broadcast::Sender<WorkspaceEventDto>,
+) -> WorkspaceStatus {
+	publish_current_snapshot(daemon, published);
+	let status = workspace_status_result(&daemon.roots, &daemon.registry);
+	*lifecycle.write().unwrap_or_else(|err| err.into_inner()) = WorkspaceLifecycle {
+		phase: status.phase,
+		failure: status.failure.clone(),
+	};
+	let _ = events.send(WorkspaceEventDto {
+		kind: WorkspaceEventKind::Refreshed,
+		generation: status.generation,
+		stale_summary: None,
+	});
+	status
 }
 
 fn validate_supervisor_pid(supervisor_pid: Option<u32>) -> anyhow::Result<()> {
@@ -756,6 +825,16 @@ fn handle_workspace_request(
 		&request,
 		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus)
 	) {
+		let current_lifecycle = lifecycle
+			.read()
+			.unwrap_or_else(|err| err.into_inner())
+			.clone();
+		if current_lifecycle.phase == WorkspacePhase::Failed {
+			return ProtocolResponse::Query(Box::new(workspace_status_without_snapshot(
+				roots,
+				current_lifecycle,
+			)));
+		}
 		return match daemon.try_lock() {
 			Ok(mut guard) => handle_and_publish(&mut guard, published, lifecycle, request),
 			Err(TryLockError::WouldBlock) => {

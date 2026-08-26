@@ -30,7 +30,10 @@ message = "the rule must observe the indexed generation"
 	let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
 		command: Command::WorkspaceRefresh,
 	}));
-	assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+	let ProtocolResponse::Command(refreshed) = refreshed else {
+		panic!("expected workspace refresh response, got {refreshed:?}");
+	};
+	let initial_generation = refreshed.generation;
 
 	fs::write(&lib, "pub fn filesystem_name() {}\n").expect("change filesystem source");
 	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
@@ -47,7 +50,7 @@ message = "the rule must observe the indexed generation"
 	let ProtocolResponse::Query(response) = response else {
 		panic!("expected rules check response, got {response:?}");
 	};
-	assert_eq!(response.generation, Some(WorkspaceGeneration(1)));
+	assert_eq!(response.generation, initial_generation);
 	let QueryResult::RulesCheck(result) = response.result else {
 		panic!("expected rules check result, got {:?}", response.result);
 	};
@@ -84,7 +87,7 @@ message = "the current rules file must run against the pinned index"
 	let ProtocolResponse::Query(response) = response else {
 		panic!("expected rules check response, got {response:?}");
 	};
-	assert_eq!(response.generation, Some(WorkspaceGeneration(1)));
+	assert_eq!(response.generation, initial_generation);
 	let QueryResult::RulesCheck(result) = response.result else {
 		panic!("expected rules check result, got {:?}", response.result);
 	};

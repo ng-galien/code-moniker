@@ -143,9 +143,15 @@ Windows containers use operating-system features on a Windows host. The CI
 release builder, and validates three
 levels: Rust daemon tests, an explicit `.exe` owned-daemon smoke test, and a
 clean consumer that installs the packed client plus native package and launches
-the resolved executable. The npm publication workflow independently repeats the
-packaged smoke against the exact Windows cargo-dist release artifact before it
-publishes any native package.
+the resolved executable. Both lifecycle smokes index 512 generated TypeScript
+files under deep paths containing spaces and non-ASCII characters, require
+non-zero symbols and references, mutate a file after `ready`, require a stale
+event and higher refreshed generation, then prove cold/warm stop and registry
+cleanup. The PR job stages npm tarballs from a release-profile `.exe` and
+retains environment and lifecycle logs. An empty temporary directory is not an
+acceptable Windows lifecycle gate. The npm
+publication workflow independently repeats the packaged smoke against the exact
+Windows cargo-dist release artifact before it publishes any native package.
 
 For faster local feedback on macOS, `cargo-xwin` can cross-compile the MSVC
 target and can optionally execute tests through Wine. That is useful as a

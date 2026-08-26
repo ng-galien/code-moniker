@@ -142,7 +142,10 @@ fn change_review_query_builds_semantic_facts_on_demand() {
 		.expect("refreshed snapshot")
 		.generation
 		.value();
-	assert_eq!(after_generation, before_generation + 1);
+	assert!(
+		after_generation > before_generation,
+		"change review must publish refreshed source and Git material"
+	);
 	assert!(!daemon.registry.queries().staleness().is_stale());
 
 	let ProtocolResponse::Query(query) = response else {
@@ -175,7 +178,7 @@ fn change_review_query_builds_semantic_facts_on_demand() {
 			lang: Vec::new(),
 			projection: Vec::new(),
 		}),
-		consistency: code_moniker_query::Consistency::Current,
+		consistency: code_moniker_query::Consistency::StaleOk,
 		page: Page::default(),
 	})));
 	let ProtocolResponse::Query(tree) = tree else {
@@ -188,5 +191,24 @@ fn change_review_query_builds_semantic_facts_on_demand() {
 		tree.rows.iter().any(|row| row.change_count > 0),
 		"tree rows must carry the change count: {:?}",
 		tree.rows
+	);
+
+	let overlay_generation = daemon
+		.registry
+		.queries()
+		.snapshot()
+		.expect("change overlay snapshot")
+		.generation
+		.value();
+	let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+		command: Command::WorkspaceRefresh,
+	}));
+	let ProtocolResponse::Command(refreshed) = refreshed else {
+		panic!("source refresh must remain independent from Git after change.review");
+	};
+	assert_eq!(
+		refreshed.generation.unwrap().0,
+		overlay_generation + 1,
+		"a source refresh after change.review must publish exactly one generation"
 	);
 }

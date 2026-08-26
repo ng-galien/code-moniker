@@ -12,6 +12,15 @@ ready, `workspace.status` returns the typed `loading` phase and data tools
 return `workspace_loading` immediately; the client can retry without restarting
 the server. Initial failure is likewise observable as `failed` with its cause
 while the endpoint stays available.
+The first complete generation is published and transitions to `ready` before
+recursive filesystem watching starts. Watcher registration runs outside the
+workspace mutex, so a slow or blocked operating-system watcher cannot hide the
+available snapshot or block status/data queries. Once watching is armed, a
+rescan boundary marks the published generation stale without changing its
+identity. The next freshness-enforcing read reconciles every filesystem
+mutation that could have occurred during registration, while an in-flight
+`stale-ok` cursor remains valid. Registration failure or panic transitions to
+the typed `failed` lifecycle instead of leaving `loading` unresolved.
 Stdio MCP projects that same lifecycle into both `workspace.status` and data
 query errors; it does not maintain a separate preload verdict. Agent-oriented
 MCP responses identify their execution source as `runtime: stdio-worker` or
@@ -103,9 +112,15 @@ walking, parallel extraction and snapshot build phases. Shutdown cancels that
 token before stopping the runtime and never starts a live watcher after
 cancellation. Process shutdown is also bounded, so even a source read blocked
 inside the operating system cannot keep a supervised daemon or stdio MCP alive.
-Linkage and Git change-overlay construction run concurrently after the shared
-code index is ready. `workspace.status` exposes their elapsed milliseconds,
-along with catalog, extraction, semantic-index and total build timings; phase
+Filesystem watching uses notify's polling backend on every
+operating system so readiness and mutation detection share one deterministic
+contract. Every watched root must register successfully.
+Linkage construction runs after the shared code index is ready. Git change
+material is built only for the explicit change query currently being served;
+it does not attach Git to later refreshes. Complete source refresh, status and
+symbol queries do not discover a repository or start Git.
+`workspace.status` exposes catalog, extraction, semantic-index, linkage and
+total build timings; phase
 durations may overlap and therefore need not sum to the total.
 
 ## Transport: JSON-RPC over loopback WebSocket

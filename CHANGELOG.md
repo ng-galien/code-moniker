@@ -11,11 +11,29 @@ in `0.y.z`.
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-08-24
+## [0.9.0] - 2026-08-26
 
 This release makes agent-facing architectural discovery a first-class rendering
 contract. The VS Code extension keeps its separate version and release channel
 and is not published by the `v0.9.0` tag.
+
+### Fixed
+
+- **Daemon readiness cannot be held hostage by live watcher startup.** The
+  initial filesystem generation is published as `ready` before recursive
+  watching starts, watcher startup runs without holding the workspace mutex,
+  and watcher activation marks an explicit rescan boundary without invalidating
+  cursors merely because registration completed. The next freshness-enforcing
+  read reconciles every mutation from the registration gap.
+  Watcher failures and panics transition to the typed `failed` lifecycle rather
+  than leaving the workspace indefinitely in `loading`.
+- **Live watching avoids blocking native registration.** Daemon processes use
+  notify's polling backend consistently across operating
+  systems. Registration fails closed when any configured root cannot be watched.
+- **Windows runtime CI indexes a realistic non-empty corpus.** Both the owned
+  executable and installed npm-tarball smokes index 512 files under paths with
+  spaces, non-ASCII characters, and deep directories, then prove a post-ready
+  mutation, generation advance, warm restart, clean stop and registry cleanup.
 
 ### Added
 

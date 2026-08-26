@@ -1,8 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{
+	Arc,
+	atomic::{AtomicUsize, Ordering},
+	mpsc,
+};
 use std::time::Duration;
 
+use code_moniker_workspace::changes::ChangeOverlayPort;
 use code_moniker_workspace::code::{
 	CodeIndexPort, CodeIndexRefresh, LocalCodeIndex, LocalCodeIndexOptions,
 };
@@ -12,11 +17,13 @@ use code_moniker_workspace::live::{
 };
 use code_moniker_workspace::registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceCommandKind, WorkspaceCommandSpec,
-	WorkspaceEventKind, WorkspaceScopeUri, WorkspaceSnapshotPublication,
+	WorkspaceEventKind, WorkspacePorts, WorkspaceRegistry, WorkspaceScopeUri,
+	WorkspaceSnapshotPublication,
 };
 use code_moniker_workspace::snapshot::{
-	BoundedCorridorRequest, BoundedCorridorScope, BoundedPathLimits, CodeIndex, LinkageSnapshot,
-	WorkspaceRequest, WorkspaceResource, WorkspaceSnapshot, WorkspaceTransition,
+	BoundedCorridorRequest, BoundedCorridorScope, BoundedPathLimits, ChangeOverlay, CodeIndex,
+	LinkageSnapshot, SourceCatalog, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
+	WorkspaceSnapshot, WorkspaceTransition,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
@@ -26,6 +33,79 @@ fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR"))
 		.join("tests/fixtures")
 		.join(path)
+}
+
+struct CountingChangeOverlay {
+	calls: Arc<AtomicUsize>,
+}
+
+impl ChangeOverlayPort for CountingChangeOverlay {
+	fn build_change_overlay(
+		&mut self,
+		catalog: &SourceCatalog,
+		index: &CodeIndex,
+	) -> WorkspaceResult<ChangeOverlay> {
+		self.calls.fetch_add(1, Ordering::SeqCst);
+		Ok(ChangeOverlay::new(
+			catalog.generation,
+			catalog.generation,
+			index.generation,
+			Vec::new(),
+		))
+	}
+}
+
+#[test]
+fn complete_source_refresh_does_not_invoke_the_git_change_overlay() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let source = temp.path().join("source.ts");
+	fs::write(&source, "export const supplied = 1;\n").expect("write source");
+	let cache = LocalResourceCache::default();
+	let calls = Arc::new(AtomicUsize::new(0));
+	let ports = WorkspacePorts::new(
+		LocalSourceCatalog::new(
+			LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+			cache.clone(),
+		),
+		LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone()),
+		LocalLinkage::new(cache),
+		CountingChangeOverlay {
+			calls: Arc::clone(&calls),
+		},
+	);
+	let mut workspace = WorkspaceRegistry::new(ports);
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("supplied-source-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_eq!(
+		calls.load(Ordering::SeqCst),
+		0,
+		"indexing supplied sources must not discover or invoke Git"
+	);
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh_changes(WorkspaceRequest::new("explicit-change-overlay-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+	assert!(matches!(
+		workspace.commands().refresh(WorkspaceRequest::new(
+			"source-refresh-after-explicit-change-query"
+		)),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_eq!(
+		calls.load(Ordering::SeqCst),
+		1,
+		"an explicit change query must not attach Git to later source refreshes"
+	);
 }
 
 #[test]
@@ -1441,6 +1521,22 @@ fn change_overlay_keeps_lightweight_git_facts_after_a_git_mv() {
 		workspace
 			.commands()
 			.refresh(WorkspaceRequest::new("initial-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert!(
+		workspace
+			.queries()
+			.snapshot()
+			.expect("initial snapshot")
+			.changes
+			.changes
+			.is_empty(),
+		"a source refresh must not implicitly inspect Git"
+	);
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh_changes(WorkspaceRequest::new("explicit-git-overlay-refresh")),
 		WorkspaceTransition::Ready { .. }
 	));
 	let snapshot = workspace.queries().snapshot().expect("snapshot");

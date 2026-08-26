@@ -4,19 +4,24 @@ use std::sync::{Arc, mpsc};
 use code_moniker_query::{
 	Command, CommandRequest, CommandResponse, Consistency, DaemonWorkspaceConfig, Page,
 	ProtocolRequest, ProtocolResponse, Query, QueryError, QueryRequest, QueryResponse, QueryResult,
-	WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration, canonical_workspace_config,
-	config_from_roots, config_roots, describe_query_capabilities, validate_daemon_start_config,
+	WorkspaceEventDto, WorkspaceEventKind, WorkspaceFailureDto, WorkspaceGeneration,
+	WorkspacePhase, canonical_workspace_config, config_from_roots, config_roots,
+	describe_query_capabilities, validate_daemon_start_config,
 };
-use code_moniker_workspace::live::{LiveWorkspaceWatcher, WorkspaceLiveEvent};
+use code_moniker_workspace::live::{
+	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
+};
 use code_moniker_workspace::notes::WorkspaceNotes;
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
-use code_moniker_workspace::snapshot::{WorkspaceCancellation, WorkspaceSnapshot};
+use code_moniker_workspace::snapshot::{
+	WorkspaceCancellation, WorkspaceRequest, WorkspaceSnapshot,
+};
 use code_moniker_workspace::source::LocalResourceCache;
 
 use crate::helpers::rules_config_root;
 use crate::lifecycle::{
 	drain_live_events, generation, refresh_full_cancellable, refresh_stale, restart_live_watcher,
-	workspace_status, workspace_status_result,
+	workspace_status, workspace_status_result, workspace_transition_result,
 };
 use crate::query::{
 	ResponseContext, RulesCheckEval, RulesListEval, RulesListFilters, change_context_response,
@@ -48,7 +53,22 @@ pub(super) struct DaemonLiveState {
 	pub(super) tx: mpsc::Sender<WorkspaceLiveEvent>,
 	pub(super) rx: mpsc::Receiver<WorkspaceLiveEvent>,
 	pub(super) watcher: Option<LiveWorkspaceWatcher>,
+	watcher_epoch: u64,
+	watcher_updates_tx: mpsc::Sender<LiveWatcherUpdate>,
+	watcher_updates_rx: mpsc::Receiver<LiveWatcherUpdate>,
+	watcher_failure: Option<String>,
 	pub(super) events: Option<tokio::sync::broadcast::Sender<WorkspaceEventDto>>,
+}
+
+pub(super) struct LiveWatcherUpdate {
+	pub(super) epoch: u64,
+	pub(super) result: Result<LiveWorkspaceWatcher, String>,
+}
+
+pub(super) struct LiveWatcherRegistration {
+	roots: Vec<code_moniker_workspace::live::WorkspaceWatchRoot>,
+	tx: mpsc::Sender<WorkspaceLiveEvent>,
+	events: Option<tokio::sync::broadcast::Sender<WorkspaceEventDto>>,
 }
 
 struct WorkspaceDaemonInit {
@@ -114,7 +134,6 @@ impl WorkspaceDaemon {
 				"workspace refresh was cancelled",
 			));
 		}
-		restart_live_watcher(self)?;
 		let status = workspace_status_result(&self.roots, &self.registry);
 		Ok(CommandResponse {
 			generation: generation(&self.registry),
@@ -123,17 +142,132 @@ impl WorkspaceDaemon {
 		})
 	}
 
+	pub(super) fn live_watcher_registration(&self) -> LiveWatcherRegistration {
+		LiveWatcherRegistration {
+			roots: self.registry.watch_roots(),
+			tx: self.live.tx.clone(),
+			events: self.live.events.clone(),
+		}
+	}
+
+	pub(super) fn begin_initial_live_watcher_registration(
+		&mut self,
+	) -> (u64, LiveWatcherRegistration) {
+		let epoch = self.live.watcher_epoch.wrapping_add(1);
+		self.live.watcher_epoch = epoch;
+		(epoch, self.live_watcher_registration())
+	}
+
+	pub(super) fn install_initial_live_watcher(
+		&mut self,
+		epoch: u64,
+		watcher: LiveWorkspaceWatcher,
+	) -> bool {
+		if epoch > self.live.watcher_epoch || self.live.watcher.is_some() {
+			return false;
+		}
+		self.live.watcher = Some(watcher);
+		true
+	}
+
+	pub(super) fn request_change_overlay(&mut self) -> Result<(), QueryError> {
+		workspace_transition_result(
+			self.registry
+				.commands()
+				.refresh_changes(WorkspaceRequest::new("daemon-explicit-change-overlay")),
+		)
+	}
+
 	pub(super) fn restart_live_watcher(&mut self) -> anyhow::Result<()> {
-		let tx = self.live.tx.clone();
-		let events = self.live.events.clone();
-		let watcher = LiveWorkspaceWatcher::start(self.registry.watch_roots(), move |event| {
+		let epoch = self.live.watcher_epoch.wrapping_add(1);
+		let registration = self.live_watcher_registration();
+		let updates = self.live.watcher_updates_tx.clone();
+		std::thread::Builder::new()
+			.name(format!("code-moniker-watcher-{epoch}"))
+			.spawn(move || {
+				let result = registration.start().map_err(|error| format!("{error:#}"));
+				let _ = updates.send(LiveWatcherUpdate { epoch, result });
+			})?;
+		self.live.watcher_epoch = epoch;
+		Ok(())
+	}
+
+	pub(super) fn install_pending_live_watcher(&mut self) -> Result<bool, QueryError> {
+		let mut installed = false;
+		while let Ok(update) = self.live.watcher_updates_rx.try_recv() {
+			if update.epoch != self.live.watcher_epoch {
+				continue;
+			}
+			match update.result {
+				Ok(watcher) => {
+					self.live.watcher = Some(watcher);
+					self.live.watcher_failure = None;
+					installed = true;
+				}
+				Err(message) => self.live.watcher_failure = Some(message),
+			}
+		}
+		if let Some(message) = &self.live.watcher_failure {
+			return Err(QueryError::new("live_watcher_failed", message.clone()));
+		}
+		Ok(installed)
+	}
+
+	pub(super) fn live_watcher_reconciliation_plan(&self) -> WorkspaceLiveRefreshPlan {
+		let summary = "live watcher armed; source reconciliation required".to_string();
+		if let Some(events) = &self.live.events {
+			let _ = events.send(WorkspaceEventDto {
+				kind: WorkspaceEventKind::Stale,
+				generation: generation(&self.registry),
+				stale_summary: Some(summary),
+			});
+		}
+		WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::RescanRequired)
+	}
+
+	pub(super) fn record_live_watcher_failure(&mut self, epoch: u64, message: String) -> bool {
+		if epoch != self.live.watcher_epoch {
+			return false;
+		}
+		self.live.watcher_failure = Some(message);
+		true
+	}
+
+	#[cfg(test)]
+	pub(super) fn queue_live_watcher_update_for_test(&mut self, watcher: LiveWorkspaceWatcher) {
+		self.live.watcher_epoch = self.live.watcher_epoch.wrapping_add(1);
+		self.live
+			.watcher_updates_tx
+			.send(LiveWatcherUpdate {
+				epoch: self.live.watcher_epoch,
+				result: Ok(watcher),
+			})
+			.expect("queue watcher update");
+	}
+
+	#[cfg(test)]
+	pub(super) fn inject_live_watcher_failure(&mut self, message: &str) {
+		self.live.watcher_epoch = self.live.watcher_epoch.wrapping_add(1);
+		self.live
+			.watcher_updates_tx
+			.send(LiveWatcherUpdate {
+				epoch: self.live.watcher_epoch,
+				result: Err(message.to_string()),
+			})
+			.expect("inject watcher failure");
+	}
+}
+
+impl LiveWatcherRegistration {
+	pub(super) fn start(self) -> anyhow::Result<LiveWorkspaceWatcher> {
+		let tx = self.tx;
+		let events = self.events;
+		LiveWorkspaceWatcher::start(self.roots, move |event| {
 			if let Some(events) = &events {
 				let _ = events.send(event_dto(&event));
 			}
 			let _ = tx.send(event);
-		})?;
-		self.live.watcher = Some(watcher);
-		Ok(())
+		})
 	}
 }
 
@@ -170,11 +304,16 @@ impl WorkspaceDaemonInit {
 impl DaemonLiveState {
 	fn new(policy: DaemonLiveRefreshPolicy) -> Self {
 		let (tx, rx) = mpsc::channel();
+		let (watcher_updates_tx, watcher_updates_rx) = mpsc::channel();
 		Self {
 			policy,
 			tx,
 			rx,
 			watcher: None,
+			watcher_epoch: 0,
+			watcher_updates_tx,
+			watcher_updates_rx,
+			watcher_failure: None,
 			events: None,
 		}
 	}
@@ -226,9 +365,25 @@ fn handle_command(
 	daemon: &mut WorkspaceDaemon,
 	request: CommandRequest,
 ) -> Result<CommandResponse, QueryError> {
-	drain_live_events(daemon)?;
+	let source_refresh = matches!(&request.command, Command::WorkspaceRefresh);
+	let recover_live_watcher = match drain_live_events(daemon, source_refresh) {
+		Ok(()) => false,
+		Err(error)
+			if matches!(&request.command, Command::WorkspaceRefresh)
+				&& error.code == "live_watcher_failed" =>
+		{
+			true
+		}
+		Err(error) => return Err(error),
+	};
 	match request.command {
-		Command::WorkspaceRefresh => daemon.refresh_cancellable(WorkspaceCancellation::default()),
+		Command::WorkspaceRefresh => {
+			let response = daemon.refresh_cancellable(WorkspaceCancellation::default())?;
+			if recover_live_watcher {
+				restart_live_watcher(daemon)?;
+			}
+			Ok(response)
+		}
 		Command::WorkspaceSourceSetReplace { source_set } => {
 			let source_set = parse_memory_source_set(source_set)?;
 			validate_memory_source_set_limits(&daemon.cache, &source_set, MEMORY_SOURCE_LIMITS)?;
@@ -249,17 +404,25 @@ fn handle_query(
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
 	if let Query::SyntaxParse(query) = &request.query {
-		return syntax::syntax_parse_response(query.clone());
+		return syntax::syntax_parse_response(query.to_owned());
 	}
 	if let Query::DiffImpactCompare(query) = &request.query {
-		return diff_impact_compare_response(query.clone());
-	}
-	drain_live_events(daemon)?;
-	if let Query::QueryDescribe(query) = &request.query {
-		return query_describe_response(query.verb.as_deref());
+		return diff_impact_compare_response(query.to_owned());
 	}
 	if matches!(&request.query, Query::WorkspaceStatus) {
-		return workspace_status(&daemon.roots, &daemon.registry);
+		return match drain_live_events(daemon, true) {
+			Ok(()) => workspace_status(&daemon.roots, &daemon.registry),
+			Err(error) if error.code == "live_watcher_failed" => Ok(live_watcher_failed_status(
+				&daemon.roots,
+				&daemon.registry,
+				error.message,
+			)),
+			Err(error) => Err(error),
+		};
+	}
+	drain_live_events(daemon, request.consistency == Consistency::StaleOk)?;
+	if let Query::QueryDescribe(query) = &request.query {
+		return query_describe_response(query.verb.as_deref());
 	}
 	let requires_fresh_change_material = matches!(
 		&request.query,
@@ -275,6 +438,9 @@ fn handle_query(
 			"workspace_loading",
 			"workspace snapshot is still loading; retry after workspace.status reports phase ready",
 		));
+	}
+	if requires_fresh_change_material {
+		daemon.request_change_overlay()?;
 	}
 	if request.consistency == Consistency::Current
 		&& daemon.registry.queries().staleness().is_stale()
@@ -297,6 +463,30 @@ fn handle_query(
 		generation: current_generation,
 	};
 	dispatch_loaded_query(daemon, snapshot, response, request)
+}
+
+fn live_watcher_failed_status(
+	roots: &[PathBuf],
+	registry: &LocalWorkspaceRegistry,
+	message: String,
+) -> QueryResponse {
+	let mut status = workspace_status_result(roots, registry);
+	status.phase = WorkspacePhase::Failed;
+	status.failure = Some(WorkspaceFailureDto {
+		resource: Some("live_watcher".to_string()),
+		message: message.clone(),
+	});
+	status.stale = true;
+	status.stale_summary = message.clone();
+	for root in &mut status.roots {
+		root.stale = true;
+		root.stale_summary = message.clone();
+	}
+	QueryResponse {
+		generation: status.generation,
+		result: QueryResult::WorkspaceStatus(status),
+		next_cursor: None,
+	}
 }
 
 pub(super) fn concurrent_snapshot_query(query: &Query) -> bool {
