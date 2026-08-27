@@ -183,6 +183,7 @@ fn prepare_agent_hook(
 	let rules = resolve_from_root(&root, &args.rules);
 	let scope = normalize_relative(&args.scope);
 	let cfg = code_moniker_check::RuleSetRequest::with_rules(&rules, crate::DEFAULT_SCHEME)
+		.with_project_root(&root)
 		.load_config()?;
 	if let Some(profile) = &args.profile
 		&& !cfg.profiles.contains_key(profile)
