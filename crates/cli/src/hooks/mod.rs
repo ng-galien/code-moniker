@@ -658,6 +658,33 @@ enable = [".*"]
 		assert!(settings.get("hooks").is_none());
 	}
 
+	#[test]
+	fn agent_hook_install_accepts_taxonomy_from_canonical_project_rules_file() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+[rules.taxonomy]
+patterns = ["ownership"]
+components = ["workspace"]
+"#,
+		)
+		.unwrap();
+		let args = crate::HookInstallArgs {
+			root: dir.path().to_path_buf(),
+			rules: ".code-moniker.toml".into(),
+			profile: None,
+			scope: ".".into(),
+			max_violations: 10,
+		};
+
+		let installed =
+			super::install_for_agent(&args, crate::AgentClient::Codex, None, &mut Vec::new())
+				.expect("the canonical project file owns its taxonomy");
+
+		assert!(installed.path.exists());
+	}
+
 	#[cfg(unix)]
 	#[test]
 	fn agent_hook_rejects_linked_hooks_directory_without_writing_target() {
