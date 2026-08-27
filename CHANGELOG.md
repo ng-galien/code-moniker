@@ -11,6 +11,25 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-08-27
+
+### Added
+
+- **Git runtime dependencies are bounded and observable.** Code Moniker now
+  reports the selected Git executable, version, capabilities, and typed failure
+  state without delaying workspace readiness. Git subprocesses use explicit
+  deadlines, bounded output, and platform-specific process-tree cleanup, with
+  Linux and Windows CI coverage for missing, incompatible, malformed, slow,
+  hanging, and path-with-spaces runtimes.
+
+### Fixed
+
+- **Agent hook preflight preserves the canonical project context.** Hook
+  installation now loads `.code-moniker.toml` with its project root, so a
+  canonical `rules.taxonomy` is accepted while taxonomy declarations in
+  external `--rules` files remain rejected. A red-first installation regression
+  covers the complete preflight and hook-writing path.
+
 ## [0.9.1] - 2026-08-26
 
 ### Fixed
