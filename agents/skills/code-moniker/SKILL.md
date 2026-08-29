@@ -1,217 +1,76 @@
 ---
 name: code-moniker
 description: >-
-  Use Code Moniker as a developer workflow: enter an unfamiliar project through
-  its rule taxonomy and general index, focus structural exploration, then
-  maintain the executable architectural memory affected by a change. Also use
-  it for callers and callees, coupling, ownership, change impact, project-rule
-  work, or diagnosis of Code Moniker itself. Do not invoke it automatically for
-  routine Git, tests, exact-string lookup, or small known-file edits.
+  Use Code Moniker to onboard into an unfamiliar project, develop with indexed
+  structural evidence, guard executable architectural memory after a change, or
+  review relationships and change impact. Use it when callers, callees,
+  coupling, ownership, project rules, or workspace-wide structure matter. Do
+  not invoke it for routine Git, tests, exact-string lookup, or small known-file
+  edits whose contract is already visible.
 ---
 
 # Code Moniker
 
 Code Moniker combines project-authored architectural testimony with a symbolic
-index of stable identities, definitions, references and relationships. Use the
-testimony to learn how the project names and constrains itself, then use the
-index to test and deepen that understanding. It is not a mandatory wrapper
-around ordinary repository work.
+index. This skill defines how an agent works with those surfaces. It does not
+teach the product concepts: the executable `rules learn` corpus does.
 
-## Decision boundary
+## Choose a posture
 
-Use Code Moniker when at least one of these is true:
+Read only the posture that matches the current responsibility, then follow it
+before acting:
 
-- the code or repository area is unfamiliar and needs a structural map;
-- the answer depends on callers, callees, coupling, hierarchy or change impact;
-- a repository-wide mechanism owner and its consumers must be identified;
-- project rules must be written, aligned, or read as architectural memory;
-- the user explicitly asks for Code Moniker or for indexed symbolic evidence;
-- Code Moniker, its daemon, MCP surface, hooks or indexed generation is itself
-  under diagnosis.
+| Posture | Use it when | Playbook |
+|---|---|---|
+| Onboard | Entering an unfamiliar project or rebuilding project context | [postures/onboard.md](postures/onboard.md) |
+| Develop | Focusing structural exploration and implementing a change | [postures/develop.md](postures/develop.md) |
+| Guard | Reassessing executable architectural memory after a change | [postures/guard.md](postures/guard.md) |
+| Review | Evaluating architecture, relationships, risks, or change impact | [postures/review.md](postures/review.md) |
 
-Do not use it merely because it is installed. Prefer normal repository tools
-for exact strings in known files, file inventories, Git state, formatting,
-focused tests, direct error messages, straightforward local edits and small
-diffs whose relevant contract is already visible. A review agent should invoke
-Code Moniker only when the review question actually needs relationship or
-workspace-wide ownership evidence.
+Postures may follow one another. A typical change uses Onboard once, Develop
+for the implementation, and Guard after validation. Review remains read-only
+unless the user separately authorizes changes.
 
-Use the smallest number of calls that answers the question. Stop when the
-evidence is sufficient.
+## Learn from the product
 
-## Developer journey: two modes
+The skill is a router, not a substitute for `rules learn`. Run the relevant
+topic before first interpreting or changing that concept in the current task.
+Do not skip it because the concept appears familiar, and do not run every topic
+when only one is relevant. Re-run a topic when the Code Moniker version or the
+relevant learn corpus changed.
 
-When Code Moniker applies, follow this order. Complete the orientation once per
-project context; do not repeat it before every focused call unless the rule
-corpus changed.
+| Need | Required command | What it teaches |
+|---|---|---|
+| Rule structure and expressions | `code-moniker rules learn basics` | Rule blocks, ids, predicates, severity, messages, and rationale |
+| Project vocabulary and testimony | `code-moniker rules learn taxonomy` | Patterns, components, natural rule ids, aliases, and diagnostic interpretation |
+| Architectural locations | `code-moniker rules learn paths` | Moniker path patterns and reusable aliases |
+| Local architecture files | `code-moniker rules learn fragments` | Fragments, view URIs, merging, and namespaced rule ids |
+| Cross-symbol boundaries | `code-moniker rules learn refs` | Reference rules for imports, calls, inheritance, annotations, and layers |
+| Child collections | `code-moniker rules learn collections` | Collection predicates and multiset operations over child symbols |
+| Iterated symbol sets | `code-moniker rules learn domains` | Domains, descendants, pairs, shapes, and quantifiers |
+| Local structural measures | `code-moniker rules learn metrics` | Named metrics bound to the current or iterated symbol |
+| Distribution measures | `code-moniker rules learn aggregates` | Numeric aggregates, dispersion, entropy, and mode |
+| Moniker relationships | `code-moniker rules learn relations` | Ancestor, descendant, and binding relation operators |
+| Structural directives | `code-moniker rules learn directives` | Layout, correlated-existence, and moniker-segment directives |
+| Rule-set selection | `code-moniker rules learn profiles` | Defaults, profiles, warning severity, and suppressions |
 
-### Mode 1 — Discover and develop
+If a required learn command is unavailable, report that limitation instead of
+reconstructing its semantics from this skill.
 
-In the arriving-developer posture, build the project map before choosing a
-symbol. In the focused-developer posture, narrow that map and use indexed facts
-to implement the task.
+## Shared operating contract
 
-#### 1. Enter through the project vocabulary
-
-Start with the static rule map before symbolic exploration:
-
-```sh
-code-moniker rules show .
-```
-
-Read the declared patterns, components, scoped components, pattern-by-component
-matrix, fragment origins and conformance summary as the project's initial
-architectural map. Rule ids are compact statements in the project's ubiquitous
-language. This first pass is deliberately unfiltered: it reveals what concepts
-the project considers stable before the current task narrows attention.
-
-Do not equate classification with architectural truth and do not optimize
-advisory counters. If the taxonomy model itself is unfamiliar, use
-`code-moniker rules learn taxonomy` for explanation after seeing the real
-project map. If no project taxonomy or rule corpus exists, record that absence
-and continue from the general index rather than inventing vocabulary.
-
-The static taxonomy map is a permitted orientation companion to MCP because the
-current MCP rules list does not expose the same corpus matrix and diagnostics.
-If the local binary is unavailable, inspect `[rules.taxonomy]` in the canonical
-project rules file and use `code_moniker_rules action:"list"` for the active
-testimonies.
-
-#### 2. Establish the general indexed map
-
-After learning the vocabulary, inspect the workspace summary: language mix,
-definition and reference scale, concentration hints and the first bounded
-explorer level. With MCP, verify `expected_roots` and read `workspace`; in
-binary-only mode, use `code-moniker stats .`. Relate this general index to the
-taxonomy without assuming that directory names and components are identical.
-
-#### 3. Focus the development task
-
-Filter the corpus by the component, pattern or exact rule relevant to the task,
-then request details:
-
-```sh
-code-moniker rules show . --component <name> --details
-code-moniker rules show . --pattern <name> --details
-```
-
-Follow the chain from component to rules, aliases, expressions and rationales,
-then use those aliases and terms to select narrow symbols, usages, graphs,
-views or source reads. Call `code_moniker_context` once before a structural edit
-when ownership, consumers, applicable rules or change impact remain uncertain.
-
-### Mode 2 — Maintain architectural memory after the change
-
-After implementing and testing, reassess the rules and taxonomy touched by the
-new design. Update an existing rule when its executable boundary or rationale
-changed; add one when the work established a durable non-obvious invariant;
-remove one when the protected decision no longer exists. Keep unchanged rules
-when the code still honors their testimony.
-
-Any taxonomy change is an explicit project-language decision. Do not add
-components, patterns or aliases merely to silence diagnostics. Re-run the
-focused static corpus view and the executable check whose scope can actually
-exercise the affected rule. Follow `references/rules.md` for this maintenance
-posture.
-
-## Rules as project memory
-
-Project rules are both the entry map for an arriving developer and the durable
-memory maintained by a developer who changes the architecture. Read
-`references/rules.md` before acting on rule ids, taxonomy, aliases, rationales,
-corpus diagnostics or rule history.
-
-Do not treat a rule as a prohibition without context. Its natural-language id,
-semantic anchors, aliases, executable expression, rationale, origin and
-optional Git history form one testimony about the project. Keep static corpus
-classification separate from indexed evidence that a rule currently covers a
-zone or symbol.
-
-## Select one symbolic surface
-
-The preliminary static taxonomy view above does not replace the symbolic
-surface. After it, select one surface for indexed exploration:
-
-1. If `code_moniker_*` MCP tools are available, use them for the selected
-   exploration. Do not repeat the same symbolic exploration with the CLI or raw
-   daemon requests.
-2. If MCP is unavailable but the local binary exists, use its bounded
-   `stats`, `extract`, `diff` or `check` commands.
-3. Hooks are write-time policy only. They neither replace exploration nor
-   prove anything about daemon state.
-4. If neither MCP nor the binary is available, report that briefly and use the
-   best normal repository inspection available.
-
-## Workspace identity and freshness
-
-Verify `expected_roots` once before the first workspace-wide MCP exploration,
-after an MCP reconnect/restart, after roots change, or when a tool reports a
-workspace mismatch. Do not repeat a workspace bootstrap on every turn or before
-every targeted call in the same verified session.
-
-After the one-time taxonomy and general-index orientation, a known file or
-symbol scope may start directly with a narrow `code_moniker_symbols`,
-`code_moniker_usages` or `code_moniker_graph` call. `workspace/views` is for a
-relevant project-defined lens, not a universal prelude.
-
-Never infer caching, refresh or stale-state behavior from latency alone. Record
-the producer, exact surface, workspace roots, generation or lifecycle state,
-scope and triggering event before diagnosing invalidation.
-
-## Bounded MCP workflow
-
-- General index after taxonomy orientation: one `code_moniker_read` on `workspace` with
-  `expected_roots`, `budget:"small"`, shallow depth and a tight limit.
-- Known scope: use `code_moniker_symbols` with path/name/kind/shape filters.
-- Relationship question: pass a returned moniker when available. The tools also
-  accept an unambiguous bare name or `lang:path.kind:name` reference and return
-  candidates instead of guessing when that natural reference is ambiguous.
-- Structural edit with uncertain impact: use `code_moniker_context` once on the
-  selected symbol or file. Skip it for local edits with known consumers.
-- Project-defined architecture view: read `workspace/views` only when that view
-  is relevant to the question. Follow a returned `workspace/views/<view.id>`
-  call; do not build that URI from a fragment name or file path. See
-  `references/fragments.md`.
-- Advanced daemon query: use `code_moniker_query` only when no intent tool
-  covers the required read-only capability, and discover the live grammar
-  before composing a query.
-- Rules: after the static taxonomy map, use `code_moniker_rules action:"list"`
-  for active testimonies and rationales or `action:"run"` for applicable
-  indexed evaluation. Follow `references/rules.md`.
-
-Keep `compact:true`, a small budget and narrow limits by default. Request code,
-larger budgets, paging or broader scope only when the current result proves it
-is necessary.
-
-## Local binary workflow
-
-- `code-moniker rules show .` for the initial project vocabulary and corpus map;
-  add a component or pattern filter and `--details` only after that orientation.
-- `code-moniker stats <path>` for bounded language and concentration facts.
-- `code-moniker extract . --path <file-or-glob> --shape callable --limit 80`
-  for known files. Always anchor extraction on the workspace root `.`.
-- `code-moniker diff [A..B] .` for a genuinely structural change review.
-- `code-moniker check <scope> --profile <name> --max-violations <N>` only when
-  the project or user selected that profile.
-
-Do not translate an MCP sequence call-for-call into shell commands.
-
-## Provenance and interpretation
-
-CLI, hooks, MCP, daemon clients and extensions are different execution
-surfaces. Attribute findings only to the surface actually exercised. Keep
-indexed facts separate from architectural judgment, and report coverage or
-truncation literally.
-
-## Deeper references
-
-Read only the reference needed for the current task:
-
-- unfamiliar-code exploration: `references/explore.md`;
-- architecture language and contextual views: `references/architecture.md`;
-- rule authoring, rule-led discovery, aliases, corpus diagnostics and history:
-  `references/rules.md`;
-- fragment files, view URIs, and rule id namespaces: `references/fragments.md`;
-- health, coupling and smell diagnosis: `references/diagnose.md`;
-- detailed MCP contracts and budgets: `references/mcp.md`;
-- developer-only query grammar: `references/query-dsl.md`.
+- Use Code Moniker only when structural or architectural evidence can change
+  the answer. Prefer ordinary repository tools for direct local facts.
+- Select one symbolic surface. Prefer available `code_moniker_*` MCP tools;
+  use the local CLI when MCP is unavailable. Hooks enforce write-time policy
+  and do not replace exploration.
+- Verify workspace identity once before the first workspace-wide MCP read and
+  again only after roots or the connection change.
+- Start compact, narrow, and bounded. Page, broaden, or request source only
+  when omitted evidence can change the answer.
+- Reuse returned monikers and generated follow-up calls rather than guessing
+  identities or reconstructing queries.
+- Keep project testimony, indexed facts, architectural interpretation, and
+  coverage limits distinct. Attribute a finding only to the surface exercised.
+- Stop when the evidence is sufficient. Do not replay the same exploration
+  through MCP, CLI, and direct daemon queries.

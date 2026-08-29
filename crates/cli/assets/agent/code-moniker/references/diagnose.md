@@ -1,1 +1,0 @@
-../../../../../../agents/skills/code-moniker/references/diagnose.md

@@ -242,7 +242,7 @@ fn parse_learn_topic(document: &str) -> anyhow::Result<LearnTopic> {
 	})
 }
 
-fn learn_topic_names() -> Vec<&'static str> {
+pub(crate) fn learn_topic_names() -> Vec<&'static str> {
 	learn_topics()
 		.iter()
 		.map(|topic| topic.name.as_str())

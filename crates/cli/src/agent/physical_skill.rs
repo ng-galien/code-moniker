@@ -51,6 +51,10 @@ pub(super) fn ensure_directory(home: &Path, path: &Path) -> anyhow::Result<()> {
 	crate::fs_nofollow::ensure_dir(home, path)
 }
 
+pub(super) fn ensure_replaceable(path: &Path) -> anyhow::Result<()> {
+	ensure_assets(path)
+}
+
 pub(super) fn write_assets(home: &Path, path: &Path) -> anyhow::Result<Mutation> {
 	ensure_assets(path)?;
 	let previous = snapshot(home, path)?;

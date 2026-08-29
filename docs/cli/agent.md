@@ -61,7 +61,12 @@ Official release binaries and normal source installs include MCP by default:
 
 The binary embeds the version-matched `code-moniker` skill. `agent install`
 materializes it in the selected client's user skill directory and registers a
-project-owned stdio MCP using the canonical absolute project root:
+project-owned stdio MCP using the canonical absolute project root.
+
+The installed skill directory is a versioned Code Moniker artifact. Every
+installation or update replaces that directory in full; it does not merge or
+preserve local additions. Keep project-specific or personal instructions
+outside the installed `code-moniker` skill directory.
 
 For Codex, that MCP entry is deliberately registered with `required = false`.
 Code Moniker enriches a session but a transient local startup failure must not

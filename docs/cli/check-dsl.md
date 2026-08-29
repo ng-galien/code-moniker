@@ -979,7 +979,8 @@ live in [samples/learn](../../samples/learn), including
 [taxonomy](../../samples/learn/taxonomy.cm.md) for architectural patterns,
 components, scoped components, aliases, and diagnostic interpretation, and
 [fragments](../../samples/learn/fragments.cm.md) for view URIs and namespaced
-rule ids. Agent-facing contract: `agents/skills/code-moniker/references/fragments.md`.
+rule ids. Agent workflow routing lives in
+`agents/skills/code-moniker/SKILL.md`.
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 

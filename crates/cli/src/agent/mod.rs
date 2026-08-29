@@ -30,32 +30,20 @@ const SKILL_FILES: &[(&str, &str)] = &[
 		include_str!("../../assets/agent/code-moniker/SKILL.md"),
 	),
 	(
-		"references/architecture.md",
-		include_str!("../../assets/agent/code-moniker/references/architecture.md"),
+		"postures/onboard.md",
+		include_str!("../../assets/agent/code-moniker/postures/onboard.md"),
 	),
 	(
-		"references/diagnose.md",
-		include_str!("../../assets/agent/code-moniker/references/diagnose.md"),
+		"postures/develop.md",
+		include_str!("../../assets/agent/code-moniker/postures/develop.md"),
 	),
 	(
-		"references/explore.md",
-		include_str!("../../assets/agent/code-moniker/references/explore.md"),
+		"postures/guard.md",
+		include_str!("../../assets/agent/code-moniker/postures/guard.md"),
 	),
 	(
-		"references/fragments.md",
-		include_str!("../../assets/agent/code-moniker/references/fragments.md"),
-	),
-	(
-		"references/mcp.md",
-		include_str!("../../assets/agent/code-moniker/references/mcp.md"),
-	),
-	(
-		"references/query-dsl.md",
-		include_str!("../../assets/agent/code-moniker/references/query-dsl.md"),
-	),
-	(
-		"references/rules.md",
-		include_str!("../../assets/agent/code-moniker/references/rules.md"),
+		"postures/review.md",
+		include_str!("../../assets/agent/code-moniker/postures/review.md"),
 	),
 ];
 
@@ -754,13 +742,25 @@ fn install_skill(
 			path.display()
 		);
 	}
+	if existing {
+		physical_skill::ensure_replaceable(&path)?;
+		let metadata = fs::symlink_metadata(&path)
+			.with_context(|| format!("cannot inspect skill `{}`", path.display()))?;
+		if metadata.is_dir() {
+			fs::remove_dir_all(&path)
+				.with_context(|| format!("cannot replace skill `{}`", path.display()))?;
+		} else {
+			fs::remove_file(&path)
+				.with_context(|| format!("cannot replace skill `{}`", path.display()))?;
+		}
+	}
 	let skill_rollback = physical_skill::write_assets(&context.home, &path)?;
 	Ok(InstalledComponent {
 		component: ComponentState {
 			scope: "user".to_string(),
 			path: path.display().to_string(),
 			checksum: skill_checksum(),
-			owned: managed_here || !existing || shared_owner.is_some(),
+			owned: true,
 			version: env!("CARGO_PKG_VERSION").to_string(),
 			profile: None,
 			rules: None,
@@ -1531,6 +1531,22 @@ plain.md
 	}
 
 	#[test]
+	fn skill_router_lists_every_learn_topic() {
+		let skill = SKILL_FILES
+			.iter()
+			.find_map(|(relative, contents)| (*relative == "SKILL.md").then_some(*contents))
+			.expect("embedded SKILL.md");
+
+		for topic in crate::rules::learn_topic_names() {
+			let command = format!("code-moniker rules learn {topic}");
+			assert!(
+				skill.contains(&command),
+				"skill router must list `{command}`"
+			);
+		}
+	}
+
+	#[test]
 	fn packaged_skill_assets_match_canonical_tree_in_checkout() {
 		let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
 		let workspace = manifest.join("../..");
@@ -1829,6 +1845,30 @@ command = "other"
 				.contains(&format!("installed {} embedded files", SKILL_FILES.len()))
 		);
 		assert!(physical_skill::matches(&context.home, &skill));
+	}
+
+	#[test]
+	fn managed_skill_reinstall_replaces_the_whole_directory() {
+		let dir = tempdir().unwrap();
+		let context = InstallContext {
+			home: dir.path().join("home"),
+			binary: PathBuf::from("/bin/code-moniker"),
+			root: dir.path().to_path_buf(),
+		};
+		let first = install_skill(&context, AgentClient::Codex, &InstallState::default()).unwrap();
+		let skill = user_skill_path(&context.home, AgentClient::Codex);
+		write_test_file(&skill.join("references/legacy.md"), b"obsolete");
+		write_test_file(&skill.join("local.md"), b"local customization");
+
+		let mut managed = InstallState::default();
+		managed
+			.components
+			.insert("skill".to_string(), first.component);
+		install_skill(&context, AgentClient::Codex, &managed).unwrap();
+
+		assert!(physical_skill::matches(&context.home, &skill));
+		assert!(!skill.join("references/legacy.md").exists());
+		assert!(!skill.join("local.md").exists());
 	}
 
 	#[test]
@@ -2603,7 +2643,7 @@ command = "other"
 		for (relative, _) in SKILL_FILES {
 			write_test_file(&skill.join(relative), b"previous");
 		}
-		let failing_asset = skill.join("references/diagnose.md");
+		let failing_asset = skill.join("postures/develop.md");
 		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| {
 			let failing_asset = failing_asset.clone();
 			*hook.borrow_mut() = Some(Box::new(move |path| {
@@ -2624,7 +2664,7 @@ command = "other"
 		assert_eq!(fs::read(skill.join("SKILL.md")).unwrap(), b"previous");
 		assert!(failing_asset.is_dir());
 		assert_eq!(
-			fs::read(skill.join("references/explore.md")).unwrap(),
+			fs::read(skill.join("postures/onboard.md")).unwrap(),
 			b"previous"
 		);
 	}
@@ -2664,7 +2704,7 @@ command = "other"
 		fs::create_dir(&home).unwrap();
 		let skill = home.join(".codex/skills/code-moniker");
 		physical_skill::write_assets(&home, &skill).unwrap();
-		let conflicting_asset = skill.join("references/mcp.md");
+		let conflicting_asset = skill.join("postures/develop.md");
 		physical_skill::BEFORE_ASSET_MUTATION.with(|hook| {
 			let conflicting_asset = conflicting_asset.clone();
 			*hook.borrow_mut() = Some(Box::new(move |path| {
@@ -2686,7 +2726,7 @@ command = "other"
 			"concurrent"
 		);
 		for (relative, contents) in SKILL_FILES {
-			if *relative != "references/mcp.md" {
+			if *relative != "postures/develop.md" {
 				assert_eq!(fs::read_to_string(skill.join(relative)).unwrap(), *contents);
 			}
 		}
