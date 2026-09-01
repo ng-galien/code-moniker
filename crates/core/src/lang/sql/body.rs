@@ -4,7 +4,7 @@ use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::moniker::Moniker;
 use crate::lang::tree_util::{find_descendant, find_named_child};
-use crate::lang::{ParsedDocument, SyntaxInjection};
+use crate::lang::{ParsedDocument, SyntaxEntryPoint, SyntaxInjection, covering_node};
 
 use super::sdk_pipeline::discover::{
 	CallableSearchPaths, SqlBuilder, new_sql_parser, run_inner_sql,
@@ -17,21 +17,134 @@ pub(super) fn parse_document(primary: Tree, source: &str) -> ParsedDocument {
 }
 
 fn collect_routine_injections(node: Node<'_>, source: &str, injections: &mut Vec<SyntaxInjection>) {
-	if node.kind() == "CreateFunctionStmt"
-		&& let Some(body) = routine_body(node, source)
+	let body = match node.kind() {
+		"CreateFunctionStmt" => routine_body(node, source),
+		"DoStmt" => do_body(node, source),
+		_ => None,
+	};
+	if let Some(body) = body
 		&& let Some(tree) = parse_embedded(&body.language, body.text)
 	{
-		injections.push(SyntaxInjection::new(
-			body.language_tag(),
-			body.host_byte_range,
-			body.content_byte_range,
-			tree,
-		));
+		let entry_point = if body.language_tag() == "plpgsql" {
+			SyntaxEntryPoint::Block
+		} else {
+			SyntaxEntryPoint::Script
+		};
+		let nested = if body.language_tag() == "plpgsql" {
+			sql_expression_injections(&tree, body.text, body.content_byte_range.start)
+		} else {
+			Vec::new()
+		};
+		injections.push(
+			SyntaxInjection::new(
+				body.language_tag(),
+				entry_point,
+				body.host_byte_range,
+				body.content_byte_range,
+				tree,
+			)
+			.with_nested(nested),
+		);
 		return;
 	}
 	let mut cursor = node.walk();
 	for child in node.named_children(&mut cursor) {
 		collect_routine_injections(child, source, injections);
+	}
+}
+
+/// Injects opaque PL/pgSQL `sql_expression` regions in document coordinates.
+/// Complete statements use the script grammar; fragment errors stay local to
+/// their injection and do not mark the containing document invalid.
+pub(super) fn sql_expression_injections(
+	tree: &Tree,
+	content: &str,
+	origin: usize,
+) -> Vec<SyntaxInjection> {
+	let mut injections = Vec::new();
+	collect_sql_expressions(tree.root_node(), content, origin, &mut injections);
+	injections
+}
+
+fn collect_sql_expressions(
+	node: Node<'_>,
+	content: &str,
+	origin: usize,
+	injections: &mut Vec<SyntaxInjection>,
+) {
+	if node.kind() == "sql_expression"
+		&& let Some(text) = content.get(node.start_byte()..node.end_byte())
+	{
+		let entry_point = sql_expression_entry(node);
+		let range = origin + node.start_byte()..origin + node.end_byte();
+		if let Some(injection) = sql_expression_injection(entry_point, range, text) {
+			injections.push(injection);
+		}
+		return;
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		collect_sql_expressions(child, content, origin, injections);
+	}
+}
+
+/// PL/pgSQL expressions are parsed the way PostgreSQL parses them: prefixed with `SELECT `,
+/// exactly like plpgsql's read_sql_expression. The injection's tree keeps the wrapper, and
+/// `analysis_prefix` marks it so a renderer roots the region at the expression itself — a
+/// script-recovery tree over a bare expression yields wrong facts, never merely fewer.
+const SQL_EXPRESSION_PREFIX: &str = "SELECT ";
+
+fn sql_expression_injection(
+	entry_point: SyntaxEntryPoint,
+	range: Range<usize>,
+	text: &str,
+) -> Option<SyntaxInjection> {
+	if entry_point == SyntaxEntryPoint::Expression {
+		let body = text.trim_end();
+		if !body.is_empty() {
+			let wrapped = format!("{SQL_EXPRESSION_PREFIX}{body}");
+			if let Some(tree) = parse_embedded(b"sql", &wrapped) {
+				let expression_range =
+					SQL_EXPRESSION_PREFIX.len()..SQL_EXPRESSION_PREFIX.len() + body.len();
+				if covering_node(tree.root_node(), &expression_range).is_some() {
+					let content_range = range.start..range.start + body.len();
+					return Some(
+						SyntaxInjection::new(
+							"sql",
+							entry_point,
+							content_range.clone(),
+							content_range,
+							tree,
+						)
+						.with_analysis(wrapped, SQL_EXPRESSION_PREFIX.len()),
+					);
+				}
+			}
+		}
+	}
+	let tree = parse_embedded(b"sql", text)?;
+	Some(SyntaxInjection::new(
+		"sql",
+		entry_point,
+		range.clone(),
+		range,
+		tree,
+	))
+}
+
+/// Classifies complete statements versus expression fragments.
+/// `RETURN QUERY`, query loops, and `OPEN FOR` are statements unless
+/// `EXECUTE` turns their position into a string expression.
+fn sql_expression_entry(node: Node<'_>) -> SyntaxEntryPoint {
+	let Some(parent) = node.parent() else {
+		return SyntaxEntryPoint::Expression;
+	};
+	let has = |kind: &str| find_named_child(parent, kind).is_some();
+	match parent.kind() {
+		"stmt_execsql" | "for_query" => SyntaxEntryPoint::Statement,
+		"stmt_return" if has("kw_query") && !has("kw_execute") => SyntaxEntryPoint::Statement,
+		"stmt_open" if has("kw_for") && !has("kw_execute") => SyntaxEntryPoint::Statement,
+		_ => SyntaxEntryPoint::Expression,
 	}
 }
 
@@ -77,11 +190,26 @@ impl RoutineBody<'_> {
 fn routine_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> {
 	let language = function_language(node, source.as_bytes());
 	let dollar = find_routine_body_literal(node)?;
+	dollar_body(dollar, language, source)
+}
+
+fn do_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> {
+	let language = do_language(node, source.as_bytes()).unwrap_or_else(|| b"plpgsql".to_vec());
+	let dollar = find_do_body_literal(node)?;
+	dollar_body(dollar, language, source)
+}
+
+/// An empty body (`$e$$e$`) keeps its injection: the region exists at the content offset.
+fn dollar_body<'a>(
+	dollar: Node<'_>,
+	language: Vec<u8>,
+	source: &'a str,
+) -> Option<RoutineBody<'a>> {
 	let full = source.get(dollar.start_byte()..dollar.end_byte())?;
 	let first = full.find('$')?;
 	let end_delim = full[first + 1..].find('$')? + first + 2;
 	let close = full.rfind(&full[first..end_delim])?;
-	if close <= end_delim {
+	if close < end_delim {
 		return None;
 	}
 	let content_byte_range = dollar.start_byte() + end_delim..dollar.start_byte() + close;
@@ -91,6 +219,152 @@ fn routine_body<'a>(node: Node<'_>, source: &'a str) -> Option<RoutineBody<'a>> 
 		host_byte_range: dollar.start_byte()..dollar.end_byte(),
 		content_byte_range,
 	})
+}
+
+/// The DO body literal: the option item that carries code, never the LANGUAGE option.
+fn find_do_body_literal(node: Node<'_>) -> Option<Node<'_>> {
+	if node.kind() == "dostmt_opt_item" && find_named_child(node, "kw_language").is_none() {
+		return find_descendant(node, "dollar_quoted_string");
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if let Some(body) = find_do_body_literal(child) {
+			return Some(body);
+		}
+	}
+	None
+}
+
+/// `DO` defaults to PL/pgSQL; an explicit LANGUAGE option overrides it.
+fn do_language(node: Node<'_>, src: &[u8]) -> Option<Vec<u8>> {
+	if node.kind() == "dostmt_opt_item"
+		&& find_named_child(node, "kw_language").is_some()
+		&& let Some(value) = find_descendant(node, "NonReservedWord_or_Sconst")
+		&& let Some(raw) = src.get(value.start_byte()..value.end_byte())
+	{
+		return Some(normalize_sql_string(raw));
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		if let Some(found) = do_language(child, src) {
+			return Some(found);
+		}
+	}
+	None
+}
+
+fn normalize_sql_string(raw: &[u8]) -> Vec<u8> {
+	if raw.first() == Some(&b'$')
+		&& let Some(delimiter_end) = raw.get(1..).and_then(|tail| {
+			tail.iter()
+				.position(|byte| *byte == b'$')
+				.map(|index| index + 2)
+		}) {
+		let delimiter = &raw[..delimiter_end];
+		if let Some(inner) = raw
+			.strip_prefix(delimiter)
+			.and_then(|value| value.strip_suffix(delimiter))
+		{
+			return inner.to_vec();
+		}
+	}
+	let (quoted, escape) =
+		if let Some(value) = raw.strip_prefix(b"E").or_else(|| raw.strip_prefix(b"e")) {
+			(value, true)
+		} else {
+			(raw, false)
+		};
+	let Some(inner) = quoted
+		.strip_prefix(b"'")
+		.and_then(|value| value.strip_suffix(b"'"))
+	else {
+		return raw.to_vec();
+	};
+	let mut out = Vec::with_capacity(inner.len());
+	let mut index = 0;
+	while index < inner.len() {
+		if inner[index] == b'\'' && inner.get(index + 1) == Some(&b'\'') {
+			out.push(b'\'');
+			index += 2;
+		} else if escape && inner[index] == b'\\' && index + 1 < inner.len() {
+			index += decode_escape(&inner[index + 1..], &mut out);
+		} else {
+			out.push(inner[index]);
+			index += 1;
+		}
+	}
+	out
+}
+
+fn decode_escape(raw: &[u8], out: &mut Vec<u8>) -> usize {
+	match raw[0] {
+		b'b' => out.push(8),
+		b'f' => out.push(12),
+		b'n' => out.push(b'\n'),
+		b'r' => out.push(b'\r'),
+		b't' => out.push(b'\t'),
+		b'0'..=b'7' => {
+			let length = raw
+				.iter()
+				.take(3)
+				.take_while(|byte| (b'0'..=b'7').contains(byte))
+				.count();
+			let value = raw[..length].iter().fold(0_u8, |value, digit| {
+				value.wrapping_mul(8).wrapping_add(digit - b'0')
+			});
+			out.push(value);
+			return length + 1;
+		}
+		b'x' => {
+			let length = raw[1..]
+				.iter()
+				.take(2)
+				.take_while(|byte| byte.is_ascii_hexdigit())
+				.count();
+			if length > 0 {
+				let value = raw[1..=length]
+					.iter()
+					.fold(0_u8, |value, digit| value * 16 + hex_value(*digit));
+				out.push(value);
+				return length + 2;
+			}
+			out.push(b'x');
+		}
+		b'u' => return decode_unicode_escape(raw, 4, out),
+		b'U' => return decode_unicode_escape(raw, 8, out),
+		byte => out.push(byte),
+	}
+	2
+}
+
+fn decode_unicode_escape(raw: &[u8], digits: usize, out: &mut Vec<u8>) -> usize {
+	let Some(hex) = raw
+		.get(1..=digits)
+		.filter(|value| value.iter().all(u8::is_ascii_hexdigit))
+	else {
+		out.push(raw[0]);
+		return 2;
+	};
+	let value = hex.iter().fold(0_u32, |value, digit| {
+		value * 16 + u32::from(hex_value(*digit))
+	});
+	if let Some(character) = char::from_u32(value) {
+		let mut encoded = [0; 4];
+		out.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
+	} else {
+		out.push(b'\\');
+		out.extend_from_slice(&raw[..=digits]);
+	}
+	digits + 2
+}
+
+fn hex_value(digit: u8) -> u8 {
+	match digit {
+		b'0'..=b'9' => digit - b'0',
+		b'a'..=b'f' => digit - b'a' + 10,
+		b'A'..=b'F' => digit - b'A' + 10,
+		_ => unreachable!("hex digit was validated"),
+	}
 }
 
 fn find_routine_body_literal(node: Node<'_>) -> Option<Node<'_>> {

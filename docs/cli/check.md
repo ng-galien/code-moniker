@@ -207,6 +207,11 @@ message = "Pick a function name that describes the behavior."
 '
 ```
 
+TypeScript-family files share extraction and linkage, but not language rule
+sections: use `ts.*`, `tsx.*`, `js.*`, or `jsx.*` for variant-specific policy.
+A `ts.*` rule therefore does not apply to JavaScript. Put genuinely shared
+policy under `default.*` or a top-level `shape.*` section.
+
 Machine-readable output:
 
 ```sh
@@ -776,7 +781,8 @@ samples:
 | Workspace symbol inventory | [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) |
 | Workspace grouping and uniqueness | [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) |
 | Transitive workspace paths | [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) |
-| TypeScript / JavaScript | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
+| TypeScript | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
+| TSX / React | [react.cm.md](../../samples/catalog/react.cm.md) |
 | Rust | [rust.cm.md](../../samples/catalog/rust.cm.md) |
 | Java | [java.cm.md](../../samples/catalog/java.cm.md) |
 | Python | [python.cm.md](../../samples/catalog/python.cm.md) |

@@ -1,6 +1,6 @@
 ---
 name: react
-lang: ts
+lang: tsx
 blurb: React components, hooks, and entrypoints keep UI boundaries clear
 published: true
 ---
@@ -23,13 +23,13 @@ src_pages = "source ~ '**/dir:pages/**'"
 tgt_adapters = "target ~ '**/dir:adapters/**'"
 tgt_react_dom = "target ~ '**/external_pkg:react-dom/**'"
 
-[[ts.function.where]]
+[[tsx.function.where]]
 id = "component-pascalcase"
 rationale = "React components are types in JSX. PascalCase makes them visually distinct from helpers and intrinsic tags."
 expr = "$component_src AND NOT name =~ ^use[A-Z].* => name =~ ^[A-Z][A-Za-z0-9]*"
 message = "React component `{name}` must use PascalCase."
 
-[[ts.function.where]]
+[[tsx.function.where]]
 id = "hooks-live-in-hooks"
 rationale = "Custom hooks carry shared stateful behavior. Keeping `use*` functions in hooks/ makes reuse and testing explicit."
 expr = "name =~ ^use[A-Z].* => $hook_src"
@@ -41,7 +41,7 @@ rationale = "Pages should compose UI and data flow, not bind directly to transpo
 expr = "$src_pages => NOT $tgt_adapters"
 message = "React pages must not depend directly on adapters."
 
-[[ts.refs.where]]
+[[tsx.refs.where]]
 id = "react-dom-entrypoint-only"
 rationale = "`react-dom` bootstraps the application. Importing it from components or pages couples render code to the browser entrypoint."
 expr = "kind = 'imports_symbol' AND $tgt_react_dom => $src_entry"
@@ -106,9 +106,9 @@ createRoot(document.body).render(<HomePage />);
 ```
 
 ```cm:expect
-ts.function.component-pascalcase @ src/components/save_button.tsx:L1-L3
-ts.function.hooks-live-in-hooks @ src/components/profile_card.tsx:L1-L3
+tsx.function.component-pascalcase @ src/components/save_button.tsx:L1-L3
+tsx.function.hooks-live-in-hooks @ src/components/profile_card.tsx:L1-L3
 refs.pages-do-not-call-adapters @ src/pages/home.tsx:L3
-ts.refs.react-dom-entrypoint-only @ src/pages/home.tsx:L1
+tsx.refs.react-dom-entrypoint-only @ src/pages/home.tsx:L1
 refs.pages-do-not-call-adapters @ src/pages/home.tsx:L8
 ```

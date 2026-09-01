@@ -61,13 +61,19 @@ by the extractor:
 
 | Extractor          | Segment        | Path encoding              |
 |--------------------|----------------|----------------------------|
-| TypeScript / JS    | `lang:ts`      | `dir:<seg>/module:<stem>`  |
+| TypeScript         | `lang:ts`      | `dir:<seg>/module:<stem>`  |
+| TSX                | `lang:tsx`     | `dir:<seg>/module:<stem>`  |
+| JavaScript         | `lang:js`      | `dir:<seg>/module:<stem>`  |
+| JSX                | `lang:jsx`     | `dir:<seg>/module:<stem>`  |
 | Rust               | `lang:rs`      | `dir:<seg>/module:<stem>`  |
 | Go                 | `lang:go`      | `dir:<seg>/module:<stem>`  |
 | C#                 | `lang:cs`      | `dir:<seg>/module:<stem>`  |
 | Java               | `lang:java`    | `package:<seg>/module:<stem>` |
 | Python             | `lang:python`  | `package:<seg>/module:<stem>` |
 | SQL / PL/pgSQL     | `lang:sql`     | `dir:<seg>/module:<stem>/schema:<name>` |
+
+TypeScript, TSX, JavaScript, and JSX keep distinct language segments and rule
+sections while sharing one package and linkage ecosystem.
 
 `lang:` is mandatory for source-owned definitions. SDK and external
 package targets have no `lang:` segment.

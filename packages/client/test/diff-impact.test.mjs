@@ -93,7 +93,8 @@ test("the Git adapter accepts only explicit statuses", () => {
 
 test("source language adaptation covers every canonical workspace extension", () => {
 	const expected = {
-		"a.ts": "ts", "a.tsx": "ts", "a.js": "ts", "a.jsx": "ts", "a.mjs": "ts", "a.cjs": "ts",
+		"a.ts": "ts", "a.mts": "ts", "a.cts": "ts", "a.tsx": "tsx",
+		"a.js": "js", "a.jsx": "jsx", "a.mjs": "js", "a.cjs": "js",
 		"a.rs": "rs", "a.java": "java", "a.py": "python", "a.pyi": "python", "a.go": "go",
 		"a.c": "c", "a.h": "c", "a.cs": "cs", "a.sql": "sql", "a.sql.in": "sql", "a.plpgsql": "sql",
 	};

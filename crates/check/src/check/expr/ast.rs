@@ -132,6 +132,10 @@ impl Lhs {
 		)
 	}
 
+	pub(in crate::check) fn is_moniker_projection(self) -> bool {
+		self.projection_kind() == LhsProjectionKind::Moniker
+	}
+
 	pub(in crate::check) fn accepts_op(self, op: Op) -> bool {
 		use LhsProjectionKind::*;
 		use Op::*;

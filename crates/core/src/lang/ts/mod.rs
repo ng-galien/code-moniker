@@ -18,8 +18,12 @@ pub fn parse(source: &str) -> Tree {
 }
 
 pub fn parse_with_uri(source: &str, uri: &str) -> Tree {
+	parse_with_language(source, uri_uses_jsx(uri))
+}
+
+fn parse_with_language(source: &str, jsx: bool) -> Tree {
 	let mut parser = Parser::new();
-	let language: Language = if uri_uses_jsx(uri) {
+	let language: Language = if jsx {
 		tree_sitter_typescript::LANGUAGE_TSX.into()
 	} else {
 		tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
@@ -60,6 +64,18 @@ pub fn extract(
 }
 
 pub struct Lang;
+
+/// TSX is a distinct policy language while sharing TypeScript's extractor,
+/// resolver, SDK catalog, and package ecosystem.
+pub struct TsxLang;
+
+/// JavaScript is a distinct policy language while sharing the TypeScript
+/// parser pipeline, resolver, SDK catalog, and package ecosystem.
+pub struct JsLang;
+
+/// JSX is a distinct policy language while sharing the TypeScript family's
+/// JSX parser pipeline, resolver, SDK catalog, and package ecosystem.
+pub struct JsxLang;
 
 const DEF_KINDS: &[&str] = &[
 	"class",
@@ -102,7 +118,7 @@ impl crate::lang::LangExtractor for Lang {
 	}
 
 	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
-		Some(sdk_pipeline::compute_module_moniker(anchor, uri))
+		Some(sdk_pipeline::compute_module_moniker(anchor, uri, b"ts"))
 	}
 
 	fn extract_parsed(
@@ -110,6 +126,99 @@ impl crate::lang::LangExtractor for Lang {
 		document: &ParsedDocument,
 	) -> CodeGraph {
 		sdk_pipeline::extract(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
+	}
+}
+
+impl crate::lang::LangExtractor for TsxLang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "tsx";
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
+	const ALLOWED_VISIBILITIES: &'static [&'static str] =
+		&["public", "private", "protected", "module"];
+
+	fn parse(_uri: &str, source: &str) -> ParsedDocument {
+		ParsedDocument::new(parse_with_language(source, true))
+	}
+
+	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
+		Some(sdk_pipeline::compute_module_moniker(anchor, uri, b"tsx"))
+	}
+
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
+	) -> CodeGraph {
+		sdk_pipeline::extract_tsx(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
+	}
+}
+
+impl crate::lang::LangExtractor for JsLang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "js";
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
+	const ALLOWED_VISIBILITIES: &'static [&'static str] =
+		&["public", "private", "protected", "module"];
+
+	fn parse(_uri: &str, source: &str) -> ParsedDocument {
+		ParsedDocument::new(parse_with_language(source, false))
+	}
+
+	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
+		Some(sdk_pipeline::compute_module_moniker(anchor, uri, b"js"))
+	}
+
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
+	) -> CodeGraph {
+		sdk_pipeline::extract_js(
+			context.uri,
+			context.source,
+			document,
+			context.anchor,
+			context.deep,
+			context.presets,
+		)
+	}
+}
+
+impl crate::lang::LangExtractor for JsxLang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "jsx";
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
+	const ALLOWED_VISIBILITIES: &'static [&'static str] =
+		&["public", "private", "protected", "module"];
+
+	fn parse(_uri: &str, source: &str) -> ParsedDocument {
+		ParsedDocument::new(parse_with_language(source, true))
+	}
+
+	fn file_root(uri: &str, anchor: &Moniker) -> Option<Moniker> {
+		Some(sdk_pipeline::compute_module_moniker(anchor, uri, b"jsx"))
+	}
+
+	fn extract_parsed(
+		context: ExtractionContext<'_, Self::Presets>,
+		document: &ParsedDocument,
+	) -> CodeGraph {
+		sdk_pipeline::extract_jsx(
 			context.uri,
 			context.source,
 			document,
@@ -164,7 +273,7 @@ mod tests {
 	fn extract_strips_each_known_extension() {
 		let anchor = make_anchor();
 		for uri in [
-			"foo.ts", "foo.tsx", "foo.js", "foo.jsx", "foo.mjs", "foo.cjs",
+			"foo.ts", "foo.tsx", "foo.mts", "foo.cts", "foo.js", "foo.jsx", "foo.mjs", "foo.cjs",
 		] {
 			let g = extract(uri, "", &anchor, false);
 			let last = g.root().as_view().segments().last().unwrap();

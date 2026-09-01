@@ -30,13 +30,25 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 	let anchor = path_anchor(path, ctx);
 	let deep = true;
 	let mut graph = match lang {
-		Lang::Ts => {
+		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => {
 			let presets = ts::Presets {
 				path_aliases: ctx.ts.aliases.clone(),
 				sdk_profile: ctx.ts.sdk_profile_for(path).clone(),
 				..ts::Presets::default()
 			};
-			ts::extract(uri, source, &anchor, deep, &presets)
+			match lang {
+				Lang::Ts => ts::extract(uri, source, &anchor, deep, &presets),
+				Lang::Tsx => <ts::TsxLang as code_moniker_core::lang::LangExtractor>::extract(
+					uri, source, &anchor, deep, &presets,
+				),
+				Lang::Js => <ts::JsLang as code_moniker_core::lang::LangExtractor>::extract(
+					uri, source, &anchor, deep, &presets,
+				),
+				Lang::Jsx => <ts::JsxLang as code_moniker_core::lang::LangExtractor>::extract(
+					uri, source, &anchor, deep, &presets,
+				),
+				_ => unreachable!("TypeScript family arm only receives ts/tsx/js/jsx"),
+			}
 		}
 		Lang::Rs => code_moniker_core::lang::rs::extract_sdk(
 			uri,
@@ -140,6 +152,9 @@ mod tests {
 		let cases = [
 			(Lang::Rs, "src/tools/mod.rs", ""),
 			(Lang::Ts, "src/tools/read.ts", ""),
+			(Lang::Tsx, "src/tools/read.tsx", ""),
+			(Lang::Js, "src/tools/read.js", ""),
+			(Lang::Jsx, "src/tools/read.jsx", ""),
 			(Lang::Python, "src/tools/read.py", ""),
 			(Lang::Go, "src/tools/read.go", ""),
 			(Lang::C, "src/tools/read.c", ""),

@@ -26,7 +26,10 @@ extractor, not a replacement for each language compiler or type checker.
 
 | Language | Maturity | Honest limit |
 | -------- | -------- | ------------ |
-| TypeScript / JavaScript | Good | No TypeScript compiler type-checking. |
+| TypeScript | Good | No TypeScript compiler type-checking. |
+| TSX | Good | Shares TypeScript linkage but has independent `tsx.*` rules. |
+| JavaScript | Good | Shares the TypeScript analysis pipeline but has independent `js.*` rules. |
+| JSX | Good | Shares the JSX analysis pipeline but has independent `jsx.*` rules. |
 | Java | Good | No `javac` semantic model. |
 | Rust | Good | No macro expansion or rustc name resolution. |
 | C# | Usable | No Roslyn semantic model. |

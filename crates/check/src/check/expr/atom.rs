@@ -258,6 +258,17 @@ fn check_rhs_type(lhs: &LhsExpr, rhs: &Rhs, full: &str) -> Result<(), ParseError
 			msg: "collection expressions require collection RHS".to_string(),
 		});
 	}
+	if matches!(lhs, LhsExpr::Attr(attr) if attr.is_moniker_projection())
+		&& matches!(
+			rhs,
+			Rhs::Projection(projection) | Rhs::CurrentProjection(projection)
+				if !projection.is_moniker_projection()
+		) {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: "moniker relationships require moniker projections".to_string(),
+		});
+	}
 	Ok(())
 }
 
@@ -283,12 +294,18 @@ pub(super) fn parse_rhs(
 			Rhs::PathPattern(pattern)
 		}
 		Op::AncestorOf | Op::DescendantOf | Op::BindMatch => {
-			let cfg = UriConfig { scheme };
-			let m = from_uri(s, &cfg).map_err(|e| ParseError::BadExpr {
-				expr: full.to_string(),
-				msg: format!("invalid moniker URI `{s}`: {e}"),
-			})?;
-			Rhs::Moniker(m)
+			if let Some(lhs) = parse_current_projection(s) {
+				Rhs::CurrentProjection(lhs)
+			} else if let Some(lhs) = Lhs::from_projection_name(s) {
+				Rhs::Projection(lhs)
+			} else {
+				let cfg = UriConfig { scheme };
+				let m = from_uri(s, &cfg).map_err(|e| ParseError::BadExpr {
+					expr: full.to_string(),
+					msg: format!("invalid moniker URI `{s}`: {e}"),
+				})?;
+				Rhs::Moniker(m)
+			}
 		}
 		Op::Lt | Op::Le | Op::Gt | Op::Ge => {
 			if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)? {

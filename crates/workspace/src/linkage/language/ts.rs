@@ -10,7 +10,33 @@ use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 pub(super) fn matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
-	generic_matches(query, candidate) || external_package_symbol_match(query, candidate)
+	ts_family_matches(query, candidate) || external_package_symbol_match(query, candidate)
+}
+
+fn ts_family_matches(query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool {
+	if generic_matches(query, candidate) {
+		return true;
+	}
+	let query = normalize_language(query.target);
+	let candidate = normalize_language(candidate.moniker);
+	query.bind_match(&candidate) || candidate.bind_match(&query)
+}
+
+fn normalize_language(moniker: &Moniker) -> Moniker {
+	let view = moniker.as_view();
+	let mut builder = MonikerBuilder::new();
+	builder.project(view.project());
+	for segment in view.segments() {
+		let name = if segment.kind == kinds::LANG
+			&& matches!(segment.name, b"ts" | b"tsx" | b"js" | b"jsx")
+		{
+			b"ts".as_slice()
+		} else {
+			segment.name
+		};
+		builder.segment(segment.kind, name);
+	}
+	builder.build()
 }
 
 fn external_package_symbol_match(

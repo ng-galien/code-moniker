@@ -14,7 +14,7 @@ pub mod sql;
 pub mod tree_util;
 pub mod ts;
 
-pub use document::{ParsedDocument, SyntaxInjection};
+pub use document::{ParsedDocument, SyntaxEntryPoint, SyntaxInjection, covering_node};
 #[doc(hidden)]
 pub use extractor::assert_conformance;
 pub use extractor::{ExtractionContext, KindSpec, LangExtractor};
@@ -144,6 +144,9 @@ macro_rules! define_languages {
 
 define_languages! {
 	Ts     => crate::lang::ts::Lang,
+	Tsx    => crate::lang::ts::TsxLang,
+	Js     => crate::lang::ts::JsLang,
+	Jsx    => crate::lang::ts::JsxLang,
 	Rs     => crate::lang::rs::Lang,
 	Java   => crate::lang::java::Lang,
 	Python => crate::lang::python::Lang,
@@ -151,6 +154,15 @@ define_languages! {
 	C      => crate::lang::c::Lang,
 	Cs     => crate::lang::cs::Lang,
 	Sql    => crate::lang::sql::Lang,
+}
+
+impl Lang {
+	pub fn ecosystem(self) -> Self {
+		match self {
+			Self::Tsx | Self::Js | Self::Jsx => Self::Ts,
+			other => other,
+		}
+	}
 }
 
 /// Parse source text without indexing it.

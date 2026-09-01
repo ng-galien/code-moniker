@@ -454,7 +454,10 @@ Operator precedence (loosest first): `=>`, `OR`, `AND`, `disjoint`,
 `<moniker_relation_operator>`
 : Moniker relationship comparison. `@>` means the left moniker is an
   ancestor of the right moniker, `<@` means descendant, and `?=` performs
-  asymmetric `bind_match` for cross-file symbol resolution.
+  asymmetric `bind_match` for cross-file symbol resolution. The right-hand
+  side may be a literal URI or a moniker projection; inside a reference
+  quantifier, `target @> current.target` compares the iterated target with the
+  outer reference target.
 
 `<string_value>`
 : A bare or quoted string. Quote values that contain whitespace or boolean

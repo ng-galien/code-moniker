@@ -16,7 +16,22 @@ export interface LangDef {
 
 export const LANGS: LangDef[] = [
 	{ id: "rust", vscodeId: "rust", cliTag: "rs", tomlSection: "rust", label: "Rust" },
-	{ id: "typescript", vscodeId: "typescript", cliTag: "ts", tomlSection: "ts", label: "TypeScript" },
+	{
+		id: "typescript",
+		vscodeId: "typescript",
+		cliTag: "ts",
+		tomlSection: "ts",
+		label: "TypeScript",
+	},
+	{ id: "tsx", vscodeId: "typescriptreact", cliTag: "tsx", tomlSection: "tsx", label: "TSX" },
+	{
+		id: "javascript",
+		vscodeId: "javascript",
+		cliTag: "js",
+		tomlSection: "js",
+		label: "JavaScript",
+	},
+	{ id: "jsx", vscodeId: "javascriptreact", cliTag: "jsx", tomlSection: "jsx", label: "JSX" },
 	{ id: "python", vscodeId: "python", cliTag: "python", tomlSection: "python", label: "Python" },
 	{ id: "go", vscodeId: "go", cliTag: "go", tomlSection: "go", label: "Go" },
 	{ id: "java", vscodeId: "java", cliTag: "java", tomlSection: "java", label: "Java" },
@@ -53,12 +68,5 @@ export function vscodeLanguageForScenarioFence(fence: string | undefined): strin
 }
 
 export function scenarioControllerLanguages(): string[] {
-	return [
-		"cmrule-toml",
-		"plaintext",
-		"javascript",
-		"javascriptreact",
-		"typescriptreact",
-		...LANGS.map((lang) => lang.vscodeId),
-	];
+	return [...new Set(["cmrule-toml", "plaintext", ...LANGS.map((lang) => lang.vscodeId)])];
 }

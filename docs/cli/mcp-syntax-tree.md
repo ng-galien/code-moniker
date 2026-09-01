@@ -161,6 +161,8 @@ interface SyntaxTreeResult {
 interface SyntaxNodeDto {
 	kind: string;
 	language?: string | null;
+	entry_point?: "script" | "block" | "statement" | "expression" | null;
+	has_error?: boolean | null;
 	named: boolean;
 	error: boolean;
 	missing: boolean;
@@ -172,11 +174,13 @@ interface SyntaxNodeDto {
 }
 ```
 
-`language` is omitted for ordinary nodes and present at the root of an
-embedded-language tree.
+`language`, `entry_point`, and `has_error` are omitted for ordinary nodes and
+present at the root of an injected region. `entry_point` identifies the grammar
+contract used for that region; `has_error` reports the injected tree's own parse
+state independently from the containing document.
 
-The TypeScript client currently exposes this through `queryData`; there is no
-separate `client.syntax.tree()` convenience facade.
+The TypeScript client exposes the same contract through `client.syntax.tree()`
+and `client.syntax.parse()`.
 
 ## Errors
 

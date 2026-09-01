@@ -7,7 +7,7 @@ use code_moniker_core::lang::Lang;
 #[derive(Debug, Error)]
 pub enum LangError {
 	#[error(
-		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, c/h, cs, sql/sql.in/plpgsql)"
+		"unsupported file extension `.{0}` (known: ts/tsx/mts/cts/js/jsx/mjs/cjs, rs, java, py/pyi, go, c/h, cs, sql/sql.in/plpgsql)"
 	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]
@@ -31,7 +31,10 @@ pub fn path_to_lang(path: &Path) -> Result<Lang, LangError> {
 		Some(e) => e,
 	};
 	match ext {
-		"ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => Ok(Lang::Ts),
+		"tsx" => Ok(Lang::Tsx),
+		"jsx" => Ok(Lang::Jsx),
+		"js" | "mjs" | "cjs" => Ok(Lang::Js),
+		"ts" | "mts" | "cts" => Ok(Lang::Ts),
 		"rs" => Ok(Lang::Rs),
 		"java" => Ok(Lang::Java),
 		"py" | "pyi" => Ok(Lang::Python),
@@ -53,18 +56,29 @@ mod tests {
 	}
 
 	#[test]
-	fn ts_family_resolves_to_ts() {
-		for p in &[
-			"x.ts",
-			"x.tsx",
-			"x.js",
-			"x.jsx",
-			"x.mjs",
-			"x.cjs",
-			"a/b/c/x.TS",
-		] {
+	fn typescript_resolves_to_its_own_language() {
+		for p in &["x.ts", "x.mts", "x.cts", "a/b/c/x.TS"] {
 			assert_eq!(dispatch(p).unwrap(), Lang::Ts, "{p}");
 		}
+	}
+
+	#[test]
+	fn tsx_resolves_to_its_own_language() {
+		assert_eq!(dispatch("x.tsx").unwrap(), Lang::Tsx);
+		assert_eq!(dispatch("x.TSX").unwrap(), Lang::Tsx);
+	}
+
+	#[test]
+	fn javascript_module_formats_share_the_javascript_language() {
+		for p in &["x.js", "x.mjs", "x.cjs", "a/b/c/x.JS"] {
+			assert_eq!(dispatch(p).unwrap(), Lang::Js, "{p}");
+		}
+	}
+
+	#[test]
+	fn jsx_resolves_to_its_own_language() {
+		assert_eq!(dispatch("x.jsx").unwrap(), Lang::Jsx);
+		assert_eq!(dispatch("x.JSX").unwrap(), Lang::Jsx);
 	}
 
 	#[test]

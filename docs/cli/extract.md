@@ -21,15 +21,18 @@ code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
 
 The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix. `--project <NAME>` sets the project component of every emitted moniker (default `.`); the cache shards by anchor hash, so caches keyed at different projects coexist on disk without collision.
 
-| Extension                                | Language |
-| ---------------------------------------- | -------- |
-| `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs`  | `ts`     |
-| `.rs`                                    | `rs`     |
-| `.java`                                  | `java`   |
-| `.py` `.pyi`                             | `python` |
-| `.go`                                    | `go`     |
-| `.cs`                                    | `cs`     |
-| `.sql` `.plpgsql`                        | `sql`    |
+| Extension          | Language |
+| ------------------ | -------- |
+| `.ts` `.mts` `.cts` | `ts`    |
+| `.tsx`             | `tsx`    |
+| `.js` `.mjs` `.cjs` | `js`    |
+| `.jsx`             | `jsx`    |
+| `.rs`              | `rs`     |
+| `.java`            | `java`   |
+| `.py` `.pyi`       | `python` |
+| `.go`              | `go`     |
+| `.cs`              | `cs`     |
+| `.sql` `.plpgsql`  | `sql`    |
 
 Unknown extension exits `2`.
 

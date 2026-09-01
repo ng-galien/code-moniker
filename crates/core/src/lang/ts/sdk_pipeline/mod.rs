@@ -14,8 +14,8 @@ use discover::TsDiscover;
 use super::Presets;
 use super::kinds;
 
-pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
-	canonicalize::compute_module_moniker(anchor, uri)
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str, language: &[u8]) -> Moniker {
+	canonicalize::compute_module_moniker(anchor, uri, language)
 }
 
 pub fn extract(
@@ -26,7 +26,54 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	let module = compute_module_moniker(anchor, uri);
+	let module = compute_module_moniker(anchor, uri, b"ts");
+	extract_module(module, source, document, anchor, deep, presets)
+}
+
+pub fn extract_tsx(
+	uri: &str,
+	source: &str,
+	document: &ParsedDocument,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
+	let module = compute_module_moniker(anchor, uri, b"tsx");
+	extract_module(module, source, document, anchor, deep, presets)
+}
+
+pub fn extract_js(
+	uri: &str,
+	source: &str,
+	document: &ParsedDocument,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
+	let module = compute_module_moniker(anchor, uri, b"js");
+	extract_module(module, source, document, anchor, deep, presets)
+}
+
+pub fn extract_jsx(
+	uri: &str,
+	source: &str,
+	document: &ParsedDocument,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
+	let module = compute_module_moniker(anchor, uri, b"jsx");
+	extract_module(module, source, document, anchor, deep, presets)
+}
+
+fn extract_module(
+	module: Moniker,
+	source: &str,
+	document: &ParsedDocument,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
 	let discovered_parts = TsDiscover::run(
 		module.clone(),
 		anchor.clone(),

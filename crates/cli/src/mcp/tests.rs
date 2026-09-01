@@ -705,10 +705,12 @@ fn read_tool_renders_embedded_plpgsql_from_the_language_sdk_document() {
 		.expect("PL/pgSQL AST read");
 	assert!(!tree.is_error);
 	assert!(
-		tree.text.contains("- source_file") && tree.text.contains("[plpgsql]"),
+		tree.text.contains("- source_file") && tree.text.contains("[plpgsql,entry:block"),
 		"{}",
 		tree.text
 	);
+	assert!(tree.text.contains("entry:block"), "{}", tree.text);
+	assert!(tree.text.contains("injected-error:false"), "{}", tree.text);
 	assert!(tree.text.contains("- stmt_if "), "{}", tree.text);
 	assert!(tree.text.contains("- sql_expression "), "{}", tree.text);
 }

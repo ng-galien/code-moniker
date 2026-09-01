@@ -2454,7 +2454,15 @@ export interface SyntaxNodeDto {
   byte_range: [number, number];
   children: SyntaxNodeDto[];
   end: SyntaxPointDto;
+  /**
+   * Grammar entry point of an injected region's root; absent on every other node.
+   */
+  entry_point?: string | null;
   error: boolean;
+  /**
+   * Whether an injected region's own tree has errors; absent on every other node.
+   */
+  has_error?: boolean | null;
   kind: string;
   language?: string | null;
   missing: boolean;

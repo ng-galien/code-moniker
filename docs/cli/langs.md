@@ -15,15 +15,22 @@ code-moniker langs [TAG] [--format text|json]
 
 Supported tags:
 
-| Tag      | Extensions                                |
-| -------- | ----------------------------------------- |
-| `ts`     | `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs`   |
-| `rs`     | `.rs`                                     |
-| `java`   | `.java`                                   |
-| `python` | `.py` `.pyi`                              |
-| `go`     | `.go`                                     |
-| `cs`     | `.cs`                                     |
-| `sql`    | `.sql` `.plpgsql`                         |
+| Tag      | Extensions        |
+| -------- | ----------------- |
+| `ts`     | `.ts` `.mts` `.cts` |
+| `tsx`    | `.tsx`            |
+| `js`     | `.js` `.mjs` `.cjs` |
+| `jsx`    | `.jsx`            |
+| `rs`     | `.rs`             |
+| `java`   | `.java`           |
+| `python` | `.py` `.pyi`      |
+| `go`     | `.go`             |
+| `cs`     | `.cs`             |
+| `sql`    | `.sql` `.plpgsql` |
+
+The `ts`, `tsx`, `js`, and `jsx` tags expose independent rule sections and
+moniker languages. They deliberately share one parser, SDK, `package.json`,
+and linkage ecosystem so imports continue to resolve across file variants.
 
 ```
 $ code-moniker langs rs

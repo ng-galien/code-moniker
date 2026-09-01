@@ -40,14 +40,14 @@ pub(super) fn matches_candidate(
 	let Some(target) = query.material.files.get(candidate.source_file) else {
 		return false;
 	};
-	if source.lang != target.lang {
+	if source.lang.ecosystem() != target.lang.ecosystem() {
 		return false;
 	}
 	match source.lang {
 		Lang::Java => java::matches(query, candidate),
 		Lang::Python => python::matches(query, candidate),
 		Lang::Rs => rust::matches(query, candidate),
-		Lang::Ts => ts::matches(query, candidate),
+		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => ts::matches(query, candidate),
 		Lang::Go => go::matches(query, candidate),
 		Lang::C => c::matches(query, candidate),
 		Lang::Cs => csharp::matches(query, candidate),
@@ -65,7 +65,7 @@ pub(super) fn sql_call_has_strong_evidence(query: &LinkageQuery<'_>) -> bool {
 
 pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 	match lang {
-		Lang::Ts => Some(Manifest::PackageJson),
+		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => Some(Manifest::PackageJson),
 		Lang::Rs => Some(Manifest::Cargo),
 		Lang::Java => Some(Manifest::PomXml),
 		Lang::Python => Some(Manifest::Pyproject),
@@ -78,7 +78,7 @@ pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 pub(super) fn package_prefix_for_target(lang: Lang, target: &Moniker) -> Option<String> {
 	match lang {
 		Lang::Java => java::package_prefix(target),
-		Lang::Ts => ts::package_prefix(target),
+		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => ts::package_prefix(target),
 		_ => None,
 	}
 }
@@ -99,7 +99,7 @@ pub(super) fn source_declares_external_package(
 			query_confidence,
 			workspace_declares_package,
 		),
-		Lang::Ts => ts::source_declares_external_package(
+		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => ts::source_declares_external_package(
 			manifest,
 			deps,
 			package_prefix,

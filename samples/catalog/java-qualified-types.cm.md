@@ -19,7 +19,7 @@ default_rules = false
 [[java.refs.where]]
 id       = "no-unnecessary-qualified-type-name"
 severity = "warn"
-expr     = "kind != 'uses_type' OR text !~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\.' OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+expr     = "kind != 'uses_type' OR NOT (text =~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[A-Za-z_$][A-Za-z0-9_$]*\\.' AND (target ~ '**/sdk:java/**' OR target ~ '**/external_pkg:*/**' OR text =~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\.')) OR any(source.out_refs, kind = 'imports_symbol' AND (target @> current.target OR (target.name = current.target.name AND target != current.target))) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND (target @> current.target OR (target.name = current.target.name AND target != current.target)))"
 message  = "Qualified Java type reference can use simple name `{target.name}` here; keep fully qualified names for real ambiguity."
 ```
 
@@ -179,6 +179,31 @@ public class UpperPackageReference {
 }
 ```
 
+Nested ownership can span several levels. Importing the outer type makes the
+whole `Outer.Inner.Deep` chain legitimate, while spelling the package as well
+is still an unnecessary fully qualified name:
+
+```java cm:file=src/main/java/com/acme/model/NestedOwner.java
+package com.acme.model;
+
+public class NestedOwner {
+	public static class Inner {
+		public static class Deep {}
+	}
+}
+```
+
+```java cm:file=src/main/java/com/acme/time/DeepNestedUser.java
+package com.acme.time;
+
+import com.acme.model.NestedOwner;
+
+public class DeepNestedUser {
+	private NestedOwner.Inner.Deep concise;
+	private com.acme.model.NestedOwner.Inner.Deep verbose;
+}
+```
+
 Wildcards and arrays follow the same contract: only the package-qualified
 array element fires.
 
@@ -251,6 +276,7 @@ public enum Color {
 ```cm:expect
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/ClockReader.java:L4
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/ClockWithUnrelatedImport.java:L6
+java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/DeepNestedUser.java:L7
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedArgument.java:L6
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedEnum.java:L4
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedGeneric.java:L4
