@@ -1,0 +1,17 @@
+# Learn Code Moniker
+
+Start with one area, then follow the narrower topics proposed by that page. Every
+topic is Markdown; executable recipes keep their rules, source files, and
+expected findings together.
+
+{% for section in sections %}
+## {{ section.title | md_heading }}
+
+{{ section.summary | md_block }}
+
+{{ ("code-moniker rules learn " ~ section.selector) | shell_code_block }}
+
+{% endfor %}
+For a structured inventory intended for tools and agents:
+
+{{ "code-moniker rules learn --format json" | shell_code_block }}

@@ -2,6 +2,9 @@
 name: taxonomy
 title: Project taxonomy and architectural testimony
 summary: Classify natural rule ids with project patterns and components, connect them to code with aliases, and interpret diagnostics without gaming their counts.
+learn_kind: general
+learn_path: rules/taxonomy
+learn_order: 100
 ---
 
 # Project Taxonomy And Architectural Testimony

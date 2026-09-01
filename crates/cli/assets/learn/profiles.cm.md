@@ -2,6 +2,9 @@
 name: profiles
 title: Profiles, defaults, and suppressions
 summary: Control default rules, named profiles, warning severity, and inline suppression comments.
+learn_kind: general
+learn_path: rules/profiles
+learn_order: 90
 ---
 
 # Profiles, Defaults, And Suppressions

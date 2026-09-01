@@ -1544,6 +1544,10 @@ plain.md
 				"skill router must list `{command}`"
 			);
 		}
+		assert!(
+			skill.contains("code-moniker rules learn --format json"),
+			"skill router must discover catalog topics from the CLI"
+		);
 	}
 
 	#[test]

@@ -1,17 +1,33 @@
 ---
 name: typescript
+title: TypeScript language guide
 lang: ts
 blurb: PascalCase classes, class budgets, and a domain layer that ignores infrastructure
+learn_kind: language
+learn_path: languages/typescript
+learn_order: 10
+tags: typescript,ts,naming,layering,repositories
+learn_aliases: ts
 published: true
 ---
 
-# TypeScript starter pack
+# TypeScript language guide
 
 The TypeScript sample combines naming, size budgets, and layering in one
 overlay. Classes must be PascalCase and stay small; `*Repository` interfaces
 belong to the domain folder; and domain code must not reach into
 infrastructure — neither through project imports nor through framework
 packages.
+
+Use the child topics for syntax or stack-specific policies: TSX keeps its own
+namespace, Node backend rules rely on explicit import and directory evidence,
+and test conventions remain opt-in across Jest, Vitest, and other runners.
+For transitive package boundaries in a monorepo, combine TypeScript refs with
+workspace paths:
+
+```sh
+code-moniker rules learn workspace-path
+```
 
 ```toml cm:rules
 default_rules = false
@@ -55,7 +71,10 @@ id = "no-framework-imports-in-domain"
 rationale = "Framework packages belong at the edge of the application. Domain files should stay usable without Express, Nest, or TypeORM."
 expr = """
   $src_domain AND kind = 'imports_symbol'
-  => NOT target ~ '**/external_pkg:/^(express|nestjs|typeorm)$/**'
+  => NOT (
+       target ~ '**/external_pkg:/^(express|typeorm)$/**'
+       OR target ~ '**/external_pkg:/^@nestjs\\/.+$/**'
+     )
 """
 ```
 

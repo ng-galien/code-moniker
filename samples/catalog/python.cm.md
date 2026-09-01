@@ -1,7 +1,12 @@
 ---
 name: python
+title: Python starter pack
 lang: python
-blurb: Naming, private-name hygiene, class budgets, and layering for Python
+blurb: Naming, class budgets, and layering for Python
+learn_kind: language
+learn_path: languages/python
+learn_order: 50
+tags: python,naming,visibility,layering
 published: true
 ---
 
@@ -34,12 +39,6 @@ id = "function-snakecase"
 rationale = "Snake case is the usual shape for Python functions. A consistent shape lets readers recognize callables quickly."
 expr = "name =~ ^[a-z_][a-z0-9_]*$"
 message = "Function `{name}` must use snake_case."
-
-[[python.method.where]]
-id = "private-methods-underscore"
-rationale = "A leading underscore tells readers that a method is an implementation detail, not part of the class contract."
-expr = "visibility = 'private' => name =~ ^_"
-message = "Private method `{name}` must start with underscore."
 
 [[python.class.where]]
 id = "class-budget"
@@ -151,13 +150,7 @@ class Ledger:
         return 21
 ```
 
-Note on `private-methods-underscore`: the Python extractor derives a method's
-visibility from its name — `private` exactly when the name starts with a
-non-dunder `__` — so every private method necessarily matches `^_` and the
-rule can never fire.
-
 ```cm:expect
-! python.method.private-methods-underscore Python visibility is derived from the leading-underscore name itself, so a private method always starts with _ and the implication is a tautology
 python.refs.domain-no-infra @ domain/order.py:L1
 python.class.class-pascalcase @ domain/order.py:L4-L5
 python.refs.domain-no-infra @ domain/order.py:L10

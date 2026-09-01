@@ -2,6 +2,9 @@
 name: metrics
 title: Named local metrics
 summary: Use named local metrics — wmc, rfc, lcom4, cbo, dit, noc, fan_in, fan_out — bound to self or each.
+learn_kind: general
+learn_path: rules/metrics
+learn_order: 60
 ---
 
 # Named Local Metrics

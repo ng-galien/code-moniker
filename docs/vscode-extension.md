@@ -136,5 +136,8 @@ Open the repository in VS Code and use the extension launch configuration, or
 run the packaged `.vsix` flow above when you want to test the installed
 extension exactly as a user would.
 
-The extension bundle includes the scenario catalog from `samples/learn/` and
-`samples/catalog/`; run `npm run compile` again after changing those files.
+The extension bundle includes the same canonical `samples/learn/` and
+`samples/catalog/` knowledge base exposed by the progressive
+`code-moniker rules learn` pages. Front-matter paths, tags, and aliases feed
+catalog search; run
+`npm run compile` again after changing those files.

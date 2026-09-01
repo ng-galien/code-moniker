@@ -57,8 +57,20 @@ function builtinEntries(packs: PackEntry[]): CatalogEntry[] {
 		fileName: `${entry.name}${SCENARIO_EXTENSION}`,
 		blurb: entry.blurb,
 		langId: entry.langId,
+		learnPath: entry.learnPath,
+		learnOrder: entry.learnOrder,
 		level: entry.category === "learn" ? "Learn" : "Reference",
-		tags: ["builtin", entry.category, "pack", "scenario", entry.name],
+		tags: [
+			"builtin",
+			entry.category,
+			"pack",
+			"scenario",
+			entry.name,
+			...(entry.learnKind ? [entry.learnKind] : []),
+			...(entry.learnPath ? entry.learnPath.split("/") : []),
+			...entry.tags,
+			...entry.aliases,
+		],
 		document: entry.document,
 	}));
 }

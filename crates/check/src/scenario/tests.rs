@@ -3,9 +3,14 @@ use super::{ExpectedViolation, Scenario};
 const DOCUMENT: &str = r#"---
 name: rust-naming
 title: Rust naming
-lang: rust
+lang: rs
 blurb: Functions stay snake_case
 summary: Functions should keep the naming shape readers expect.
+learn_kind: language
+learn_path: languages/rust
+learn_order: 20
+tags: rust,naming
+learn_aliases: rust-functions
 published: true
 ---
 
@@ -35,11 +40,16 @@ fn parses_front_matter_rules_files_and_expects() {
 	let scenario = Scenario::parse(DOCUMENT).expect("parse scenario");
 	assert_eq!(scenario.meta.name, "rust-naming");
 	assert_eq!(scenario.meta.title, "Rust naming");
-	assert_eq!(scenario.meta.lang, "rust");
+	assert_eq!(scenario.meta.lang, "rs");
 	assert_eq!(
 		scenario.meta.summary,
 		"Functions should keep the naming shape readers expect."
 	);
+	assert_eq!(scenario.meta.learn_kind, "language");
+	assert_eq!(scenario.meta.learn_path, "languages/rust");
+	assert_eq!(scenario.meta.learn_order, Some(20));
+	assert_eq!(scenario.meta.tags, ["rust", "naming"]);
+	assert_eq!(scenario.meta.learn_aliases, ["rust-functions"]);
 	assert!(scenario.meta.published);
 	assert!(
 		scenario

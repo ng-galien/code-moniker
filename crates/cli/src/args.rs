@@ -377,7 +377,7 @@ pub enum RulesCommand {
 		about = "Summarize or inspect effective rules after defaults, overlays, and profile."
 	)]
 	Show(RulesShowArgs),
-	#[command(about = "Print focused DSL documentation and copyable rule snippets.")]
+	#[command(about = "Browse progressive documentation for rules, languages, and architecture.")]
 	Learn(RulesLearnArgs),
 	#[command(about = "Evaluate a rules TOML fragment against a source file or stdin.")]
 	Eval(RulesEvalArgs),
@@ -499,7 +499,7 @@ pub struct RulesShowArgs {
 pub struct RulesLearnArgs {
 	#[arg(
 		value_name = "TOPIC",
-		help = "DSL topic to print, for example basics, paths, refs, collections, or metrics; omit to print every topic"
+		help = "learn topic to print, for example rules, languages, java, or architecture; omit to print the progressive Markdown index"
 	)]
 	pub topic: Option<String>,
 

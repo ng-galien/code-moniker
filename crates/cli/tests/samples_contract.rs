@@ -5,6 +5,7 @@
 //! nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites the violation entries
 //! instead of asserting.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use code_moniker_check::scenario::Scenario;
@@ -69,6 +70,63 @@ fn published_catalog_covers_every_workspace_rule_root() {
 				.iter()
 				.any(|document| document.contains("published: true") && document.contains(root)),
 			"published catalog does not demonstrate `{root}`"
+		);
+	}
+}
+
+#[test]
+fn published_catalog_has_learn_metadata_and_unique_names() {
+	let catalog = samples_dirs()[0].clone();
+	let mut names = BTreeSet::new();
+	for entry in std::fs::read_dir(&catalog).expect("catalog directory") {
+		let path = entry.expect("catalog entry").path();
+		if !path
+			.file_name()
+			.and_then(|name| name.to_str())
+			.is_some_and(|name| name.ends_with(".cm.md"))
+		{
+			continue;
+		}
+		let document = std::fs::read_to_string(&path).expect("read catalog sample");
+		let scenario = Scenario::parse(&document)
+			.unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+		if !scenario.meta.published {
+			continue;
+		}
+		assert!(
+			!scenario.meta.name.is_empty(),
+			"{}: missing name",
+			path.display()
+		);
+		assert!(
+			names.insert(scenario.meta.name.clone()),
+			"{}: duplicate catalog name `{}`",
+			path.display(),
+			scenario.meta.name
+		);
+		assert!(
+			!scenario.meta.title.is_empty(),
+			"{}: missing title",
+			path.display()
+		);
+		assert!(
+			matches!(
+				scenario.meta.learn_kind.as_str(),
+				"language" | "framework" | "pattern" | "workspace"
+			),
+			"{}: invalid learn_kind `{}`",
+			path.display(),
+			scenario.meta.learn_kind
+		);
+		assert!(
+			!scenario.meta.tags.is_empty(),
+			"{}: missing tags",
+			path.display()
+		);
+		assert!(
+			!scenario.meta.learn_path.is_empty(),
+			"{}: missing learn_path",
+			path.display()
 		);
 	}
 }

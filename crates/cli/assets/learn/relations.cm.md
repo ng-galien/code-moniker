@@ -2,6 +2,9 @@
 name: relations
 title: Moniker relation operators
 summary: Compare moniker literals or projections with @> (ancestor of), <@ (descendant of), and ?= (bind_match).
+learn_kind: general
+learn_path: rules/relations
+learn_order: 40
 ---
 
 # Moniker Relation Operators

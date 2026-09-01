@@ -25,12 +25,23 @@ Supported tags:
 | `java`   | `.java`           |
 | `python` | `.py` `.pyi`      |
 | `go`     | `.go`             |
+| `c`      | `.c` `.h`         |
 | `cs`     | `.cs`             |
 | `sql`    | `.sql` `.plpgsql` |
 
 The `ts`, `tsx`, `js`, and `jsx` tags expose independent rule sections and
-moniker languages. They deliberately share one parser, SDK, `package.json`,
-and linkage ecosystem so imports continue to resolve across file variants.
+moniker languages. They deliberately share one TypeScript-family extraction,
+SDK, `package.json`, and linkage ecosystem so imports continue to resolve
+across file variants; TSX and JSX select the JSX-capable grammar.
+Run `code-moniker rules learn languages` for an executable four-file example,
+then use `rules learn typescript`, `tsx`, `react`, `javascript`, or `jsx` for
+the language and framework recipes.
+
+Rust deliberately has different public names at two layers: `rs` is the parser
+and moniker tag, while Rust rule sections use `rust.*`. Standalone `plpgsql` is
+accepted by on-demand syntax parsing and injected PostgreSQL bodies, but graph
+rules over indexed database definitions use the `sql.*` namespace. See
+`code-moniker rules learn plpgsql` for that boundary.
 
 ```
 $ code-moniker langs rs

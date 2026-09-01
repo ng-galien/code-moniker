@@ -1,17 +1,36 @@
 ---
 name: java-qualified-types
+title: Java qualified type names
 lang: java
-blurb: Java fully qualified type names are kept only when the simple name is ambiguous
+blurb: Detect unnecessary Java package-qualified types while preserving explicit-import and nested-type cases
+learn_kind: pattern
+learn_path: languages/java/qualified-types
+learn_order: 20
+tags: java,fqn,imports,nested-types,uses-type
+learn_aliases: fqn,java-fqn
 published: true
 ---
 
 # Java qualified type names
 
-Fully qualified Java type names are useful when the simple name would be
-ambiguous. When no competing type with the same simple name is visible, the
-default rule prefers an import and the simple type name. Only package-qualified
-names count: qualifying a nested type by its outer type (`Map.Entry`,
-`Outer.Inner`) is idiomatic and stays clean.
+Fully qualified Java type names are useful when an explicit import already
+occupies the same simple name. Without that evidence, the default rule prefers
+an import and the simple type name. Only package-qualified names count:
+qualifying a nested type by its outer type (`Map.Entry`, `Outer.Inner`) is
+idiomatic and stays clean, including deeply nested types.
+
+This rule is deliberately evidence-bound. It recognises collisions carried by
+explicit `imports_symbol` references and an imported outer type that owns the
+nested target. Same-package or local types, enclosing declarations, type
+parameters, and wildcard imports are not yet sufficient ambiguity evidence;
+projects relying on those cases should disable or narrow the warning rather
+than treating it as a Java compiler verdict.
+
+The current text predicate requires at least two dots, so a legal one-segment
+package reference such as `foo.Bar` is not reported. For workspace targets,
+the rule falls back to source text and expects a lowercase second segment;
+JDK or dependency targets do not depend on that casing fallback. These are deliberate
+limits of this executable heuristic, not claims about Java syntax.
 
 ```toml cm:rules
 default_rules = false
@@ -162,8 +181,10 @@ public class QualifiedEnum {
 }
 ```
 
-Package qualification is syntax, not a casing convention. A legal uppercase
-package segment must still fire:
+Java package qualification is syntax, not a casing convention. The following
+multi-segment example fires because its workspace fallback still has a
+lowercase second segment; this does not remove the one-segment and workspace
+casing limits stated above:
 
 ```java cm:file=src/main/java/Com/vendor/UpperType.java
 package Com.vendor;
@@ -270,6 +291,30 @@ package com.acme.other;
 public enum Color {
 	RED,
 	GREEN
+}
+```
+
+The two documented workspace fallbacks stay clean and executable: `foo.Bar`
+has only one dot, while `Com.Vendor.Type` has an uppercase second segment.
+
+```java cm:file=src/main/java/foo/Bar.java
+package foo;
+
+public class Bar {}
+```
+
+```java cm:file=src/main/java/Com/Vendor/Type.java
+package Com.Vendor;
+
+public class Type {}
+```
+
+```java cm:file=src/main/java/com/acme/time/KnownLimitations.java
+package com.acme.time;
+
+public class KnownLimitations {
+	private foo.Bar oneSegmentPackage;
+	private Com.Vendor.Type uppercaseFallbackSegment;
 }
 ```
 

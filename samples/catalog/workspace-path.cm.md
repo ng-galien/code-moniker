@@ -3,6 +3,10 @@ name: workspace-path
 title: Transitive workspace paths
 lang: java
 blurb: Enforce architecture across a hot index with bounded, confidence-aware paths
+learn_kind: workspace
+learn_path: workspace/paths
+learn_order: 20
+tags: workspace,paths,transitive,daemon,mcp
 published: true
 default_rules: false
 ---

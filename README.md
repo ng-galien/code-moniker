@@ -21,6 +21,14 @@ enforcing architecture rules in hooks or CI.
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C, C#, SQL, and PL/pgSQL.
 
+The CLI also embeds an executable knowledge base. Start with the progressive
+Markdown summary from `code-moniker rules learn`, then enter `rules`,
+`languages`, `architecture`, or `workspace`. Focused pages reveal the next
+level: for example, Java links to Spring, qualified types, and layer boundaries,
+while TypeScript links to TSX, Node backends, and test conventions.
+`code-moniker rules learn --format json` exposes the complete
+structured inventory to tools and agents.
+
 Extractor maturity is uneven by design. `code-moniker` is a fast symbol graph
 extractor, not a replacement for each language compiler or type checker.
 
@@ -36,7 +44,7 @@ extractor, not a replacement for each language compiler or type checker.
 | Python | Usable | Dynamic runtime behaviour is best-effort. |
 | Go | Usable | No `go/types` semantic pass. |
 | SQL / PLpgSQL | Focused | Narrow dialect and no catalog-aware planner semantics. |
-| C | Planned | Not extracted today. |
+| C | Usable | No compiler preprocessing or full type analysis. |
 
 ## At a glance
 

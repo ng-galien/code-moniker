@@ -2,6 +2,9 @@
 name: refs
 title: Reference rules
 summary: Use refs rules for imports, calls, inheritance, annotations, and layer boundaries.
+learn_kind: general
+learn_path: rules/refs
+learn_order: 20
 ---
 
 # Reference Rules

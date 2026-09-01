@@ -1,7 +1,12 @@
 ---
 name: fowler-eaa
+title: Fowler enterprise application architecture
 lang: java
 blurb: Enterprise layering, repositories, DTOs, and domain behavior
+learn_kind: pattern
+learn_path: architecture/fowler-eaa
+learn_order: 40
+tags: java,fowler,enterprise,layering,repository,dto
 published: true
 ---
 

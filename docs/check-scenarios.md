@@ -49,6 +49,11 @@ keys (anything else is an error):
 | `lang` | Primary language tag (informative). |
 | `blurb` | One-line description for catalogs. |
 | `summary` | Short learning-oriented description. |
+| `learn_kind` | Topic nature exposed by Learn: `general`, `language`, `framework`, `pattern`, or `workspace`. Required for published catalog recipes. |
+| `learn_path` | Slash-separated progressive Learn location, for example `languages/java/qualified-types`. It organizes navigation without moving the executable scenario file. |
+| `learn_order` | Optional unsigned integer used to order siblings before the title fallback. Lower values appear first. |
+| `tags` | Comma-separated searchable terms shared by CLI Learn JSON and the VS Code catalog. |
+| `learn_aliases` | Optional comma-separated selectors that resolve to this document, for example `fqn` for Java qualified types. |
 | `published` | `true` to expose the scenario in user-facing catalogs. |
 | `default_rules` | Override the built-in rules; defaults to `false` when a `cm:rules` block is present, `true` otherwise. |
 

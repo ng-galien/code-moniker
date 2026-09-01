@@ -1,4 +1,4 @@
-import { langByTomlSection } from "../shared/languages";
+import { langByMetadataTag } from "../shared/languages";
 import { CATALOG_DOCUMENTS } from "code-moniker-sample-packs";
 
 // Sample packs are built directly from the repository's scenario documents.
@@ -9,6 +9,11 @@ export interface PackEntry {
 	category: "learn" | "sample";
 	langId?: string;
 	blurb: string;
+	learnKind?: string;
+	learnPath?: string;
+	learnOrder?: number;
+	tags: string[];
+	aliases: string[];
 	/** Full scenario Markdown document (multi-file layout + rules + expects). */
 	document?: string;
 }
@@ -33,10 +38,22 @@ function packEntry(category: "learn" | "sample", document: string): PackEntry | 
 		name: meta.name,
 		title: meta.title?.trim() || `${meta.name} scenario`,
 		category,
-		langId: meta.lang ? langByTomlSection(meta.lang)?.id : undefined,
+		langId: meta.lang ? langByMetadataTag(meta.lang)?.id : undefined,
 		blurb: meta.blurb?.trim() || meta.summary?.trim() || `Scenario \`${meta.name}\`.`,
+		learnKind: meta.learn_kind?.trim() || undefined,
+		learnPath: meta.learn_path?.trim() || undefined,
+		learnOrder: meta.learn_order ? Number.parseInt(meta.learn_order, 10) : undefined,
+		tags: csv(meta.tags),
+		aliases: csv(meta.learn_aliases),
 		document,
 	};
+}
+
+function csv(value: string | undefined): string[] {
+	return (value ?? "")
+		.split(",")
+		.map((item) => item.trim().toLowerCase())
+		.filter(Boolean);
 }
 
 function frontMatter(document: string): Record<string, string> {

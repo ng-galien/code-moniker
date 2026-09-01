@@ -973,16 +973,23 @@ tokens.
 
 Worked examples for layer boundaries, DDD contracts, adapters, test modules,
 and doc comments live in the [recipes section of check](check.md#recipes).
-Executable catalog scenarios live in
-[samples/catalog](../../samples/catalog), with one scenario per supported
-language or rule family. Workspace inventory, group and transitive-path roots
-have dedicated catalog scenarios linked in
-[Workspace roots](#workspace-roots). Focused executable DSL learning scenarios
-live in [samples/learn](../../samples/learn), including
+Executable catalog scenarios live in [samples/catalog](../../samples/catalog),
+with one scenario per supported language or rule family. They are also embedded
+in the progressive CLI knowledge base: run `code-moniker rules learn` for the
+Markdown summary, follow its section commands, and use
+`code-moniker rules learn <name>` to print the canonical executable document.
+Use `code-moniker rules learn --format json` when a tool needs the complete
+inventory rather than progressive human navigation.
+Workspace inventory, group and transitive-path roots have dedicated catalog
+scenarios linked in [Workspace roots](#workspace-roots). Focused executable DSL
+learning scenarios live in [samples/learn](../../samples/learn), including
 [taxonomy](../../samples/learn/taxonomy.cm.md) for architectural patterns,
 components, scoped components, aliases, and diagnostic interpretation, and
 [fragments](../../samples/learn/fragments.cm.md) for view URIs and namespaced
-rule ids. Agent workflow routing lives in
+rule ids. [languages](../../samples/learn/languages.cm.md) indexes the parser
+tags, while the [TypeScript-family namespace scenario](../../samples/catalog/typescript-family-namespaces.cm.md)
+proves why TS, TSX, JS, and JSX share an analysis ecosystem but keep independent rules. Agent
+workflow routing lives in
 `agents/skills/code-moniker/SKILL.md`.
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.

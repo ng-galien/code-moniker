@@ -1,7 +1,12 @@
 ---
 name: clean-architecture
+title: Clean Architecture
 lang: java
 blurb: Dependencies point inward and the core stays framework-free
+learn_kind: pattern
+learn_path: architecture/clean-architecture
+learn_order: 20
+tags: java,clean-architecture,layers,dependency-rule
 published: true
 ---
 

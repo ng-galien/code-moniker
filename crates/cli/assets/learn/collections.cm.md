@@ -2,6 +2,9 @@
 name: collections
 title: Child domains and collection predicates
 summary: Use count, unique, size, subset, and multiset algebra (intersect, union, diff) over local child symbols.
+learn_kind: general
+learn_path: rules/collections
+learn_order: 50
 ---
 
 # Child Domains And Collection Predicates

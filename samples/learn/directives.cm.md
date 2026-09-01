@@ -2,6 +2,9 @@
 name: directives
 title: Layout, requirement, and segment directives
 summary: Use vertical_layout for declaration order, require for correlated-existence, and has_segment for moniker location.
+learn_kind: general
+learn_path: rules/directives
+learn_order: 80
 ---
 
 # Layout, Requirement, And Segment Directives
