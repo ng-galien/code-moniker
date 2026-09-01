@@ -36,6 +36,7 @@ pub(super) fn apply_op_values(lhs: &Value, op: Op, rhs: &Value) -> AtomOutcome {
 		AtomOutcome::Fail {
 			actual: render_value(lhs),
 			expected: render_value(rhs),
+			position: None,
 		}
 	}
 }
@@ -71,7 +72,11 @@ pub(super) fn apply_op(value: &Value, atom: &Atom) -> AtomOutcome {
 	} else {
 		let actual = render_value(value);
 		let expected = render_rhs(&atom.rhs);
-		AtomOutcome::Fail { actual, expected }
+		AtomOutcome::Fail {
+			actual,
+			expected,
+			position: None,
+		}
 	}
 }
 
@@ -125,6 +130,7 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 		NumberExpr::Literal(n) => render_number(*n),
 		NumberExpr::Projection(lhs) => lhs.as_str().to_string(),
 		NumberExpr::Count { domain, .. } => match domain {
+			Domain::Ast => "count(ast)".to_string(),
 			Domain::Children(kind) => format!("count({kind})"),
 			Domain::ChildrenByShape(shape) => format!("count(shape:{shape})"),
 			Domain::Descendants(inner) => format!("count(descendants({}))", domain_label(inner)),
@@ -179,6 +185,7 @@ fn domain_value_label(collection: &DomainValueExpr) -> String {
 
 fn domain_label(domain: &Domain) -> String {
 	match domain {
+		Domain::Ast => "ast".to_string(),
 		Domain::Children(kind) => kind.clone(),
 		Domain::ChildrenByShape(shape) => format!("shape:{shape}"),
 		Domain::Descendants(inner) => format!("descendants({})", domain_label(inner)),

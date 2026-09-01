@@ -516,6 +516,8 @@ fn largest_violation_group<'a>(reports: &'a [FileReport], max: usize) -> Vec<Vio
 }
 
 fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
+	const ANTECEDENT_EMPTY: &str = "antecedent never matched";
+	const AST_POPULATION_EMPTY: &str = "AST rule subject population is empty";
 	use std::collections::BTreeMap;
 	let mut by_rule: BTreeMap<String, check::RuleReport> = BTreeMap::new();
 	for report in reports {
@@ -526,6 +528,16 @@ fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 					acc.evaluated += item.evaluated;
 					acc.matches += item.matches;
 					acc.violations += item.violations;
+					if let Some(n) = item.inconclusive {
+						acc.inconclusive = Some(acc.inconclusive.unwrap_or_default() + n);
+					}
+					if let Some(warning) = &item.warning
+						&& acc.warning.as_ref().is_none_or(|current| {
+							matches!(current.as_str(), ANTECEDENT_EMPTY | AST_POPULATION_EMPTY)
+								&& current != warning
+						}) {
+						acc.warning = Some(warning.clone());
+					}
 					if let Some(n) = item.antecedent_matches {
 						acc.antecedent_matches = Some(acc.antecedent_matches.unwrap_or(0) + n);
 					}
@@ -535,9 +547,25 @@ fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 	}
 	let mut out: Vec<_> = by_rule.into_values().collect();
 	for report in &mut out {
+		if report.warning.as_deref() == Some(AST_POPULATION_EMPTY) {
+			if report.evaluated == 0 {
+				report.inconclusive = Some(report.inconclusive.unwrap_or_default() + 1);
+			} else {
+				report.warning = None;
+			}
+		}
 		if report.evaluated > 0 && report.antecedent_matches == Some(0) {
-			report.warning = Some("antecedent never matched".to_string());
-		} else if report.antecedent_matches.is_some() {
+			let warning = ANTECEDENT_EMPTY;
+			if report
+				.warning
+				.as_deref()
+				.is_none_or(|current| current == warning)
+			{
+				report.warning = Some(warning.to_string());
+			}
+		} else if report.antecedent_matches.is_some()
+			&& report.warning.as_deref() == Some(ANTECEDENT_EMPTY)
+		{
 			report.warning = None;
 		}
 	}
@@ -558,4 +586,94 @@ fn reports_with_severity(reports: &[FileReport], severity: check::RuleSeverity) 
 			rule_reports: Vec::new(),
 		})
 		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn rule_report(
+		matches: usize,
+		inconclusive: Option<usize>,
+		warning: Option<&str>,
+	) -> check::RuleReport {
+		check::RuleReport {
+			rule_id: "ts.function.no-switch".to_string(),
+			severity: check::RuleSeverity::Error,
+			domain: "function".to_string(),
+			evaluated: 1,
+			matches,
+			violations: 0,
+			antecedent_matches: None,
+			warning: warning.map(str::to_string),
+			inconclusive,
+			verdict: None,
+			coverage: None,
+			path: None,
+		}
+	}
+
+	#[test]
+	fn aggregate_rule_reports_keeps_later_ast_inconclusive_state() {
+		let reports = vec![
+			FileReport {
+				path: "healthy.ts".into(),
+				violations: Vec::new(),
+				rule_reports: vec![rule_report(1, None, None)],
+			},
+			FileReport {
+				path: "broken.ts".into(),
+				violations: Vec::new(),
+				rule_reports: vec![rule_report(
+					0,
+					Some(1),
+					Some("AST evaluation is inconclusive: AST contains parse errors"),
+				)],
+			},
+		];
+
+		let aggregate = aggregate_rule_reports(&reports);
+		assert_eq!(aggregate.len(), 1);
+		assert_eq!(aggregate[0].evaluated, 2);
+		assert_eq!(aggregate[0].matches, 1);
+		assert_eq!(aggregate[0].inconclusive, Some(1));
+		assert!(
+			aggregate[0]
+				.warning
+				.as_deref()
+				.is_some_and(|warning| warning.contains("AST contains parse errors")),
+			"{aggregate:?}"
+		);
+	}
+
+	#[test]
+	fn aggregate_rule_reports_decides_empty_ast_population_over_the_whole_run() {
+		let empty = || FileReport {
+			path: "empty.ts".into(),
+			violations: Vec::new(),
+			rule_reports: vec![check::RuleReport {
+				evaluated: 0,
+				warning: Some("AST rule subject population is empty".to_string()),
+				..rule_report(0, None, None)
+			}],
+		};
+		let evaluated = FileReport {
+			path: "healthy.ts".into(),
+			violations: Vec::new(),
+			rule_reports: vec![rule_report(1, None, None)],
+		};
+
+		let mixed = aggregate_rule_reports(&[empty(), evaluated]);
+		assert_eq!(mixed[0].evaluated, 1);
+		assert_eq!(mixed[0].inconclusive, None);
+		assert_eq!(mixed[0].warning, None);
+
+		let all_empty = aggregate_rule_reports(&[empty(), empty()]);
+		assert_eq!(all_empty[0].evaluated, 0);
+		assert_eq!(all_empty[0].inconclusive, Some(1));
+		assert_eq!(
+			all_empty[0].warning.as_deref(),
+			Some("AST rule subject population is empty")
+		);
+	}
 }

@@ -146,6 +146,7 @@ fn collect_pair_projection(
 
 fn project_item_path(item: DomainItem<'_>, path: &[String], ctx: &EvalCtx<'_, '_>) -> Vec<Value> {
 	match item {
+		DomainItem::Ast { .. } => Vec::new(),
 		DomainItem::Def { idx, def } => {
 			if let Some((head, tail)) = path.split_first()
 				&& let Some(domain) = nested_domain(head)

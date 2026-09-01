@@ -161,6 +161,7 @@ const DSL_LEARN_DOCUMENTS: &[&str] = &[
 const CATALOG_LEARN_DOCUMENTS: &[&str] = &[
 	include_str!("../../assets/catalog/architecture.cm.md"),
 	include_str!("../../assets/catalog/architecture-patterns.cm.md"),
+	include_str!("../../assets/catalog/ast.cm.md"),
 	include_str!("../../assets/catalog/c.cm.md"),
 	include_str!("../../assets/catalog/clean-architecture.cm.md"),
 	include_str!("../../assets/catalog/csharp.cm.md"),

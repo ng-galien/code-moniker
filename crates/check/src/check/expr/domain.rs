@@ -95,6 +95,7 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 		));
 	}
 	let domain = match domain_ident {
+		"ast" => Domain::Ast,
 		"segment" => Domain::Segments,
 		"out_refs" => Domain::OutRefs,
 		"in_refs" => Domain::InRefs,
@@ -179,7 +180,8 @@ fn contains_pair_domain(domain: &Domain) -> bool {
 	match domain {
 		Domain::Pairs(_) => true,
 		Domain::Descendants(inner) => contains_pair_domain(inner),
-		Domain::Children(_)
+		Domain::Ast
+		| Domain::Children(_)
 		| Domain::ChildrenByShape(_)
 		| Domain::Segments
 		| Domain::OutRefs

@@ -277,7 +277,8 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | target.segment( '<segment_kind>' )
 
 <count_domain> ::=
-    <item_domain>
+    ast
+  | <item_domain>
   | pairs( <item_domain> )
 
 <item_domain> ::=
@@ -546,6 +547,7 @@ Domains:
 
 | Domain      | Iterates over (relative to the current def/ref) |
 | ----------- | ----------------------------------------------- |
+| `ast`       | named AST nodes inside the current def subject  |
 | `<KIND>`    | direct children defs of that kind               |
 | `shape:<S>` | direct children defs of shape `S`               |
 | `pairs(D)`  | unordered pairs of distinct items from domain `D` |
@@ -558,6 +560,67 @@ Domains:
 | `target.in_refs` | refs whose target is the current ref target def, when local |
 | `source.ancestors.out_refs` | refs emitted by ancestor defs of the current ref source |
 | `source.ancestors.in_refs` | refs targeting ancestor defs of the current ref source |
+
+`ast` is a count/quantifier domain, not a separate rule language. It reuses
+`count`, `any`, `all`, `none`, boolean operators, messages, severities, and
+reports. Its population is the strict named descendants of the exact AST node
+corresponding to the current def subject; module subjects use the file root.
+The subject itself is the scope, not an item returned by `ast`.
+
+Inside an AST filter, these existing scalar projections refer to the iterated
+syntax node:
+
+| Projection | AST value |
+| ---------- | --------- |
+| `kind` | grammar-specific named node kind |
+| `text` | exact source slice covered by the node |
+| `parent.kind` | nearest named parent kind |
+| `start_byte` / `end_byte` | zero-based half-open source byte range |
+| `start_line` / `end_line` | one-based inclusive source lines |
+| `lines` | inclusive line count |
+
+AST kind names are checked against the selected language grammar at
+compilation. In this first version, `kind` and `parent.kind` require exact
+names; regex comparisons on them are rejected, while `text` keeps its normal
+regex operators. `rules show` exposes `ast` in the compiled rule's
+`capabilities`; rules without that capability keep the ordinary graph-only
+evaluation path.
+
+```toml
+[[ts.function.where]]
+id = "no-switch"
+expr = "none(ast, kind = 'switch_statement')"
+```
+
+Traversal and diagnostics are deterministic. `none(ast, filter)` points to the
+first matching syntax node, `all(ast, filter)` points to the first failing node,
+and an upper-bound `count(ast, filter)` violation points to the first match
+beyond the allowed count when such a witness exists. This keeps a construction
+ban or budget attached to the construction that caused it, while the violation
+retains the current definition's moniker.
+
+The `ast` domain requires a def subject and is rejected at compilation in ref
+rules, aggregates, collections, pair domains, `mode`, `entropy`, and
+`vertical_layout`. In this first version, an `ast` use nested below the filter or
+numeric expression of another domain is also rejected at compilation. Parse
+errors or syntax injections inside the current AST scope, or a def range that
+cannot be mapped to one exact AST node, or a scope above the 100,000-node
+traversal limit do not become an empty domain:
+evaluation emits an explicit analysis diagnostic, and rule reports mark that
+subject inconclusive. Errors and injections in a disjoint symbol scope do not
+affect the current subject. With `--report`, a rule whose subject population is
+empty receives a warning; if the population stays empty across the whole run,
+the aggregate rule result is marked inconclusive.
+Availability is checked only when evaluation reaches the AST branch. A false
+`AND`, true `OR`, or false implication premise that already decides the rule
+does not parse or diagnose an unreachable AST branch.
+
+Every language registered by Code Moniker uses this same domain contract, but
+the available kinds and analyzable scopes remain grammar- and extractor-
+specific. A rule that names `switch_statement`, for example, must live in a
+language namespace whose grammar defines that node kind. This is structural
+source analysis only: it does not imply type resolution, dataflow,
+control-flow, cross-file catalog comparison, or CSS language support.
 
 The optional `<expr>` is evaluated with **the iterated item** as context,
 so its projections refer to that item's attributes. For `segment`, only
@@ -978,6 +1041,9 @@ with one scenario per supported language or rule family. They are also embedded
 in the progressive CLI knowledge base: run `code-moniker rules learn` for the
 Markdown summary, follow its section commands, and use
 `code-moniker rules learn <name>` to print the canonical executable document.
+The cross-language [AST source-structure recipe](../../samples/catalog/ast.cm.md)
+demonstrates construction bans, assertion budgets, JSX attribute policies, and
+an unsafe-code boundary through the same quantifier DSL.
 Use `code-moniker rules learn --format json` when a tool needs the complete
 inventory rather than progressive human navigation.
 Workspace inventory, group and transitive-path roots have dedicated catalog

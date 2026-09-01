@@ -359,6 +359,7 @@ pub(in crate::check) enum SegmentScope {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(in crate::check) enum Domain {
+	Ast,
 	Children(String),
 	ChildrenByShape(String),
 	Descendants(Box<Domain>),
@@ -443,6 +444,254 @@ pub(in crate::check) enum Node {
 		domain: Domain,
 		filter: Box<Node>,
 	},
+}
+
+impl Node {
+	pub(in crate::check) fn ast_kind_names(&self) -> Result<Option<Vec<String>>, &'static str> {
+		let mut analysis = AstAnalysis::default();
+		analysis.visit_node(self, false, false);
+		match analysis.unsupported {
+			Some(reason) => Err(reason),
+			None => Ok(analysis.uses_ast.then_some(analysis.kind_names)),
+		}
+	}
+}
+
+#[derive(Default)]
+struct AstAnalysis {
+	uses_ast: bool,
+	kind_names: Vec<String>,
+	unsupported: Option<&'static str>,
+}
+
+impl AstAnalysis {
+	fn visit_node(&mut self, node: &Node, ast_filter: bool, nested_domain: bool) {
+		match node {
+			Node::Atom(atom) => self.visit_atom(atom, ast_filter, nested_domain),
+			Node::And(nodes) | Node::Or(nodes) => {
+				self.visit_nodes(nodes, ast_filter, nested_domain)
+			}
+			Node::Not(node) => self.visit_node(node, ast_filter, nested_domain),
+			Node::Implies(left, right) => {
+				self.visit_nodes([left.as_ref(), right.as_ref()], ast_filter, nested_domain);
+			}
+			Node::Quantifier { domain, filter, .. } => {
+				self.visit_quantifier(domain, filter, ast_filter, nested_domain)
+			}
+			Node::VerticalLayout(layout) => self.visit_layout(layout, ast_filter),
+			Node::Require(_) if ast_filter => {
+				self.reject("require is not supported in an AST filter")
+			}
+			Node::Require(_) => {}
+		}
+	}
+
+	fn visit_nodes<'a>(
+		&mut self,
+		nodes: impl IntoIterator<Item = &'a Node>,
+		ast_filter: bool,
+		nested_domain: bool,
+	) {
+		for node in nodes {
+			self.visit_node(node, ast_filter, nested_domain);
+		}
+	}
+
+	fn visit_quantifier(
+		&mut self,
+		domain: &Domain,
+		filter: &Node,
+		ast_filter: bool,
+		nested_domain: bool,
+	) {
+		if ast_filter {
+			self.reject("nested quantifiers are not supported in an AST filter");
+		}
+		let ast_domain = domain.contains_ast();
+		self.uses_ast |= ast_domain;
+		if ast_domain && nested_domain {
+			self.reject("ast cannot be nested under another domain");
+		}
+		if ast_domain && *domain != Domain::Ast {
+			self.reject("ast must be used as a direct quantifier domain");
+		}
+		self.visit_node(filter, ast_domain, nested_domain || !ast_domain);
+	}
+
+	fn visit_layout(&mut self, layout: &VerticalLayout, ast_filter: bool) {
+		if ast_filter {
+			self.reject("vertical_layout is not supported in an AST filter");
+		}
+		if layout.domain.contains_ast() {
+			self.uses_ast = true;
+			self.reject("vertical_layout does not support the ast domain");
+		}
+	}
+
+	fn visit_atom(&mut self, atom: &Atom, ast_filter: bool, nested_domain: bool) {
+		if ast_filter {
+			let lhs = atom.lhs.ast_filter_projection();
+			let rhs_kind = atom.rhs.ast_filter_projection_kind();
+			if lhs.is_none() || rhs_kind.is_none() {
+				self.reject("AST filters only support AST scalar projections and literals");
+			} else if lhs.is_some_and(|lhs| !lhs.accepts_op(atom.op)) {
+				self.reject("operator is not supported for this AST projection");
+			} else if lhs.map(Lhs::projection_kind) != rhs_kind {
+				self.reject("AST filter operands must have the same scalar type");
+			}
+			if matches!(atom.lhs, LhsExpr::Attr(Lhs::Kind | Lhs::ParentKind)) {
+				match &atom.rhs {
+					Rhs::Str(kind) => self.kind_names.push(kind.clone()),
+					Rhs::RegexStr(_) => {
+						self.reject("regex comparisons are not supported for AST kind projections")
+					}
+					_ => {}
+				}
+			}
+		}
+		self.visit_lhs(&atom.lhs, nested_domain);
+		self.visit_rhs(&atom.rhs, nested_domain);
+	}
+
+	fn visit_lhs(&mut self, lhs: &LhsExpr, nested_domain: bool) {
+		match lhs {
+			LhsExpr::Number(expr) => self.visit_number(expr, nested_domain),
+			LhsExpr::Collection(expr) => self.visit_collection(expr),
+			LhsExpr::Mode(expr) => self.visit_domain_value(expr, nested_domain),
+			LhsExpr::Attr(_) | LhsExpr::PairProjection(_) | LhsExpr::SegmentOf { .. } => {}
+		}
+	}
+
+	fn visit_rhs(&mut self, rhs: &Rhs, nested_domain: bool) {
+		match rhs {
+			Rhs::Number(expr) => self.visit_number(expr, nested_domain),
+			Rhs::Collection(expr) => self.visit_collection(expr),
+			_ => {}
+		}
+	}
+
+	fn visit_number(&mut self, expr: &NumberExpr, nested_domain: bool) {
+		match expr {
+			NumberExpr::Count { domain, filter } => {
+				let ast_domain = domain.contains_ast();
+				self.uses_ast |= ast_domain;
+				if ast_domain && nested_domain {
+					self.reject("ast cannot be nested under another domain");
+				}
+				if ast_domain && *domain != Domain::Ast {
+					self.reject("ast must be used as a direct count domain");
+				}
+				if let Some(filter) = filter {
+					self.visit_node(filter, ast_domain, nested_domain || !ast_domain);
+				}
+			}
+			NumberExpr::Aggregate { domain, expr, .. } => {
+				if domain.contains_ast() {
+					self.uses_ast = true;
+					self.reject("aggregates do not support the ast domain");
+				}
+				self.visit_number(expr, true);
+			}
+			NumberExpr::Entropy(expr) => self.visit_domain_value(expr, nested_domain),
+			NumberExpr::Size(expr) => self.visit_collection(expr),
+			NumberExpr::Literal(_) | NumberExpr::Projection(_) | NumberExpr::Metric { .. } => {}
+		}
+	}
+
+	fn visit_domain_value(&mut self, expr: &DomainValueExpr, nested_domain: bool) {
+		let ast_domain = expr.domain.contains_ast();
+		self.uses_ast |= ast_domain;
+		if ast_domain && nested_domain {
+			self.reject("ast cannot be nested under another domain");
+		}
+		if ast_domain {
+			self.reject("mode and entropy do not support the ast domain");
+		}
+		if let Some(filter) = &expr.filter {
+			self.visit_node(filter, ast_domain, true);
+		}
+		if let ValueExpr::Number(expr) = expr.expr.as_ref() {
+			self.visit_number(expr, true);
+		}
+	}
+
+	fn visit_collection(&mut self, expr: &CollectionExpr) {
+		match expr {
+			CollectionExpr::Projection(projection) => {
+				if projection.domain.contains_ast() {
+					self.uses_ast = true;
+					self.reject("collection projections do not support the ast domain");
+				}
+			}
+			CollectionExpr::PairProjection(projection) => {
+				if projection.domain.contains_ast() {
+					self.uses_ast = true;
+					self.reject("pair projections do not support the ast domain");
+				}
+			}
+			CollectionExpr::Unique(inner) => self.visit_collection(inner),
+			CollectionExpr::Binary { left, right, .. } => {
+				self.visit_collection(left);
+				self.visit_collection(right);
+			}
+		}
+	}
+
+	fn reject(&mut self, reason: &'static str) {
+		if self.unsupported.is_none() {
+			self.unsupported = Some(reason);
+		}
+	}
+}
+
+impl Domain {
+	fn contains_ast(&self) -> bool {
+		matches!(self, Self::Ast)
+			|| matches!(self, Self::Descendants(inner) | Self::Pairs(inner) if inner.contains_ast())
+	}
+}
+
+impl LhsExpr {
+	fn ast_filter_projection(&self) -> Option<Lhs> {
+		match self {
+			Self::Attr(lhs) | Self::Number(NumberExpr::Projection(lhs))
+				if lhs.is_ast_projection() =>
+			{
+				Some(*lhs)
+			}
+			_ => None,
+		}
+	}
+}
+
+impl Lhs {
+	fn is_ast_projection(self) -> bool {
+		matches!(
+			self,
+			Self::Kind
+				| Self::Text | Self::StartByte
+				| Self::EndByte
+				| Self::StartLine
+				| Self::EndLine
+				| Self::Lines
+				| Self::ParentKind
+		)
+	}
+}
+
+impl Rhs {
+	fn ast_filter_projection_kind(&self) -> Option<LhsProjectionKind> {
+		match self {
+			Self::Str(_) | Self::RegexStr(_) => Some(LhsProjectionKind::Text),
+			Self::Number(NumberExpr::Literal(_)) => Some(LhsProjectionKind::Number),
+			Self::Number(NumberExpr::Projection(lhs)) | Self::Projection(lhs)
+				if lhs.is_ast_projection() =>
+			{
+				Some(lhs.projection_kind())
+			}
+			_ => None,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]

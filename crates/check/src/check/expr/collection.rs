@@ -215,6 +215,7 @@ fn validate_collection_projection_path(
 	full: &str,
 ) -> Result<(), ParseError> {
 	let valid = match domain {
+		Domain::Ast => false,
 		Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
 			valid_def_collection_path(path)
 		}

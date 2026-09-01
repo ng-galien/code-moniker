@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
-use code_moniker_core::lang::Lang;
+use code_moniker_core::lang::{Lang, ParsedDocument};
 use code_moniker_workspace::code::{LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::environment;
 use code_moniker_workspace::lang::path_to_lang;
@@ -49,10 +49,8 @@ pub trait CheckWorkspace: Sync {
 		&self,
 		file: &environment::SourceFile,
 		ctx: &environment::ExtractContext,
-	) -> anyhow::Result<(String, CodeGraph)> {
-		let source = self.read_to_string(&file.path)?;
-		let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
-		Ok((source, graph))
+	) -> anyhow::Result<(String, CodeGraph, Option<ParsedDocument>)> {
+		extract_workspace_source(self, file, ctx)
 	}
 	fn source_set(
 		&self,
@@ -276,10 +274,10 @@ impl CheckWorkspace for IndexedCheckWorkspace {
 		&self,
 		file: &environment::SourceFile,
 		_ctx: &environment::ExtractContext,
-	) -> anyhow::Result<(String, CodeGraph)> {
+	) -> anyhow::Result<(String, CodeGraph, Option<ParsedDocument>)> {
 		let indexed = indexed_source_file(&self.material, file)
 			.ok_or_else(|| anyhow::anyhow!("cannot read {}: not indexed", file.path.display()))?;
-		Ok((indexed.source.clone(), indexed.graph.clone()))
+		Ok((indexed.source.clone(), indexed.graph.clone(), None))
 	}
 
 	fn source_set(
@@ -938,13 +936,13 @@ pub fn check_source_with_config(
 	scheme: &str,
 	report: bool,
 ) -> anyhow::Result<SourceReport> {
-	let graph = environment::extract_source_with(
+	let (graph, document) = environment::extract_source_with_document(
 		lang,
 		source,
 		anchor,
 		&environment::ExtractContext::default(),
 	);
-	check_graph_with_config(cfg, &graph, source, lang, scheme, report)
+	check_graph_with_document(cfg, (&graph, Some(&document)), source, lang, scheme, report)
 }
 
 pub fn check_graph_with_config(
@@ -955,16 +953,34 @@ pub fn check_graph_with_config(
 	scheme: &str,
 	report: bool,
 ) -> anyhow::Result<SourceReport> {
+	check_graph_with_document(cfg, (graph, None), source, lang, scheme, report)
+}
+
+fn check_graph_with_document(
+	cfg: &check::Config,
+	graph: (&CodeGraph, Option<&ParsedDocument>),
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+	report: bool,
+) -> anyhow::Result<SourceReport> {
+	let (graph, parsed_document) = graph;
 	let compiled = check::compile_rules(cfg, lang, scheme)?;
-	let raw = check::evaluate_compiled(graph, source, lang, scheme, &compiled);
+	let (raw, mut rule_reports) =
+		check::evaluate_and_report_compiled(check::CompiledEvaluationInput {
+			graph,
+			source,
+			lang,
+			scheme,
+			compiled: &compiled,
+			requirements: None,
+			parsed_document,
+			include_report: report,
+		});
 	let violations = check::apply_suppressions(graph, source, raw);
-	let rule_reports = if report {
-		let mut rule_reports = check::rule_report_compiled(graph, source, lang, scheme, &compiled);
+	if report {
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
-		rule_reports
-	} else {
-		Vec::new()
-	};
+	}
 	Ok(SourceReport {
 		rules: compiled.specs(lang),
 		violations,
@@ -1038,22 +1054,27 @@ fn check_one_compiled(
 	ctx: &CompiledCheck<'_>,
 ) -> anyhow::Result<FileReport> {
 	let source = ctx.workspace.read_to_string(fs_path)?;
-	let graph = environment::extract_source_with(
+	let (graph, document) = environment::extract_source_with_document(
 		lang,
 		&source,
 		moniker_anchor.unwrap_or(fs_path),
 		&environment::ExtractContext::default(),
 	);
-	let raw = check::evaluate_compiled(&graph, &source, lang, ctx.scheme, ctx.compiled);
+	let (raw, mut rule_reports) =
+		check::evaluate_and_report_compiled(check::CompiledEvaluationInput {
+			graph: &graph,
+			source: &source,
+			lang,
+			scheme: ctx.scheme,
+			compiled: ctx.compiled,
+			requirements: None,
+			parsed_document: Some(&document),
+			include_report: ctx.report,
+		});
 	let violations = check::apply_suppressions(&graph, &source, raw);
-	let rule_reports = if ctx.report {
-		let mut rule_reports =
-			check::rule_report_compiled(&graph, &source, lang, ctx.scheme, ctx.compiled);
+	if ctx.report {
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
-		rule_reports
-	} else {
-		Vec::new()
-	};
+	}
 	Ok(FileReport {
 		path: fs_path.to_path_buf(),
 		violations,
@@ -1073,30 +1094,22 @@ fn check_source_file_compiled(
 	ctx: &environment::ExtractContext,
 	check_ctx: &CompiledCheck<'_>,
 ) -> anyhow::Result<CheckedSourceFile> {
-	let (source, graph) = check_ctx.workspace.source_graph(file, ctx)?;
-	let raw = check::evaluate_compiled_with_requirements(
-		&graph,
-		&source,
-		file.lang,
-		check_ctx.scheme,
-		check_ctx.compiled,
-		check_ctx.requirements,
-	);
+	let (source, graph, document) = check_ctx.workspace.source_graph(file, ctx)?;
+	let (raw, mut rule_reports) =
+		check::evaluate_and_report_compiled(check::CompiledEvaluationInput {
+			graph: &graph,
+			source: &source,
+			lang: file.lang,
+			scheme: check_ctx.scheme,
+			compiled: check_ctx.compiled,
+			requirements: check_ctx.requirements,
+			parsed_document: document.as_ref(),
+			include_report: check_ctx.report,
+		});
 	let violations = check::apply_suppressions(&graph, &source, raw);
-	let rule_reports = if check_ctx.report {
-		let mut rule_reports = check::rule_report_compiled_with_requirements(
-			&graph,
-			&source,
-			file.lang,
-			check_ctx.scheme,
-			check_ctx.compiled,
-			check_ctx.requirements,
-		);
+	if check_ctx.report {
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
-		rule_reports
-	} else {
-		Vec::new()
-	};
+	}
 	Ok(CheckedSourceFile {
 		file: file.clone(),
 		source,
@@ -1668,6 +1681,7 @@ fn normalize_relative(path: PathBuf) -> PathBuf {
 
 fn lazy_domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 	match domain {
+		Domain::Ast => false,
 		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
 		Domain::ChildrenByShape(shape) => {
 			def.shape().is_some_and(|actual| actual.as_str() == shape)
@@ -1799,6 +1813,17 @@ fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
 			.then_with(|| a.rule_id.cmp(&b.rule_id))
 	});
 	out
+}
+
+fn extract_workspace_source(
+	workspace: &(impl CheckWorkspace + ?Sized),
+	file: &environment::SourceFile,
+	ctx: &environment::ExtractContext,
+) -> anyhow::Result<(String, CodeGraph, Option<ParsedDocument>)> {
+	let source = workspace.read_to_string(&file.path)?;
+	let (graph, document) =
+		environment::extract_source_with_document(file.lang, &source, &file.anchor, ctx);
+	Ok((source, graph, Some(document)))
 }
 
 #[cfg(test)]

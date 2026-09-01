@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::uri::{UriConfig, to_uri};
-use code_moniker_core::lang::Lang;
+use code_moniker_core::lang::{Lang, ParsedDocument};
 use std::sync::Arc;
 
 mod project_config;
@@ -89,6 +89,15 @@ pub fn extract_source_with(
 	ctx: &ExtractContext,
 ) -> CodeGraph {
 	crate::extract::extract_with(lang, source, path, ctx)
+}
+
+pub fn extract_source_with_document(
+	lang: Lang,
+	source: &str,
+	path: &Path,
+	ctx: &ExtractContext,
+) -> (CodeGraph, ParsedDocument) {
+	crate::extract::extract_with_document(lang, source, path, ctx)
 }
 
 pub fn symbol_records_for_graph(

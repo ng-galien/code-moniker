@@ -1,0 +1,1 @@
+none(ast, kind = 'switch_statement') AND count(ast, kind = 'as_expression') <= 2
