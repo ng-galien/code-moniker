@@ -1,7 +1,12 @@
 ---
 name: test-guardrails
+title: Test guardrails
 lang: python
 blurb: Production code stays separate from test helpers, and tests read clearly
+learn_kind: pattern
+learn_path: rules/quality/test-guardrails
+learn_order: 20
+tags: testing,fixtures,boundaries,naming
 published: true
 ---
 

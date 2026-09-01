@@ -43,6 +43,7 @@ relevant learn corpus changed.
 |---|---|---|
 | Rule structure and expressions | `code-moniker rules learn basics` | Rule blocks, ids, predicates, severity, messages, and rationale |
 | Project vocabulary and testimony | `code-moniker rules learn taxonomy` | Patterns, components, natural rule ids, aliases, and diagnostic interpretation |
+| Language tags and rule namespaces | `code-moniker rules learn languages` | Language-specific recipes, plus independent TS, TSX, JS, and JSX policy over a shared analysis ecosystem |
 | Architectural locations | `code-moniker rules learn paths` | Moniker path patterns and reusable aliases |
 | Local architecture files | `code-moniker rules learn fragments` | Fragments, view URIs, merging, and namespaced rule ids |
 | Cross-symbol boundaries | `code-moniker rules learn refs` | Reference rules for imports, calls, inheritance, annotations, and layers |
@@ -53,6 +54,15 @@ relevant learn corpus changed.
 | Moniker relationships | `code-moniker rules learn relations` | Ancestor, descendant, and binding relation operators |
 | Structural directives | `code-moniker rules learn directives` | Layout, correlated-existence, and moniker-segment directives |
 | Rule-set selection | `code-moniker rules learn profiles` | Defaults, profiles, warning severity, and suppressions |
+
+Language, framework, architecture-pattern, and workspace recipes are discovered
+from the executable catalog rather than duplicated in this router. Run
+`code-moniker rules learn` for progressive human navigation or
+`code-moniker rules learn --format json` for the complete machine-readable
+inventory, then load the relevant name or alias with
+`code-moniker rules learn <topic>`. Examples
+include `java`, `spring`, `java-qualified-types`, `react`, `javascript`, `jsx`,
+and `sql`.
 
 If a required learn command is unavailable, report that limitation instead of
 reconstructing its semantics from this skill.

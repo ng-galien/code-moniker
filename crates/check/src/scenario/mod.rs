@@ -22,6 +22,11 @@ pub struct ScenarioMeta {
 	pub lang: String,
 	pub blurb: String,
 	pub summary: String,
+	pub learn_kind: String,
+	pub learn_path: String,
+	pub learn_order: Option<u32>,
+	pub tags: Vec<String>,
+	pub learn_aliases: Vec<String>,
 	pub published: bool,
 	pub default_rules: Option<bool>,
 }

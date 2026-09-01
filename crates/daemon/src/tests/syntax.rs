@@ -568,6 +568,24 @@ fn daemon_syntax_tree_uses_language_sdk_injections_for_plpgsql() {
 		(label_start, label_start + label_text.len())
 	);
 	assert_eq!(syntax_node_language_count(&tree.root, "plpgsql"), 1);
+	let plpgsql = syntax_node_find_language(&tree.root, "source_file", "plpgsql")
+		.expect("PL/pgSQL injection root");
+	assert_eq!(plpgsql.entry_point.as_deref(), Some("block"));
+	assert_eq!(plpgsql.has_error, Some(false));
+	assert!(
+		syntax_node_language_count(&tree.root, "sql") >= 3,
+		"SELECT, IF, and RETURN regions must be rendered through nested SQL injections"
+	);
+	assert!(syntax_node_contains_entry_point(
+		&tree.root,
+		"sql",
+		"statement"
+	));
+	assert!(syntax_node_contains_entry_point(
+		&tree.root,
+		"sql",
+		"expression"
+	));
 }
 
 #[test]
@@ -725,4 +743,16 @@ fn syntax_node_language_count(node: &SyntaxNodeDto, language: &str) -> usize {
 			.iter()
 			.map(|child| syntax_node_language_count(child, language))
 			.sum::<usize>()
+}
+
+fn syntax_node_contains_entry_point(
+	node: &SyntaxNodeDto,
+	language: &str,
+	entry_point: &str,
+) -> bool {
+	(node.language.as_deref() == Some(language) && node.entry_point.as_deref() == Some(entry_point))
+		|| node
+			.children
+			.iter()
+			.any(|child| syntax_node_contains_entry_point(child, language, entry_point))
 }

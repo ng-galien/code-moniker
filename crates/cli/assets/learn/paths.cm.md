@@ -2,6 +2,9 @@
 name: paths
 title: Moniker path patterns and aliases
 summary: Match architectural locations with moniker globs and reusable aliases.
+learn_kind: general
+learn_path: rules/paths
+learn_order: 10
 ---
 
 # Moniker Path Patterns And Aliases

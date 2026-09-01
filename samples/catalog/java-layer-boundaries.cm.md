@@ -1,7 +1,12 @@
 ---
 name: java-layer-boundaries
+title: Java layer boundaries
 lang: java
 blurb: Domain code never depends on infrastructure
+learn_kind: pattern
+learn_path: languages/java/layer-boundaries
+learn_order: 30
+tags: java,ddd,layering,domain,infrastructure
 published: true
 ---
 
@@ -24,7 +29,9 @@ expr    = "$src_domain => NOT $tgt_infrastructure"
 message = "Domain code must not depend on infrastructure."
 ```
 
-`Order` breaks the boundary by instantiating a persistence table directly:
+`Order` breaks the boundary as soon as it imports a persistence type. The
+minimal fixture keeps the diagnostic unambiguous instead of producing several
+reference kinds on the same source line:
 
 ```java cm:file=src/main/java/com/acme/domain/Order.java
 package com.acme.domain;
@@ -32,10 +39,8 @@ package com.acme.domain;
 import com.acme.infrastructure.OrderTable;
 
 public class Order {
-	private final OrderTable table = new OrderTable();
-
 	public String id() {
-		return table.key();
+		return "order";
 	}
 }
 ```
@@ -68,9 +73,4 @@ public class PlaceOrder {
 
 ```cm:expect
 refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L3
-refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
-refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
-refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
-refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
-refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L9
 ```

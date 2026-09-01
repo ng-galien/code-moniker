@@ -45,6 +45,12 @@ struct RawFragmentConfig {
 	#[serde(default)]
 	ts: LangRules,
 	#[serde(default)]
+	tsx: LangRules,
+	#[serde(default)]
+	js: LangRules,
+	#[serde(default)]
+	jsx: LangRules,
+	#[serde(default)]
 	rust: LangRules,
 	#[serde(default)]
 	java: LangRules,
@@ -79,6 +85,9 @@ impl RawFragmentConfig {
 			shape: self.shape,
 			default: self.default,
 			ts: self.ts,
+			tsx: self.tsx,
+			js: self.js,
+			jsx: self.jsx,
 			rust: self.rust,
 			java: self.java,
 			python: self.python,

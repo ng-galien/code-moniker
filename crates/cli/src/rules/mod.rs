@@ -142,9 +142,10 @@ fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<
 	Ok(())
 }
 
-const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
+const DSL_LEARN_DOCUMENTS: &[&str] = &[
 	include_str!("../../assets/learn/basics.cm.md"),
 	include_str!("../../assets/learn/taxonomy.cm.md"),
+	include_str!("../../assets/learn/languages.cm.md"),
 	include_str!("../../assets/learn/paths.cm.md"),
 	include_str!("../../assets/learn/fragments.cm.md"),
 	include_str!("../../assets/learn/refs.cm.md"),
@@ -157,12 +158,72 @@ const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
 	include_str!("../../assets/learn/profiles.cm.md"),
 ];
 
+const CATALOG_LEARN_DOCUMENTS: &[&str] = &[
+	include_str!("../../assets/catalog/architecture.cm.md"),
+	include_str!("../../assets/catalog/architecture-patterns.cm.md"),
+	include_str!("../../assets/catalog/c.cm.md"),
+	include_str!("../../assets/catalog/clean-architecture.cm.md"),
+	include_str!("../../assets/catalog/csharp.cm.md"),
+	include_str!("../../assets/catalog/fowler-eaa.cm.md"),
+	include_str!("../../assets/catalog/fowler-refactoring.cm.md"),
+	include_str!("../../assets/catalog/go.cm.md"),
+	include_str!("../../assets/catalog/java-layer-boundaries.cm.md"),
+	include_str!("../../assets/catalog/java-qualified-types.cm.md"),
+	include_str!("../../assets/catalog/java-testing.cm.md"),
+	include_str!("../../assets/catalog/java.cm.md"),
+	include_str!("../../assets/catalog/javascript.cm.md"),
+	include_str!("../../assets/catalog/jsx.cm.md"),
+	include_str!("../../assets/catalog/package-isolation.cm.md"),
+	include_str!("../../assets/catalog/plpgsql.cm.md"),
+	include_str!("../../assets/catalog/python.cm.md"),
+	include_str!("../../assets/catalog/quality.cm.md"),
+	include_str!("../../assets/catalog/react.cm.md"),
+	include_str!("../../assets/catalog/react-jsx.cm.md"),
+	include_str!("../../assets/catalog/react-routed-server.cm.md"),
+	include_str!("../../assets/catalog/rust-naming.cm.md"),
+	include_str!("../../assets/catalog/rust.cm.md"),
+	include_str!("../../assets/catalog/sql.cm.md"),
+	include_str!("../../assets/catalog/spring.cm.md"),
+	include_str!("../../assets/catalog/spring-mvc-layering.cm.md"),
+	include_str!("../../assets/catalog/spring-persistence.cm.md"),
+	include_str!("../../assets/catalog/spring-reference.cm.md"),
+	include_str!("../../assets/catalog/spring-stereotypes-injection.cm.md"),
+	include_str!("../../assets/catalog/spring-testing.cm.md"),
+	include_str!("../../assets/catalog/spring-transactions-proxies.cm.md"),
+	include_str!("../../assets/catalog/test-guardrails.cm.md"),
+	include_str!("../../assets/catalog/typescript.cm.md"),
+	include_str!("../../assets/catalog/typescript-family-namespaces.cm.md"),
+	include_str!("../../assets/catalog/typescript-node.cm.md"),
+	include_str!("../../assets/catalog/typescript-testing.cm.md"),
+	include_str!("../../assets/catalog/tsx.cm.md"),
+	include_str!("../../assets/catalog/workspace-group.cm.md"),
+	include_str!("../../assets/catalog/workspace-path.cm.md"),
+	include_str!("../../assets/catalog/workspace-symbol.cm.md"),
+];
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LearnSource {
+	Dsl,
+	Catalog,
+}
+
 #[derive(Serialize)]
 struct LearnTopic {
 	name: String,
 	title: String,
 	summary: String,
 	body: String,
+	source: LearnSource,
+	kind: String,
+	path: String,
+	order: u32,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	lang: Option<String>,
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	tags: Vec<String>,
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	aliases: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -170,11 +231,35 @@ struct LearnReport {
 	topics: Vec<&'static LearnTopic>,
 }
 
+#[derive(Serialize)]
+struct LearnIndexReport<'a> {
+	topics: Vec<LearnTopicSummary<'a>>,
+}
+
+#[derive(Serialize)]
+struct LearnTopicSummary<'a> {
+	name: &'a str,
+	title: &'a str,
+	summary: &'a str,
+	source: LearnSource,
+	kind: &'a str,
+	path: &'a str,
+	order: u32,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	lang: Option<&'a str>,
+	tags: &'a [String],
+	aliases: &'a [String],
+}
+
 fn learn<W: Write>(args: &RulesLearnArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let topics = selected_learn_topics(args.topic.as_deref())?;
-	match args.format {
-		RulesLearnFormat::Text => write_learn_text(stdout, &topics)?,
-		RulesLearnFormat::Json => {
+	match (args.topic.as_deref(), args.format) {
+		(None, RulesLearnFormat::Text) => write_learn_index(stdout, RulesLearnFormat::Text)?,
+		(None, RulesLearnFormat::Json) => write_learn_index(stdout, RulesLearnFormat::Json)?,
+		(Some(topic), RulesLearnFormat::Text) => {
+			write_learn_topic(stdout, selected_learn_topic(topic)?)?
+		}
+		(Some(topic), RulesLearnFormat::Json) => {
+			let topics = vec![selected_learn_topic(topic)?];
 			serde_json::to_writer_pretty(&mut *stdout, &LearnReport { topics })?;
 			stdout.write_all(b"\n")?;
 		}
@@ -182,37 +267,37 @@ fn learn<W: Write>(args: &RulesLearnArgs, stdout: &mut W) -> anyhow::Result<()> 
 	Ok(())
 }
 
-fn selected_learn_topics(topic: Option<&str>) -> anyhow::Result<Vec<&'static LearnTopic>> {
-	let Some(topic) = topic else {
-		return Ok(learn_topics().iter().collect());
-	};
+fn selected_learn_topic(topic: &str) -> anyhow::Result<&'static LearnTopic> {
 	let normalized = topic.to_ascii_lowercase();
 	learn_topics()
 		.iter()
-		.find(|candidate| candidate.name == normalized)
-		.map(|topic| vec![topic])
-		.with_context(|| {
-			format!(
-				"unknown DSL topic `{topic}` (known: {})",
-				learn_topic_names().join(", ")
-			)
+		.find(|candidate| {
+			candidate.name == normalized
+				|| candidate.aliases.iter().any(|alias| alias == &normalized)
 		})
+		.with_context(|| format!("unknown learn topic `{topic}`; run `code-moniker rules learn`"))
 }
 
 fn learn_topics() -> &'static [LearnTopic] {
 	static TOPICS: std::sync::OnceLock<Vec<LearnTopic>> = std::sync::OnceLock::new();
 	TOPICS.get_or_init(|| {
-		LEARN_TOPIC_DOCUMENTS
+		DSL_LEARN_DOCUMENTS
 			.iter()
-			.map(|document| {
-				parse_learn_topic(document)
+			.map(|document| (*document, LearnSource::Dsl))
+			.chain(
+				CATALOG_LEARN_DOCUMENTS
+					.iter()
+					.map(|document| (*document, LearnSource::Catalog)),
+			)
+			.map(|(document, source)| {
+				parse_learn_topic(document, source)
 					.unwrap_or_else(|err| panic!("embedded learn topic must parse: {err}"))
 			})
 			.collect()
 	})
 }
 
-fn parse_learn_topic(document: &str) -> anyhow::Result<LearnTopic> {
+fn parse_learn_topic(document: &str, source: LearnSource) -> anyhow::Result<LearnTopic> {
 	let (front_matter, body) = document
 		.strip_prefix("---\n")
 		.and_then(|rest| rest.split_once("\n---\n"))
@@ -220,6 +305,13 @@ fn parse_learn_topic(document: &str) -> anyhow::Result<LearnTopic> {
 	let mut name = String::new();
 	let mut title = String::new();
 	let mut summary = String::new();
+	let mut blurb = String::new();
+	let mut kind = String::new();
+	let mut path = String::new();
+	let mut order = 1_000;
+	let mut lang = None;
+	let mut tags = Vec::new();
+	let mut aliases = Vec::new();
 	for line in front_matter.lines() {
 		let Some((key, value)) = line.split_once(':') else {
 			continue;
@@ -228,58 +320,265 @@ fn parse_learn_topic(document: &str) -> anyhow::Result<LearnTopic> {
 			"name" => name = value.trim().to_string(),
 			"title" => title = value.trim().to_string(),
 			"summary" => summary = value.trim().to_string(),
+			"blurb" => blurb = value.trim().to_string(),
+			"learn_kind" => kind = value.trim().to_string(),
+			"learn_path" => path = value.trim().to_ascii_lowercase(),
+			"learn_order" => {
+				order = value
+					.trim()
+					.parse()
+					.with_context(|| format!("learn topic `{name}` has invalid learn_order"))?
+			}
+			"lang" => lang = Some(value.trim().to_string()),
+			"tags" => tags = parse_learn_list(value),
+			"learn_aliases" => aliases = parse_learn_list(value),
 			_ => {}
 		}
 	}
-	if name.is_empty() || title.is_empty() || summary.is_empty() {
-		bail!("learn topic front matter requires name, title, and summary");
+	if title.is_empty() {
+		title = body
+			.lines()
+			.find_map(|line| line.strip_prefix("# "))
+			.unwrap_or(&name)
+			.to_string();
+	}
+	if summary.is_empty() {
+		summary = blurb;
+	}
+	if source == LearnSource::Dsl && kind.is_empty() {
+		kind = "general".to_string();
+	}
+	if name.is_empty() || title.is_empty() || summary.is_empty() || path.is_empty() {
+		bail!("learn topic front matter requires name, title, summary, and learn_path");
+	}
+	if !matches!(
+		kind.as_str(),
+		"general" | "language" | "framework" | "pattern" | "workspace"
+	) {
+		bail!("learn topic `{name}` has invalid learn_kind `{kind}`");
+	}
+	if path.split('/').any(|segment| {
+		segment.is_empty()
+			|| !segment.chars().all(|character| {
+				character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+			})
+	}) {
+		bail!("learn topic `{name}` has invalid learn_path `{path}`");
 	}
 	Ok(LearnTopic {
 		name,
 		title,
 		summary,
 		body: body.to_string(),
+		source,
+		kind,
+		path,
+		order,
+		lang,
+		tags,
+		aliases,
 	})
 }
 
+fn parse_learn_list(value: &str) -> Vec<String> {
+	value
+		.split(',')
+		.map(str::trim)
+		.filter(|item| !item.is_empty())
+		.map(str::to_ascii_lowercase)
+		.collect()
+}
+
+#[cfg(test)]
 pub(crate) fn learn_topic_names() -> Vec<&'static str> {
 	learn_topics()
 		.iter()
+		.filter(|topic| topic.source == LearnSource::Dsl)
 		.map(|topic| topic.name.as_str())
 		.collect()
 }
 
-fn write_learn_text<W: Write>(w: &mut W, topics: &[&'static LearnTopic]) -> std::io::Result<()> {
-	writeln!(w, "# code-moniker check DSL")?;
-	writeln!(w, "# Topics: {}", learn_topic_names().join(", "))?;
-	for topic in topics {
-		writeln!(w)?;
-		writeln!(w, "# --- {}: {} ---", topic.name, topic.title)?;
-		writeln!(w, "# {}", topic.summary)?;
-		let body = learn_text_body(&topic.body);
-		write!(w, "{body}")?;
-		if !body.ends_with('\n') {
-			writeln!(w)?;
+fn write_learn_index<W: Write>(w: &mut W, format: RulesLearnFormat) -> anyhow::Result<()> {
+	let mut summaries = learn_topics()
+		.iter()
+		.map(|topic| LearnTopicSummary {
+			name: &topic.name,
+			title: &topic.title,
+			summary: &topic.summary,
+			source: topic.source,
+			kind: &topic.kind,
+			path: &topic.path,
+			order: topic.order,
+			lang: topic.lang.as_deref(),
+			tags: &topic.tags,
+			aliases: &topic.aliases,
+		})
+		.collect::<Vec<_>>();
+	summaries.sort_by(|left, right| left.path.cmp(right.path).then(left.title.cmp(right.title)));
+	match format {
+		RulesLearnFormat::Json => {
+			serde_json::to_writer_pretty(&mut *w, &LearnIndexReport { topics: summaries })?;
+			w.write_all(b"\n")?;
+		}
+		RulesLearnFormat::Text => {
+			let page = LearnIndexPage {
+				sections: learn_sections()?,
+			};
+			w.write_all(rules_presentation::learn_index(&page)?.as_bytes())?;
 		}
 	}
 	Ok(())
 }
 
+#[derive(Serialize)]
+struct LearnIndexPage {
+	sections: Vec<LearnNavigationTopic>,
+}
+
+#[derive(Clone, Serialize)]
+struct LearnNavigationTopic {
+	selector: String,
+	title: String,
+	summary: String,
+	order: u32,
+}
+
+#[derive(Serialize)]
+struct LearnTopicPage {
+	title: String,
+	summary: String,
+	body: String,
+	try_command: String,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	parent: Option<LearnNavigationTopic>,
+	children: Vec<LearnNavigationTopic>,
+}
+
+fn learn_sections() -> anyhow::Result<Vec<LearnNavigationTopic>> {
+	[
+		("rules", "Rules and general concepts"),
+		("languages", "Languages and frameworks"),
+		("architecture", "Architecture and design patterns"),
+		("workspace", "Workspace-wide analysis"),
+	]
+	.into_iter()
+	.map(|(path, title)| {
+		let topic = learn_topics()
+			.iter()
+			.find(|topic| topic.path == path)
+			.with_context(|| format!("learn section `{path}` has no entry topic"))?;
+		Ok(LearnNavigationTopic {
+			selector: topic_selector(topic, path),
+			title: title.to_string(),
+			summary: topic.summary.clone(),
+			order: topic.order,
+		})
+	})
+	.collect()
+}
+
+fn topic_selector(topic: &LearnTopic, preferred: &str) -> String {
+	if topic.aliases.iter().any(|alias| alias == preferred) {
+		preferred.to_string()
+	} else {
+		topic.name.clone()
+	}
+}
+
+fn navigation_topic(topic: &LearnTopic) -> LearnNavigationTopic {
+	let preferred = topic.path.rsplit('/').next().unwrap_or(&topic.name);
+	LearnNavigationTopic {
+		selector: topic_selector(topic, preferred),
+		title: topic.title.clone(),
+		summary: topic.summary.clone(),
+		order: topic.order,
+	}
+}
+
+fn write_learn_topic<W: Write>(w: &mut W, topic: &'static LearnTopic) -> anyhow::Result<()> {
+	let parent = learn_topics()
+		.iter()
+		.filter(|candidate| {
+			candidate.path != topic.path
+				&& topic
+					.path
+					.strip_prefix(&candidate.path)
+					.is_some_and(|rest| rest.starts_with('/'))
+		})
+		.max_by_key(|candidate| candidate.path.len())
+		.map(navigation_topic);
+	let child_prefix = format!("{}/", topic.path);
+	let mut children = learn_topics()
+		.iter()
+		.filter(|candidate| {
+			candidate
+				.path
+				.strip_prefix(&child_prefix)
+				.is_some_and(|rest| !rest.contains('/'))
+		})
+		.map(navigation_topic)
+		.collect::<Vec<_>>();
+	children.sort_by(|left, right| {
+		left.order
+			.cmp(&right.order)
+			.then(left.title.cmp(&right.title))
+	});
+	let rendered_body = learn_text_body(&topic.body).trim_start().to_string();
+	let body = rendered_body
+		.strip_prefix("# ")
+		.and_then(|document| document.split_once('\n'))
+		.map_or(rendered_body.as_str(), |(_, rest)| rest)
+		.trim_start()
+		.to_string();
+	let page = LearnTopicPage {
+		title: topic.title.clone(),
+		summary: topic.summary.clone(),
+		body,
+		try_command: format!(
+			"code-moniker check . --scenario samples/{}/{}.cm.md",
+			match topic.source {
+				LearnSource::Dsl => "learn",
+				LearnSource::Catalog => "catalog",
+			},
+			topic.name
+		),
+		parent,
+		children,
+	};
+	w.write_all(rules_presentation::learn_topic(&page)?.as_bytes())?;
+	Ok(())
+}
+
 fn learn_text_body(body: &str) -> String {
 	let mut rendered = String::new();
-	let mut skipping = false;
+	let mut rewritten_scenario_fence = false;
 	for line in body.lines() {
 		if line.trim_start().starts_with("```") {
 			let info = line.trim_start().trim_start_matches('`').trim();
-			if skipping {
-				skipping = false;
+			if rewritten_scenario_fence {
+				rendered.push_str("```\n");
+				rewritten_scenario_fence = false;
 				continue;
 			}
-			if info
+			if let Some(path) = info
 				.split_whitespace()
-				.any(|token| token == "cm:expect" || token.starts_with("cm:file="))
+				.find_map(|token| token.strip_prefix("cm:file="))
 			{
-				skipping = true;
+				let language = info
+					.split_whitespace()
+					.find(|token| !token.starts_with("cm:"))
+					.unwrap_or("text");
+				rendered.push_str("### Source: `");
+				rendered.push_str(path);
+				rendered.push_str("`\n\n```");
+				rendered.push_str(language);
+				rendered.push('\n');
+				rewritten_scenario_fence = true;
+				continue;
+			}
+			if info.split_whitespace().any(|token| token == "cm:expect") {
+				rendered.push_str("### Expected findings\n\n```text\n");
+				rewritten_scenario_fence = true;
 				continue;
 			}
 			if info.split_whitespace().any(|token| token == "cm:rules") {
@@ -292,9 +591,6 @@ fn learn_text_body(body: &str) -> String {
 				rendered.push('\n');
 				continue;
 			}
-		}
-		if skipping {
-			continue;
 		}
 		rendered.push_str(line);
 		rendered.push('\n');
@@ -1395,11 +1691,22 @@ mod tests {
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
-		assert!(out.contains("# --- refs: Reference rules ---"), "{out}");
+		assert!(out.starts_with("# Reference rules\n"), "{out}");
 		assert!(out.contains("[[refs.where]]"), "{out}");
 		assert!(out.contains("source.*"), "{out}");
+		assert!(
+			out.contains("### Source: `src/domain/controller.ts`"),
+			"{out}"
+		);
+		assert!(out.contains("import { Router }"), "{out}");
+		assert!(out.contains("### Expected findings"), "{out}");
+		assert!(
+			out.contains("code-moniker check . --scenario samples/learn/refs.cm.md"),
+			"{out}"
+		);
+		assert!(out.contains("## Parent section"), "{out}");
+		assert!(out.contains("code-moniker rules learn rules"), "{out}");
 		assert!(!out.contains("cm:file="), "{out}");
-		assert!(!out.contains("import { Router }"), "{out}");
 	}
 
 	#[test]
@@ -1410,33 +1717,110 @@ mod tests {
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
-		assert!(out.contains("# --- taxonomy: Project taxonomy"), "{out}");
+		assert!(
+			out.starts_with("# Project taxonomy and architectural testimony\n"),
+			"{out}"
+		);
 		assert!(out.contains("[rules.taxonomy]"), "{out}");
 		assert!(out.contains("Scoped Components Are Atomic"), "{out}");
 		assert!(out.contains("zero is not a conformance target"), "{out}");
 		assert!(!out.contains("cm:file="), "{out}");
-		assert!(!out.contains("import { snapshot }"), "{out}");
-		assert!(!out.contains(" @ src/workspace/editor.ts"), "{out}");
+		assert!(out.contains("import { snapshot }"), "{out}");
+		assert!(out.contains(" @ src/workspace/editor.ts"), "{out}");
 	}
 
 	#[test]
-	fn rules_learn_prints_all_dsl_topics() {
+	fn rules_learn_prints_progressive_markdown_index() {
 		let cli = Cli::parse_from(["code-moniker", "rules", "learn"]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
+		assert!(out.starts_with("# Learn Code Moniker\n"), "{out}");
+		assert!(out.contains("## Rules and general concepts"), "{out}");
+		assert!(out.contains("## Languages and frameworks"), "{out}");
+		assert!(out.contains("## Architecture and design patterns"), "{out}");
+		assert!(out.contains("## Workspace-wide analysis"), "{out}");
+		for command in [
+			"code-moniker rules learn rules",
+			"code-moniker rules learn languages",
+			"code-moniker rules learn architecture",
+			"code-moniker rules learn workspace",
+		] {
+			assert!(out.contains(command), "{out}");
+		}
+		assert!(out.contains("```sh"), "{out}");
+		assert!(!out.contains("cm:file="), "{out}");
+		assert!(!out.contains("[[java.refs.where]]"), "{out}");
+		crate::presentation::tests::validate_agent_markdown(&out, "Learn Code Moniker", false)
+			.expect("learn index Markdown");
+	}
+
+	#[test]
+	fn rules_learn_discloses_languages_then_java_details() {
+		let render = |topic: &str| {
+			let cli = Cli::parse_from(["code-moniker", "rules", "learn", topic]);
+			let mut stdout = Vec::new();
+			let mut stderr = Vec::new();
+			assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+			String::from_utf8(stdout).unwrap()
+		};
+
+		let languages = render("languages");
 		assert!(
-			out.contains(
-				"# Topics: basics, taxonomy, paths, fragments, refs, collections, domains, metrics, aggregates, relations, directives, profiles"
-			),
-			"{out}"
+			languages.contains("code-moniker rules learn java"),
+			"{languages}"
 		);
-		assert!(out.contains("# --- basics:"), "{out}");
-		assert!(out.contains("# --- taxonomy:"), "{out}");
-		assert!(out.contains("# --- profiles:"), "{out}");
-		assert!(!out.contains("cm:expect"), "{out}");
+		assert!(
+			!languages.contains("code-moniker rules learn java-qualified-types"),
+			"{languages}"
+		);
+
+		let java = render("java");
+		assert!(
+			java.contains("code-moniker rules learn languages"),
+			"{java}"
+		);
+		assert!(
+			java.contains("code-moniker rules learn java-qualified-types"),
+			"{java}"
+		);
+		assert!(
+			java.contains("code-moniker rules learn java-layer-boundaries"),
+			"{java}"
+		);
+		assert!(java.contains("code-moniker rules learn spring"), "{java}");
+
+		let rules = render("rules");
+		let paths = rules.find("code-moniker rules learn paths").unwrap();
+		let refs = rules.find("code-moniker rules learn refs").unwrap();
+		let metrics = rules.find("code-moniker rules learn metrics").unwrap();
+		assert!(paths < refs && refs < metrics, "{rules}");
+	}
+
+	#[test]
+	fn rules_learn_prints_complete_catalog_recipe_and_resolves_alias() {
+		for topic in ["java-qualified-types", "fqn"] {
+			let cli = Cli::parse_from(["code-moniker", "rules", "learn", topic]);
+			let mut stdout = Vec::new();
+			let mut stderr = Vec::new();
+
+			assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+			let out = String::from_utf8(stdout).unwrap();
+			assert!(out.contains("[[java.refs.where]]"), "{out}");
+			assert!(out.contains("Map.Entry"), "{out}");
+			assert!(out.contains("Outer.Inner.Deep"), "{out}");
+			assert!(
+				out.contains("### Source: `src/main/java/com/acme/time/ClockReader.java`"),
+				"{out}"
+			);
+			assert!(out.contains("### Expected findings"), "{out}");
+			assert!(!out.contains("cm:file="), "{out}");
+			assert!(!out.contains("cm:expect"), "{out}");
+			assert!(out.contains("### Java language guide"), "{out}");
+			assert!(out.contains("code-moniker rules learn java"), "{out}");
+		}
 	}
 
 	#[test]
@@ -1490,6 +1874,75 @@ mod tests {
 	}
 
 	#[test]
+	fn rules_learn_embeds_every_catalog_document_once() {
+		let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+		let source_dir = manifest.join("../../samples/catalog");
+		let packaged_dir = manifest.join("assets/catalog");
+		let names_in = |dir: &std::path::Path| {
+			let mut names = std::fs::read_dir(dir)
+				.expect("catalog directory")
+				.filter_map(|entry| {
+					let path = entry.ok()?.path();
+					path.file_name()?
+						.to_str()?
+						.strip_suffix(".cm.md")
+						.map(str::to_string)
+				})
+				.collect::<Vec<_>>();
+			names.sort();
+			names
+		};
+		let source = names_in(&source_dir);
+		let packaged = names_in(&packaged_dir);
+		assert_eq!(
+			packaged, source,
+			"packaged catalog must follow its canonical source"
+		);
+		let mut embedded = super::learn_topics()
+			.iter()
+			.filter(|topic| topic.source == super::LearnSource::Catalog)
+			.map(|topic| topic.name.clone())
+			.collect::<Vec<_>>();
+		embedded.sort();
+		assert_eq!(
+			embedded, source,
+			"every catalog recipe must be available through Learn"
+		);
+
+		let mut selectors = std::collections::BTreeSet::new();
+		let mut paths = std::collections::BTreeSet::new();
+		for topic in super::learn_topics() {
+			assert!(
+				selectors.insert(topic.name.as_str()),
+				"duplicate learn topic `{}`",
+				topic.name
+			);
+			for alias in &topic.aliases {
+				assert!(
+					selectors.insert(alias),
+					"duplicate learn selector `{alias}`"
+				);
+			}
+			assert!(
+				paths.insert(topic.path.as_str()),
+				"duplicate learn path `{}`",
+				topic.path
+			);
+		}
+		for topic in super::learn_topics() {
+			if let Some((parent, _)) = topic.path.rsplit_once('/') {
+				assert!(
+					super::learn_topics()
+						.iter()
+						.any(|candidate| candidate.path == parent),
+					"learn topic `{}` has no progressive parent at `{parent}`",
+					topic.name
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn rules_learn_json_reports_topics() {
 		let cli = Cli::parse_from([
 			"code-moniker",
@@ -1508,9 +1961,41 @@ mod tests {
 		assert_eq!(topics.len(), 1);
 		assert_eq!(topics[0]["name"], "paths");
 		assert_eq!(topics[0]["title"], "Moniker path patterns and aliases");
+		assert_eq!(topics[0]["source"], "dsl");
+		assert_eq!(topics[0]["kind"], "general");
+		assert_eq!(topics[0]["path"], "rules/paths");
+		assert_eq!(topics[0]["order"], 10);
 		assert!(
 			topics[0]["body"].as_str().unwrap().contains("[aliases]"),
 			"{out:#}"
+		);
+	}
+
+	#[test]
+	fn rules_learn_json_index_exposes_catalog_metadata_without_bodies() {
+		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "--format", "json"]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let topics = out["topics"].as_array().unwrap();
+		let java = topics
+			.iter()
+			.find(|topic| topic["name"] == "java")
+			.expect("Java catalog topic");
+		assert_eq!(java["source"], "catalog");
+		assert_eq!(java["kind"], "language");
+		assert_eq!(java["path"], "languages/java");
+		assert_eq!(java["order"], 30);
+		assert_eq!(java["lang"], "java");
+		assert!(java.get("body").is_none(), "{java:#}");
+		assert!(
+			java["tags"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.any(|tag| tag == "spring")
 		);
 	}
 
@@ -1522,8 +2007,8 @@ mod tests {
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
 		let err = String::from_utf8(stderr).unwrap();
-		assert!(err.contains("unknown DSL topic `kotlin`"), "{err}");
-		assert!(err.contains("refs"), "{err}");
+		assert!(err.contains("unknown learn topic `kotlin`"), "{err}");
+		assert!(err.contains("rules learn`"), "{err}");
 	}
 
 	#[test]

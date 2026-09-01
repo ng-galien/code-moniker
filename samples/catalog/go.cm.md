@@ -1,26 +1,25 @@
 ---
 name: go
+title: Go starter pack
 lang: go
-blurb: Focused interfaces, exported naming, size budgets, and layering for Go
+blurb: Focused interfaces, exported naming, and size budgets for Go
+learn_kind: language
+learn_path: languages/go
+learn_order: 60
+tags: go,naming,interfaces
 published: true
 ---
 
 # Go check sample
 
 A starter rule set for a Go module: interfaces stay focused, exported types
-keep PascalCase names, exported functions and all methods stay short, and
-domain packages never import infrastructure packages directly.
+keep PascalCase names, and exported functions and all methods stay short.
 
 ```toml cm:rules
 default_rules = false
 
 [aliases]
 internal = "moniker ~ '**/package:internal/**'"
-domain = "moniker ~ '**/package:domain/**'"
-infra = "moniker ~ '**/package:/^(infra|infrastructure)$/**'"
-
-src_domain = "source ~ '**/package:domain/**'"
-tgt_infra = "target ~ '**/package:/^(infra|infrastructure)$/**'"
 
 [[go.interface.where]]
 id = "interface-small"
@@ -46,11 +45,6 @@ rationale = "Short methods keep receiver behavior local and make package code ea
 expr = "lines <= 80"
 message = "Method `{name}` is too long."
 
-[[go.refs.where]]
-id = "domain-no-infra"
-rationale = "Domain packages should not know storage or transport details. Keep infrastructure behind package boundaries."
-expr = "$src_domain => NOT $tgt_infra"
-message = "Domain code must not depend directly on infrastructure."
 ```
 
 The module manifest anchors the import paths:
@@ -73,11 +67,10 @@ func (s Store) Fetch() int {
 }
 ```
 
-The domain package concentrates the violations: a six-method interface, an
-exported struct with an underscore in its name, an exported function and a
-method both padded past the 80-line budget, and a direct import of the
-`infra` package (which `domain-no-infra` would like to flag — see the note
-below):
+The domain package concentrates the demonstrated violations: a six-method
+interface, an exported struct with an underscore in its name, and an exported
+function and method both padded past the 80-line budget. Its import remains
+fixture context, not a claimed dependency-boundary check.
 
 ```go cm:file=domain/order.go
 package domain
@@ -274,15 +267,7 @@ func (o Order_record) Reconcile() int {
 }
 ```
 
-Note on `domain-no-infra`: extracted Go import targets use
-`external_pkg:`/`path:` for dependencies and `sdk:go`/`path:` for the
-standard library. `package:` segments only appear on the source side,
-mirroring the importing file's directory, so the `tgt_infra` alias —
-`target ~ '**/package:/^(infra|infrastructure)$/**'` — can never match a Go
-ref target and the rule stays silent in any layout.
-
 ```cm:expect
-! go.refs.domain-no-infra extracted Go ref targets use dependency or SDK roots with path: segments, never package:, so the tgt_infra package pattern cannot match
 go.interface.interface-small @ domain/order.go:L6-L13
 go.struct.exported-struct-pascalcase @ domain/order.go:L15-L17
 go.func.exported-func-small @ domain/order.go:L24-L107

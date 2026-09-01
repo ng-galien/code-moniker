@@ -741,7 +741,8 @@ function pushSpan(spans: Array<{ start: number; end: number }>, start: number, c
 
 export function sourceLanguageForPath(path: string): string | null {
 	return ({
-		".ts": "ts", ".tsx": "ts", ".js": "ts", ".jsx": "ts", ".mjs": "ts", ".cjs": "ts",
+		".ts": "ts", ".mts": "ts", ".cts": "ts", ".tsx": "tsx",
+		".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "jsx",
 		".rs": "rs", ".java": "java", ".py": "python", ".pyi": "python", ".go": "go",
 		".c": "c", ".h": "c", ".cs": "cs", ".sql": "sql",
 		".plpgsql": "sql",

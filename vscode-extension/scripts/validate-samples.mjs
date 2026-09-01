@@ -17,6 +17,7 @@ const learn = readdirSync(learnDir)
 	.filter((name) => name.endsWith(".cm.md"))
 	.sort();
 const source = readFileSync(packsSource, "utf8");
+const names = new Set();
 
 if (!source.includes('from "code-moniker-sample-packs"')) {
 	console.error("Catalog packs must import the generated sample pack module.");
@@ -32,6 +33,7 @@ for (const [dir, names] of [[catalogDir, catalog], [learnDir, learn]]) {
 	for (const name of names) {
 		const document = readFileSync(join(dir, name), "utf8");
 		validateExecutableScenario(name, document);
+		validateMetadata(name, document, dir === catalogDir);
 	}
 }
 
@@ -76,6 +78,50 @@ function validateExecutableScenario(name, document) {
 			console.error(`${basename(name)} is missing ${token}`);
 			process.exit(1);
 		}
+	}
+}
+
+function validateMetadata(fileName, document, catalogEntry) {
+	const match = /^---\n([\s\S]*?)\n---/.exec(document);
+	const meta = {};
+	for (const line of match?.[1].split("\n") ?? []) {
+		const pair = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line.trim());
+		if (pair) {
+			meta[pair[1]] = pair[2].trim();
+		}
+	}
+	if (!meta.name || !meta.title || !(meta.summary || meta.blurb) || !meta.learn_path) {
+		console.error(
+			`${fileName} requires name, title, summary or blurb, and learn_path metadata.`,
+		);
+		process.exit(1);
+	}
+	if (names.has(meta.name)) {
+		console.error(`Duplicate scenario name: ${meta.name}`);
+		process.exit(1);
+	}
+	names.add(meta.name);
+	if (!["general", "language", "framework", "pattern", "workspace"].includes(meta.learn_kind)) {
+		console.error(`${fileName} has invalid learn_kind: ${meta.learn_kind ?? "missing"}`);
+		process.exit(1);
+	}
+	if (catalogEntry) {
+		if (meta.learn_kind === "general") {
+			console.error(`${fileName} has invalid learn_kind: ${meta.learn_kind ?? "missing"}`);
+			process.exit(1);
+		}
+		if (!meta.tags) {
+			console.error(`${fileName} requires searchable tags.`);
+			process.exit(1);
+		}
+	}
+	if (!/^[a-z0-9-]+(?:\/[a-z0-9-]+)*$/.test(meta.learn_path)) {
+		console.error(`${fileName} has invalid learn_path: ${meta.learn_path}`);
+		process.exit(1);
+	}
+	if (meta.learn_order && !/^\d+$/.test(meta.learn_order)) {
+		console.error(`${fileName} has invalid learn_order: ${meta.learn_order}`);
+		process.exit(1);
 	}
 }
 

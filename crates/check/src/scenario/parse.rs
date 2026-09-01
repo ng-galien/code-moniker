@@ -153,6 +153,16 @@ fn parse_meta_line(line: &Line<'_>, meta: &mut ScenarioMeta) -> Result<(), Scena
 		"lang" => meta.lang = value.to_string(),
 		"blurb" => meta.blurb = value.to_string(),
 		"summary" => meta.summary = value.to_string(),
+		"learn_kind" => meta.learn_kind = value.to_string(),
+		"learn_path" => meta.learn_path = value.to_string(),
+		"learn_order" => {
+			meta.learn_order = Some(value.parse().map_err(|_| ScenarioError {
+				line: line.no,
+				message: format!("expected unsigned integer, got `{value}`"),
+			})?)
+		}
+		"tags" => meta.tags = parse_list(value),
+		"learn_aliases" => meta.learn_aliases = parse_list(value),
 		"published" => meta.published = parse_bool(value, line)?,
 		"default_rules" => meta.default_rules = Some(parse_bool(value, line)?),
 		key => {
@@ -163,6 +173,15 @@ fn parse_meta_line(line: &Line<'_>, meta: &mut ScenarioMeta) -> Result<(), Scena
 		}
 	}
 	Ok(())
+}
+
+fn parse_list(value: &str) -> Vec<String> {
+	value
+		.split(',')
+		.map(str::trim)
+		.filter(|item| !item.is_empty())
+		.map(str::to_string)
+		.collect()
 }
 
 fn parse_bool(value: &str, line: &Line<'_>) -> Result<bool, ScenarioError> {

@@ -223,7 +223,10 @@ fn partition_language_decisions(
 		match file.lang {
 			code_moniker_core::lang::Lang::C => c.push(decision_idx),
 			code_moniker_core::lang::Lang::Python => python.push(decision_idx),
-			code_moniker_core::lang::Lang::Ts => typescript.push(decision_idx),
+			code_moniker_core::lang::Lang::Ts
+			| code_moniker_core::lang::Lang::Tsx
+			| code_moniker_core::lang::Lang::Js
+			| code_moniker_core::lang::Lang::Jsx => typescript.push(decision_idx),
 			_ => {}
 		}
 	}

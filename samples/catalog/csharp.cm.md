@@ -1,27 +1,26 @@
 ---
 name: csharp
+title: C# starter pack
 lang: cs
-blurb: C# naming conventions, class budgets, and Domain/Infrastructure layering
+blurb: C# naming conventions and class budgets
+learn_kind: language
+learn_path: languages/csharp
+learn_order: 80
+tags: csharp,dotnet,naming
+learn_aliases: cs
 published: true
 ---
 
 # C# starter pack
 
-The C# sample enforces the usual .NET conventions — PascalCase classes and
-public methods, `I`-prefixed interfaces — plus a size budget on classes and a
-namespace-level layering rule: `Domain` code must never reference
-`Infrastructure` code directly.
+The C# sample demonstrates common .NET naming policies — PascalCase classes and
+public methods, `I`-prefixed interfaces — plus a size budget on classes.
 
 ```toml cm:rules
 default_rules = false
 
 [aliases]
-domain = "moniker ~ '**/package:Domain/**'"
-infra = "moniker ~ '**/package:Infrastructure/**'"
 tests = "moniker ~ '**/dir:/^[Tt]ests$/**'"
-
-src_domain = "source ~ '**/package:Domain/**'"
-tgt_infra = "target ~ '**/package:Infrastructure/**'"
 
 [[cs.class.where]]
 id = "class-pascalcase"
@@ -47,17 +46,11 @@ rationale = "A class with many methods or properties is harder to understand. Th
 expr = "count(method) <= 25 AND count(property) <= 20"
 message = "Class `{name}` is too large."
 
-[[cs.refs.where]]
-id = "domain-no-infra"
-rationale = "Domain namespaces should not depend directly on persistence or framework code. Put those details behind application boundaries."
-expr = "$src_domain => NOT $tgt_infra"
-message = "Domain code must not depend directly on Infrastructure."
 ```
 
 The domain file collects the naming offenders: an interface without the `I`
-prefix, a snake_case class, and a lowercase public method. It also
-instantiates a persistence table straight from the `Infrastructure`
-namespace — see the note on `domain-no-infra` below:
+prefix, a snake_case class, and a lowercase public method. The infrastructure
+reference remains fixture context, not a claimed boundary check:
 
 ```cs cm:file=src/Domain/Order.cs
 using Acme.Infrastructure;
@@ -132,15 +125,7 @@ namespace Acme.Domain
 }
 ```
 
-A note on `domain-no-infra`: the C# extractor records BCL references under
-`sdk:cs`, dependency namespaces under `external_pkg`, and other
-cross-namespace references as name-match guesses inside the source's own
-namespace. No reference therefore carries a `package:Infrastructure` target,
-so the rule cannot fire today. It is kept in the sample as the intended shape
-of the layering contract.
-
 ```cm:expect
-! cs.refs.domain-no-infra C# cross-namespace refs resolve to SDK, dependency, or in-module name-match targets, never package:Infrastructure
 cs.class.class-budget @ src/Domain/CustomerProfile.cs:L3-L26
 cs.interface.interface-starts-with-i @ src/Domain/Order.cs:L5-L8
 cs.class.class-pascalcase @ src/Domain/Order.cs:L15-L22

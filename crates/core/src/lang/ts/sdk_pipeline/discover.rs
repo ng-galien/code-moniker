@@ -156,7 +156,9 @@ impl<'ctx, 'src> ImportTargetResolver<'ctx, 'src> {
 	}
 
 	fn project_rooted_module_builder(&self, path: &str) -> MonikerBuilder {
-		super::canonicalize::module_builder_for_path(self.ctx.anchor, path)
+		let module = self.ctx.module.as_view();
+		let language = module.lang_segment().unwrap_or(b"ts");
+		super::canonicalize::module_builder_for_path(self.ctx.anchor, path, language)
 	}
 
 	fn relative_module_builder(&self, raw_path: &str) -> MonikerBuilder {

@@ -1,7 +1,12 @@
 ---
 name: rust-naming
-lang: rust
+title: Rust function naming
+lang: rs
 blurb: Functions stay snake_case
+learn_kind: language
+learn_path: languages/rust/naming
+learn_order: 10
+tags: rust,naming,snake-case
 published: true
 ---
 

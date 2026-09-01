@@ -22,7 +22,9 @@ pub fn parse(source: &str) -> Tree {
 }
 
 pub fn parse_plpgsql(source: &str) -> ParsedDocument {
-	ParsedDocument::new(body::parse_plpgsql(source))
+	let tree = body::parse_plpgsql(source);
+	let injections = body::sql_expression_injections(&tree, source, 0);
+	ParsedDocument::with_injections(tree, injections)
 }
 
 pub fn extract(
@@ -162,6 +164,61 @@ mod tests {
 			.expect("SQL-language injection");
 		assert_eq!(sql_injection.tree().root_node().kind(), "source_file");
 		assert!(!sql_injection.tree().root_node().has_error());
+	}
+
+	#[test]
+	fn parsed_document_injects_do_blocks_and_their_sql_regions() {
+		let source = "DO $body$ BEGIN IF account_id = 1 THEN PERFORM refresh_account(account_id); END IF; END $body$;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("maintenance.sql", source);
+		let block = document.injections().first().expect("DO block injection");
+		assert_eq!(block.language(), "plpgsql");
+		assert_eq!(block.entry_point(), crate::lang::SyntaxEntryPoint::Block);
+		assert!(
+			block.nested().iter().any(|injection| {
+				injection.language() == "sql"
+					&& injection.entry_point() == crate::lang::SyntaxEntryPoint::Expression
+			}),
+			"PL/pgSQL expression must expose a nested SQL expression injection"
+		);
+	}
+
+	#[test]
+	fn do_language_accepts_quoted_names_in_both_option_orders() {
+		let source = "DO LANGUAGE 'sql' $$ SELECT 1 $$; DO $$ SELECT 2 $$ LANGUAGE sql;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("maintenance.sql", source);
+		assert!(
+			!document.primary().root_node().has_error(),
+			"{}",
+			document.primary().root_node().to_sexp()
+		);
+		assert_eq!(document.injections().len(), 2);
+		assert!(
+			document
+				.injections()
+				.iter()
+				.all(|injection| injection.language() == "sql"),
+			"quoted and unquoted LANGUAGE options must both override the PL/pgSQL default"
+		);
+	}
+
+	#[test]
+	fn do_language_accepts_escape_and_dollar_quoted_names() {
+		let source = "DO LANGUAGE E'\\x73ql' $body$ SELECT 1 $body$; \
+			DO $body$ SELECT 2 $body$ LANGUAGE $lang$sql$lang$;";
+		let document = <Lang as crate::lang::LangExtractor>::parse("maintenance.sql", source);
+		assert!(
+			!document.primary().root_node().has_error(),
+			"{}",
+			document.primary().root_node().to_sexp()
+		);
+		assert_eq!(document.injections().len(), 2);
+		assert!(
+			document
+				.injections()
+				.iter()
+				.all(|injection| injection.language() == "sql"),
+			"escape and dollar-quoted LANGUAGE options must select SQL injections"
+		);
 	}
 
 	#[test]

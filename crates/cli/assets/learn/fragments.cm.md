@@ -2,6 +2,9 @@
 name: fragments
 title: Fragments, view URIs, and namespaced rule ids
 summary: Keep fragment name, view id, and local rule id distinct; read view URIs from the listing; expect namespaced ids in check output.
+learn_kind: general
+learn_path: rules/fragments
+learn_order: 70
 ---
 
 # Fragments, View URIs, And Namespaced Rule Ids

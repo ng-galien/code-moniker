@@ -42,6 +42,12 @@ pub struct Config {
 	#[serde(default)]
 	pub ts: LangRules,
 	#[serde(default)]
+	pub tsx: LangRules,
+	#[serde(default)]
+	pub js: LangRules,
+	#[serde(default)]
+	pub jsx: LangRules,
+	#[serde(default)]
 	pub rust: LangRules,
 	#[serde(default)]
 	pub java: LangRules,
@@ -880,6 +886,9 @@ fn merge_into(base: &mut Config, ov: Config) {
 	merge_shape_map(&mut base.shape, ov.shape);
 	merge_lang(&mut base.default, ov.default);
 	merge_lang(&mut base.ts, ov.ts);
+	merge_lang(&mut base.tsx, ov.tsx);
+	merge_lang(&mut base.js, ov.js);
+	merge_lang(&mut base.jsx, ov.jsx);
 	merge_lang(&mut base.rust, ov.rust);
 	merge_lang(&mut base.java, ov.java);
 	merge_lang(&mut base.python, ov.python);
@@ -1517,6 +1526,9 @@ impl Config {
 	pub fn for_lang(&self, lang: Lang) -> &LangRules {
 		match lang {
 			Lang::Ts => &self.ts,
+			Lang::Tsx => &self.tsx,
+			Lang::Js => &self.js,
+			Lang::Jsx => &self.jsx,
 			Lang::Rs => &self.rust,
 			Lang::Java => &self.java,
 			Lang::Python => &self.python,
@@ -1530,6 +1542,9 @@ impl Config {
 	pub fn for_lang_mut(&mut self, lang: Lang) -> &mut LangRules {
 		match lang {
 			Lang::Ts => &mut self.ts,
+			Lang::Tsx => &mut self.tsx,
+			Lang::Js => &mut self.js,
+			Lang::Jsx => &mut self.jsx,
 			Lang::Rs => &mut self.rust,
 			Lang::Java => &mut self.java,
 			Lang::Python => &mut self.python,
@@ -2041,6 +2056,26 @@ mod tests {
 		let cfg = load_default().unwrap();
 		let r = cfg.rules_for(Lang::Ts, "class").expect("ts.class present");
 		assert!(!r.rules.is_empty(), "preset must ship rules for ts.class");
+	}
+
+	#[test]
+	fn javascript_family_rule_sections_remain_distinct() {
+		let cfg = load_default().unwrap();
+		let rule_ids = |lang| {
+			cfg.rules_for(lang, "function")
+				.expect("function defaults")
+				.rules
+				.iter()
+				.filter_map(|rule| rule.id.as_deref())
+				.collect::<Vec<_>>()
+		};
+
+		assert!(rule_ids(Lang::Ts).contains(&"name-camelcase"));
+		assert!(rule_ids(Lang::Js).contains(&"name-camelcase"));
+		assert!(rule_ids(Lang::Tsx).contains(&"name-component-or-camelcase"));
+		assert!(rule_ids(Lang::Jsx).contains(&"name-component-or-camelcase"));
+		assert!(!rule_ids(Lang::Js).contains(&"name-component-or-camelcase"));
+		assert!(!rule_ids(Lang::Jsx).contains(&"name-camelcase"));
 	}
 
 	#[test]

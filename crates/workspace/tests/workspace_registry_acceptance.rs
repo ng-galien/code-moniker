@@ -109,6 +109,51 @@ fn complete_source_refresh_does_not_invoke_the_git_change_overlay() {
 }
 
 #[test]
+fn typescript_javascript_and_jsx_share_one_linkage_ecosystem() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(
+		temp.path().join("helper.ts"),
+		"export function formatLabel(value: string) { return value; }\n",
+	)
+	.expect("write TypeScript provider");
+	fs::write(
+		temp.path().join("view.tsx"),
+		"import { formatLabel } from './helper';\nexport function View() { return <span>{formatLabel('ok')}</span>; }\n",
+	)
+	.expect("write TSX consumer");
+	fs::write(
+		temp.path().join("legacy.js"),
+		"export function parseLegacy(value) { return value; }\n",
+	)
+	.expect("write JavaScript provider");
+	fs::write(
+		temp.path().join("legacy-view.jsx"),
+		"import { parseLegacy } from './legacy';\nexport function LegacyView() { return <span>{parseLegacy('ok')}</span>; }\n",
+	)
+	.expect("write JSX consumer");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("tsx-typescript-linkage")),
+		WorkspaceTransition::Ready { .. }
+	));
+	let snapshot = workspace.queries().snapshot().expect("workspace snapshot");
+	assert!(
+		reference_resolves_to_symbol(snapshot, "formatLabel", "function:formatLabel"),
+		"TSX imports must resolve to TypeScript definitions"
+	);
+	assert!(
+		reference_resolves_to_symbol(snapshot, "parseLegacy", "function:parseLegacy"),
+		"JSX imports must resolve to JavaScript definitions"
+	);
+}
+
+#[test]
 fn refresh_paths_plans_stale_unresolved_refs_when_provider_symbols_change() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");

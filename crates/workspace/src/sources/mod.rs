@@ -204,7 +204,7 @@ pub fn discover_files(
 				c: false,
 			},
 			|mut needs, lang| {
-				needs.ts |= lang == Lang::Ts;
+				needs.ts |= matches!(lang, Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx);
 				needs.c |= lang == Lang::C;
 				needs
 			},

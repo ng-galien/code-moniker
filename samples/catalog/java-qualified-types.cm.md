@@ -1,17 +1,36 @@
 ---
 name: java-qualified-types
+title: Java qualified type names
 lang: java
-blurb: Java fully qualified type names are kept only when the simple name is ambiguous
+blurb: Detect unnecessary Java package-qualified types while preserving explicit-import and nested-type cases
+learn_kind: pattern
+learn_path: languages/java/qualified-types
+learn_order: 20
+tags: java,fqn,imports,nested-types,uses-type
+learn_aliases: fqn,java-fqn
 published: true
 ---
 
 # Java qualified type names
 
-Fully qualified Java type names are useful when the simple name would be
-ambiguous. When no competing type with the same simple name is visible, the
-default rule prefers an import and the simple type name. Only package-qualified
-names count: qualifying a nested type by its outer type (`Map.Entry`,
-`Outer.Inner`) is idiomatic and stays clean.
+Fully qualified Java type names are useful when an explicit import already
+occupies the same simple name. Without that evidence, the default rule prefers
+an import and the simple type name. Only package-qualified names count:
+qualifying a nested type by its outer type (`Map.Entry`, `Outer.Inner`) is
+idiomatic and stays clean, including deeply nested types.
+
+This rule is deliberately evidence-bound. It recognises collisions carried by
+explicit `imports_symbol` references and an imported outer type that owns the
+nested target. Same-package or local types, enclosing declarations, type
+parameters, and wildcard imports are not yet sufficient ambiguity evidence;
+projects relying on those cases should disable or narrow the warning rather
+than treating it as a Java compiler verdict.
+
+The current text predicate requires at least two dots, so a legal one-segment
+package reference such as `foo.Bar` is not reported. For workspace targets,
+the rule falls back to source text and expects a lowercase second segment;
+JDK or dependency targets do not depend on that casing fallback. These are deliberate
+limits of this executable heuristic, not claims about Java syntax.
 
 ```toml cm:rules
 default_rules = false
@@ -19,7 +38,7 @@ default_rules = false
 [[java.refs.where]]
 id       = "no-unnecessary-qualified-type-name"
 severity = "warn"
-expr     = "kind != 'uses_type' OR text !~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\.' OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+expr     = "kind != 'uses_type' OR NOT (text =~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[A-Za-z_$][A-Za-z0-9_$]*\\.' AND (target ~ '**/sdk:java/**' OR target ~ '**/external_pkg:*/**' OR text =~ '^[A-Za-z_$][A-Za-z0-9_$]*\\.[a-z_$][A-Za-z0-9_$]*\\.')) OR any(source.out_refs, kind = 'imports_symbol' AND (target @> current.target OR (target.name = current.target.name AND target != current.target))) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND (target @> current.target OR (target.name = current.target.name AND target != current.target)))"
 message  = "Qualified Java type reference can use simple name `{target.name}` here; keep fully qualified names for real ambiguity."
 ```
 
@@ -162,8 +181,10 @@ public class QualifiedEnum {
 }
 ```
 
-Package qualification is syntax, not a casing convention. A legal uppercase
-package segment must still fire:
+Java package qualification is syntax, not a casing convention. The following
+multi-segment example fires because its workspace fallback still has a
+lowercase second segment; this does not remove the one-segment and workspace
+casing limits stated above:
 
 ```java cm:file=src/main/java/Com/vendor/UpperType.java
 package Com.vendor;
@@ -176,6 +197,31 @@ package com.acme.time;
 
 public class UpperPackageReference {
 	private Com.vendor.UpperType value;
+}
+```
+
+Nested ownership can span several levels. Importing the outer type makes the
+whole `Outer.Inner.Deep` chain legitimate, while spelling the package as well
+is still an unnecessary fully qualified name:
+
+```java cm:file=src/main/java/com/acme/model/NestedOwner.java
+package com.acme.model;
+
+public class NestedOwner {
+	public static class Inner {
+		public static class Deep {}
+	}
+}
+```
+
+```java cm:file=src/main/java/com/acme/time/DeepNestedUser.java
+package com.acme.time;
+
+import com.acme.model.NestedOwner;
+
+public class DeepNestedUser {
+	private NestedOwner.Inner.Deep concise;
+	private com.acme.model.NestedOwner.Inner.Deep verbose;
 }
 ```
 
@@ -248,9 +294,34 @@ public enum Color {
 }
 ```
 
+The two documented workspace fallbacks stay clean and executable: `foo.Bar`
+has only one dot, while `Com.Vendor.Type` has an uppercase second segment.
+
+```java cm:file=src/main/java/foo/Bar.java
+package foo;
+
+public class Bar {}
+```
+
+```java cm:file=src/main/java/Com/Vendor/Type.java
+package Com.Vendor;
+
+public class Type {}
+```
+
+```java cm:file=src/main/java/com/acme/time/KnownLimitations.java
+package com.acme.time;
+
+public class KnownLimitations {
+	private foo.Bar oneSegmentPackage;
+	private Com.Vendor.Type uppercaseFallbackSegment;
+}
+```
+
 ```cm:expect
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/ClockReader.java:L4
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/ClockWithUnrelatedImport.java:L6
+java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/DeepNestedUser.java:L7
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedArgument.java:L6
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedEnum.java:L4
 java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/time/QualifiedGeneric.java:L4

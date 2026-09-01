@@ -1,15 +1,26 @@
 ---
 name: react
-lang: ts
-blurb: React components, hooks, and entrypoints keep UI boundaries clear
+title: React + TypeScript client SPA conventions
+lang: tsx
+blurb: Opt-in TS/TSX conventions for components, hooks, layers, and a browser entrypoint
+learn_kind: framework
+learn_path: languages/typescript/tsx/react
+learn_order: 10
+tags: react,tsx,components,hooks,entrypoint
 published: true
 ---
 
-# React starter pack
+# React client SPA conventions
 
-This React pack keeps a small TSX application readable: component functions use
+This opt-in pack targets a conventional client-rendered React SPA. Component functions use
 PascalCase, custom hooks live in the hooks layer, pages do not call adapters
 directly, and `react-dom` stays in the browser entrypoint.
+
+The checks do not identify React components, hooks, router conventions, or
+server components semantically. Directory location, a `use[A-Z]` name, and a
+root-level entry module are configurable proxies. Next.js, Remix, React Server
+Components, and other server or routed stacks need their own project rules.
+Open the routed/server child for conservative directory and import proxies.
 
 ```toml cm:rules
 default_rules = false
@@ -17,21 +28,27 @@ default_rules = false
 [aliases]
 component_src = "moniker ~ '**/dir:components/**'"
 hook_src = "moniker ~ '**/dir:hooks/**'"
-src_entry = "source ~ '**/module:/^(main|index|client|entry)$' OR source ~ '**/module:/^(main|index|client|entry)$/**'"
+src_entry = "source ~ '**/dir:src/module:/^(main|index|client|entry)$' OR source ~ '**/dir:src/module:/^(main|index|client|entry)$/**'"
 
 src_pages = "source ~ '**/dir:pages/**'"
 tgt_adapters = "target ~ '**/dir:adapters/**'"
 tgt_react_dom = "target ~ '**/external_pkg:react-dom/**'"
 
-[[ts.function.where]]
+[[tsx.function.where]]
 id = "component-pascalcase"
-rationale = "React components are types in JSX. PascalCase makes them visually distinct from helpers and intrinsic tags."
+rationale = "A capitalized function identifier is treated as a component in JSX. This directory convention keeps component candidates distinct from helpers and intrinsic tags."
 expr = "$component_src AND NOT name =~ ^use[A-Z].* => name =~ ^[A-Z][A-Za-z0-9]*"
 message = "React component `{name}` must use PascalCase."
 
-[[ts.function.where]]
+[[tsx.function.where]]
 id = "hooks-live-in-hooks"
 rationale = "Custom hooks carry shared stateful behavior. Keeping `use*` functions in hooks/ makes reuse and testing explicit."
+expr = "name =~ ^use[A-Z].* => $hook_src"
+message = "Custom hook `{name}` must live under hooks/."
+
+[[ts.function.where]]
+id = "hooks-live-in-hooks"
+rationale = "Hooks without JSX normally live in .ts files. The same name-and-directory policy therefore belongs to both TypeScript namespaces."
 expr = "name =~ ^use[A-Z].* => $hook_src"
 message = "Custom hook `{name}` must live under hooks/."
 
@@ -41,14 +58,17 @@ rationale = "Pages should compose UI and data flow, not bind directly to transpo
 expr = "$src_pages => NOT $tgt_adapters"
 message = "React pages must not depend directly on adapters."
 
-[[ts.refs.where]]
+[[tsx.refs.where]]
 id = "react-dom-entrypoint-only"
 rationale = "`react-dom` bootstraps the application. Importing it from components or pages couples render code to the browser entrypoint."
 expr = "kind = 'imports_symbol' AND $tgt_react_dom => $src_entry"
 message = "`react-dom` imports are only allowed from the React entrypoint."
 ```
 
-The button component is lower-case, which makes JSX readers wonder whether it
+This pack deliberately treats non-hook functions below `components/` as
+component candidates. A colocated helper would therefore be a false positive;
+move helpers outside that directory or narrow the alias. The button component
+is lower-case, which makes JSX readers wonder whether it
 is an intrinsic element or an application component:
 
 ```tsx cm:file=src/components/save_button.tsx
@@ -68,6 +88,15 @@ export function useProfileCard() {
 export function ProfileCard() {
 	const profile = useProfileCard();
 	return <section>{profile.name}</section>;
+}
+```
+
+A hook that does not render JSX normally belongs to TypeScript rather than
+TSX; it must still follow the same layer policy:
+
+```ts cm:file=src/components/use_account.ts
+export function useAccount() {
+	return { id: "account-1" };
 }
 ```
 
@@ -106,9 +135,14 @@ createRoot(document.body).render(<HomePage />);
 ```
 
 ```cm:expect
-ts.function.component-pascalcase @ src/components/save_button.tsx:L1-L3
-ts.function.hooks-live-in-hooks @ src/components/profile_card.tsx:L1-L3
+tsx.function.component-pascalcase @ src/components/save_button.tsx:L1-L3
+tsx.function.hooks-live-in-hooks @ src/components/profile_card.tsx:L1-L3
+ts.function.hooks-live-in-hooks @ src/components/use_account.ts:L1-L3
 refs.pages-do-not-call-adapters @ src/pages/home.tsx:L3
-ts.refs.react-dom-entrypoint-only @ src/pages/home.tsx:L1
+tsx.refs.react-dom-entrypoint-only @ src/pages/home.tsx:L1
 refs.pages-do-not-call-adapters @ src/pages/home.tsx:L8
 ```
+
+The two page-boundary findings come from separate graph edges: the import and
+the later call are evaluated independently even though they represent the same
+architectural dependency.

@@ -6018,8 +6018,22 @@
         "end": {
           "$ref": "#/definitions/SyntaxPointDto"
         },
+        "entry_point": {
+          "description": "Grammar entry point of an injected region's root; absent on every other node.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "error": {
           "type": "boolean"
+        },
+        "has_error": {
+          "description": "Whether an injected region's own tree has errors; absent on every other node.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "kind": {
           "type": "string"
@@ -7179,5 +7193,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 22
+  "x-code-moniker-protocol-version": 23
 }

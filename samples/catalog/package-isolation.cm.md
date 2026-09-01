@@ -1,7 +1,12 @@
 ---
 name: package-isolation
+title: Package isolation
 lang: ts
 blurb: Two packages kept mutually isolated with a single symmetric disjoint rule
+learn_kind: pattern
+learn_path: architecture/package-isolation
+learn_order: 30
+tags: typescript,packages,isolation,disjoint
 published: true
 ---
 

@@ -1,8 +1,36 @@
 use super::*;
 use code_moniker_core::core::code_graph::DefAttrs;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
+use code_moniker_core::lang::{LangExtractor, ts};
 
 const SCHEME: &str = "code+moniker://";
+
+#[test]
+fn javascript_and_jsx_apply_independent_function_naming_rules() {
+	let source = "export function Widget() { return 1; }";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let presets = ts::Presets::default();
+	let js = <ts::JsLang as LangExtractor>::extract("widget.js", source, &anchor, false, &presets);
+	let jsx =
+		<ts::JsxLang as LangExtractor>::extract("widget.jsx", source, &anchor, false, &presets);
+	let cfg = crate::check::config::load_default().expect("default rules");
+
+	let js_violations = evaluate(&js, source, Lang::Js, &cfg, SCHEME).unwrap();
+	let jsx_violations = evaluate(&jsx, source, Lang::Jsx, &cfg, SCHEME).unwrap();
+
+	assert!(
+		js_violations
+			.iter()
+			.any(|violation| violation.rule_id == "js.function.name-camelcase"),
+		"PascalCase functions are not ordinary JavaScript helpers: {js_violations:?}"
+	);
+	assert!(
+		jsx_violations
+			.iter()
+			.all(|violation| violation.rule_id != "jsx.function.name-component-or-camelcase"),
+		"PascalCase functions are valid JSX components: {jsx_violations:?}"
+	);
+}
 
 fn cfg_from(s: &str) -> Config {
 	toml::from_str(s).expect("test config must parse")
@@ -2228,6 +2256,54 @@ fn current_projection_compares_ref_to_ancestor_refs() {
 	assert!(
 		v.is_empty(),
 		"ancestor import with same simple name should justify FQN: {v:?}"
+	);
+}
+
+#[test]
+fn current_projection_supports_moniker_ancestry() {
+	let cfg = cfg_from(
+		r#"
+		[[refs.where]]
+		id   = "qualified-type-allows-imported-outer"
+		expr = "kind != 'uses_type' OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target @> current.target)"
+		"#,
+	);
+	let source = "import java.util.Map;\nMap.Entry<String, String> entry;\n";
+	let root = build_root();
+	let mut graph = CodeGraph::new(root.clone(), b"module");
+	let class = child(&root, b"class", b"MapUser");
+	graph
+		.add_def(class.clone(), b"class", &root, Some(line_span(source, 2)))
+		.unwrap();
+	let map = {
+		let mut builder = MonikerBuilder::from_view(root.as_view());
+		builder.segment(b"sdk", b"java");
+		builder.segment(b"path", b"java");
+		builder.segment(b"path", b"util");
+		builder.segment(b"path", b"Map");
+		builder.build()
+	};
+	let entry = {
+		let mut builder = MonikerBuilder::from_view(map.as_view());
+		builder.segment(b"path", b"Entry");
+		builder.build()
+	};
+	graph
+		.add_ref(&root, map, b"imports_symbol", Some(line_span(source, 1)))
+		.unwrap();
+	let start = source.find("Map.Entry").unwrap() as u32;
+	graph
+		.add_ref(
+			&class,
+			entry,
+			b"uses_type",
+			Some((start, start + "Map.Entry".len() as u32)),
+		)
+		.unwrap();
+	let violations = evaluate(&graph, source, Lang::Java, &cfg, SCHEME).unwrap();
+	assert!(
+		violations.is_empty(),
+		"imported outer type should justify qualification: {violations:?}"
 	);
 }
 

@@ -1,7 +1,11 @@
 ---
 name: workspace-symbol
-lang: java
-blurb: Workspace-wide placement rules over the symbol inventory
+title: Workspace symbol placement
+blurb: Choose symbol placement, stable groups, or bounded transitive workspace paths
+learn_kind: workspace
+learn_path: workspace
+tags: workspace,symbols,placement,inventory
+learn_aliases: workspace
 published: true
 default_rules: false
 ---

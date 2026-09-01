@@ -12,6 +12,11 @@ export interface CatalogGroupNode {
 	label: string;
 	description?: string;
 	groupKind: "builtin" | "learn" | "language" | "rules";
+	/** Full learn path for recursive path groups. */
+	path?: string;
+	/** Parent learn path, absent for top-level groups. */
+	parentPath?: string;
+	groups?: CatalogGroupNode[];
 	entries?: CatalogEntry[];
 	rules?: CatalogRule[];
 }

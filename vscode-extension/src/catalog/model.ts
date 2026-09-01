@@ -16,6 +16,8 @@ export interface CatalogEntry {
 	fileName: string;
 	blurb: string;
 	langId?: string;
+	learnPath?: string;
+	learnOrder?: number;
 	level: CatalogLevel;
 	tags: string[];
 	uri?: vscode.Uri;

@@ -82,7 +82,10 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 			if (node.rules) {
 				return node.rules.map((item) => ({ kind: "rule", item }));
 			}
-			return (node.entries ?? []).map((entry) => ({ kind: "entry", entry }));
+			return [
+				...(node.groups ?? []),
+				...(node.entries ?? []).map((entry): CatalogNode => ({ kind: "entry", entry })),
+			];
 		}
 		if (node.kind === "entry") {
 			const rules = await this.repository.rulesFor(node.entry);
@@ -99,6 +102,9 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 		}
 		if (node.kind === "rule") {
 			return this.parentForRule(node.item);
+		}
+		if (node.kind === "group" && this.viewMode === "path" && node.parentPath) {
+			return pathGroupNode(node.parentPath);
 		}
 		return undefined;
 	}
@@ -142,20 +148,7 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 				groupKind: "language",
 			};
 		}
-		if (entry.category === "learn") {
-			return {
-				kind: "group",
-				id: "builtin:learn",
-				label: "Learn syntax",
-				groupKind: "learn",
-			};
-		}
-		return {
-			kind: "group",
-			id: "builtin:packs",
-			label: "Operational samples",
-			groupKind: "builtin",
-		};
+		return pathGroupNode(normalizedLearnPath(entry.learnPath));
 	}
 
 	private parentForRule(item: CatalogRule): CatalogNode {
@@ -280,30 +273,120 @@ function entryMatches(
 }
 
 function groupByPath(entries: CatalogEntry[]): CatalogNode[] {
-	const learn = entries.filter((entry) => entry.category === "learn");
-	const samples = entries.filter((entry) => entry.category === "sample");
-	const nodes: CatalogNode[] = [];
-	if (learn.length > 0) {
-		nodes.push({
-			kind: "group",
-			id: "builtin:learn",
-			label: "Learn syntax",
-			description: `${learn.length} scenario(s)`,
-			groupKind: "learn",
-			entries: learn,
-		});
+	interface MutablePathGroup {
+		node: CatalogNode & { kind: "group" };
+		children: Map<string, MutablePathGroup>;
+		descendantCount: number;
 	}
-	if (samples.length > 0) {
-		nodes.push({
-			kind: "group",
-			id: "builtin:packs",
-			label: "Operational samples",
-			description: `${samples.length} scenario(s)`,
-			groupKind: "builtin",
-			entries: samples,
-		});
+
+	const roots = new Map<string, MutablePathGroup>();
+	for (const entry of entries) {
+		const segments = normalizedLearnPath(entry.learnPath).split("/");
+		let siblings = roots;
+		let current: MutablePathGroup | undefined;
+		for (let index = 0; index < segments.length; index += 1) {
+			const path = segments.slice(0, index + 1).join("/");
+			current = siblings.get(path);
+			if (!current) {
+				current = {
+					node: pathGroupNode(path),
+					children: new Map(),
+					descendantCount: 0,
+				};
+				siblings.set(path, current);
+			}
+			current.descendantCount += 1;
+			siblings = current.children;
+		}
+		current?.node.entries?.push(entry);
 	}
-	return nodes;
+
+	const finalize = (group: MutablePathGroup): CatalogNode => {
+		const childNodes = [...group.children.values()]
+			.sort(comparePathGroups)
+			.map((child) => finalize(child)) as Array<CatalogNode & { kind: "group" }>;
+		const exactEntries = group.node.entries ?? [];
+		exactEntries.sort(compareNavigationEntries);
+		return {
+			...group.node,
+			description: `${group.descendantCount} scenario(s)`,
+			groups: childNodes,
+			entries: exactEntries,
+		};
+	};
+
+	return [...roots.values()]
+		.sort(comparePathGroups)
+		.map((root) => finalize(root));
+}
+
+function normalizedLearnPath(path: string | undefined): string {
+	return path?.split("/").filter(Boolean).join("/") || "other";
+}
+
+function pathGroupNode(path: string): CatalogNode & { kind: "group" } {
+	const segments = path.split("/");
+	const parentPath = segments.length > 1 ? segments.slice(0, -1).join("/") : undefined;
+	return {
+		kind: "group",
+		id: `learn-path:${path}`,
+		label: learnPathLabel(path),
+		groupKind: path === "other" ? "builtin" : "learn",
+		path,
+		parentPath,
+		entries: [],
+	};
+}
+
+function learnPathLabel(path: string): string {
+	if (!path.includes("/")) {
+		switch (path) {
+		case "rules":
+			return "Rules and general concepts";
+		case "languages":
+			return "Languages and frameworks";
+		case "architecture":
+			return "Architecture and design patterns";
+		case "workspace":
+			return "Workspace-wide analysis";
+		case "other":
+			return "Other samples";
+		}
+	}
+	const segment = path.split("/").at(-1) ?? path;
+	const labels: Record<string, string> = {
+		fqn: "FQN",
+		js: "JavaScript",
+		javascript: "JavaScript",
+		jsx: "JSX",
+		mvc: "MVC",
+		sql: "SQL",
+		ts: "TypeScript",
+		tsx: "TSX",
+		typescript: "TypeScript",
+	};
+	return labels[segment] ?? segment
+		.split("-")
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
+function comparePathGroups(
+	left: { node: CatalogNode & { kind: "group" } },
+	right: { node: CatalogNode & { kind: "group" } },
+): number {
+	const rootOrder = ["rules", "languages", "architecture", "workspace", "other"];
+	const leftRoot = left.node.path?.split("/", 1)[0] ?? "other";
+	const rightRoot = right.node.path?.split("/", 1)[0] ?? "other";
+	if (left.node.parentPath === undefined && right.node.parentPath === undefined) {
+		const byRoot = rootOrder.indexOf(leftRoot) - rootOrder.indexOf(rightRoot);
+		if (byRoot !== 0) {
+			return byRoot;
+		}
+	}
+	const leftOrder = Math.min(...(left.node.entries ?? []).map((entry) => entry.learnOrder ?? 1_000), 1_000);
+	const rightOrder = Math.min(...(right.node.entries ?? []).map((entry) => entry.learnOrder ?? 1_000), 1_000);
+	return leftOrder - rightOrder || left.node.label.localeCompare(right.node.label);
 }
 
 function groupByLanguage(entries: CatalogEntry[]): CatalogNode[] {
@@ -417,6 +500,11 @@ function compareEntries(
 		}
 	}
 	return left.title.localeCompare(right.title);
+}
+
+function compareNavigationEntries(left: CatalogEntry, right: CatalogEntry): number {
+	return (left.learnOrder ?? 1_000) - (right.learnOrder ?? 1_000)
+		|| left.title.localeCompare(right.title);
 }
 
 function levelRank(level: string): number {

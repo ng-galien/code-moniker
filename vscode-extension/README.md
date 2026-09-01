@@ -29,7 +29,8 @@ never modified; if the user changes rules or code, VSCode marks the notebook
 dirty and regular Save / Save As chooses where to persist the `.cm.md` file.
 
 The catalog tree can be viewed by learning path, language, or rule, and filtered
-by language or text.
+by language or text. Learning paths, topic kinds, tags, and aliases come from
+the same front matter used by the progressive CLI Learn pages.
 
 ## Icons
 
@@ -72,8 +73,9 @@ before running: the extension sends the current notebook content to
 is ignored by the interactive notebook runner.
 
 For the DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md).
-`code-moniker rules learn` prints the same executable learning topics from
-[`samples/learn/`](../samples/learn/).
+`code-moniker rules learn` renders the same corpus as a progressive Markdown
+summary. Exact topic selection opens a focused guide or executable catalog
+recipe, while `rules learn --format json` exposes the complete inventory.
 
 ## Commands
 

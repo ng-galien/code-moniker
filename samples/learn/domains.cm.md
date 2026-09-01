@@ -2,6 +2,9 @@
 name: domains
 title: Item domains, descendants, pairs, and quantifiers
 summary: Iterate item domains with any, all, none; group kinds with shape:<S>; reach nested defs with descendants(D); compare items with pairs(D) and a/b.
+learn_kind: general
+learn_path: rules/domains
+learn_order: 30
 ---
 
 # Item Domains, Descendants, Pairs, And Quantifiers

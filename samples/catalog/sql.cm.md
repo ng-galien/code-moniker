@@ -1,11 +1,16 @@
 ---
 name: sql
+title: SQL graph rules
 lang: sql
-blurb: SQL naming and relational dependency boundaries across schemas
+blurb: SQL definitions, naming, and relational dependency boundaries across schemas
+learn_kind: language
+learn_path: languages/sql
+learn_order: 90
+tags: sql,postgresql,relations,schemas
 published: true
 ---
 
-# SQL / PL/pgSQL starter pack
+# SQL graph rules
 
 The SQL extractor exposes schemas, tables, columns, constraints, triggers,
 views, routines, and the `uses_type`, `references`, `reads`, `writes`, and
@@ -13,6 +18,15 @@ views, routines, and the `uses_type`, `references`, `reads`, `writes`, and
 functions, and procedures, a `v_` prefix for views, and a schema boundary:
 objects in the `public` schema must not reach into the `private` schema
 directly.
+
+Rules evaluate the extracted `lang:sql` definitions and references. The
+on-demand syntax API is a separate, complementary surface documented by the
+PL/pgSQL child topic: it exposes bodies
+of SQL functions, procedures, and `DO` blocks as injected `sql` or `plpgsql`
+trees. PL/pgSQL blocks can themselves contain nested SQL statement or
+expression injections. Their entry points (`block`, `script`, `statement`,
+`expression`) and local `has_error` state help an agent inspect a fragment
+without confusing a malformed inner expression with the host document.
 
 ```toml cm:rules
 default_rules = false

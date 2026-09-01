@@ -2,6 +2,9 @@
 name: basics
 title: Rule blocks and expressions
 summary: Define where-rules with ids, predicates, severity, messages, and rationale.
+learn_kind: general
+learn_path: rules
+learn_aliases: rules
 ---
 
 # Rule Blocks And Expressions

@@ -2,6 +2,9 @@
 name: aggregates
 title: Numeric aggregates, entropy, and mode
 summary: Aggregate a numeric expression over a domain with sum, max, min, avg, median, percentile, stddev, var, cv, gini — plus entropy and mode over any value.
+learn_kind: general
+learn_path: rules/metrics/aggregates
+learn_order: 10
 ---
 
 # Numeric Aggregates, Entropy, And Mode

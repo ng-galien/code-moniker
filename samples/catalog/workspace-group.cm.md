@@ -1,7 +1,12 @@
 ---
 name: workspace-group
+title: Workspace group invariants
 lang: java
 blurb: Workspace-wide uniqueness and distribution rules over stable symbol groups
+learn_kind: workspace
+learn_path: workspace/groups
+learn_order: 10
+tags: workspace,groups,uniqueness,aggregates
 published: true
 default_rules: false
 ---

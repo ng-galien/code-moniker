@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -2860,6 +2860,12 @@ pub struct SyntaxNodeDto {
 	pub kind: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub language: Option<String>,
+	/// Grammar entry point of an injected region's root; absent on every other node.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub entry_point: Option<String>,
+	/// Whether an injected region's own tree has errors; absent on every other node.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub has_error: Option<bool>,
 	pub named: bool,
 	pub error: bool,
 	pub missing: bool,
@@ -4192,6 +4198,15 @@ fn format_syntax_node(out: &mut String, node: &SyntaxNodeDto, depth: usize) {
 		.as_deref()
 		.map(|language| format!(" lang:{language}"))
 		.unwrap_or_default();
+	let entry_point = node
+		.entry_point
+		.as_deref()
+		.map(|entry_point| format!(" entry:{entry_point}"))
+		.unwrap_or_default();
+	let injected_error = node
+		.has_error
+		.map(|has_error| format!(" injected_error:{has_error}"))
+		.unwrap_or_default();
 	let marker = if node.error {
 		" error"
 	} else if node.missing {
@@ -4206,10 +4221,12 @@ fn format_syntax_node(out: &mut String, node: &SyntaxNodeDto, depth: usize) {
 		.unwrap_or_default();
 	let _ = writeln!(
 		out,
-		"{}- {}{} {}:{}-{}:{}{}{}",
+		"{}- {}{}{}{} {}:{}-{}:{}{}{}",
 		"  ".repeat(depth),
 		node.kind,
 		language,
+		entry_point,
+		injected_error,
 		node.start.line,
 		node.start.column,
 		node.end.line,
@@ -6643,7 +6660,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 22);
+		assert_eq!(PROTOCOL_VERSION, 23);
 	}
 
 	#[test]

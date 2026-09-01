@@ -4,16 +4,23 @@ Code Moniker can return a bounded Tree-sitter syntax tree directly from source
 text, or for one indexed source file or symbol. Parsing happens only for the
 request; the source and tree are not stored in the workspace index.
 
-Supported language tags are `rs`, `ts`, `java`, `python`, `go`, `c`, `cs`,
-`sql`, and standalone `plpgsql`. The request delegates parsing to the same
-language SDK contract as semantic extraction. A language produces one
-`ParsedDocument`; both the graph extractor and the AST renderer consume it.
+Supported language tags are `rs`, `ts`, `tsx`, `js`, `jsx`, `java`, `python`,
+`go`, `c`, `cs`, `sql`, and standalone `plpgsql`. The request delegates parsing
+to the same language SDK contract as semantic extraction. A language produces
+one `ParsedDocument`; both the graph extractor and the AST renderer consume it.
 
-`ParsedDocument` can include embedded-language trees. PostgreSQL functions
-declared with `LANGUAGE plpgsql` or `LANGUAGE sql` therefore expose their body
-below the host `dollar_quoted_string` instead of leaving it as an opaque leaf.
-The injected tree root carries a language marker, for example `[plpgsql]`, and
+`ParsedDocument` can include embedded-language trees. PostgreSQL functions,
+procedures, and `DO` blocks declared with `LANGUAGE plpgsql` or `LANGUAGE sql`
+therefore expose their body below the host `dollar_quoted_string` instead of
+leaving it as an opaque leaf. PL/pgSQL bodies also expose nested SQL statement
+and expression regions. An injected root carries its language, entry point and
+local error state, for example `[plpgsql,entry:block,injected-error:false]`;
 all byte ranges and positions remain relative to the original `.sql` source.
+
+Entry points describe how a region was parsed: `script` for a SQL body,
+`block` for PL/pgSQL, `statement` for a complete nested query, and `expression`
+for an expression fragment. `has_error` belongs to that injected region, so an
+inner SQL error does not make the containing host tree invalid.
 
 ## MCP client
 
@@ -161,6 +168,8 @@ interface SyntaxTreeResult {
 interface SyntaxNodeDto {
 	kind: string;
 	language?: string | null;
+	entry_point?: "script" | "block" | "statement" | "expression" | null;
+	has_error?: boolean | null;
 	named: boolean;
 	error: boolean;
 	missing: boolean;
@@ -172,11 +181,13 @@ interface SyntaxNodeDto {
 }
 ```
 
-`language` is omitted for ordinary nodes and present at the root of an
-embedded-language tree.
+`language`, `entry_point`, and `has_error` are omitted for ordinary nodes and
+present at the root of an injected region. `entry_point` identifies the grammar
+contract used for that region; `has_error` reports the injected tree's own parse
+state independently from the containing document.
 
-The TypeScript client currently exposes this through `queryData`; there is no
-separate `client.syntax.tree()` convenience facade.
+The TypeScript client exposes the same contract through `client.syntax.tree()`
+and `client.syntax.parse()`.
 
 ## Errors
 

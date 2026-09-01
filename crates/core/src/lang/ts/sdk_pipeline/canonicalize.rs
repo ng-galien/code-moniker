@@ -4,14 +4,18 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::super::kinds;
 
-pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
-	module_builder_for_path(anchor, uri).build()
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str, language: &[u8]) -> Moniker {
+	module_builder_for_path(anchor, uri, language).build()
 }
 
-pub(super) fn module_builder_for_path(anchor: &Moniker, path: &str) -> MonikerBuilder {
+pub(super) fn module_builder_for_path(
+	anchor: &Moniker,
+	path: &str,
+	language: &[u8],
+) -> MonikerBuilder {
 	let stem = strip_known_extension(path.trim_start_matches("./"));
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
-	builder.segment(crate::lang::kinds::LANG, b"ts");
+	builder.segment(crate::lang::kinds::LANG, language);
 	append_module_segments(&mut builder, stem);
 	builder
 }
@@ -22,7 +26,7 @@ pub(super) fn append_module_segments(b: &mut MonikerBuilder, path: &str) {
 
 pub(super) fn strip_known_extension(uri: &str) -> &str {
 	const EXTS: &[&str] = &[
-		".d.ts", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
+		".d.mts", ".d.cts", ".d.ts", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
 	];
 	EXTS.iter()
 		.find_map(|ext| uri.strip_suffix(ext))
@@ -85,5 +89,17 @@ fn parameter_pattern_name(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 			node.utf8_text(source).unwrap_or("").as_bytes().to_vec()
 		}
 		_ => Vec::new(),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::strip_known_extension;
+
+	#[test]
+	fn declaration_module_extensions_drop_the_complete_suffix() {
+		for uri in ["foo.d.ts", "foo.d.mts", "foo.d.cts"] {
+			assert_eq!(strip_known_extension(uri), "foo", "{uri}");
+		}
 	}
 }

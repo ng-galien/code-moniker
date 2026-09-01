@@ -1,12 +1,15 @@
 ---
 name: relations
 title: Moniker relation operators
-summary: Compare a moniker to a literal URI with @> (ancestor of), <@ (descendant of), and ?= (bind_match).
+summary: Compare moniker literals or projections with @> (ancestor of), <@ (descendant of), and ?= (bind_match).
+learn_kind: general
+learn_path: rules/relations
+learn_order: 40
 ---
 
 # Moniker Relation Operators
 
-Besides path matching with `~`, the DSL relates a moniker to a **literal URI**:
+Besides path matching with `~`, the DSL relates moniker values:
 
 | Op | Meaning |
 | -- | ------- |
@@ -14,11 +17,13 @@ Besides path matching with `~`, the DSL relates a moniker to a **literal URI**:
 | `a <@ b` | `a` is a descendant of `b` |
 | `a ?= b` | `bind_match`: equal up to the last segment, which matches modulo call arity and bare name |
 
-The right-hand side is a full `code+moniker://` URI, not a projection. `a <@ b`
-is exactly `~ '<segments-of-b>/**'`. `?=` is the interesting one: it ignores
-the trailing call arity, so a bare `method:alpha` binds the extracted
-`method:alpha()` — this is how an arity-bearing call site resolves to its bare
-definition across files.
+The right-hand side may be a full `code+moniker://` URI or another moniker
+projection. Inside a reference quantifier, `target @> current.target` asks
+whether the iterated target owns the outer reference target; this is useful for
+recognizing an imported outer type behind a nested type reference. With a
+literal, `a <@ b` is exactly `~ '<segments-of-b>/**'`. `?=` ignores the trailing
+call arity, so a bare `method:alpha` binds the extracted `method:alpha()` — this
+is how an arity-bearing call site resolves to its bare definition across files.
 
 ```toml cm:rules
 default_rules = false

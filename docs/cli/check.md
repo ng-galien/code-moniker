@@ -207,6 +207,11 @@ message = "Pick a function name that describes the behavior."
 '
 ```
 
+TypeScript-family files share extraction and linkage, but not language rule
+sections: use `ts.*`, `tsx.*`, `js.*`, or `jsx.*` for variant-specific policy.
+A `ts.*` rule therefore does not apply to JavaScript. Put genuinely shared
+policy under `default.*` or a top-level `shape.*` section.
+
 Machine-readable output:
 
 ```sh
@@ -525,19 +530,44 @@ rules or aliases. `rules show` lists every declared fragment and reports
 `active_rules` separately from `declared_rules`, so disabled fragments and
 profile-filtered rules do not disappear silently.
 
-Use `rules learn` to print focused DSL learning topics. These are short,
-copyable executable scenarios for learning the expression language; operational
-catalog scenarios live under `samples/catalog/`.
+Use `rules learn` as the CLI knowledge base. With no topic, it renders a short
+Markdown summary with four entry points: general rules, languages and
+frameworks, architecture, and workspace-wide analysis. Each focused page
+reveals only its immediate children. For example, `languages` reveals Java,
+while `java` reveals Spring, qualified types, and Java layer boundaries. Selecting an
+executable recipe prints its complete canonical scenario, including source
+files and expected findings.
 
 ```sh
 code-moniker rules learn
+code-moniker rules learn --format json
+code-moniker rules learn rules
+code-moniker rules learn languages
+code-moniker rules learn architecture
+code-moniker rules learn workspace
 code-moniker rules learn refs
-code-moniker rules learn paths --format json
+code-moniker rules learn java-qualified-types
+code-moniker rules learn spring
+code-moniker rules learn tsx
+code-moniker rules learn react
+code-moniker rules learn plpgsql
+code-moniker rules learn --format json
 ```
 
-Known topics are `basics`, `taxonomy`, `paths`, `fragments`, `refs`,
-`collections`, `domains`, `metrics`, `aggregates`, `relations`, `directives`,
-and `profiles`.
+The general-rule topics are `basics`, `taxonomy`, `paths`, `fragments`,
+`refs`, `collections`, `domains`, `metrics`, `aggregates`, `relations`,
+`directives`, and `profiles`. Catalog names and documented aliases are also
+valid selectors: `rules` opens the general-rule section, `workspace` opens
+workspace symbol rules, `spring` opens the Spring child under Java, `fqn` opens
+the Java qualified-types matrix, `tsx` opens the framework-neutral TSX page,
+and `plpgsql` opens the injected-syntax child under SQL.
+Unknown topics point back to the general summary instead of dumping a stale
+hard-coded list.
+
+`learn_path` metadata provides the progressive hierarchy without moving the
+canonical scenario files. A topic such as `languages/java/qualified-types`
+appears under Java even though its executable document remains
+`samples/catalog/java-qualified-types.cm.md`.
 
 ### Evaluate a rules fragment against a snippet
 
@@ -766,23 +796,44 @@ suppressions. `workspace.path` computes confidence-aware bounded paths over
 the linked index. SCC/cycle rules, unbounded closure, dataflow and historical
 analysis still require another analysis surface.
 
-For copyable language-specific starting points, see the commented TOML
-samples:
+Every copyable starting point below is available both as its canonical scenario
+and through `code-moniker rules learn <topic>`:
 
-| Language | Sample |
-| -------- | ------ |
-| Architecture patterns | [architecture.cm.md](../../samples/catalog/architecture.cm.md) |
-| Test guardrails | [test-guardrails.cm.md](../../samples/catalog/test-guardrails.cm.md) |
-| Workspace symbol inventory | [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) |
-| Workspace grouping and uniqueness | [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) |
-| Transitive workspace paths | [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) |
-| TypeScript / JavaScript | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
-| Rust | [rust.cm.md](../../samples/catalog/rust.cm.md) |
-| Java | [java.cm.md](../../samples/catalog/java.cm.md) |
-| Python | [python.cm.md](../../samples/catalog/python.cm.md) |
-| Go | [go.cm.md](../../samples/catalog/go.cm.md) |
-| C# | [csharp.cm.md](../../samples/catalog/csharp.cm.md) |
-| SQL / PL/pgSQL | [sql.cm.md](../../samples/catalog/sql.cm.md) |
+| Area | Learn command | Canonical scenario |
+| ---- | ------------- | ------------------ |
+| Architecture index | `rules learn architecture` | [architecture.cm.md](../../samples/catalog/architecture.cm.md) |
+| Executable architecture patterns | `rules learn architecture-patterns` | [architecture-patterns.cm.md](../../samples/catalog/architecture-patterns.cm.md) |
+| Quality and testing | `rules learn quality` | [quality.cm.md](../../samples/catalog/quality.cm.md) |
+| Test guardrails | `rules learn test-guardrails` | [test-guardrails.cm.md](../../samples/catalog/test-guardrails.cm.md) |
+| Workspace symbol inventory | `rules learn workspace-symbol` | [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) |
+| Workspace grouping and uniqueness | `rules learn workspace-group` | [workspace-group.cm.md](../../samples/catalog/workspace-group.cm.md) |
+| Transitive workspace paths | `rules learn workspace-path` | [workspace-path.cm.md](../../samples/catalog/workspace-path.cm.md) |
+| TypeScript | `rules learn typescript` | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
+| TypeScript Node backends | `rules learn node` | [typescript-node.cm.md](../../samples/catalog/typescript-node.cm.md) |
+| TypeScript tests | `rules learn typescript-testing` | [typescript-testing.cm.md](../../samples/catalog/typescript-testing.cm.md) |
+| JavaScript | `rules learn javascript` | [javascript.cm.md](../../samples/catalog/javascript.cm.md) |
+| TSX | `rules learn tsx` | [tsx.cm.md](../../samples/catalog/tsx.cm.md) |
+| React + TypeScript client SPA | `rules learn react` | [react.cm.md](../../samples/catalog/react.cm.md) |
+| Routed/server React | `rules learn react-routed-server` | [react-routed-server.cm.md](../../samples/catalog/react-routed-server.cm.md) |
+| JSX | `rules learn jsx` | [jsx.cm.md](../../samples/catalog/jsx.cm.md) |
+| React with JavaScript/JSX | `rules learn react-jsx` | [react-jsx.cm.md](../../samples/catalog/react-jsx.cm.md) |
+| Rust | `rules learn rust` | [rust.cm.md](../../samples/catalog/rust.cm.md) |
+| Java | `rules learn java` | [java.cm.md](../../samples/catalog/java.cm.md) |
+| Spring | `rules learn spring` | [spring.cm.md](../../samples/catalog/spring.cm.md) |
+| Spring stereotypes and injection | `rules learn spring-stereotypes-injection` | [spring-stereotypes-injection.cm.md](../../samples/catalog/spring-stereotypes-injection.cm.md) |
+| Spring MVC and layering | `rules learn spring-mvc-layering` | [spring-mvc-layering.cm.md](../../samples/catalog/spring-mvc-layering.cm.md) |
+| Spring persistence | `rules learn spring-persistence` | [spring-persistence.cm.md](../../samples/catalog/spring-persistence.cm.md) |
+| Spring transactions and proxies | `rules learn spring-transactions-proxies` | [spring-transactions-proxies.cm.md](../../samples/catalog/spring-transactions-proxies.cm.md) |
+| Spring testing | `rules learn spring-testing` | [spring-testing.cm.md](../../samples/catalog/spring-testing.cm.md) |
+| Spring complete reference | `rules learn spring-reference` | [spring-reference.cm.md](../../samples/catalog/spring-reference.cm.md) |
+| Java and JUnit testing | `rules learn junit` | [java-testing.cm.md](../../samples/catalog/java-testing.cm.md) |
+| Java FQN and nested types | `rules learn java-qualified-types` | [java-qualified-types.cm.md](../../samples/catalog/java-qualified-types.cm.md) |
+| Python | `rules learn python` | [python.cm.md](../../samples/catalog/python.cm.md) |
+| Go | `rules learn go` | [go.cm.md](../../samples/catalog/go.cm.md) |
+| C | `rules learn c` | [c.cm.md](../../samples/catalog/c.cm.md) |
+| C# | `rules learn csharp` | [csharp.cm.md](../../samples/catalog/csharp.cm.md) |
+| SQL graph rules | `rules learn sql` | [sql.cm.md](../../samples/catalog/sql.cm.md) |
+| PL/pgSQL syntax trees | `rules learn plpgsql` | [plpgsql.cm.md](../../samples/catalog/plpgsql.cm.md) |
 
 Literature-inspired samples encode structural rules from canonical software
 engineering literature. They are community-authored examples; attribution and
@@ -864,7 +915,7 @@ looks like an ordinary method call.
 
 This is a useful check example because the mistake is not local to one
 syntax node. The executable Java sample is the copy-paste source of truth:
-[samples/catalog/java.cm.md](../../samples/catalog/java.cm.md). It contains the
+[samples/catalog/spring-reference.cm.md](../../samples/catalog/spring-reference.cm.md). It contains the
 method-level and class-level proxy checks with the same annotation set.
 
 Those rules first select proxy-advised declarations from annotation refs,

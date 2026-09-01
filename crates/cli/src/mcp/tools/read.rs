@@ -459,7 +459,7 @@ struct SyntaxNodeTemplate<'a> {
 	start_column: u32,
 	end_line: u32,
 	end_column: u32,
-	flags: Vec<&'a str>,
+	flags: Vec<String>,
 	text: Option<String>,
 }
 
@@ -470,16 +470,22 @@ fn collect_syntax_nodes<'a>(
 ) {
 	let mut flags = Vec::new();
 	if let Some(language) = &node.language {
-		flags.push(language.as_str());
+		flags.push(language.clone());
+	}
+	if let Some(entry_point) = &node.entry_point {
+		flags.push(format!("entry:{entry_point}"));
+	}
+	if let Some(has_error) = node.has_error {
+		flags.push(format!("injected-error:{has_error}"));
 	}
 	if !node.named {
-		flags.push("anonymous");
+		flags.push("anonymous".to_string());
 	}
 	if node.error {
-		flags.push("error");
+		flags.push("error".to_string());
 	}
 	if node.missing {
-		flags.push("missing");
+		flags.push("missing".to_string());
 	}
 	let text = node.text.as_deref().map(|text| format!("{text:?}"));
 	nodes.push(SyntaxNodeTemplate {

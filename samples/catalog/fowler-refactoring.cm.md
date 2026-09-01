@@ -1,7 +1,12 @@
 ---
 name: fowler-refactoring
+title: Fowler refactoring smells
 lang: java
 blurb: Fowler's code smells explained with small Java examples
+learn_kind: pattern
+learn_path: rules/quality/fowler-refactoring
+learn_order: 10
+tags: java,fowler,refactoring,code-smells
 published: true
 ---
 

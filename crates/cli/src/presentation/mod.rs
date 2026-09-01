@@ -110,6 +110,7 @@ fn render_value(
 		compact_presentation_text(value, compact_text, &text_scheme, &text_monikers)
 	});
 	environment.add_filter("code_block", markdown_code_block);
+	environment.add_filter("shell_code_block", markdown_shell_code_block);
 	environment.add_filter("json_code_block", markdown_json_code_block);
 	environment.add_filter("md_text", markdown_text);
 	environment.add_filter("md_heading", markdown_heading);
@@ -121,13 +122,21 @@ fn render_value(
 }
 
 fn markdown_code_block(value: String) -> String {
+	markdown_fenced_code_block(value, "text")
+}
+
+fn markdown_shell_code_block(value: String) -> String {
+	markdown_fenced_code_block(value, "sh")
+}
+
+fn markdown_fenced_code_block(value: String, language: &str) -> String {
 	let longest_run = value
 		.split(|character| character != '`')
 		.map(str::len)
 		.max()
 		.unwrap_or(0);
 	let fence = "`".repeat(longest_run.saturating_add(1).max(3));
-	format!("{fence}text\n{}\n{fence}", value.trim_end())
+	format!("{fence}{language}\n{}\n{fence}", value.trim_end())
 }
 
 fn markdown_json_code_block(value: minijinja::Value) -> Result<String, minijinja::Error> {
@@ -414,6 +423,14 @@ pub(crate) mod tests {
 			(
 				"relationships/usages.md.j2",
 				include_str!("../../templates/relationships/usages.md.j2"),
+			),
+			(
+				"rules/learn-index.md.j2",
+				include_str!("../../templates/rules/learn-index.md.j2"),
+			),
+			(
+				"rules/learn-topic.md.j2",
+				include_str!("../../templates/rules/learn-topic.md.j2"),
 			),
 			(
 				"rules/mcp-list.md.j2",

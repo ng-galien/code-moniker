@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use code_moniker_core::lang::{Lang, ParsedDocument, SyntaxInjection, parse_source};
+use code_moniker_core::lang::{
+	Lang, ParsedDocument, SyntaxEntryPoint, SyntaxInjection, parse_source,
+};
 use code_moniker_query::{
 	QueryError, QueryResponse, QueryResult, SYNTAX_PARSE_MAX_SOURCE_BYTES,
 	SYNTAX_TREE_MAX_TEXT_CHARS, SyntaxNodeDto, SyntaxParseQuery, SyntaxPointDto, SyntaxTreeQuery,
@@ -148,10 +150,19 @@ fn render_document(
 		.ok_or_else(|| {
 			QueryError::new("syntax_tree_empty", "syntax tree has no renderable root")
 		})?;
+	// Only routine bodies fold their errors into the document's: an embedded statement or
+	// expression region carries PL/pgSQL-only clauses (`INTO STRICT v`) the SQL grammar cannot
+	// read — plpgsql itself strips them before parsing — so its errors stay region-local facts.
 	let has_error = root_node.has_error()
 		|| document
 			.injections()
 			.iter()
+			.filter(|injection| {
+				matches!(
+					injection.entry_point(),
+					SyntaxEntryPoint::Block | SyntaxEntryPoint::Script
+				)
+			})
 			.filter(|injection| {
 				let range = injection.host_byte_range();
 				range.start >= root_node.start_byte() && range.end <= root_node.end_byte()
@@ -388,6 +399,24 @@ fn node_line_range(node: tree_sitter::Node<'_>) -> (u32, u32) {
 	)
 }
 
+/// The nodes an injected host node stands in for: `dollar_quoted_string` carries a routine body,
+/// `sql_expression` a SQL region the PL/pgSQL grammar keeps opaque.
+fn document_injection<'a>(
+	document: &'a ParsedDocument,
+	node: tree_sitter::Node<'_>,
+) -> Option<&'a SyntaxInjection> {
+	matches!(node.kind(), "dollar_quoted_string" | "sql_expression")
+		.then(|| document.injection_for_host(node.start_byte()..node.end_byte()))
+		.flatten()
+}
+
+fn injection_total_nodes(injection: &SyntaxInjection, named_only: bool) -> usize {
+	injection.nested().iter().fold(
+		count_nodes(injection.render_root(), named_only),
+		|total, nested| total.saturating_add(injection_total_nodes(nested, named_only)),
+	)
+}
+
 fn count_document_nodes(
 	document: &ParsedDocument,
 	node: tree_sitter::Node<'_>,
@@ -397,10 +426,8 @@ fn count_document_nodes(
 	let mut pending = vec![node];
 	while let Some(node) = pending.pop() {
 		count = count.saturating_add(1);
-		if node.kind() == "dollar_quoted_string"
-			&& let Some(injection) = document.injection_for_host(node.start_byte()..node.end_byte())
-		{
-			count = count.saturating_add(count_nodes(injection.tree().root_node(), named_only));
+		if let Some(injection) = document_injection(document, node) {
+			count = count.saturating_add(injection_total_nodes(injection, named_only));
 		}
 		pending.extend(children(node, named_only));
 	}
@@ -425,9 +452,7 @@ fn build_document_node(
 	depth: usize,
 	emitted: &mut usize,
 ) -> Option<SyntaxNodeDto> {
-	let injection = (node.kind() == "dollar_quoted_string")
-		.then(|| document.injection_for_host(node.start_byte()..node.end_byte()))
-		.flatten();
+	let injection = document_injection(document, node);
 	if *emitted >= options.max_nodes {
 		return None;
 	}
@@ -458,6 +483,8 @@ fn build_document_node(
 	Some(SyntaxNodeDto {
 		kind: node.kind().to_string(),
 		language: None,
+		entry_point: None,
+		has_error: None,
 		named: node.is_named(),
 		error: node.is_error(),
 		missing: node.is_missing(),
@@ -484,14 +511,20 @@ fn build_injection_node(
 ) -> Option<SyntaxNodeDto> {
 	let content_range = injection.content_byte_range();
 	let content = host_source.get(content_range.clone())?;
-	let origin = source_origin(host_source, content_range.start, injection.language());
+	let origin = SourceOrigin {
+		prefix: injection.analysis_prefix(),
+		..source_origin(host_source, content_range.start, injection.language())
+	};
+	let analysis = injection.analysis_source().map(str::to_string);
 	build_injected_tree_node(
-		injection.tree().root_node(),
-		content,
+		injection,
+		injection.render_root(),
+		analysis.as_deref().unwrap_or(content),
 		options,
 		depth,
 		emitted,
 		origin,
+		true,
 	)
 }
 
@@ -501,45 +534,103 @@ struct SourceOrigin {
 	row: usize,
 	column: usize,
 	language: &'static str,
+	/// Byte length of the injection's synthetic analysis prefix ("SELECT "); never spans a line.
+	prefix: usize,
 }
 
 fn source_origin(source: &str, byte: usize, language: &'static str) -> SourceOrigin {
-	let prefix = source.get(..byte).unwrap_or_default();
-	let row = prefix.bytes().filter(|byte| *byte == b'\n').count();
-	let column = prefix
+	let leading = source.get(..byte).unwrap_or_default();
+	let row = leading.bytes().filter(|byte| *byte == b'\n').count();
+	let column = leading
 		.rsplit_once('\n')
 		.map(|(_, tail)| tail.len())
-		.unwrap_or(prefix.len());
+		.unwrap_or(leading.len());
 	SourceOrigin {
 		byte,
 		row,
 		column,
 		language,
+		prefix: 0,
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_injected_tree_node(
+	injection: &SyntaxInjection,
 	node: tree_sitter::Node<'_>,
 	source: &str,
 	options: SyntaxRenderOptions,
 	depth: usize,
 	emitted: &mut usize,
 	origin: SourceOrigin,
+	root: bool,
 ) -> Option<SyntaxNodeDto> {
+	let document_start = origin
+		.byte
+		.saturating_add(node.start_byte().saturating_sub(origin.prefix));
+	let document_end = origin
+		.byte
+		.saturating_add(node.end_byte().saturating_sub(origin.prefix));
+	let nested = (node.kind() == "sql_expression")
+		.then(|| injection.nested_for_host(document_start..document_end))
+		.flatten();
 	if *emitted >= options.max_nodes {
 		return None;
 	}
 	*emitted += 1;
 	let eligible_children = children(node, options.named_only);
-	let text = (options.include_text && eligible_children.is_empty())
+	let text = (options.include_text && eligible_children.is_empty() && nested.is_none())
 		.then(|| bounded_text(node, source, options.max_text_chars))
 		.flatten();
 	let mut rendered_children = Vec::new();
 	if depth < options.max_depth {
+		if let Some(nested) = nested {
+			let content_range = nested.content_byte_range();
+			let local_range = content_range.start.saturating_sub(origin.byte)
+				..content_range.end.saturating_sub(origin.byte);
+			if source.get(local_range.clone()).is_some() {
+				// Positions inside `source` are relative to the parent injection's content;
+				// chain them onto the parent origin so the nested origin speaks document
+				// coordinates like every other.
+				let local = source_origin(source, local_range.start, nested.language());
+				let nested_origin = SourceOrigin {
+					byte: content_range.start,
+					row: origin.row.saturating_add(local.row),
+					column: if local.row == 0 {
+						origin.column.saturating_add(local.column)
+					} else {
+						local.column
+					},
+					language: nested.language(),
+					prefix: nested.analysis_prefix(),
+				};
+				let content = &source[local_range];
+				let analysis = nested.analysis_source().map(str::to_string);
+				if let Some(child) = build_injected_tree_node(
+					nested,
+					nested.render_root(),
+					analysis.as_deref().unwrap_or(content),
+					options,
+					depth + 1,
+					emitted,
+					nested_origin,
+					true,
+				) {
+					rendered_children.push(child);
+				}
+			}
+		}
 		for child in eligible_children {
-			let Some(child) =
-				build_injected_tree_node(child, source, options, depth + 1, emitted, origin)
-			else {
+			let Some(child) = build_injected_tree_node(
+				injection,
+				child,
+				source,
+				options,
+				depth + 1,
+				emitted,
+				origin,
+				false,
+			) else {
 				break;
 			};
 			rendered_children.push(child);
@@ -549,14 +640,13 @@ fn build_injected_tree_node(
 	let end = translated_point(node.end_position(), origin);
 	Some(SyntaxNodeDto {
 		kind: node.kind().to_string(),
-		language: node.parent().is_none().then(|| origin.language.to_string()),
+		language: root.then(|| origin.language.to_string()),
+		entry_point: root.then(|| injection.entry_point().tag().to_string()),
+		has_error: root.then(|| node.has_error()),
 		named: node.is_named(),
 		error: node.is_error(),
 		missing: node.is_missing(),
-		byte_range: (
-			origin.byte.saturating_add(node.start_byte()),
-			origin.byte.saturating_add(node.end_byte()),
-		),
+		byte_range: (document_start, document_end),
 		start,
 		end,
 		text,
@@ -568,7 +658,9 @@ fn translated_point(point: tree_sitter::Point, origin: SourceOrigin) -> SyntaxPo
 	SyntaxPointDto {
 		line: saturating_u32(origin.row.saturating_add(point.row)).saturating_add(1),
 		column: saturating_u32(if point.row == 0 {
-			origin.column.saturating_add(point.column)
+			origin
+				.column
+				.saturating_add(point.column.saturating_sub(origin.prefix))
 		} else {
 			point.column
 		}),

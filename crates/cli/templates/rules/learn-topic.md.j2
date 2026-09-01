@@ -1,0 +1,43 @@
+# {{ title | md_heading }}
+
+{% if children %}
+{{ summary | md_block }}
+
+## In this section
+
+{% for child in children %}
+### {{ child.title | md_heading }}
+
+{{ child.summary | md_block }}
+
+{{ ("code-moniker rules learn " ~ child.selector) | shell_code_block }}
+
+{% endfor %}
+{% endif %}
+{{ body }}
+## Run the documented scenario
+
+From a Code Moniker repository checkout, replay the rules, sources, and exact
+expected findings shown above:
+
+{{ try_command | shell_code_block }}
+
+{% if parent %}
+## Parent section
+
+### {{ parent.title | md_heading }}
+
+{{ parent.summary | md_block }}
+
+{{ ("code-moniker rules learn " ~ parent.selector) | shell_code_block }}
+
+{% else %}
+## Parent section
+
+### Learn Code Moniker
+
+Return to the four main documentation areas.
+
+{{ "code-moniker rules learn" | shell_code_block }}
+
+{% endif %}

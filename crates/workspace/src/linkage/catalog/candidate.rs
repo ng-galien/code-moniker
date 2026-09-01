@@ -144,6 +144,7 @@ impl CandidateIndexes {
 		symbol: SymbolOrdinal,
 		candidate: &LinkageCandidate<'_>,
 	) {
+		let lang = lang.ecosystem();
 		self.by_moniker.insert(candidate.moniker.clone(), symbol);
 		for key in candidate_keys(candidate) {
 			if is_global_candidate(candidate) {
@@ -164,6 +165,7 @@ impl CandidateIndexes {
 		ordinal: SymbolOrdinal,
 		entry: &LinkageCandidate<'_>,
 	) {
+		let language = language.ecosystem();
 		if self
 			.by_moniker
 			.get(entry.moniker)
@@ -197,7 +199,7 @@ impl CandidateIndexes {
 		lang: Lang,
 		key: &[u8],
 	) -> Option<&SymbolSet> {
-		self.by_language_name.get(&lang)?.get(key)
+		self.by_language_name.get(&lang.ecosystem())?.get(key)
 	}
 
 	pub(in crate::linkage) fn symbols_by_source_key(
