@@ -11,6 +11,47 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-01
+
+This release makes language-specific policy and progressive, executable
+documentation first-class product contracts. The VS Code extension keeps its
+separate version and release channel and is not published by the `v0.10.0` tag.
+
+### Added
+
+- **TypeScript-family policies are independently addressable.** TypeScript,
+  TSX, JavaScript, and JSX keep distinct moniker languages and rule namespaces
+  while sharing one parser, resolution, and workspace-linkage ecosystem.
+- **PostgreSQL procedural bodies are parsed with public injection metadata.**
+  SQL extraction recognizes PL/pgSQL functions, procedures, and `DO` bodies,
+  including `LANGUAGE` clauses whose identifier or string literal appears
+  before or after the body.
+- **Learn is a progressive executable knowledge base.** `rules learn` renders
+  Markdown indexes and focused topics for rules, languages, frameworks,
+  architecture, quality, and workspace analysis. Forty catalog scenarios,
+  thirteen focused Learn documents, aliases, JSON metadata, ordering, Cargo
+  packaging, and recursive VS Code navigation share the same source material.
+- **Major stacks have focused rule recipes.** The catalog now separates TS,
+  TSX, JS, JSX, React client and server boundaries, Node stacks, Java, Spring
+  layering, persistence, transactions, testing, C, SQL, and PL/pgSQL guidance.
+
+### Changed
+
+- **Java qualified-type analysis distinguishes legitimate nested types.**
+  Fully qualified source references, explicit imports, dependency targets, and
+  nested type paths are classified more precisely, with documented conservative
+  fallbacks for unresolved workspace targets.
+- **The packaged Code Moniker skill routes through live Learn topics.** Its
+  smaller onboarding, development, guard, and review postures use the CLI
+  knowledge base instead of carrying a parallel copy of language and rules
+  documentation.
+
+### Fixed
+
+- **The Node toolchain no longer resolves the vulnerable js-yaml release.**
+  The transitive dependency is updated to a patched version for
+  `GHSA-5p4m-2wfm-xmqj`.
+
 ## [0.9.2] - 2026-08-27
 
 ### Added
