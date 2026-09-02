@@ -44,7 +44,7 @@ impl LiveWorkspaceWatcher {
 		let classifier = WorkspaceEventClassifier::new(roots);
 		let (tx, worker) = watcher_event_channel(publish);
 		let (watchers, warnings) = watch_target_paths(backend, &classifier, &tx, &watch_targets);
-		let watched_paths = watchers.len();
+		let watched_paths = if watchers.is_empty() { 0 } else { watch_targets.len() - warnings.len() };
 		ensure_all_watch_targets_registered(watch_targets.len(), watched_paths, &warnings)?;
 
 		Ok(Self {
@@ -101,11 +101,7 @@ enum WorkspaceWatcherBackendKind {
 }
 
 fn default_watcher_backend() -> WorkspaceWatcherBackendKind {
-	if cfg!(test) {
-		WorkspaceWatcherBackendKind::Recommended
-	} else {
-		WorkspaceWatcherBackendKind::PollingProduction
-	}
+	WorkspaceWatcherBackendKind::Recommended
 }
 
 fn watcher_event_channel<F>(publish: F) -> (mpsc::Sender<WorkspaceLiveEvent>, JoinHandle<()>)
@@ -123,12 +119,22 @@ fn new_watcher(
 	tx: mpsc::Sender<WorkspaceLiveEvent>,
 ) -> anyhow::Result<WorkspaceWatcherBackend> {
 	match backend {
-		WorkspaceWatcherBackendKind::Recommended => Ok(WorkspaceWatcherBackend::Recommended(
-			notify::RecommendedWatcher::new(
-				move |event| publish_classified_event(&classifier, &tx, event),
+		WorkspaceWatcherBackendKind::Recommended => {
+			let classifier_clone = classifier.clone();
+			let tx_clone = tx.clone();
+			match notify::RecommendedWatcher::new(
+				move |event| publish_classified_event(&classifier_clone, &tx_clone, event),
 				Config::default(),
-			)?,
-		)),
+			) {
+				Ok(watcher) => Ok(WorkspaceWatcherBackend::Recommended(watcher)),
+				Err(_) => {
+					Ok(WorkspaceWatcherBackend::Polling(notify::PollWatcher::new(
+						move |event| publish_classified_event(&classifier, &tx, event),
+						Config::default().with_poll_interval(Duration::from_secs(1)),
+					)?))
+				}
+			}
+		}
 		WorkspaceWatcherBackendKind::Polling => {
 			Ok(WorkspaceWatcherBackend::Polling(notify::PollWatcher::new(
 				move |event| publish_classified_event(&classifier, &tx, event),
@@ -171,17 +177,25 @@ fn watch_target_paths(
 ) -> (Vec<WorkspaceWatcherBackend>, Vec<String>) {
 	let mut warnings = Vec::new();
 	let mut watchers = Vec::new();
-	for path in targets {
-		let result =
-			new_watcher(backend, classifier.clone(), tx.clone()).and_then(|mut watcher| {
-				watcher.watch(path.as_path(), RecursiveMode::Recursive)?;
-				Ok(watcher)
-			});
-		match result {
-			Ok(watcher) => watchers.push(watcher),
-			Err(error) => warnings.push(format!("{}: {error}", path.display())),
+	
+	if targets.is_empty() {
+		return (watchers, warnings);
+	}
+
+	match new_watcher(backend, classifier.clone(), tx.clone()) {
+		Ok(mut watcher) => {
+			for path in targets {
+				if let Err(error) = watcher.watch(path.as_path(), RecursiveMode::Recursive) {
+					warnings.push(format!("{}: {error}", path.display()));
+				}
+			}
+			watchers.push(watcher);
+		}
+		Err(error) => {
+			warnings.push(format!("failed to initialize watcher: {error}"));
 		}
 	}
+
 	(watchers, warnings)
 }
 
