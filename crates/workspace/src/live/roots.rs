@@ -167,6 +167,7 @@ fn insert_notes_watch_paths(targets: &mut BTreeSet<PathBuf>, notes_path: &Path) 
 	}
 }
 
+#[cfg(target_os = "macos")]
 pub(super) fn git_watch_targets_for_resolved_git_dirs(
 	git_dirs: &BTreeSet<PathBuf>,
 ) -> Vec<WorkspaceWatchTarget> {
