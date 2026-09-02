@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use code_moniker_core::lang::c::Presets;
 
+use crate::walk::workspace_walk_builder;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct HeaderUsage {
 	c: bool,
@@ -148,7 +150,7 @@ impl CBuildContext {
 }
 
 fn workspace_entries(root: &Path) -> Vec<PathBuf> {
-	ignore::WalkBuilder::new(root)
+	workspace_walk_builder(root)
 		.build()
 		.filter_map(Result::ok)
 		.filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))

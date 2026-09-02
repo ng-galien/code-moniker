@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::Lang;
 
 use crate::extract;
-use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
 use crate::path_util::portable_path_buf;
 use crate::snapshot::WorkspaceCancellation;
@@ -217,6 +216,7 @@ pub fn discover_files(
 		));
 	};
 	let abs_root = normalize_absolute(&scope.root.path)?;
+	let mut ignore = walk::workspace_ignore_matcher(&abs_root);
 	let mut source_files = Vec::new();
 	let mut seen = HashSet::new();
 	for file in files {
@@ -228,8 +228,10 @@ pub fn discover_files(
 			if seen.contains(&abs_path) {
 				break;
 			}
-			let ignore_rules = GitignoreStack::for_path(&abs_root, &abs_path);
-			if ignore_rules.is_ignored(&abs_path, false) {
+			let relative = abs_path
+				.strip_prefix(&abs_root)
+				.expect("candidate was checked under source root");
+			if ignore.matched(relative, false).is_ignore() {
 				continue;
 			}
 			let Some(walked) = walk::explicit_lang_file(&path) else {

@@ -205,6 +205,59 @@ fn live_watcher_failure_remains_a_typed_failed_status() {
 }
 
 #[test]
+fn terminal_runtime_watcher_failure_remains_failed_on_later_requests() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	fs::write(temp.path().join("lib.rs"), "pub fn watched() {}\n").expect("fixture");
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+	let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+		command: Command::WorkspaceRefresh,
+	}));
+	assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+	let error = daemon.stop_failed_live_watcher();
+	assert!(error.to_string().contains("automatic restart stopped"));
+
+	for _ in 0..2 {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::WorkspaceStatus,
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("expected status response, got {response:?}");
+		};
+		let QueryResult::WorkspaceStatus(status) = response.result else {
+			panic!("expected workspace status, got {:?}", response.result);
+		};
+		assert_eq!(status.phase, WorkspacePhase::Failed);
+		assert_eq!(
+			status
+				.failure
+				.as_ref()
+				.and_then(|failure| failure.resource.as_deref()),
+			Some("live_watcher")
+		);
+		assert!(status.stale_summary.contains("automatic restart stopped"));
+	}
+}
+
+#[test]
+fn automatic_polling_fallback_is_retained_for_later_registrations() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).expect("daemon");
+
+	daemon.remember_live_watcher_backend_state(false, true);
+	assert!(!daemon.live.force_polling);
+	daemon.remember_live_watcher_backend_state(true, false);
+	assert!(!daemon.live.force_polling);
+	daemon.remember_live_watcher_backend_state(true, true);
+	assert!(daemon.live.force_polling);
+	daemon.remember_live_watcher_backend_state(false, false);
+	assert!(
+		daemon.live.force_polling,
+		"a later topology rebuild must not retry the failed native backend"
+	);
+}
+
+#[test]
 fn watcher_activation_reconciles_a_mutation_from_the_registration_gap() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let source = temp.path().join("lib.rs");
