@@ -61,6 +61,7 @@ pub(super) struct DaemonLiveState {
 	watcher_updates_tx: mpsc::Sender<LiveWatcherUpdate>,
 	watcher_updates_rx: mpsc::Receiver<LiveWatcherUpdate>,
 	watcher_failure: Option<String>,
+	pub(super) force_polling: bool,
 	pub(super) events: Option<tokio::sync::broadcast::Sender<WorkspaceEventDto>>,
 }
 
@@ -73,6 +74,7 @@ pub(super) struct LiveWatcherRegistration {
 	roots: Vec<code_moniker_workspace::live::WorkspaceWatchRoot>,
 	tx: mpsc::Sender<WorkspaceLiveEvent>,
 	events: Option<tokio::sync::broadcast::Sender<WorkspaceEventDto>>,
+	force_polling: bool,
 }
 
 struct WorkspaceDaemonInit {
@@ -157,6 +159,7 @@ impl WorkspaceDaemon {
 			roots: self.registry.watch_roots(),
 			tx: self.live.tx.clone(),
 			events: self.live.events.clone(),
+			force_polling: self.live.force_polling,
 		}
 	}
 
@@ -176,8 +179,24 @@ impl WorkspaceDaemon {
 		if epoch > self.live.watcher_epoch || self.live.watcher.is_some() {
 			return false;
 		}
+		self.remember_live_watcher_backend(&watcher);
 		self.live.watcher = Some(watcher);
 		true
+	}
+
+	fn remember_live_watcher_backend(&mut self, watcher: &LiveWorkspaceWatcher) {
+		self.remember_live_watcher_backend_state(
+			watcher.uses_polling(),
+			watcher.runtime_fallback_allowed(),
+		);
+	}
+
+	pub(super) fn remember_live_watcher_backend_state(
+		&mut self,
+		uses_polling: bool,
+		runtime_fallback_allowed: bool,
+	) {
+		self.live.force_polling |= uses_polling && runtime_fallback_allowed;
 	}
 
 	pub(super) fn request_change_overlay(&mut self) -> Result<(), QueryError> {
@@ -189,6 +208,18 @@ impl WorkspaceDaemon {
 	}
 
 	pub(super) fn restart_live_watcher(&mut self) -> anyhow::Result<()> {
+		if let Some(watcher) = self.live.watcher.as_ref()
+			&& watcher.runtime_failed()
+		{
+			if watcher.uses_polling() || !watcher.runtime_fallback_allowed() {
+				return Err(self.stop_failed_live_watcher());
+			}
+			self.live.force_polling = true;
+			eprintln!(
+				"live watcher warning: native backend failed at runtime; switching to five-second polling"
+			);
+		}
+		self.live.watcher.take();
 		let epoch = self.live.watcher_epoch.wrapping_add(1);
 		let registration = self.live_watcher_registration();
 		let updates = self.live.watcher_updates_tx.clone();
@@ -202,6 +233,15 @@ impl WorkspaceDaemon {
 		Ok(())
 	}
 
+	pub(super) fn stop_failed_live_watcher(&mut self) -> anyhow::Error {
+		let message =
+			"live watcher runtime failed; automatic restart stopped to avoid a rescan loop"
+				.to_string();
+		self.live.watcher.take();
+		self.live.watcher_failure = Some(message.clone());
+		anyhow::anyhow!(message)
+	}
+
 	pub(super) fn install_pending_live_watcher(&mut self) -> Result<bool, QueryError> {
 		let mut installed = false;
 		while let Ok(update) = self.live.watcher_updates_rx.try_recv() {
@@ -210,6 +250,7 @@ impl WorkspaceDaemon {
 			}
 			match update.result {
 				Ok(watcher) => {
+					self.remember_live_watcher_backend(&watcher);
 					self.live.watcher = Some(watcher);
 					self.live.watcher_failure = None;
 					installed = true;
@@ -272,12 +313,17 @@ impl LiveWatcherRegistration {
 	pub(super) fn start(self) -> anyhow::Result<LiveWorkspaceWatcher> {
 		let tx = self.tx;
 		let events = self.events;
-		LiveWorkspaceWatcher::start(self.roots, move |event| {
+		let publish = move |event| {
 			if let Some(events) = &events {
 				let _ = events.send(event_dto(&event));
 			}
 			let _ = tx.send(event);
-		})
+		};
+		if self.force_polling {
+			LiveWorkspaceWatcher::start_production_polling(self.roots, publish)
+		} else {
+			LiveWorkspaceWatcher::start(self.roots, publish)
+		}
 	}
 }
 
@@ -324,6 +370,7 @@ impl DaemonLiveState {
 			watcher_updates_tx,
 			watcher_updates_rx,
 			watcher_failure: None,
+			force_polling: false,
 			events: None,
 		}
 	}

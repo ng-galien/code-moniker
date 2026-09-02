@@ -1,8 +1,8 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Diff extraction clones paths and ranges into stable owned change records.
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
@@ -13,10 +13,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
 use crate::git_runtime::{GitRuntimeError, git_fast_text, process_git_runtime};
-use crate::gitignore::GitignoreStack;
 use crate::lines::LineIndex;
 use crate::snapshot::SymbolLocation;
 use crate::source_group::DeclaredSourceGroups;
+use crate::walk::workspace_ignore_matcher;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChangeStatus {
@@ -378,7 +378,7 @@ struct SourceVisibility {
 
 struct DeletedSourceRoot {
 	path: PathBuf,
-	gitignore: GitignoreStack,
+	ignore: RefCell<ignore::IncrementalIgnore>,
 }
 
 impl<'scan> ChangeScan<'scan> {
@@ -434,7 +434,7 @@ impl DeletedSourceRoot {
 	fn new(path: &Path) -> Self {
 		let path = normalize_path(path);
 		Self {
-			gitignore: GitignoreStack::for_root(&path),
+			ignore: RefCell::new(workspace_ignore_matcher(&path)),
 			path,
 		}
 	}
@@ -443,7 +443,7 @@ impl DeletedSourceRoot {
 		let Ok(rel) = path.strip_prefix(&self.path) else {
 			return false;
 		};
-		!has_hidden_component(rel) && !self.gitignore.is_ignored(path, false)
+		!self.ignore.borrow_mut().matched(rel, false).is_ignore()
 	}
 }
 
@@ -451,15 +451,6 @@ impl<'a> RelevantDiffs<'a> {
 	fn for_file(&self, path: &Path) -> Option<&'a FileDiff> {
 		self.by_path.get(&normalize_path(path)).copied()
 	}
-}
-
-fn has_hidden_component(path: &Path) -> bool {
-	path.components().any(|component| {
-		let name = component.as_os_str();
-		name != OsStr::new(".")
-			&& name != OsStr::new("..")
-			&& name.as_encoded_bytes().first() == Some(&b'.')
-	})
 }
 
 fn changed_entries_for_file(

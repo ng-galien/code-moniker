@@ -1132,7 +1132,7 @@ fn live_plan_falls_back_to_workspace_rescan_and_reports_watcher_replacement() {
 }
 
 #[test]
-fn workspace_live_watcher_tracks_startup_roots_recursively() {
+fn workspace_live_watcher_rebuilds_after_nested_directory_creation() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let source_dir = temp.path().join("src").join("nested");
 	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
@@ -1174,7 +1174,7 @@ fn workspace_live_watcher_tracks_startup_roots_recursively() {
 
 	let event = rx
 		.recv_timeout(Duration::from_secs(5))
-		.expect("recursive watcher should publish nested source change");
+		.expect("watcher should publish nested source change");
 	assert!(
 		matches!(
 			event,

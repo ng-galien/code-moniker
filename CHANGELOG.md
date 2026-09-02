@@ -11,6 +11,26 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-02
+
+### Changed
+
+- **Live refresh now derives its watch plan from project-local ignore rules.**
+  Linux, Windows, and polling register one backend against non-ignored
+  directories only; macOS keeps one native FSEvents root stream. `.gitignore`
+  and `.ignore` are interpreted only below each opened project root, with the
+  deepest project rule taking precedence.
+
+### Fixed
+
+- **Multi-project daemons no longer recursively watch ignored build trees.**
+  Watcher replacement avoids overlapping backends, native watch-limit failures
+  fall back to five-second polling, and runtime failures cannot create an
+  endless rescan loop or disappear from daemon status.
+- **Linked worktrees and directory topology changes retain live coverage.** Git
+  refs resolve through private and common metadata directories, while directory
+  create, remove, and rename events rebuild the bounded watch plan.
+
 ## [0.10.0] - 2026-09-01
 
 This release makes language-specific policy and progressive, executable

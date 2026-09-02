@@ -1,4 +1,5 @@
-// code-moniker: ignore-file[smell-vertical-layout]
+// Manifest resolution intentionally owns one cohesive catalog of cross-language dependency evidence.
+// code-moniker: ignore-file[smell-vertical-layout, smell-god-type-local-metrics]
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
@@ -14,6 +15,7 @@ use crate::linkage::source_groups::LinkPermission;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
+use crate::walk::workspace_walk_builder;
 
 #[derive(Default)]
 pub(in crate::linkage) struct ManifestPolicy {
@@ -582,7 +584,7 @@ fn package_id_prefix(manifest: Manifest) -> String {
 }
 
 fn manifest_candidates(root: &Path) -> Vec<PathBuf> {
-	let mut out = ignore::WalkBuilder::new(root)
+	let mut out = workspace_walk_builder(root)
 		.build()
 		.filter_map(|entry| entry.ok())
 		.filter(|entry| {

@@ -285,20 +285,22 @@ pub fn notes_dir(root: &Path) -> PathBuf {
 pub fn notes_watch_targets_for_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<NotesWatchTarget>> {
 	let root = notes_root_for_paths(paths)?;
 	let notes_path = notes_path(&root);
-	let notes_watch_path = notes_path
+	let path = notes_watch_path(&notes_path);
+	Ok(vec![NotesWatchTarget { path, notes_path }])
+}
+
+pub(crate) fn notes_watch_path(notes_path: &Path) -> PathBuf {
+	let notes_dir = notes_path
 		.parent()
 		.map(Path::to_path_buf)
-		.filter(|path| path.exists())
-		.unwrap_or_else(|| notes_dir(&root));
-	let path = if notes_watch_path.exists() {
-		notes_watch_path
-	} else {
-		notes_watch_path
-			.parent()
-			.map(Path::to_path_buf)
-			.unwrap_or(notes_watch_path)
-	};
-	Ok(vec![NotesWatchTarget { path, notes_path }])
+		.unwrap_or_else(|| notes_path.to_path_buf());
+	if notes_dir.exists() {
+		return notes_dir;
+	}
+	notes_dir
+		.parent()
+		.map(Path::to_path_buf)
+		.unwrap_or(notes_dir)
 }
 
 pub fn notes_root_for_paths(paths: &[PathBuf]) -> anyhow::Result<PathBuf> {

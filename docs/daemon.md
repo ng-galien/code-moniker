@@ -112,9 +112,41 @@ walking, parallel extraction and snapshot build phases. Shutdown cancels that
 token before stopping the runtime and never starts a live watcher after
 cancellation. Process shutdown is also bounded, so even a source read blocked
 inside the operating system cannot keep a supervised daemon or stdio MCP alive.
-Filesystem watching uses notify's polling backend on every
-operating system so readiness and mutation detection share one deterministic
-contract. Every watched root must register successfully.
+Filesystem watching uses one `notify` backend for all workspace roots. On
+Linux, Windows, and the polling fallback, source discovery's
+`ignore::WalkBuilder` first computes the project ignore-aware directory plan; only those
+directories are then registered, non-recursively and in one batch. Ignored
+trees are therefore excluded before operating-system watches are created, not
+filtered only after they emit events. macOS FSEvents registers the workspace
+roots recursively because that backend exposes a root event stream rather than
+one physical watch per directory; events are classified with the matcher built
+from the same `WalkBuilder` configuration. The opened project root is the ignore
+boundary: `.gitignore` and `.ignore` files inside that project apply, while files
+in parent directories are neither loaded nor watched. Both project-local names
+share one hierarchy: the rule from the deepest directory wins.
+
+Creating or moving an admissible directory, or changing `.gitignore` or
+`.ignore`, requests a complete rescan and replaces the watcher with a newly
+computed plan. Git metadata watching is restricted to the directories needed
+for `HEAD`, `packed-refs`, and refs. Linked worktrees resolve both their private and common Git directories
+through the bounded Git runtime and fail watcher startup if that coverage cannot
+be established. Native backend initialization failures and native watch-limit failures
+during registration fall back to one polling backend at a five-second interval;
+the fallback cause is written to the daemon diagnostic log. Set
+`CODE_MONIKER_WATCHER_BACKEND=auto|native|poll` before daemon startup to keep
+automatic fallback, require the platform-native backend, or explicitly select
+polling for filesystems such as NFS/WSL where native notifications are not
+reliable.
+Every path in the selected plan must register successfully. A child directory
+that vanishes during batch registration may be omitted only while its immediate
+parent remains in the same plan; unrelated path or permission failures fail
+closed instead of silently reducing coverage. Watcher replacement releases the
+previous backend before registering the new plan, avoiding a transient doubling
+of Linux watch descriptors; the existing post-registration reconciliation scan
+covers that bounded observation gap. A native runtime error requests one complete
+rescan and switches `auto` to polling. A runtime error from polling, or from an
+explicit `native` selection, fails the watcher lifecycle instead of creating a
+rescan loop.
 Linkage construction runs after the shared code index is ready. Git change
 material is built only for the explicit change query currently being served;
 it does not attach Git to later refreshes. Complete source refresh, status and
@@ -418,7 +450,7 @@ selector accepted by `query --daemon`.
 ## Live refresh
 
 `--live-refresh` sets how the daemon reacts to file changes detected by the
-FSEvents watcher (`notify::RecommendedWatcher`):
+platform-native watcher (`notify::RecommendedWatcher`) or its polling fallback:
 
 - `on-demand` (default): mark the workspace stale; re-extract lazily on the next
   query.
