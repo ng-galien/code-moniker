@@ -8,7 +8,9 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use tree_sitter::Node as AstNode;
 
-use super::value::{Value, apply_op, apply_op_values, mode_value, value_counts};
+use super::value::{
+	Value, apply_op, apply_op_str, apply_op_str_values, apply_op_values, mode_value, value_counts,
+};
 use super::{
 	AtomOutcome, EvalCtx, NodeOutcome, def_has_shape, eval_external_def_node, eval_node_segment,
 	eval_node_with_self, eval_number_expr_def, eval_number_expr_ref, eval_number_expr_segment,
@@ -487,7 +489,7 @@ pub(super) fn project_lhs_value(
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Value> {
 	match item {
-		DomainItem::Ast { node } => project_ast_lhs_value(node, lhs, ctx),
+		DomainItem::Ast { node } => project_ast_lhs_value(node, lhs),
 		DomainItem::Def { idx, def } => project_def_lhs_value(idx, def, lhs, ctx),
 		DomainItem::Ref { record } => resolve_ref_lhs(lhs, record, ctx),
 		DomainItem::Segment { kind, name } => match lhs {
@@ -502,29 +504,48 @@ pub(super) fn project_lhs_value(
 	}
 }
 
-fn project_ast_lhs_value(node: AstNode<'_>, lhs: Lhs, ctx: &EvalCtx<'_, '_>) -> Option<Value> {
+fn project_ast_lhs_value(node: AstNode<'_>, lhs: Lhs) -> Option<Value> {
 	let value = match lhs {
-		Lhs::Kind => Value::Str(node.kind().to_string()),
-		Lhs::Text => Value::Str(
-			ctx.source
-				.get(node.start_byte()..node.end_byte())?
-				.to_string(),
-		),
 		Lhs::StartByte => Value::Number(node.start_byte() as f64),
 		Lhs::EndByte => Value::Number(node.end_byte() as f64),
 		Lhs::StartLine => Value::Number(node.start_position().row as f64 + 1.0),
 		Lhs::EndLine => Value::Number(ast_end_line(node) as f64),
 		Lhs::Lines => Value::Number((ast_end_line(node) - node.start_position().row as u32) as f64),
+		_ => return None,
+	};
+	Some(value)
+}
+
+fn project_ast_string<'src>(
+	node: AstNode<'_>,
+	lhs: Lhs,
+	ctx: &EvalCtx<'_, 'src>,
+) -> Option<&'src str> {
+	match lhs {
+		Lhs::Kind => Some(node.kind()),
+		Lhs::Text => ctx.source.get(node.start_byte()..node.end_byte()),
 		Lhs::ParentKind => {
 			let mut parent = node.parent();
 			while parent.is_some_and(|parent| !parent.is_named()) {
 				parent = parent.and_then(|parent| parent.parent());
 			}
-			Value::Str(parent?.kind().to_string())
+			Some(parent?.kind())
 		}
-		_ => return None,
-	};
-	Some(value)
+		_ => None,
+	}
+}
+
+const MAX_AST_DIAGNOSTIC_TEXT_BYTES: usize = 256;
+
+fn bounded_ast_diagnostic_text(value: &str) -> String {
+	if value.len() <= MAX_AST_DIAGNOSTIC_TEXT_BYTES {
+		return value.to_string();
+	}
+	let mut end = MAX_AST_DIAGNOSTIC_TEXT_BYTES;
+	while !value.is_char_boundary(end) {
+		end -= 1;
+	}
+	format!("{}…", &value[..end])
 }
 
 fn ast_end_line(node: AstNode<'_>) -> u32 {
@@ -573,6 +594,19 @@ fn eval_ast_atom(
 	node: AstNode<'_>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
+	if let LhsExpr::Attr(lhs) = &atom.lhs
+		&& let Some(value) = project_ast_string(node, *lhs, ctx)
+	{
+		return match &atom.rhs {
+			Rhs::Projection(rhs) => {
+				let Some(rhs) = project_ast_string(node, *rhs, ctx) else {
+					return AtomOutcome::NotApplicable;
+				};
+				apply_op_str_values(value, atom.op, rhs, bounded_ast_diagnostic_text)
+			}
+			_ => apply_op_str(value, atom, bounded_ast_diagnostic_text),
+		};
+	}
 	let item = DomainItem::Ast { node };
 	let value = match &atom.lhs {
 		LhsExpr::Attr(lhs) => project_lhs_value(item, *lhs, ctx),

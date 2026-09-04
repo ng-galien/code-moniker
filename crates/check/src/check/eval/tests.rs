@@ -76,6 +76,43 @@ fn no_rules_means_no_violations() {
 }
 
 #[test]
+fn rule_report_compiled_evaluates_each_subject_only_once() {
+	struct CountingResolver(std::sync::atomic::AtomicUsize);
+
+	impl RequirementResolver for CountingResolver {
+		fn exists(&self, _pattern: &str, _source: &DefRecord, _scheme: &str) -> bool {
+			self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			false
+		}
+	}
+
+	let source = "function run() {}";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("run.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "required-peer"
+		expr = "require('**/module:peer')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+	let resolver = CountingResolver(std::sync::atomic::AtomicUsize::new(0));
+
+	let reports = rule_report_compiled_with_requirements(
+		&graph,
+		source,
+		Lang::Ts,
+		SCHEME,
+		&compiled,
+		Some(&resolver),
+	);
+
+	assert_eq!(reports[0].evaluated, 1);
+	assert_eq!(resolver.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
+#[test]
 fn ast_none_reports_the_matching_construction_inside_the_current_function() {
 	let source = "function run(value: number) {\n  switch (value) {\n    default: break;\n  }\n}\n";
 	let anchor = MonikerBuilder::new().project(b".").build();
@@ -138,6 +175,26 @@ fn ast_filter_reuses_parent_kind_and_text_for_jsx_attributes() {
 
 	assert_eq!(violations.len(), 1, "{violations:?}");
 	assert_eq!(violations[0].lines, (1, 1));
+}
+
+#[test]
+fn ast_text_diagnostics_do_not_materialize_an_entire_subtree() {
+	let source = format!("const value = '{}';", "x".repeat(1_024));
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("value.ts", &source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "bounded-text-diagnostic"
+		expr = "all(ast, text = 'expected')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, &source, Lang::Ts, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert!(violations[0].message.contains('…'), "{violations:?}");
+	assert!(violations[0].message.len() < 512, "{violations:?}");
 }
 
 #[test]
@@ -224,23 +281,48 @@ fn ast_domain_uses_the_same_evaluator_for_rust() {
 }
 
 #[test]
-fn ast_domain_is_evaluable_for_every_registered_language() {
+fn ast_domain_maps_a_positioned_symbol_for_every_registered_language() {
 	let cases = [
-		(Lang::Ts, "sample.ts", "const value = 1;"),
-		(Lang::Tsx, "sample.tsx", "const view = <div />;"),
-		(Lang::Js, "sample.js", "const value = 1;"),
-		(Lang::Jsx, "sample.jsx", "const view = <div />;"),
-		(Lang::Rs, "sample.rs", "fn run() {}"),
-		(Lang::Java, "Sample.java", "class Sample {}"),
-		(Lang::Python, "sample.py", "def run():\n    pass\n"),
-		(Lang::Go, "sample.go", "package sample\nfunc run() {}\n"),
-		(Lang::C, "sample.c", "void run(void) {}"),
-		(Lang::Cs, "Sample.cs", "class Sample {}"),
-		(Lang::Sql, "sample.sql", "SELECT 1;"),
+		(Lang::Ts, "sample.ts", "function run() {}", "function"),
+		(
+			Lang::Tsx,
+			"sample.tsx",
+			"function View() { return <div />; }",
+			"function",
+		),
+		(Lang::Js, "sample.js", "function run() {}", "function"),
+		(
+			Lang::Jsx,
+			"sample.jsx",
+			"function View() { return <div />; }",
+			"function",
+		),
+		(Lang::Rs, "sample.rs", "fn run() {}", "fn"),
+		(Lang::Java, "Sample.java", "class Sample {}", "class"),
+		(
+			Lang::Python,
+			"sample.py",
+			"def run():\n    pass\n",
+			"function",
+		),
+		(
+			Lang::Go,
+			"sample.go",
+			"package sample\nfunc run() {}\n",
+			"func",
+		),
+		(Lang::C, "sample.c", "void run(void) {}", "func"),
+		(Lang::Cs, "Sample.cs", "class Sample {}", "class"),
+		(
+			Lang::Sql,
+			"sample.sql",
+			"CREATE TABLE sample (id integer);",
+			"table",
+		),
 	];
 	assert_eq!(cases.len(), Lang::ALL.len());
 
-	for (lang, path, source) in cases {
+	for (lang, path, source, kind) in cases {
 		let graph = code_moniker_workspace::environment::extract_source_with(
 			lang,
 			source,
@@ -249,7 +331,7 @@ fn ast_domain_is_evaluable_for_every_registered_language() {
 		);
 		let cfg = cfg_from(&format!(
 			r#"
-			[[{}.module.where]]
+			[[{}.{kind}.where]]
 			id = "ast-available"
 			expr = "count(ast) >= 0"
 			"#,

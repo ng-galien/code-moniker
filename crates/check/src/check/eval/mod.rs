@@ -136,38 +136,45 @@ pub(in crate::check) struct CompiledEvaluationInput<'a> {
 pub(in crate::check) fn evaluate_and_report_compiled(
 	input: CompiledEvaluationInput<'_>,
 ) -> (Vec<Violation>, Vec<RuleReport>) {
-	let CompiledEvaluationInput {
-		graph,
-		source,
-		lang,
-		scheme,
-		compiled,
-		requirements,
-		parsed_document,
-		include_report,
-	} = input;
-	let owned_document =
-		(compiled.uses_ast() && parsed_document.is_none()).then(|| lang.parse("", source));
-	let ast_document = parsed_document.or(owned_document.as_ref());
-	let need_doc_anchors = compiled.needs_doc_anchors();
+	with_eval_ctx(&input, |ctx| {
+		let violations = evaluate_with_ctx(input.graph, input.compiled, ctx);
+		let reports = if input.include_report {
+			rule_reports_with_ctx(input.graph, input.lang, input.compiled, ctx)
+		} else {
+			Vec::new()
+		};
+		(violations, reports)
+	})
+}
+
+fn with_eval_ctx<T>(
+	input: &CompiledEvaluationInput<'_>,
+	evaluate: impl FnOnce(&EvalCtx<'_, '_>) -> T,
+) -> T {
+	let owned_document = (input.compiled.uses_ast() && input.parsed_document.is_none())
+		.then(|| input.lang.parse("", input.source));
+	let ast_document = input.parsed_document.or(owned_document.as_ref());
+	let need_doc_anchors = input.compiled.needs_doc_anchors();
 	let ctx = EvalCtx {
-		graph,
-		requirements,
-		source,
-		lang,
+		graph: input.graph,
+		requirements: input.requirements,
+		source: input.source,
+		lang: input.lang,
 		ast_document,
-		uri_cfg: UriConfig { scheme },
-		parent_counts: parent_counts_by_kind(graph),
-		children_by_parent: children_by_parent(graph),
-		out_refs_by_source: out_refs_by_source(graph),
-		in_refs_by_target: in_refs_by_target(graph),
+		uri_cfg: UriConfig {
+			scheme: input.scheme,
+		},
+		parent_counts: parent_counts_by_kind(input.graph),
+		children_by_parent: children_by_parent(input.graph),
+		out_refs_by_source: out_refs_by_source(input.graph),
+		in_refs_by_target: in_refs_by_target(input.graph),
 		comment_ends: if need_doc_anchors {
-			comment_end_bytes(graph)
+			comment_end_bytes(input.graph)
 		} else {
 			Vec::new()
 		},
 		doc_anchors: if need_doc_anchors {
-			doc_anchors_by_def(graph)
+			doc_anchors_by_def(input.graph)
 		} else {
 			HashMap::new()
 		},
@@ -176,13 +183,7 @@ pub(in crate::check) fn evaluate_and_report_compiled(
 		ast_items_by_def: RefCell::new(HashMap::new()),
 		ast_cached_nodes: Cell::new(0),
 	};
-	let violations = evaluate_with_ctx(graph, compiled, &ctx);
-	let reports = if include_report {
-		rule_reports_with_ctx(graph, lang, compiled, &ctx)
-	} else {
-		Vec::new()
-	};
-	(violations, reports)
+	evaluate(&ctx)
 }
 
 fn evaluate_with_ctx(
@@ -334,7 +335,7 @@ pub(in crate::check) fn rule_report_compiled_with_requirements(
 	compiled: &CompiledRules,
 	requirements: Option<&dyn RequirementResolver>,
 ) -> Vec<RuleReport> {
-	evaluate_and_report_compiled(CompiledEvaluationInput {
+	let input = CompiledEvaluationInput {
 		graph,
 		source,
 		lang,
@@ -343,8 +344,10 @@ pub(in crate::check) fn rule_report_compiled_with_requirements(
 		requirements,
 		parsed_document: None,
 		include_report: true,
+	};
+	with_eval_ctx(&input, |ctx| {
+		rule_reports_with_ctx(graph, lang, compiled, ctx)
 	})
-	.1
 }
 
 fn rule_reports_with_ctx(

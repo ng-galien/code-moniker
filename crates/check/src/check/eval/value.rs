@@ -13,10 +13,11 @@ use super::AtomOutcome;
 /// numeric ordering); a structural moniker op against a string projection
 /// stays `NotApplicable`.
 pub(super) fn apply_op_values(lhs: &Value, op: Op, rhs: &Value) -> AtomOutcome {
+	if let (Value::Str(lhs), Value::Str(rhs)) = (lhs, rhs) {
+		return apply_op_str_values(lhs, op, rhs, str::to_owned);
+	}
 	use Op::*;
 	let ok = match (lhs, op, rhs) {
-		(Value::Str(a), Eq, Value::Str(b)) => a == b,
-		(Value::Str(a), Ne, Value::Str(b)) => a != b,
 		(Value::Number(a), Eq, Value::Number(b)) => a == b,
 		(Value::Number(a), Ne, Value::Number(b)) => a != b,
 		(Value::Number(a), Lt, Value::Number(b)) => a < b,
@@ -49,16 +50,11 @@ pub(super) enum Value {
 }
 
 pub(super) fn apply_op(value: &Value, atom: &Atom) -> AtomOutcome {
+	if let Value::Str(value) = value {
+		return apply_op_str(value, atom, str::to_owned);
+	}
 	use Op::*;
 	let ok = match (value, atom.op, &atom.rhs) {
-		(Value::Str(s), RegexMatch, Rhs::RegexStr(_)) => {
-			atom.regex.as_ref().is_some_and(|re| re.is_match(s))
-		}
-		(Value::Str(s), RegexNoMatch, Rhs::RegexStr(_)) => {
-			atom.regex.as_ref().is_some_and(|re| !re.is_match(s))
-		}
-		(Value::Str(s), Eq, Rhs::Str(t)) => s == t,
-		(Value::Str(s), Ne, Rhs::Str(t)) => s != t,
 		(Value::Moniker(m), Eq, Rhs::Moniker(t)) => m == t,
 		(Value::Moniker(m), Ne, Rhs::Moniker(t)) => m != t,
 		(Value::Moniker(m), AncestorOf, Rhs::Moniker(t)) => m.is_ancestor_of(t),
@@ -75,6 +71,54 @@ pub(super) fn apply_op(value: &Value, atom: &Atom) -> AtomOutcome {
 		AtomOutcome::Fail {
 			actual,
 			expected,
+			position: None,
+		}
+	}
+}
+
+pub(super) fn apply_op_str(
+	value: &str,
+	atom: &Atom,
+	render_actual: impl FnOnce(&str) -> String,
+) -> AtomOutcome {
+	use Op::*;
+	let ok = match (atom.op, &atom.rhs) {
+		(RegexMatch, Rhs::RegexStr(_)) => atom.regex.as_ref().is_some_and(|re| re.is_match(value)),
+		(RegexNoMatch, Rhs::RegexStr(_)) => {
+			atom.regex.as_ref().is_some_and(|re| !re.is_match(value))
+		}
+		(Eq, Rhs::Str(expected)) => value == expected,
+		(Ne, Rhs::Str(expected)) => value != expected,
+		_ => return AtomOutcome::NotApplicable,
+	};
+	if ok {
+		AtomOutcome::Pass
+	} else {
+		AtomOutcome::Fail {
+			actual: render_actual(value),
+			expected: render_rhs(&atom.rhs),
+			position: None,
+		}
+	}
+}
+
+pub(super) fn apply_op_str_values(
+	lhs: &str,
+	op: Op,
+	rhs: &str,
+	render_actual: impl FnOnce(&str) -> String,
+) -> AtomOutcome {
+	let ok = match op {
+		Op::Eq => lhs == rhs,
+		Op::Ne => lhs != rhs,
+		_ => return AtomOutcome::NotApplicable,
+	};
+	if ok {
+		AtomOutcome::Pass
+	} else {
+		AtomOutcome::Fail {
+			actual: render_actual(lhs),
+			expected: rhs.to_string(),
 			position: None,
 		}
 	}
