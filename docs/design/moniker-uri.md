@@ -151,7 +151,9 @@ records. Keeping binding on the row lets the GiST opclass implement
 `bind_match` as a purely structural operation, qualified by `WHERE`
 predicates over binding columns at query time.
 
-Enum values and matching matrix: see [binding semantics](spec.md#binding-semantics) in the spec.
+The current binding values are `export`, `local`, `import`, `inject`, and
+`none`. Their producers are language-specific; structural URI matching remains
+independent from that classification.
 
 ## Matching
 

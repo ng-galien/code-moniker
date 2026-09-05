@@ -16,8 +16,9 @@ use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment::{self, SourceFile, SourceFileSet};
 
-use super::filter::{self, MatchSet, Predicate, RefMatch};
+use super::filter::{self, MatchSet, RefMatch};
 use super::format;
+use crate::predicate::Predicate;
 
 pub fn run<W1: Write, W2: Write>(
 	args: &ExtractArgs,

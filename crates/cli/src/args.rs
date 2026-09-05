@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{ArgAction, Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
-use crate::extract::Predicate;
+use crate::predicate::Predicate;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::{UriConfig, from_uri};
@@ -14,8 +14,22 @@ const ASCII_LOGO: &str = "
       └─◆ class:Util
 ";
 
+const LEARNING_HELP: &str = "Learn from the product:\n  code-moniker docs\n  code-moniker rules learn\n  code-moniker query 'query.describe'";
+
+#[cfg(feature = "mcp")]
+const MCP_HELP: &str = "Read the offline guide:\n  code-moniker docs cli/mcp.md\n\nInstall a project-owned agent connection with:\n  code-moniker agent install --client <codex|claude|gemini>\n\nMCP clients discover the live tool descriptions and input schemas through tools/list.";
+
+const DAEMON_HELP: &str = "Read the offline guide:\n  code-moniker docs daemon.md\n\nInspect existing indexes with:\n  code-moniker daemon list\n  code-moniker daemon status --daemon <ENDPOINT>\n\nDiscover indexed queries with:\n  code-moniker query 'query.describe'";
+
+const QUERY_HELP: &str = "Read the offline guide:\n  code-moniker docs cli/query.md\n\nDiscover the live DSL with:\n  code-moniker query 'query.describe'\n  code-moniker query 'query.describe verb:\"symbol.search\"'\n\nTarget an existing index exactly with:\n  code-moniker daemon list\n  code-moniker query --daemon <ENDPOINT> 'workspace.status'";
+
 #[derive(Debug, Parser)]
-#[command(name = "code-moniker", before_help = ASCII_LOGO, version)]
+#[command(
+	name = "code-moniker",
+	before_help = ASCII_LOGO,
+	after_help = LEARNING_HELP,
+	version
+)]
 pub struct Cli {
 	#[command(subcommand)]
 	pub command: Command,
@@ -35,12 +49,23 @@ pub enum Command {
 	Diff(DiffArgs),
 	#[command(about = "Create and toggle the project rules file.")]
 	Rules(RulesArgs),
+	#[command(about = "Read the bundled documentation offline, without a workspace or daemon.")]
+	Docs(DocsArgs),
 	#[cfg(feature = "mcp")]
-	#[command(about = "Start a local MCP server over HTTP or stdio.")]
+	#[command(
+		about = "Start a local MCP server over HTTP or stdio.",
+		after_help = MCP_HELP
+	)]
 	Mcp(McpArgs),
-	#[command(about = "Manage a code-moniker workspace daemon.")]
+	#[command(
+		about = "Manage a code-moniker workspace daemon.",
+		after_help = DAEMON_HELP
+	)]
 	Daemon(DaemonArgs),
-	#[command(about = "Send a human-readable query DSL request to a workspace daemon.")]
+	#[command(
+		about = "Send a human-readable query DSL request to a workspace daemon.",
+		after_help = QUERY_HELP
+	)]
 	Query(QueryArgs),
 	#[command(about = "Install and diagnose Code Moniker agent integrations.")]
 	Agent(AgentArgs),
@@ -52,6 +77,16 @@ pub enum Command {
 		about = "Extract declared dependencies from a build manifest (auto-detected by filename) or every manifest under a directory."
 	)]
 	Manifest(ManifestArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct DocsArgs {
+	#[arg(
+		help = "Page path from the documentation index, for example cli/query.md. Omit to list bundled pages."
+	)]
+	pub page: Option<String>,
+	#[arg(long, help = "Print the page inventory or selected document as JSON.")]
+	pub json: bool,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -1272,6 +1307,31 @@ mod tests {
 			parse(&[]).is_err(),
 			"empty argv must error — subcommand required"
 		);
+	}
+
+	#[test]
+	fn root_help_routes_to_product_learning_surfaces() {
+		let error = parse(&["--help"]).unwrap_err();
+		assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+		let help = error.to_string();
+		assert!(help.contains("code-moniker rules learn"), "{help}");
+		assert!(
+			help.contains("code-moniker query 'query.describe'"),
+			"{help}"
+		);
+	}
+
+	#[test]
+	fn query_help_routes_from_discovery_to_an_exact_index() {
+		let error = parse(&["query", "--help"]).unwrap_err();
+		assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+		let help = error.to_string();
+		assert!(
+			help.contains("query.describe verb:\"symbol.search\""),
+			"{help}"
+		);
+		assert!(help.contains("code-moniker daemon list"), "{help}");
+		assert!(help.contains("query --daemon <ENDPOINT>"), "{help}");
 	}
 
 	#[test]

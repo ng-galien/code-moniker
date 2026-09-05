@@ -11,6 +11,7 @@ readme        = "../../README.md"
 description   = "Standalone CLI / linter for the code-moniker symbol graph: file and directory probes, project-wide architecture rules."
 keywords      = ["code-search", "linter", "ast", "tree-sitter", "cli"]
 categories    = ["command-line-utilities", "development-tools"]
+exclude       = ["assets/docs/**/.DS_Store"]
 
 [package.metadata.binstall]
 # Official release artifacts only: never fall back to a third-party build or

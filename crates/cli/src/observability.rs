@@ -54,6 +54,8 @@ const COMMAND_PAYLOAD_LIMIT: usize = 4_096;
 
 #[cfg(feature = "telemetry")]
 #[derive(Debug)]
+// The shared helper belongs with the inherent methods, before the three exporter trait impls.
+// code-moniker: ignore[smell-vertical-layout]
 struct DiagnosingExporter<E> {
 	inner: E,
 	signal: &'static str,
@@ -231,6 +233,7 @@ fn command_name(command: &Command) -> &'static str {
 		Command::Check(_) => "check",
 		Command::Diff(_) => "diff",
 		Command::Rules(_) => "rules",
+		Command::Docs(_) => "docs",
 		#[cfg(feature = "mcp")]
 		Command::Mcp(_) => "mcp",
 		Command::Daemon(_) => "daemon",

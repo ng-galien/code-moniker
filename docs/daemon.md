@@ -67,6 +67,11 @@ code-moniker query [-r root] "<DSL>" [--json]
 code-moniker query --daemon <ENDPOINT> "<DSL>" [--json]
 ```
 
+The complete request grammar, executable discovery path, index selection and
+agent routing are documented in [Indexed Query DSL](cli/query.md). This page
+owns daemon lifecycle and protocol behavior; the Query page is the entry point
+for composing a request.
+
 `daemon start` runs in the foreground, registers its serving endpoint, then
 continues the initial index in the same process. Clients auto-spawn a background
 daemon via `connect_or_start`; concurrent clients share its atomic registry
@@ -186,6 +191,11 @@ The capability set remains the compatibility signal for individual query
 verbs; the daemon package version string is informational.
 
 ### Query verbs (DSL)
+
+Start with `code-moniker query 'query.describe'`; it reads the live capability
+registry rather than a version-sensitive copied field list. See
+[Indexed Query DSL](cli/query.md) for grammar, quoting, lists, projections,
+pagination, consistency and exact-daemon examples.
 
 `query.describe`, `workspace.status`, `tree.children`, `symbol.search`,
 `symbol.insights`, `symbol.detail`, `syntax.tree`, `syntax.parse`, `symbol.usages`, `symbol.graph`,

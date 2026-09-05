@@ -21,7 +21,10 @@ fn main() -> ExitCode {
 			};
 		}
 	};
-	if matches!(&cli.command, code_moniker_cli::Command::GitRuntime(_)) {
+	if matches!(
+		&cli.command,
+		code_moniker_cli::Command::GitRuntime(_) | code_moniker_cli::Command::Docs(_)
+	) {
 		let mut stdout = io::stdout();
 		let mut stderr = io::stderr();
 		let exit = code_moniker_cli::run(&cli, &mut stdout, &mut stderr);
