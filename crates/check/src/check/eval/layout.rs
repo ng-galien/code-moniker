@@ -119,6 +119,7 @@ fn eval_vertical_layout_group(
 		actual: current,
 		expected: suggested,
 		def_idx: None,
+		position: None,
 		details: Some(details),
 	})
 }
@@ -195,6 +196,7 @@ fn layout_items(
 
 fn domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 	match domain {
+		Domain::Ast => false,
 		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
 		Domain::ChildrenByShape(shape) => def_has_shape(def, shape),
 		Domain::Descendants(inner) => domain_matches(inner, def),

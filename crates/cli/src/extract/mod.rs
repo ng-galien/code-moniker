@@ -14,7 +14,7 @@ mod directory;
 pub(crate) mod filter;
 mod format;
 
-pub use filter::{MatchSet, Predicate, RefMatch};
+pub use filter::{MatchSet, RefMatch};
 
 fn unknown_kinds_error(
 	unknown: &[String],

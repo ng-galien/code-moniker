@@ -16,6 +16,19 @@
 
 ## Working principles
 
+- Carry an implementation request through the requested outcome and relevant
+  validation. Resolve routine implementation choices from the current code and
+  session context; ask only when a missing decision materially changes scope,
+  product meaning, or an action's authorization.
+- Reuse authorization already given in the session. When a decision is needed,
+  complete independent authorized work first and present the concrete choice,
+  its consequences, and the remaining blocker.
+- Keep the active objective across follow-up questions, corrections, and context
+  compaction. Incorporate new constraints and resume unfinished work unless the
+  user cancels or replaces the objective.
+- Read-only requests remain read-only. Commit, push, installation, and release
+  are separate actions requiring authorization from the user's request or
+  session context; a documented command is not that authorization.
 - Inspect the relevant code and current diff before editing. Preserve unrelated
   user work.
 - Prefer existing owners, contracts and data flows over a parallel mechanism.
@@ -25,12 +38,30 @@
   cleanup.
 - Validate in proportion to the change. Focused formatting, checks and tests are
   the default; use broader gates for broad or release-sensitive changes, or when
-  the user requests them.
+  the user requests them. Once relevant checks pass, repeat or broaden them only
+  for new changes, failures, or unresolved concerns.
 - Independent review agents are opt-in and run only when the user requests a
   review or selects a workflow that requires one.
 - Code Moniker is optional, targeted exploration for questions that need indexed
   relationships, ownership or workspace-wide impact. Do not invoke it for known
   files, exact-string searches, routine Git/tests or every review.
+- Parallelize independent reads when useful. Delegate only when the user asks
+  for agent work or the selected workflow requires it; give each agent a bounded
+  responsibility and verify its result before reporting completion.
+
+## Communication and instruction scope
+
+- Lead with the result or finding, using concise prose in the user's language.
+  Explain material decisions, evidence, and limitations; use lists only when
+  they make the information easier to follow.
+- During sustained work, give brief updates on findings and remaining work.
+  The final response states what changed and what was actually verified.
+- Apply maps and skills only to the relevant task. Explicit user instructions
+  take precedence over their workflow guidance. If an instruction blocks work,
+  cite the exact file and requirement and explain the unresolved decision.
+- Shared skills under `agents/skills/` serve other agents and projects too.
+  Keep this repository's working preferences here and operational details in
+  `agents/maps/`; change distributed skills only when they are in task scope.
 
 ## Common commands
 

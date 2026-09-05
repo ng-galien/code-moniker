@@ -11,6 +11,28 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.11.0] - Unreleased
+
+### Added
+
+- **AST rule domains** let project rules inspect syntax nodes alongside symbols,
+  with an executable tutorial available through `code-moniker rules learn ast`.
+- **Offline documentation** is bundled in the CLI. `code-moniker docs` lists
+  the guides; `docs cli/query.md` and `docs cli/mcp.md` explain indexed queries
+  and agent tools without requiring a checkout, network, or daemon.
+- CLI help routes users to bundled guides and live capability discovery;
+  documentation contract tests cover navigation, packaged content, and builds
+  with MCP disabled.
+
+### Changed
+
+- AST evaluation avoids duplicate report evaluation and unnecessary per-node
+  text allocation, with additional positioned language coverage.
+- CLI argument types are consistently reexported, and moniker predicates have
+  a shared owner independent of the extraction runtime.
+- Project agent guidance clarifies task continuity, validation scope, and
+  explicit Git/MCP architecture boundaries.
+
 ## [0.10.1] - 2026-09-02
 
 ### Changed

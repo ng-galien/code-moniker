@@ -1,0 +1,66 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+assertion_line: 14
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "nodes": [
+      {
+        "domain": {
+          "type": "ast"
+        },
+        "filter": {
+          "lhs": {
+            "name": "kind",
+            "type": "attr"
+          },
+          "op": "eq",
+          "raw": "kind = 'switch_statement'",
+          "rhs": {
+            "type": "string",
+            "value": "switch_statement"
+          },
+          "type": "atom"
+        },
+        "kind": "none",
+        "type": "quantifier"
+      },
+      {
+        "lhs": {
+          "expr": {
+            "domain": {
+              "type": "ast"
+            },
+            "filter": {
+              "lhs": {
+                "name": "kind",
+                "type": "attr"
+              },
+              "op": "eq",
+              "raw": "kind = 'as_expression'",
+              "rhs": {
+                "type": "string",
+                "value": "as_expression"
+              },
+              "type": "atom"
+            },
+            "type": "count"
+          },
+          "type": "number"
+        },
+        "op": "le",
+        "raw": "count(ast, kind = 'as_expression') <= 2",
+        "rhs": {
+          "expr": {
+            "type": "literal",
+            "value": 2.0
+          },
+          "type": "number"
+        },
+        "type": "atom"
+      }
+    ],
+    "type": "and"
+  }
+}

@@ -12,8 +12,10 @@ description: >-
 # Code Moniker
 
 Code Moniker combines project-authored architectural testimony with a symbolic
-index. This skill defines how an agent works with those surfaces. It does not
-teach the product concepts: the executable `rules learn` corpus does.
+index. This skill routes agents to the product-owned learning surfaces instead
+of duplicating their contracts. Rule and architecture concepts live in the
+executable `rules learn` corpus; indexed request capabilities live in
+`query.describe` and MCP tool schemas.
 
 ## Choose a posture
 
@@ -54,6 +56,7 @@ relevant learn corpus changed.
 | Moniker relationships | `code-moniker rules learn relations` | Ancestor, descendant, and binding relation operators |
 | Structural directives | `code-moniker rules learn directives` | Layout, correlated-existence, and moniker-segment directives |
 | Rule-set selection | `code-moniker rules learn profiles` | Defaults, profiles, warning severity, and suppressions |
+| Indexed Query DSL | `code-moniker query 'query.describe'` | Live verbs, fields, defaults, constraints, pagination, projections, and preferred MCP tools |
 
 Language, framework, architecture-pattern, and workspace recipes are discovered
 from the executable catalog rather than duplicated in this router. Run
@@ -74,6 +77,12 @@ reconstructing its semantics from this skill.
 - Select one symbolic surface. Prefer available `code_moniker_*` MCP tools;
   use the local CLI when MCP is unavailable. Hooks enforce write-time policy
   and do not replace exploration.
+- For advanced indexed reads, discover the live Query DSL before composing it:
+  use `code_moniker_query` with `query:"query.describe"` through MCP, or
+  `code-moniker query 'query.describe'` through the CLI. To target an existing
+  CLI index exactly, take its endpoint from `code-moniker daemon list` and pass
+  `query --daemon <ENDPOINT>`; do not infer an endpoint or fall back to a
+  filesystem command.
 - Verify workspace identity once before the first workspace-wide MCP read and
   again only after roots or the connection change.
 - Start compact, narrow, and bounded. Page, broaden, or request source only

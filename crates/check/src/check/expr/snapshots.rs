@@ -282,6 +282,9 @@ fn snapshot_rhs(rhs: &Rhs) -> Value {
 
 fn snapshot_domain(domain: &Domain) -> Value {
 	match domain {
+		Domain::Ast => json!({
+			"type": "ast",
+		}),
 		Domain::Children(kind) => json!({
 			"type": "children",
 			"kind": kind,

@@ -722,8 +722,30 @@ none(field, visibility = 'public')
 
 Domains are direct child defs (`method`, `field`, `class`, etc.),
 direct child defs by shape (`shape:callable`, `shape:value`, etc.),
-`segment`, `out_refs`, and `in_refs`. `pairs(D)` is supported by
+`segment`, `out_refs`, `in_refs`, and `ast`. `pairs(D)` is supported by
 `count`, `any`, `all`, and `none`.
+
+`ast` iterates the named syntax nodes inside the current definition using the
+selected language grammar. It keeps the normal quantifier syntax and scalar
+projections instead of introducing a second matcher language:
+
+```toml
+[[ts.module.where]]
+id = "no-switch"
+expr = "none(ast, kind = 'switch_statement')"
+
+[[tsx.module.where]]
+id = "no-dangerous-inner-html"
+expr = "none(ast, kind = 'property_identifier' AND parent.kind = 'jsx_attribute' AND text = 'dangerouslySetInnerHTML')"
+```
+
+Exact AST kinds are validated for each language when rules compile. A parse
+error, unsupported syntax injection, or missing subject range is reported
+explicitly rather than becoming a vacuous pass. With `--report`, an empty
+population of rule subjects is also reported explicitly. See
+[`rules learn ast`](../../samples/catalog/ast.cm.md) for executable TypeScript,
+TSX, and Rust recipes, and the [Rule DSL](check-dsl.md#quantifiers) for the
+projection and availability contracts.
 
 The rule language also supports local numeric analytics:
 
@@ -803,6 +825,7 @@ and through `code-moniker rules learn <topic>`:
 | ---- | ------------- | ------------------ |
 | Architecture index | `rules learn architecture` | [architecture.cm.md](../../samples/catalog/architecture.cm.md) |
 | Executable architecture patterns | `rules learn architecture-patterns` | [architecture-patterns.cm.md](../../samples/catalog/architecture-patterns.cm.md) |
+| AST source-structure rules | `rules learn ast` | [ast.cm.md](../../samples/catalog/ast.cm.md) |
 | Quality and testing | `rules learn quality` | [quality.cm.md](../../samples/catalog/quality.cm.md) |
 | Test guardrails | `rules learn test-guardrails` | [test-guardrails.cm.md](../../samples/catalog/test-guardrails.cm.md) |
 | Workspace symbol inventory | `rules learn workspace-symbol` | [workspace-symbol.cm.md](../../samples/catalog/workspace-symbol.cm.md) |

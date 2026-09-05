@@ -14,12 +14,9 @@ pub mod workspace_eval;
 pub(crate) use config::Config;
 #[cfg(test)]
 pub(crate) use eval::evaluate;
-pub(crate) use eval::{
-	CompiledRules, RuleReport, Violation, compile_rules, evaluate_compiled, rule_report_compiled,
-};
 pub(in crate::check) use eval::{
-	RequirementResolver, evaluate_compiled_with_requirements,
-	rule_report_compiled_with_requirements,
+	CompiledEvaluationInput, RequirementResolver, evaluate_and_report_compiled,
 };
+pub(crate) use eval::{CompiledRules, RuleReport, Violation, compile_rules, evaluate_compiled};
 pub(crate) use exclude::UriExclusionMatcher;
 pub(crate) use suppress::apply as apply_suppressions;

@@ -539,6 +539,22 @@ mod tests {
 	}
 
 	#[test]
+	fn public_mcp_guide_names_every_registered_tool() {
+		let guide = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/cli/mcp.md");
+		if !guide.is_file() {
+			return;
+		}
+		let guide = std::fs::read_to_string(guide).expect("read public MCP guide");
+		for tool in ToolRegistry::new().all() {
+			let name = tool.descriptor().name;
+			assert!(
+				guide.contains(&format!("`{name}`")),
+				"public MCP guide does not name registered tool `{name}`"
+			);
+		}
+	}
+
+	#[test]
 	fn structured_override_is_used_only_for_json() {
 		let result = || {
 			fixture_result().with_structured_content(serde_json::json!({

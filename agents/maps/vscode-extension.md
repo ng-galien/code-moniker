@@ -22,14 +22,21 @@ run from that directory. Human-facing reference lives in
 
 ## Ship Routine
 
+Use this routine when packaging or installation is in the authorized task.
+During implementation, select the checks and acceptance journeys that exercise
+the changed behavior; run the full suite for broad changes or release validation.
+
 ```sh
 npm test && npm run compile && npm run test:acceptance
 npx vsce package -o code-moniker.vsix
 code --install-extension code-moniker.vsix     # then Reload Window
 ```
 
-If Rust surfaces changed too: reinstall the binary (check the exit code) and
-restart stale daemons plus the `cm-mcp` tmux session.
+If the authorized installation also includes Rust changes, reinstall the binary
+and verify the resolved executable and version. Follow the Rust map's lifecycle
+guidance for the affected transport: stdio reloads its worker after executable
+replacement; the `cm-mcp` tmux session is only for explicit HTTP dogfood. Scope
+any necessary restart to the runtime involved in the task.
 
 ## Verification
 

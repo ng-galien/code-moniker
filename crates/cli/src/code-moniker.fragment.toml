@@ -8,8 +8,8 @@ cli_command_registry = "uri ~ '**/dir:crates/dir:cli/dir:src/module:args/enum:Co
 cli_public_export = "require('**/dir:crates/dir:cli/dir:src/module:lib/path:{name}')"
 cli_internal_consumer = "source ~ '**/dir:crates/dir:cli/dir:src/**'"
 cli_opaque_assertion_macro = "target ~ '**/sdk:rs/path:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'"
-cli_command_runtime_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/**'"
-cli_peer_command_entrypoint = "target ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/fn:/^(run|run_daemon)$/'"
+cli_command_runtime_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|docs|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/**'"
+cli_peer_command_entrypoint = "target ~ '**/dir:crates/dir:cli/dir:src/module:/^(agent|check|daemon|diff|docs|extract|langs|manifest|mcp_command|query|rules|shapes|stats)$/fn:/^(run|run_daemon)$/'"
 cli_args_contract_source = "source ~ '**/dir:crates/dir:cli/dir:src/module:args/**'"
 cli_extract_runtime_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:extract/**'"
 mcp_command_module_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:mcp_command/**'"
@@ -24,7 +24,8 @@ id       = "cli-command-registry-composition-root-requires-feature-modules"
 severity = "error"
 expr     = """
 $cli_command_registry => all(enum_constant,
-  require("**/dir:crates/dir:cli/dir:src/module:{name.snake}")
+  (name = 'GitRuntime' AND require("**/dir:crates/dir:cli/dir:src/module:git_runtime_supervisor"))
+  OR (name != 'GitRuntime' AND require("**/dir:crates/dir:cli/dir:src/module:{name.snake}"))
 )
 """
 message  = "CLI command variant `{name}` must have a corresponding feature module under `crates/cli/src/{name.snake}`."
@@ -32,6 +33,8 @@ rationale = """
 `args::Command` is the feature registry at the CLI composition root. Each variant declares a
 user-facing capability and must keep the crate module graph in step with that public surface.
 Runtime dispatch ownership is a separate invariant enforced at `lib::run`.
+The hidden `__git-runtime` command belongs to `git_runtime_supervisor`, the
+process adapter for bounded Git execution.
 """
 
 # Negotiation sentinels. Warning severity records a concrete architectural
@@ -58,32 +61,28 @@ confirmed; refine the aliases if a legitimate peer call is identified.
 
 [[refs.where]]
 id       = "cli-extract-runtime-dependency-remains-downstream-of-command-contract"
-severity = "warn"
+severity = "error"
 expr     = """
   $cli_args_contract_source
   AND kind = 'imports_module'
   => NOT $cli_extract_runtime_target
 """
-message  = "The CLI command contract in `args` imports the `extract` runtime; decide which layer owns the shared parsing vocabulary."
+message  = "The CLI command contract in `args` must use the shared predicate contract instead of importing the `extract` runtime."
 rationale = """
 `args` declares the command surface consumed by every runtime, while `extract` implements one
-command. The current `args -> extract::Predicate` edge reverses that general direction. Resolve
-the warning by moving the predicate contract to `args` or a neutral module, or by documenting
-`extract::Predicate` as an intentional command-contract owner and replacing this proposed
-boundary with that explicit dependency rule.
+command. `predicate` owns their shared moniker filtering contract and operations.
+Both consumers depend on that neutral owner; the crate root preserves the public Predicate API.
 """
 
 [[rust.shape.callable.where]]
-id       = "cli-mcp-call-flow-does-not-enter-mcp-command-module"
-severity = "warn"
-expr     = "$cli_lib AND name = 'run' => none(out_refs, kind = 'calls' AND $mcp_command_module_target)"
-message  = "`lib::run` enters the `mcp_command` module; clarify whether it is a CLI adapter or owns MCP runtime policy."
+id       = "cli-mcp-call-flow-enters-command-adapter"
+severity = "error"
+expr     = "$cli_lib AND name = 'run' => any(out_refs, kind = 'calls' AND $mcp_command_module_target)"
+message  = "`lib::run` must route the MCP command through its `mcp_command` process adapter."
 rationale = """
-The command registry requires the `mcp` feature module, but the composition root dispatches its
-variant through the sibling `mcp_command` module. This may be the correct process adapter, yet
-the ownership split is currently implicit. Replace this sentinel with a stable call-flow rule
-once `mcp_command` is explicitly accepted as the adapter boundary, or move the dispatch to the
-decided owner and promote the resulting ownership rule.
+`mcp_command` is the CLI process adapter: it translates arguments, selects HTTP or stdio,
+and starts the runtime. `mcp` owns the server, tools, context, and stdio supervision.
+The composition root enters the adapter instead of taking over transport setup.
 """
 
 [[rust.shape.type.where]]

@@ -106,13 +106,14 @@ expr    = """
   $dsl_evaluation AND kind = 'imports_symbol'
   => NOT $index_at_workspace_target
 """
-message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+message = "`check::eval` evaluates a local `CodeGraph` plus an on-demand local `ParsedDocument`; project-wide indexes and linkage stay out of the local DSL evaluator."
 rationale = """
-Rule expressions currently evaluate against one local graph item at a time. Keeping project
-indexes out of this layer preserves predictable cost and leaves cross-file semantics to
-explicit higher-level features. Collection algebra, pair iteration, and named metrics all
-inherit this local evaluation boundary. In particular, pair scans remain local and bounded
-for hook latency, while named metrics keep the same meaning in file and project checks.
+Rule expressions evaluate against one local graph subject at a time and may request the
+source file's local ParsedDocument for AST predicates. Keeping project indexes and linkage
+out of this layer preserves predictable cost and leaves cross-file semantics to explicit
+higher-level features. Collection algebra, pair iteration, named metrics, and AST traversal
+all inherit this local boundary. Pair and AST scans remain local and bounded for hook latency,
+while named metrics keep the same meaning in file and project checks.
 """
 
 [[refs.where]]

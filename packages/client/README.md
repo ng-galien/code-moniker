@@ -3,6 +3,11 @@
 Typed JavaScript and TypeScript client for an already running Code Moniker
 workspace daemon.
 
+This client uses typed methods and generated protocol types. For direct CLI
+integration with the same indexed contract, start with the
+[Indexed Query DSL](../../docs/cli/query.md); for daemon discovery, ownership
+and lifecycle, see [Workspace Daemon](../../docs/daemon.md).
+
 ```ts
 import { CodeMonikerClient } from "@code-moniker/client";
 

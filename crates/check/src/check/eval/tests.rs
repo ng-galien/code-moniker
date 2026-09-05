@@ -76,6 +76,610 @@ fn no_rules_means_no_violations() {
 }
 
 #[test]
+fn rule_report_compiled_evaluates_each_subject_only_once() {
+	struct CountingResolver(std::sync::atomic::AtomicUsize);
+
+	impl RequirementResolver for CountingResolver {
+		fn exists(&self, _pattern: &str, _source: &DefRecord, _scheme: &str) -> bool {
+			self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			false
+		}
+	}
+
+	let source = "function run() {}";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("run.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "required-peer"
+		expr = "require('**/module:peer')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+	let resolver = CountingResolver(std::sync::atomic::AtomicUsize::new(0));
+
+	let reports = rule_report_compiled_with_requirements(
+		&graph,
+		source,
+		Lang::Ts,
+		SCHEME,
+		&compiled,
+		Some(&resolver),
+	);
+
+	assert_eq!(reports[0].evaluated, 1);
+	assert_eq!(resolver.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
+#[test]
+fn ast_none_reports_the_matching_construction_inside_the_current_function() {
+	let source = "function run(value: number) {\n  switch (value) {\n    default: break;\n  }\n}\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("run.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Ts, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].rule_id, "ts.function.no-switch");
+	assert_eq!(violations[0].lines, (2, 4));
+	assert!(violations[0].moniker.contains("run"), "{violations:?}");
+}
+
+#[test]
+fn ast_count_uses_existing_boolean_and_numeric_operators() {
+	let source = "const first = input as string;\nconst second = input as number;\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("casts.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "cast-budget"
+		expr = "count(ast, kind = 'as_expression' OR kind = 'type_assertion') <= 1"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Ts, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].lines, (2, 2));
+}
+
+#[test]
+fn ast_filter_reuses_parent_kind_and_text_for_jsx_attributes() {
+	let source = "const view = <div dangerouslySetInnerHTML={{ __html: html }} />;\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = <ts::TsxLang as LangExtractor>::extract(
+		"view.tsx",
+		source,
+		&anchor,
+		false,
+		&ts::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[tsx.module.where]]
+		id = "no-dangerous-attribute"
+		expr = "none(ast, kind = 'property_identifier' AND parent.kind = 'jsx_attribute' AND text = 'dangerouslySetInnerHTML')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Tsx, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].lines, (1, 1));
+}
+
+#[test]
+fn ast_text_diagnostics_do_not_materialize_an_entire_subtree() {
+	let source = format!("const value = '{}';", "x".repeat(1_024));
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("value.ts", &source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "bounded-text-diagnostic"
+		expr = "all(ast, text = 'expected')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, &source, Lang::Ts, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert!(violations[0].message.contains('…'), "{violations:?}");
+	assert!(violations[0].message.len() < 512, "{violations:?}");
+}
+
+#[test]
+fn ast_kind_typos_are_rejected_during_compilation() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'swich_statement')"
+		"#,
+	);
+
+	let error = match compile_rules(&cfg, Lang::Ts, SCHEME) {
+		Ok(_) => panic!("unknown AST kind must fail"),
+		Err(error) => error,
+	};
+
+	assert!(error.to_string().contains("swich_statement"), "{error}");
+}
+
+#[test]
+fn ast_filter_type_mismatches_are_rejected_during_compilation() {
+	for (expr, expected) in [
+		("none(ast, kind = 1)", "same scalar type"),
+		("none(ast, start_line = 'first')", "numeric RHS"),
+	] {
+		let cfg = cfg_from(&format!(
+			r#"
+			[[ts.module.where]]
+			id = "invalid-ast-types"
+			expr = "{expr}"
+			"#,
+		));
+
+		let error = match compile_rules(&cfg, Lang::Ts, SCHEME) {
+			Ok(_) => panic!("incompatible AST operands must fail: {expr}"),
+			Err(error) => error,
+		};
+		assert!(error.to_string().contains(expected), "{expr}: {error}");
+	}
+}
+
+#[test]
+fn ast_does_not_match_code_spelled_only_in_comments_or_strings() {
+	let source = "const sample = 'switch (value) {}';\n// switch (value) {}\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("sample.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Ts, &cfg, SCHEME).unwrap();
+
+	assert!(violations.is_empty(), "{violations:?}");
+}
+
+#[test]
+fn ast_domain_uses_the_same_evaluator_for_rust() {
+	let source = "fn run() {\n    loop { break; }\n}\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = code_moniker_core::lang::rs::extract_sdk(
+		"run.rs",
+		source,
+		&anchor,
+		false,
+		&code_moniker_core::lang::rs::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[rust.fn.where]]
+		id = "no-loop"
+		expr = "none(ast, kind = 'loop_expression')"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Rs, &cfg, SCHEME).unwrap();
+
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].lines, (2, 2));
+}
+
+#[test]
+fn ast_domain_maps_a_positioned_symbol_for_every_registered_language() {
+	let cases = [
+		(Lang::Ts, "sample.ts", "function run() {}", "function"),
+		(
+			Lang::Tsx,
+			"sample.tsx",
+			"function View() { return <div />; }",
+			"function",
+		),
+		(Lang::Js, "sample.js", "function run() {}", "function"),
+		(
+			Lang::Jsx,
+			"sample.jsx",
+			"function View() { return <div />; }",
+			"function",
+		),
+		(Lang::Rs, "sample.rs", "fn run() {}", "fn"),
+		(Lang::Java, "Sample.java", "class Sample {}", "class"),
+		(
+			Lang::Python,
+			"sample.py",
+			"def run():\n    pass\n",
+			"function",
+		),
+		(
+			Lang::Go,
+			"sample.go",
+			"package sample\nfunc run() {}\n",
+			"func",
+		),
+		(Lang::C, "sample.c", "void run(void) {}", "func"),
+		(Lang::Cs, "Sample.cs", "class Sample {}", "class"),
+		(
+			Lang::Sql,
+			"sample.sql",
+			"CREATE TABLE sample (id integer);",
+			"table",
+		),
+	];
+	assert_eq!(cases.len(), Lang::ALL.len());
+
+	for (lang, path, source, kind) in cases {
+		let graph = code_moniker_workspace::environment::extract_source_with(
+			lang,
+			source,
+			std::path::Path::new(path),
+			&code_moniker_workspace::environment::ExtractContext::default(),
+		);
+		let cfg = cfg_from(&format!(
+			r#"
+			[[{}.{kind}.where]]
+			id = "ast-available"
+			expr = "count(ast) >= 0"
+			"#,
+			config_section(lang)
+		));
+		let compiled = compile_rules(&cfg, lang, SCHEME).unwrap();
+		let diagnostics = evaluate_compiled(&graph, source, lang, SCHEME, &compiled);
+		assert!(diagnostics.is_empty(), "{}: {diagnostics:?}", lang.tag());
+		let reports = rule_report_compiled(&graph, source, lang, SCHEME, &compiled);
+		assert_eq!(reports[0].evaluated, 1, "{}: {reports:?}", lang.tag());
+		assert_eq!(reports[0].inconclusive, None, "{}: {reports:?}", lang.tag());
+	}
+}
+
+#[test]
+fn ast_unavailable_is_an_explicit_diagnostic_but_an_inconclusive_report() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+	let anchor = MonikerBuilder::new().project(b".").build();
+
+	let valid = "switch (value) { default: break; }";
+	let valid_graph = ts::extract("valid.ts", valid, &anchor, false, &ts::Presets::default());
+	let valid_report = rule_report_compiled(&valid_graph, valid, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(valid_report[0].violations, 1, "{valid_report:?}");
+	assert_eq!(valid_report[0].inconclusive, None, "{valid_report:?}");
+
+	let invalid = "function broken(";
+	let invalid_graph = ts::extract(
+		"invalid.ts",
+		invalid,
+		&anchor,
+		false,
+		&ts::Presets::default(),
+	);
+	let diagnostics = evaluate_compiled(&invalid_graph, invalid, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+	assert!(
+		diagnostics[0].message.contains("AST contains parse errors"),
+		"{diagnostics:?}"
+	);
+	let invalid_report = rule_report_compiled(&invalid_graph, invalid, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(invalid_report[0].violations, 0, "{invalid_report:?}");
+	assert_eq!(
+		invalid_report[0].inconclusive,
+		Some(1),
+		"{invalid_report:?}"
+	);
+	assert!(
+		invalid_report[0]
+			.warning
+			.as_deref()
+			.is_some_and(|warning| warning.contains("parse errors")),
+		"{invalid_report:?}"
+	);
+}
+
+#[test]
+fn ast_parse_error_is_isolated_to_its_exact_symbol_scope() {
+	let source = "function healthy() { return 1; }\nfunction broken() { const value = ; }\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract(
+		"siblings.ts",
+		source,
+		&anchor,
+		false,
+		&ts::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+
+	let diagnostics = evaluate_compiled(&graph, source, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+	assert!(diagnostics[0].moniker.contains("broken"), "{diagnostics:?}");
+	assert!(
+		diagnostics[0].message.contains("AST contains parse errors"),
+		"{diagnostics:?}"
+	);
+	let reports = rule_report_compiled(&graph, source, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(reports[0].evaluated, 2, "{reports:?}");
+	assert_eq!(reports[0].matches, 1, "{reports:?}");
+	assert_eq!(reports[0].inconclusive, Some(1), "{reports:?}");
+}
+
+#[test]
+fn ast_symbol_scope_without_exact_range_is_not_treated_as_empty() {
+	let source = "function run() {}\n";
+	let module = build_module(b"scope.ts");
+	let mut graph = CodeGraph::new(module.clone(), b"module");
+	graph
+		.add_def(
+			child(&module, b"function", b"run"),
+			b"function",
+			&module,
+			None,
+		)
+		.unwrap();
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+
+	let diagnostics = evaluate_compiled(&graph, source, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+	assert!(
+		diagnostics[0]
+			.message
+			.contains("symbol has no source range"),
+		"{diagnostics:?}"
+	);
+	let reports = rule_report_compiled(&graph, source, Lang::Ts, SCHEME, &compiled);
+	assert_eq!(reports[0].violations, 0, "{reports:?}");
+	assert_eq!(reports[0].inconclusive, Some(1), "{reports:?}");
+}
+
+#[test]
+fn ast_injections_are_explicitly_inconclusive() {
+	let source = "DO $body$ BEGIN NULL; END $body$;";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = code_moniker_core::lang::sql::extract(
+		"maintenance.sql",
+		source,
+		&anchor,
+		false,
+		&code_moniker_core::lang::sql::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[sql.module.where]]
+		id = "no-identifiers"
+		expr = "none(ast, kind = 'identifier')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Sql, SCHEME).unwrap();
+
+	let diagnostics = evaluate_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+	assert!(
+		diagnostics[0]
+			.message
+			.contains("AST injections are not supported"),
+		"{diagnostics:?}"
+	);
+	let reports = rule_report_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert_eq!(reports[0].violations, 0, "{reports:?}");
+	assert_eq!(reports[0].inconclusive, Some(1), "{reports:?}");
+}
+
+#[test]
+fn ast_unavailability_respects_boolean_short_circuits() {
+	let source = "DO $body$ BEGIN NULL; END $body$;";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = code_moniker_core::lang::sql::extract(
+		"maintenance.sql",
+		source,
+		&anchor,
+		false,
+		&code_moniker_core::lang::sql::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[sql.module.where]]
+		id = "guarded-ast"
+		expr = "name = 'never' => count(ast) >= 0"
+
+		[[sql.module.where]]
+		id = "decisive-or"
+		expr = "name != 'never' OR count(ast) >= 0"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Sql, SCHEME).unwrap();
+
+	let diagnostics = evaluate_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert!(diagnostics.is_empty(), "{diagnostics:?}");
+	let reports = rule_report_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert_eq!(reports.len(), 2, "{reports:?}");
+	for report in &reports {
+		assert_eq!(report.inconclusive, None, "{report:?}");
+		assert_eq!(report.violations, 0, "{report:?}");
+	}
+	let implication = reports
+		.iter()
+		.find(|report| report.rule_id.ends_with("guarded-ast"))
+		.expect("implication report");
+	assert_eq!(implication.antecedent_matches, Some(0), "{implication:?}");
+}
+
+#[test]
+fn ast_injection_is_isolated_from_a_disjoint_sql_symbol_scope() {
+	let source = "CREATE TABLE healthy (id integer); DO $body$ BEGIN NULL; END $body$;";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = code_moniker_core::lang::sql::extract(
+		"siblings.sql",
+		source,
+		&anchor,
+		false,
+		&code_moniker_core::lang::sql::Presets::default(),
+	);
+	let cfg = cfg_from(
+		r#"
+		[[sql.table.where]]
+		id = "ast-available"
+		expr = "count(ast) >= 0"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Sql, SCHEME).unwrap();
+
+	let diagnostics = evaluate_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert!(diagnostics.is_empty(), "{diagnostics:?}");
+	let reports = rule_report_compiled(&graph, source, Lang::Sql, SCHEME, &compiled);
+	assert_eq!(reports[0].evaluated, 1, "{reports:?}");
+	assert_eq!(reports[0].matches, 1, "{reports:?}");
+	assert_eq!(reports[0].inconclusive, None, "{reports:?}");
+}
+
+#[test]
+fn ast_rules_with_no_file_subjects_carry_an_aggregate_warning() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id = "no-switch"
+		expr = "none(ast, kind = 'switch_statement')"
+		"#,
+	);
+	let compiled = compile_rules(&cfg, Lang::Ts, SCHEME).unwrap();
+	let graph = CodeGraph::new(build_module(b"empty.ts"), b"module");
+
+	let reports = rule_report_compiled(&graph, "", Lang::Ts, SCHEME, &compiled);
+	assert_eq!(reports[0].evaluated, 0, "{reports:?}");
+	assert_eq!(reports[0].violations, 0, "{reports:?}");
+	assert_eq!(reports[0].inconclusive, None, "{reports:?}");
+	assert!(
+		reports[0]
+			.warning
+			.as_deref()
+			.is_some_and(|warning| warning.contains("population is empty")),
+		"{reports:?}"
+	);
+}
+
+#[test]
+fn unsupported_ast_contexts_are_rejected_during_compilation() {
+	let aggregate = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "aggregate"
+		expr = "max(ast, lines) <= 10"
+		"#,
+	);
+	let error = match compile_rules(&aggregate, Lang::Ts, SCHEME) {
+		Ok(_) => panic!("AST aggregate must fail compilation"),
+		Err(error) => error,
+	};
+	assert!(error.to_string().contains("aggregates"), "{error}");
+
+	let reference = cfg_from(
+		r#"
+		[[ts.refs.where]]
+		id = "reference"
+		expr = "count(ast) = 0"
+		"#,
+	);
+	let error = match compile_rules(&reference, Lang::Ts, SCHEME) {
+		Ok(_) => panic!("AST reference rule must fail compilation"),
+		Err(error) => error,
+	};
+	assert!(error.to_string().contains("definition subject"), "{error}");
+
+	let nested = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id = "nested"
+		expr = "all(method, none(ast, kind = 'switch_statement'))"
+		"#,
+	);
+	let error = match compile_rules(&nested, Lang::Ts, SCHEME) {
+		Ok(_) => panic!("AST nested under another domain must fail compilation"),
+		Err(error) => error,
+	};
+	assert!(
+		error.to_string().contains("nested under another domain"),
+		"{error}"
+	);
+}
+
+#[test]
+fn ast_kind_regex_is_rejected_while_text_regex_and_capability_remain_supported() {
+	let kind_regex = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "kind-regex"
+		expr = "none(ast, kind =~ ^swich_statement$)"
+		"#,
+	);
+	let error = match compile_rules(&kind_regex, Lang::Ts, SCHEME) {
+		Ok(_) => panic!("AST kind regex must fail compilation in v1"),
+		Err(error) => error,
+	};
+	assert!(error.to_string().contains("regex comparisons"), "{error}");
+
+	let text_regex = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "text-regex"
+		expr = "none(ast, text =~ ^dangerous$)"
+		"#,
+	);
+	let compiled = compile_rules(&text_regex, Lang::Ts, SCHEME).unwrap();
+	assert_eq!(
+		compiled.specs(Lang::Ts)[0].capabilities,
+		vec!["ast".to_string()]
+	);
+}
+
+#[test]
+fn ast_filter_compares_existing_numeric_projections() {
+	let source = "const value = 1;\n";
+	let anchor = MonikerBuilder::new().project(b".").build();
+	let graph = ts::extract("value.ts", source, &anchor, false, &ts::Presets::default());
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id = "single-line-node-exists"
+		expr = "none(ast, start_line = end_line)"
+		"#,
+	);
+
+	let violations = evaluate(&graph, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].lines, (1, 1));
+}
+
+#[test]
 fn name_regex_violation() {
 	let cfg = cfg_from(
 		r#"
@@ -1837,6 +2441,41 @@ fn same_class_call_to_class_level_proxy_advised_method_is_flagged() {
 	let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 	assert_eq!(v.len(), 1, "class-level proxy self-invocation: {v:?}");
 	assert!(v[0].moniker.contains("InvoiceService"));
+}
+
+#[test]
+fn none_over_def_domain_keeps_the_existing_subject_diagnostic_position() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id = "no-bad-method"
+		expr = "none(method, name = 'bad')"
+		"#,
+	);
+	let source = "class Foo {\n\tbad\n}\n";
+	let module = build_module(b"compatibility");
+	let mut graph = CodeGraph::new(module.clone(), b"module");
+	let class = child(&module, b"class", b"Foo");
+	graph
+		.add_def(
+			class.clone(),
+			b"class",
+			&module,
+			Some((0, source.len() as u32)),
+		)
+		.unwrap();
+	graph
+		.add_def(
+			child(&class, b"method", b"bad"),
+			b"method",
+			&class,
+			Some(line_span(source, 2)),
+		)
+		.unwrap();
+
+	let violations = evaluate(&graph, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(violations.len(), 1, "{violations:?}");
+	assert_eq!(violations[0].lines, (1, 3), "{violations:?}");
 }
 
 #[test]

@@ -31,7 +31,9 @@ from project/index checks.
 
 ## MCP Probes
 
-After rebuilding or restarting `cm-mcp`, validate the surface:
+For changes to MCP behavior, select the probes below that exercise the changed
+contract. Use the full set for broad MCP changes or release validation. A routine
+build does not require an MCP restart or the full probe set.
 
 - MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`; partial
   pages expose an optional `next` cursor call.

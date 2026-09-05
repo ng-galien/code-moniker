@@ -8,6 +8,7 @@ pub(crate) mod check_scenario;
 pub(crate) mod color;
 pub(crate) mod daemon;
 pub(crate) mod diff;
+pub(crate) mod docs;
 pub(crate) mod extract;
 pub(crate) mod fs_nofollow;
 pub(crate) mod git_runtime_supervisor;
@@ -20,6 +21,7 @@ pub(crate) mod mcp;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp_command;
 pub(crate) mod page;
+pub(crate) mod predicate;
 pub(crate) mod presentation;
 pub(crate) mod query;
 pub(crate) mod rules;
@@ -40,14 +42,15 @@ pub use args::McpArgs;
 pub use args::{
 	AgentArgs, AgentClient, AgentCommand, AgentComponent, AgentInspectArgs, AgentInstallArgs,
 	AgentUninstallArgs, Charset, CheckArgs, CheckFormat, Cli, ColorChoice, Command, DaemonArgs,
-	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DefaultRules, ExtractArgs, GitRuntimeArgs,
-	HookInstallArgs, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat,
-	OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs,
-	RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat,
-	ToolBackend, ToolFilesArgs,
+	DaemonCommand, DaemonRootArgs, DaemonStartArgs, DaemonTargetArgs, DefaultRules, DiffArgs,
+	DocsArgs, ExtractArgs, GitRuntimeArgs, HookInstallArgs, LangsArgs, LangsFormat, LiveRefresh,
+	ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs,
+	RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs,
+	RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat, ToolBackend, ToolFilesArgs,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
-pub use extract::{MatchSet, Predicate, RefMatch};
+pub use extract::{MatchSet, RefMatch};
+pub use predicate::Predicate;
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
 
@@ -76,6 +79,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Check(args) => check::run(args, stdout, stderr),
 		Command::Diff(args) => diff::run(args, stdout, stderr),
 		Command::Rules(args) => rules::run(args, stdout, stderr),
+		Command::Docs(args) => docs::run(args, stdout, stderr),
 		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
 		Command::Query(args) => query::run(args, stdout, stderr),
 		Command::Agent(args) => agent::run(args, stdout, stderr),

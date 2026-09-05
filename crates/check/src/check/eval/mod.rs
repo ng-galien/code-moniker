@@ -1,7 +1,8 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Rule compilation builds owned executable specs from borrowed configuration entries.
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 mod collection;
 mod layout;
@@ -16,23 +17,25 @@ use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 	VerticalLayout,
 };
-use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
+use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, Position};
 use code_moniker_core::core::kinds::{KIND_COMMENT, REF_CALLS, REF_METHOD_CALL};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::{UriConfig, to_uri};
-use code_moniker_core::lang::Lang;
+use code_moniker_core::lang::{Lang, ParsedDocument};
 use code_moniker_workspace::lines::line_range;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
 use layout::eval_vertical_layout;
 use local::{
-	AggregateEval, DomainItem, domain_items, eval_aggregate, eval_entropy, eval_mode,
-	project_def_lhs_value,
+	AggregateEval, AstScopeError, DomainItem, ast_domain_items, domain_items, eval_aggregate,
+	eval_domain_item_node, eval_entropy, eval_mode, project_def_lhs_value,
 };
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
+
+type AstItemsByDef<'a> = RefCell<HashMap<usize, Result<Rc<Vec<DomainItem<'a>>>, AstScopeError>>>;
 
 fn is_call_ref_kind(kind: &[u8]) -> bool {
 	matches!(kind, REF_CALLS | REF_METHOD_CALL)
@@ -106,36 +109,88 @@ pub(in crate::check) fn evaluate_compiled_with_requirements(
 	compiled: &CompiledRules,
 	requirements: Option<&dyn RequirementResolver>,
 ) -> Vec<Violation> {
-	let need_doc_anchors = compiled
-		.by_kind
-		.values()
-		.any(|r| r.require_doc_for_vis.is_some())
-		|| compiled
-			.by_shape
-			.values()
-			.any(|r| r.require_doc_for_vis.is_some());
-	let ctx = EvalCtx {
+	evaluate_and_report_compiled(CompiledEvaluationInput {
 		graph,
-		requirements,
 		source,
 		lang,
-		uri_cfg: UriConfig { scheme },
-		parent_counts: parent_counts_by_kind(graph),
-		children_by_parent: children_by_parent(graph),
-		out_refs_by_source: out_refs_by_source(graph),
-		in_refs_by_target: in_refs_by_target(graph),
+		scheme,
+		compiled,
+		requirements,
+		parsed_document: None,
+		include_report: false,
+	})
+	.0
+}
+
+pub(in crate::check) struct CompiledEvaluationInput<'a> {
+	pub graph: &'a CodeGraph,
+	pub source: &'a str,
+	pub lang: Lang,
+	pub scheme: &'a str,
+	pub compiled: &'a CompiledRules,
+	pub requirements: Option<&'a dyn RequirementResolver>,
+	pub parsed_document: Option<&'a ParsedDocument>,
+	pub include_report: bool,
+}
+
+pub(in crate::check) fn evaluate_and_report_compiled(
+	input: CompiledEvaluationInput<'_>,
+) -> (Vec<Violation>, Vec<RuleReport>) {
+	with_eval_ctx(&input, |ctx| {
+		let violations = evaluate_with_ctx(input.graph, input.compiled, ctx);
+		let reports = if input.include_report {
+			rule_reports_with_ctx(input.graph, input.lang, input.compiled, ctx)
+		} else {
+			Vec::new()
+		};
+		(violations, reports)
+	})
+}
+
+fn with_eval_ctx<T>(
+	input: &CompiledEvaluationInput<'_>,
+	evaluate: impl FnOnce(&EvalCtx<'_, '_>) -> T,
+) -> T {
+	let owned_document = (input.compiled.uses_ast() && input.parsed_document.is_none())
+		.then(|| input.lang.parse("", input.source));
+	let ast_document = input.parsed_document.or(owned_document.as_ref());
+	let need_doc_anchors = input.compiled.needs_doc_anchors();
+	let ctx = EvalCtx {
+		graph: input.graph,
+		requirements: input.requirements,
+		source: input.source,
+		lang: input.lang,
+		ast_document,
+		uri_cfg: UriConfig {
+			scheme: input.scheme,
+		},
+		parent_counts: parent_counts_by_kind(input.graph),
+		children_by_parent: children_by_parent(input.graph),
+		out_refs_by_source: out_refs_by_source(input.graph),
+		in_refs_by_target: in_refs_by_target(input.graph),
 		comment_ends: if need_doc_anchors {
-			comment_end_bytes(graph)
+			comment_end_bytes(input.graph)
 		} else {
 			Vec::new()
 		},
 		doc_anchors: if need_doc_anchors {
-			doc_anchors_by_def(graph)
+			doc_anchors_by_def(input.graph)
 		} else {
 			HashMap::new()
 		},
 		def_index: OnceCell::new(),
+		ast_scope_error: Cell::new(None),
+		ast_items_by_def: RefCell::new(HashMap::new()),
+		ast_cached_nodes: Cell::new(0),
 	};
+	evaluate(&ctx)
+}
+
+fn evaluate_with_ctx(
+	graph: &CodeGraph,
+	compiled: &CompiledRules,
+	ctx: &EvalCtx<'_, '_>,
+) -> Vec<Violation> {
 	let mut out = Vec::new();
 
 	for (idx, d) in graph.defs().enumerate() {
@@ -149,9 +204,9 @@ pub(in crate::check) fn evaluate_compiled_with_requirements(
 				kind: kind_str,
 			};
 			for rule in &rules.rules {
-				eval_rule(rule, d, idx, kind_str, &ctx, &mut out);
+				eval_rule(rule, d, idx, kind_str, ctx, &mut out);
 			}
-			check_require_doc_comment(target, rules, &ctx, &mut out);
+			check_require_doc_comment(target, rules, ctx, &mut out);
 		}
 		if let Some(shape) = d.shape()
 			&& let Some(rules) = compiled.for_shape(shape)
@@ -163,35 +218,28 @@ pub(in crate::check) fn evaluate_compiled_with_requirements(
 				{
 					continue;
 				}
-				eval_shape_rule(rule, d, idx, kind_str, &ctx, &mut out);
+				eval_shape_rule(rule, d, idx, kind_str, ctx, &mut out);
 			}
-			if kind_rules.is_none_or(|kind_rules| kind_rules.require_doc_for_vis.is_none()) {
-				if let Some(rule_id) = &rules.require_doc_rule_id {
-					let target = RuleTarget {
-						scope: DefScope { record: d, idx },
-						kind: kind_str,
-					};
-					check_require_doc_comment_with_id(
-						target,
-						rules,
-						rule_id.clone(),
-						&ctx,
-						&mut out,
-					);
-				}
+			if kind_rules.is_none_or(|kind_rules| kind_rules.require_doc_for_vis.is_none())
+				&& let Some(rule_id) = &rules.require_doc_rule_id
+			{
+				let target = RuleTarget {
+					scope: DefScope { record: d, idx },
+					kind: kind_str,
+				};
+				check_require_doc_comment_with_id(target, rules, rule_id.clone(), ctx, &mut out);
 			}
 		}
 	}
 
 	for r in graph.refs() {
 		for rule in &compiled.refs {
-			eval_ref_rule(rule, r, graph, &ctx, &mut out);
+			eval_ref_rule(rule, r, graph, ctx, &mut out);
 		}
 	}
 
 	out
 }
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleVerdict {
@@ -287,40 +335,31 @@ pub(in crate::check) fn rule_report_compiled_with_requirements(
 	compiled: &CompiledRules,
 	requirements: Option<&dyn RequirementResolver>,
 ) -> Vec<RuleReport> {
-	let need_doc_anchors = compiled
-		.by_kind
-		.values()
-		.any(|r| r.require_doc_for_vis.is_some())
-		|| compiled
-			.by_shape
-			.values()
-			.any(|r| r.require_doc_for_vis.is_some());
-	let ctx = EvalCtx {
+	let input = CompiledEvaluationInput {
 		graph,
-		requirements,
 		source,
 		lang,
-		uri_cfg: UriConfig { scheme },
-		parent_counts: parent_counts_by_kind(graph),
-		children_by_parent: children_by_parent(graph),
-		out_refs_by_source: out_refs_by_source(graph),
-		in_refs_by_target: in_refs_by_target(graph),
-		comment_ends: if need_doc_anchors {
-			comment_end_bytes(graph)
-		} else {
-			Vec::new()
-		},
-		doc_anchors: if need_doc_anchors {
-			doc_anchors_by_def(graph)
-		} else {
-			HashMap::new()
-		},
-		def_index: OnceCell::new(),
+		scheme,
+		compiled,
+		requirements,
+		parsed_document: None,
+		include_report: true,
 	};
+	with_eval_ctx(&input, |ctx| {
+		rule_reports_with_ctx(graph, lang, compiled, ctx)
+	})
+}
+
+fn rule_reports_with_ctx(
+	graph: &CodeGraph,
+	lang: Lang,
+	compiled: &CompiledRules,
+	ctx: &EvalCtx<'_, '_>,
+) -> Vec<RuleReport> {
 	let mut out = Vec::new();
-	push_kind_rule_reports(&mut out, graph, lang, &ctx, compiled);
-	push_shape_rule_reports(&mut out, graph, &ctx, compiled);
-	push_ref_rule_reports(&mut out, graph, &ctx, compiled);
+	push_kind_rule_reports(&mut out, graph, lang, ctx, compiled);
+	push_shape_rule_reports(&mut out, graph, ctx, compiled);
+	push_ref_rule_reports(&mut out, graph, ctx, compiled);
 	out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
 	out
 }
@@ -342,7 +381,10 @@ fn push_kind_rule_reports(
 				report.evaluated += 1;
 				let premise =
 					implication_premise(rule).map(|premise| eval_node(premise, d, idx, ctx));
-				report.record(eval_node(&rule.root, d, idx, ctx), premise);
+				report.record_compiled(eval_compiled_rule(rule, d, idx, ctx), premise);
+			}
+			if rule.ast_kind_names.is_some() && report.evaluated == 0 {
+				report.warning = Some("AST rule subject population is empty".to_string());
 			}
 			out.push(report);
 		}
@@ -369,6 +411,7 @@ fn push_kind_rule_reports(
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
 									def_idx: None,
+									position: None,
 									details: None,
 								})
 							}
@@ -407,7 +450,10 @@ fn push_shape_rule_reports(
 				report.evaluated += 1;
 				let premise =
 					implication_premise(rule).map(|premise| eval_node(premise, d, idx, ctx));
-				report.record(eval_node(&rule.root, d, idx, ctx), premise);
+				report.record_compiled(eval_compiled_rule(rule, d, idx, ctx), premise);
+			}
+			if rule.ast_kind_names.is_some() && report.evaluated == 0 {
+				report.warning = Some("AST rule subject population is empty".to_string());
 			}
 			out.push(report);
 		}
@@ -441,6 +487,7 @@ fn push_shape_rule_reports(
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
 									def_idx: None,
+									position: None,
 									details: None,
 								})
 							}
@@ -520,6 +567,24 @@ impl RuleReport {
 			NodeOutcome::NotApplicable => {}
 		}
 	}
+
+	fn record_compiled(
+		&mut self,
+		outcome: Result<NodeOutcome, AstScopeError>,
+		premise: Option<NodeOutcome>,
+	) {
+		match outcome {
+			Ok(outcome) => self.record(outcome, premise),
+			Err(error) => {
+				self.record_inconclusive(&format!("AST evaluation is inconclusive: {error}"))
+			}
+		}
+	}
+
+	fn record_inconclusive(&mut self, warning: &str) {
+		self.inconclusive = Some(self.inconclusive.unwrap_or_default() + 1);
+		self.warning.get_or_insert_with(|| warning.to_string());
+	}
 }
 
 fn implication_premise(rule: &CompiledRule) -> Option<&Node> {
@@ -534,6 +599,7 @@ struct EvalCtx<'g, 'src> {
 	requirements: Option<&'g dyn RequirementResolver>,
 	source: &'src str,
 	lang: Lang,
+	ast_document: Option<&'src ParsedDocument>,
 	uri_cfg: UriConfig<'src>,
 	parent_counts: HashMap<(usize, &'g [u8]), u32>,
 	children_by_parent: HashMap<usize, Vec<usize>>,
@@ -542,6 +608,9 @@ struct EvalCtx<'g, 'src> {
 	comment_ends: Vec<u32>,
 	doc_anchors: HashMap<usize, u32>,
 	def_index: OnceCell<HashMap<Vec<u8>, usize>>,
+	ast_scope_error: Cell<Option<AstScopeError>>,
+	ast_items_by_def: AstItemsByDef<'src>,
+	ast_cached_nodes: Cell<usize>,
 }
 
 #[derive(Debug)]
@@ -552,6 +621,7 @@ struct CompiledRule {
 	raw_expr: String,
 	expanded_expr: String,
 	root: Node,
+	ast_kind_names: Option<Vec<String>>,
 	severity: RuleSeverity,
 	message: Option<String>,
 	rationale: Option<String>,
@@ -607,6 +677,22 @@ impl CompiledRules {
 
 	pub fn specs(&self, lang: Lang) -> Vec<CompiledRuleSpec> {
 		compiled_rule_specs(self, lang)
+	}
+
+	fn uses_ast(&self) -> bool {
+		self.by_kind
+			.values()
+			.chain(self.by_shape.values())
+			.flat_map(|rules| &rules.rules)
+			.chain(&self.refs)
+			.any(|rule| rule.ast_kind_names.is_some())
+	}
+
+	fn needs_doc_anchors(&self) -> bool {
+		self.by_kind
+			.values()
+			.chain(self.by_shape.values())
+			.any(|rules| rules.require_doc_for_vis.is_some())
 	}
 }
 
@@ -676,10 +762,57 @@ fn compile_rules_for_lang(
 			entry, id, at, scheme, &allowed, &aliases,
 		)?);
 	}
-	Ok(CompiledRules {
+	let compiled = CompiledRules {
 		by_kind,
 		by_shape,
 		refs,
+	};
+	validate_ast_kind_names(&compiled, lang)?;
+	Ok(compiled)
+}
+
+fn validate_ast_kind_names(rules: &CompiledRules, lang: Lang) -> Result<(), ConfigError> {
+	if let Some(rule) = rules.refs.iter().find(|rule| rule.ast_kind_names.is_some()) {
+		return Err(ConfigError::InvalidExpr {
+			at: rule.rule_id.clone(),
+			error: expr::ParseError::BadExpr {
+				expr: rule.expanded_expr.clone(),
+				msg: "the ast domain requires a definition subject, not a reference".to_string(),
+			},
+		});
+	}
+	let document = lang.parse("", "");
+	let language = document.primary().language();
+	for rule in rules
+		.by_kind
+		.values()
+		.chain(rules.by_shape.values())
+		.flat_map(|rules| &rules.rules)
+	{
+		let Some(kind) = rule.ast_kind_names.as_ref().and_then(|kinds| {
+			kinds
+				.iter()
+				.find(|kind| !language_has_named_kind(&language, kind))
+		}) else {
+			continue;
+		};
+		return Err(ConfigError::InvalidExpr {
+			at: rule.rule_id.clone(),
+			error: expr::ParseError::BadExpr {
+				expr: rule.expanded_expr.clone(),
+				msg: format!("unknown AST kind `{kind}` for `{}`", lang.tag()),
+			},
+		});
+	}
+	Ok(())
+}
+
+fn language_has_named_kind(language: &tree_sitter::Language, expected: &str) -> bool {
+	(0..language.node_kind_count()).any(|id| {
+		let Ok(id) = u16::try_from(id) else {
+			return false;
+		};
+		language.node_kind_is_named(id) && language.node_kind_for_id(id) == Some(expected)
 	})
 }
 
@@ -693,7 +826,7 @@ fn compiled_rule_specs(rules: &CompiledRules, lang: Lang) -> Vec<CompiledRuleSpe
 				root: "local".to_string(),
 				subject: "symbol".to_string(),
 				plan: "t0_local".to_string(),
-				capabilities: Vec::new(),
+				capabilities: rule_capabilities(rule),
 				group_by: Vec::new(),
 				domain: format!("{kind} defs"),
 				kind: Some(kind.clone()),
@@ -735,7 +868,7 @@ fn compiled_rule_specs(rules: &CompiledRules, lang: Lang) -> Vec<CompiledRuleSpe
 				root: "local".to_string(),
 				subject: "symbol".to_string(),
 				plan: "t0_local".to_string(),
-				capabilities: Vec::new(),
+				capabilities: rule_capabilities(rule),
 				group_by: Vec::new(),
 				domain: format!("shape:{shape} defs"),
 				kind: None,
@@ -778,7 +911,7 @@ fn compiled_rule_specs(rules: &CompiledRules, lang: Lang) -> Vec<CompiledRuleSpe
 			root: "local".to_string(),
 			subject: "reference".to_string(),
 			plan: "t0_local".to_string(),
-			capabilities: Vec::new(),
+			capabilities: rule_capabilities(rule),
 			group_by: Vec::new(),
 			domain: "refs".to_string(),
 			kind: None,
@@ -793,6 +926,14 @@ fn compiled_rule_specs(rules: &CompiledRules, lang: Lang) -> Vec<CompiledRuleSpe
 	}
 	out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
 	out
+}
+
+fn rule_capabilities(rule: &CompiledRule) -> Vec<String> {
+	if rule.ast_kind_names.is_some() {
+		vec!["ast".to_string()]
+	} else {
+		Vec::new()
+	}
 }
 
 fn compile_rule_entry(
@@ -810,6 +951,7 @@ fn compile_rule_entry(
 			error,
 		}
 	})?;
+	let ast_kind_names = compile_ast_analysis(&parsed.root, &at, &expanded)?;
 	Ok(CompiledRule {
 		id,
 		explicit_id: entry.id.is_some(),
@@ -817,6 +959,7 @@ fn compile_rule_entry(
 		raw_expr: entry.expr.clone(),
 		expanded_expr: expanded,
 		root: parsed.root,
+		ast_kind_names,
 		message: entry.message.clone(),
 		severity: entry.severity,
 		rationale: entry.rationale.clone(),
@@ -842,6 +985,7 @@ fn compile(
 				error,
 			}
 		})?;
+		let ast_kind_names = compile_ast_analysis(&parsed.root, &at, &expanded)?;
 		compiled.push(CompiledRule {
 			id,
 			explicit_id: entry.id.is_some(),
@@ -849,6 +993,7 @@ fn compile(
 			raw_expr: entry.expr.clone(),
 			expanded_expr: expanded,
 			root: parsed.root,
+			ast_kind_names,
 			message: entry.message.clone(),
 			severity: entry.severity,
 			rationale: entry.rationale.clone(),
@@ -862,6 +1007,21 @@ fn compile(
 			.as_ref()
 			.map(|_| format!("{section}.{kind}.require_doc_comment")),
 	})
+}
+
+fn compile_ast_analysis(
+	root: &Node,
+	at: &str,
+	expression: &str,
+) -> Result<Option<Vec<String>>, ConfigError> {
+	root.ast_kind_names()
+		.map_err(|reason| ConfigError::InvalidExpr {
+			at: at.to_string(),
+			error: expr::ParseError::BadExpr {
+				expr: expression.to_string(),
+				msg: reason.to_string(),
+			},
+		})
 }
 
 fn compile_shape_rules_into(
@@ -1002,10 +1162,12 @@ fn eval_rule_with_id(
 		actual,
 		expected,
 		def_idx,
+		position,
 		details,
-	} = match eval_node(&rule.root, target.scope.record, target.scope.idx, ctx) {
-		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
-		NodeOutcome::Fail(f) => f,
+	} = match eval_compiled_rule(rule, target.scope.record, target.scope.idx, ctx) {
+		Ok(NodeOutcome::Pass | NodeOutcome::NotApplicable) => return,
+		Ok(NodeOutcome::Fail(f)) => f,
+		Err(error) => ast_scope_failure(rule, target.scope.record, error),
 	};
 	let diagnostic = def_idx
 		.map(|idx| ctx.graph.def_at(idx))
@@ -1014,7 +1176,9 @@ fn eval_rule_with_id(
 	let name = def_name(diagnostic).unwrap_or_default();
 	let name_snake = to_snake_case(&name);
 	let moniker = to_uri(&diagnostic.moniker, &ctx.uri_cfg);
-	let (start_line, end_line) = lines_of(diagnostic, ctx.source);
+	let (start_line, end_line) = position
+		.map(|(start, end)| line_range(ctx.source, start, end))
+		.unwrap_or_else(|| lines_of(diagnostic, ctx.source));
 	let message = format!(
 		"{diagnostic_kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
 	);
@@ -1060,6 +1224,41 @@ fn eval_rule_with_id(
 	});
 }
 
+fn eval_compiled_rule(
+	rule: &CompiledRule,
+	d: &DefRecord,
+	def_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Result<NodeOutcome, AstScopeError> {
+	ctx.ast_scope_error.set(None);
+	let outcome = eval_node(&rule.root, d, def_idx, ctx);
+	let ast_scope_error = ctx.ast_scope_error.take();
+	if matches!(outcome, NodeOutcome::NotApplicable)
+		&& let Some(error) = ast_scope_error
+	{
+		return Err(error);
+	}
+	Ok(outcome)
+}
+
+fn record_ast_scope_error(ctx: &EvalCtx<'_, '_>, error: AstScopeError) {
+	if ctx.ast_scope_error.get().is_none() {
+		ctx.ast_scope_error.set(Some(error));
+	}
+}
+
+fn ast_scope_failure(rule: &CompiledRule, d: &DefRecord, error: AstScopeError) -> Failure {
+	Failure {
+		atom_raw: rule.raw_expr.clone(),
+		lhs_label: "ast".to_string(),
+		actual: error.to_string(),
+		expected: "analyzable AST scope".to_string(),
+		def_idx: None,
+		position: d.position,
+		details: Some(format!("AST evaluation is unavailable: {error}")),
+	}
+}
+
 fn eval_ref_rule(
 	rule: &CompiledRule,
 	r: &code_moniker_core::core::code_graph::RefRecord,
@@ -1073,6 +1272,7 @@ fn eval_ref_rule(
 		actual,
 		expected,
 		def_idx: _,
+		position: _,
 		details,
 	} = match eval_ref_node(&rule.root, r, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
@@ -1235,6 +1435,7 @@ fn eval_quantifier_ref(
 				actual: "0 matches".to_string(),
 				expected: "at least one".to_string(),
 				def_idx: None,
+				position: None,
 				details: None,
 			}),
 		};
@@ -1242,6 +1443,7 @@ fn eval_quantifier_ref(
 	let mut matched = 0usize;
 	for item in items {
 		let outcome = match item {
+			DomainItem::Ast { .. } => NodeOutcome::NotApplicable,
 			DomainItem::Ref { record } => eval_ref_node_with_current(filter, record, r, ctx),
 			DomainItem::Def {
 				idx: Some(idx),
@@ -1266,6 +1468,7 @@ fn eval_quantifier_ref(
 			actual: format!("{matched} matches"),
 			expected: "at least one".to_string(),
 			def_idx: None,
+			position: None,
 			details: None,
 		}),
 		QuantKind::All => NodeOutcome::Pass,
@@ -1276,6 +1479,7 @@ fn eval_quantifier_ref(
 			actual: format!("{matched} matches"),
 			expected: "0 matches".to_string(),
 			def_idx: None,
+			position: None,
 			details: None,
 		}),
 	}
@@ -1287,6 +1491,7 @@ fn ref_domain_items<'a>(
 	ctx: &'a EvalCtx<'_, '_>,
 ) -> Vec<DomainItem<'a>> {
 	match domain {
+		Domain::Ast => Vec::new(),
 		Domain::SourceOutRefs | Domain::OutRefs => ctx
 			.out_refs_by_source
 			.get(&r.source)
@@ -1356,6 +1561,7 @@ fn ref_domain_items<'a>(
 
 fn domain_debug_label(domain: &Domain) -> &'static str {
 	match domain {
+		Domain::Ast => "ast",
 		Domain::Children(_) => "children",
 		Domain::ChildrenByShape(_) => "shape",
 		Domain::Descendants(_) => "descendants",
@@ -1608,6 +1814,7 @@ struct Failure {
 	actual: String,
 	expected: String,
 	def_idx: Option<usize>,
+	position: Option<Position>,
 	details: Option<String>,
 }
 
@@ -1620,7 +1827,11 @@ enum NodeOutcome {
 
 enum AtomOutcome {
 	Pass,
-	Fail { actual: String, expected: String },
+	Fail {
+		actual: String,
+		expected: String,
+		position: Option<Position>,
+	},
 	NotApplicable,
 }
 
@@ -1643,12 +1854,17 @@ where
 	match node {
 		Node::Atom(atom) => match atom_eval(atom) {
 			AtomOutcome::Pass => NodeOutcome::Pass,
-			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
+			AtomOutcome::Fail {
+				actual,
+				expected,
+				position,
+			} => NodeOutcome::Fail(Failure {
 				atom_raw: atom.raw.clone(),
 				lhs_label: describe_lhs(&atom.lhs).to_string(),
 				actual,
 				expected,
 				def_idx: None,
+				position,
 				details: None,
 			}),
 			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
@@ -1694,6 +1910,7 @@ where
 					actual: "true".to_string(),
 					expected: "false".to_string(),
 					def_idx: None,
+					position: None,
 					details: None,
 				}),
 				NodeOutcome::Fail(_) => NodeOutcome::Pass,
@@ -1768,6 +1985,7 @@ fn eval_require(pattern: &str, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> NodeOutc
 		actual: "missing".to_string(),
 		expected: rendered,
 		def_idx: None,
+		position: None,
 		details: None,
 	})
 }
@@ -1902,27 +2120,40 @@ fn eval_count(
 	def_idx: usize,
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
-) -> u32 {
+) -> Option<u32> {
 	match domain {
-		Domain::Children(kind) => match filter {
-			None => ctx
-				.parent_counts
-				.get(&(def_idx, kind.as_bytes()))
-				.copied()
-				.unwrap_or(0),
-			Some(node) => count_children_filtered(d, def_idx, self_idx, kind, node, ctx),
-		},
-		Domain::ChildrenByShape(shape) => {
-			count_children_by_shape(def_idx, self_idx, shape, filter, ctx)
+		Domain::Ast => {
+			let items = match ast_domain_items(def_idx, ctx) {
+				Ok(items) => items,
+				Err(error) => {
+					record_ast_scope_error(ctx, error);
+					return None;
+				}
+			};
+			Some(count_items(items.iter().copied(), filter, self_idx, ctx))
 		}
-		Domain::Descendants(_) => count_domain_items(domain, filter, def_idx, self_idx, ctx),
-		Domain::Pairs(inner) => eval_pair_count(inner, filter, def_idx, self_idx, ctx),
-		Domain::Segments => count_segments(d, filter),
-		Domain::OutRefs | Domain::SourceOutRefs => count_out_refs(d, def_idx, filter, ctx),
-		Domain::InRefs | Domain::SourceInRefs => count_in_refs(d, filter, ctx),
-		Domain::TargetOutRefs | Domain::TargetInRefs => 0,
+		Domain::Children(kind) => match filter {
+			None => Some(
+				ctx.parent_counts
+					.get(&(def_idx, kind.as_bytes()))
+					.copied()
+					.unwrap_or(0),
+			),
+			Some(node) => Some(count_children_filtered(
+				d, def_idx, self_idx, kind, node, ctx,
+			)),
+		},
+		Domain::ChildrenByShape(shape) => Some(count_children_by_shape(
+			def_idx, self_idx, shape, filter, ctx,
+		)),
+		Domain::Descendants(_) => Some(count_domain_items(domain, filter, def_idx, self_idx, ctx)),
+		Domain::Pairs(inner) => Some(eval_pair_count(inner, filter, def_idx, self_idx, ctx)),
+		Domain::Segments => Some(count_segments(d, filter)),
+		Domain::OutRefs | Domain::SourceOutRefs => Some(count_out_refs(d, def_idx, filter, ctx)),
+		Domain::InRefs | Domain::SourceInRefs => Some(count_in_refs(d, filter, ctx)),
+		Domain::TargetOutRefs | Domain::TargetInRefs => Some(0),
 		Domain::SourceAncestorOutRefs | Domain::SourceAncestorInRefs => {
-			count_domain_items(domain, filter, def_idx, self_idx, ctx)
+			Some(count_domain_items(domain, filter, def_idx, self_idx, ctx))
 		}
 	}
 }
@@ -1934,31 +2165,25 @@ fn count_domain_items(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> u32 {
-	let items = domain_items(domain, def_idx, ctx);
+	count_items(domain_items(domain, def_idx, ctx), filter, self_idx, ctx)
+}
+
+fn count_items<'a>(
+	items: impl IntoIterator<Item = DomainItem<'a>>,
+	filter: Option<&Node>,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	let items = items.into_iter();
 	let Some(node) = filter else {
-		return items.len() as u32;
+		return items.count() as u32;
 	};
 	items
-		.into_iter()
-		.filter(|item| match item {
-			DomainItem::Def {
-				idx: Some(idx),
-				def,
-			} => {
-				matches!(
-					eval_node_with_self(node, def, *idx, self_idx, ctx),
-					NodeOutcome::Pass
-				)
-			}
-			DomainItem::Def { idx: None, def } => {
-				matches!(eval_external_def_node(node, def, ctx), NodeOutcome::Pass)
-			}
-			DomainItem::Ref { record } => {
-				matches!(eval_ref_node(node, record, ctx), NodeOutcome::Pass)
-			}
-			DomainItem::Segment { kind, name } => {
-				matches!(eval_node_segment(node, kind, name), NodeOutcome::Pass)
-			}
+		.filter(|item| {
+			matches!(
+				eval_domain_item_node(*item, node, self_idx, ctx),
+				NodeOutcome::Pass
+			)
 		})
 		.count() as u32
 }
@@ -1977,7 +2202,7 @@ fn eval_number_expr_def(
 			_ => None,
 		},
 		NumberExpr::Count { domain, filter } => {
-			Some(eval_count(domain, filter.as_deref(), d, def_idx, self_idx, ctx) as f64)
+			eval_count(domain, filter.as_deref(), d, def_idx, self_idx, ctx).map(|n| n as f64)
 		}
 		NumberExpr::Aggregate {
 			kind,
@@ -2042,6 +2267,7 @@ fn eval_count_ref(
 				return true;
 			};
 			match item {
+				DomainItem::Ast { .. } => false,
 				DomainItem::Ref { record } => {
 					matches!(
 						eval_ref_node_with_current(filter, record, r, ctx),
@@ -2205,7 +2431,7 @@ fn eval_quantifier_def(
 	let mut total = 0u32;
 	let mut passes = 0u32;
 	match domain {
-		Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
+		Domain::Ast | Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
 			match eval_def_domain_quantifier(kind, domain, filter, scope.idx, self_idx, ctx) {
 				Ok((domain_total, domain_passes)) => {
 					total = domain_total;
@@ -2288,6 +2514,7 @@ fn eval_quantifier_def(
 				QuantKind::None => "zero matches".to_string(),
 			},
 			def_idx: None,
+			position: None,
 			details: None,
 		})
 	}
@@ -2301,29 +2528,56 @@ fn eval_def_domain_quantifier(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Result<(u32, u32), Box<NodeOutcome>> {
-	let mut total = 0u32;
-	let mut passes = 0u32;
-	for item in domain_items(domain, def_idx, ctx) {
-		let DomainItem::Def { idx, def } = item else {
-			continue;
-		};
-		total += 1;
-		let outcome = match idx {
-			Some(idx) => eval_node_with_self(filter, def, idx, self_idx, ctx),
-			None => eval_external_def_node(filter, def, ctx),
-		};
-		match outcome {
-			NodeOutcome::Pass => passes += 1,
-			NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
-				if let Some(idx) = idx {
-					failure.def_idx.get_or_insert(idx);
+	let evaluate = |items: &[DomainItem<'_>]| {
+		let mut total = 0u32;
+		let mut passes = 0u32;
+		let mut first_match = None;
+		for &item in items {
+			total += 1;
+			let outcome = eval_domain_item_node(item, filter, self_idx, ctx);
+			match outcome {
+				NodeOutcome::Pass => {
+					passes += 1;
+					if *domain == Domain::Ast {
+						first_match.get_or_insert(item);
+					}
 				}
-				return Err(Box::new(NodeOutcome::Fail(failure)));
+				NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
+					if let Some(idx) = item.def_idx() {
+						failure.def_idx.get_or_insert(idx);
+					}
+					failure.position = failure.position.or_else(|| item.position());
+					return Err(Box::new(NodeOutcome::Fail(failure)));
+				}
+				NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
 			}
-			NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
 		}
+		if *domain == Domain::Ast && kind == QuantKind::None && passes > 0 {
+			let item = first_match.expect("a positive pass count has a witness item");
+			return Err(Box::new(NodeOutcome::Fail(Failure {
+				atom_raw: format!("none({})", domain_debug_label(domain)),
+				lhs_label: "none".to_string(),
+				actual: format!("{passes}/{total}"),
+				expected: "zero matches".to_string(),
+				def_idx: item.def_idx(),
+				position: item.position(),
+				details: None,
+			})));
+		}
+		Ok((total, passes))
+	};
+	if *domain == Domain::Ast {
+		match ast_domain_items(def_idx, ctx) {
+			Ok(items) => evaluate(items.as_slice()),
+			Err(error) => {
+				record_ast_scope_error(ctx, error);
+				Err(Box::new(NodeOutcome::NotApplicable))
+			}
+		}
+	} else {
+		let items = domain_items(domain, def_idx, ctx);
+		evaluate(&items)
 	}
-	Ok((total, passes))
 }
 
 fn eval_external_def_node(node: &Node, def: &DefRecord, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
@@ -2419,6 +2673,7 @@ fn eval_atom(
 			AtomOutcome::Fail {
 				actual: "not subset".to_string(),
 				expected: "subset".to_string(),
+				position: None,
 			}
 		};
 	}
@@ -2462,15 +2717,68 @@ fn eval_atom(
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
 	}
-	if let Rhs::Number(expr) = &atom.rhs {
+	let mut outcome = if let Rhs::Number(expr) = &atom.rhs {
 		let Some(rhs_val) =
 			eval_number_expr_def(expr, d, def_idx, self_idx, ctx).map(Value::Number)
 		else {
 			return AtomOutcome::NotApplicable;
 		};
-		return apply_op_values(&value, atom.op, &rhs_val);
+		apply_op_values(&value, atom.op, &rhs_val)
+	} else {
+		apply_op(&value, atom)
+	};
+	if matches!(outcome, AtomOutcome::Fail { .. })
+		&& let LhsExpr::Number(NumberExpr::Count {
+			domain: Domain::Ast,
+			filter,
+		}) = &atom.lhs
+		&& let Some(position) = ast_count_failure_position(
+			filter.as_deref(),
+			atom.op,
+			&atom.rhs,
+			def_idx,
+			self_idx,
+			ctx,
+		) && let AtomOutcome::Fail {
+		position: failure_position,
+		..
+	} = &mut outcome
+	{
+		*failure_position = Some(position);
 	}
-	apply_op(&value, atom)
+	outcome
+}
+
+fn ast_count_failure_position(
+	filter: Option<&Node>,
+	op: Op,
+	rhs: &Rhs,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<Position> {
+	let Rhs::Number(NumberExpr::Literal(limit)) = rhs else {
+		return None;
+	};
+	let witness_index = match op {
+		Op::Le | Op::Eq if *limit >= 0.0 && limit.fract() == 0.0 => *limit as usize,
+		Op::Lt if *limit > 0.0 && limit.fract() == 0.0 => *limit as usize - 1,
+		_ => return None,
+	};
+	ast_domain_items(def_idx, ctx)
+		.ok()?
+		.iter()
+		.copied()
+		.filter(|item| {
+			filter.is_none_or(|node| {
+				matches!(
+					eval_domain_item_node(*item, node, self_idx, ctx),
+					NodeOutcome::Pass
+				)
+			})
+		})
+		.nth(witness_index)
+		.and_then(DomainItem::position)
 }
 
 fn children_by_parent(graph: &CodeGraph) -> HashMap<usize, Vec<usize>> {

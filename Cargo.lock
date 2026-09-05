@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-check"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",
@@ -454,11 +454,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml",
+ "tree-sitter",
 ]
 
 [[package]]
 name = "code-moniker-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "cc",
  "insta",
@@ -485,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "code-moniker-check",
@@ -512,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-daemon-client"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "code-moniker-query",
@@ -526,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-query"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -541,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "code-moniker-workspace"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "code-moniker-core",

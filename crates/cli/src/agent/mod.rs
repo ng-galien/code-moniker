@@ -1531,7 +1531,7 @@ plain.md
 	}
 
 	#[test]
-	fn skill_router_lists_every_learn_topic() {
+	fn skill_router_lists_product_learning_surfaces() {
 		let skill = SKILL_FILES
 			.iter()
 			.find_map(|(relative, contents)| (*relative == "SKILL.md").then_some(*contents))
@@ -1547,6 +1547,14 @@ plain.md
 		assert!(
 			skill.contains("code-moniker rules learn --format json"),
 			"skill router must discover catalog topics from the CLI"
+		);
+		assert!(
+			skill.contains("code-moniker query 'query.describe'"),
+			"skill router must discover the live Query DSL"
+		);
+		assert!(
+			skill.contains("query --daemon <ENDPOINT>"),
+			"skill router must explain how to target an existing CLI index"
 		);
 	}
 

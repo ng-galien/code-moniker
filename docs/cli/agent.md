@@ -12,7 +12,9 @@ That makes it usable anywhere exit codes matter: editor hooks, Codex or
 Claude Code `PostToolUse`, Gemini CLI `AfterTool`, Git pre-commit, or CI.
 
 For command behavior and rule syntax, see [`check`](check.md) and the
-[Rule DSL](check-dsl.md).
+[Rule DSL](check-dsl.md). For indexed agent exploration and the live tool
+schemas, see [MCP agent tools](mcp.md); for a direct CLI integration against an
+existing index, see the [Indexed Query DSL](query.md).
 
 ## Hook filtering model
 

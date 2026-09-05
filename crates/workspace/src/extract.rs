@@ -2,7 +2,7 @@ use std::path::Path;
 
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
-use code_moniker_core::lang::{Lang, ts};
+use code_moniker_core::lang::{ExtractionContext, Lang, LangExtractor, ParsedDocument, ts};
 
 use crate::sources::CBuildContext;
 use crate::tsconfig::TsResolution;
@@ -26,9 +26,19 @@ pub fn source_root(lang: Lang, path: &Path, ctx: &Context) -> Option<Moniker> {
 }
 
 pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> CodeGraph {
+	extract_with_document(lang, source, path, ctx).0
+}
+
+pub fn extract_with_document(
+	lang: Lang,
+	source: &str,
+	path: &Path,
+	ctx: &Context,
+) -> (CodeGraph, ParsedDocument) {
 	let uri = path.to_str().unwrap_or("single-file");
 	let anchor = path_anchor(path, ctx);
 	let deep = true;
+	let document = lang.parse(uri, source);
 	let mut graph = match lang {
 		Lang::Ts | Lang::Tsx | Lang::Js | Lang::Jsx => {
 			let presets = ts::Presets {
@@ -37,68 +47,92 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 				..ts::Presets::default()
 			};
 			match lang {
-				Lang::Ts => ts::extract(uri, source, &anchor, deep, &presets),
-				Lang::Tsx => <ts::TsxLang as code_moniker_core::lang::LangExtractor>::extract(
-					uri, source, &anchor, deep, &presets,
-				),
-				Lang::Js => <ts::JsLang as code_moniker_core::lang::LangExtractor>::extract(
-					uri, source, &anchor, deep, &presets,
-				),
-				Lang::Jsx => <ts::JsxLang as code_moniker_core::lang::LangExtractor>::extract(
-					uri, source, &anchor, deep, &presets,
-				),
+				Lang::Ts => {
+					extract_parsed::<ts::Lang>(uri, source, &anchor, deep, &presets, &document)
+				}
+				Lang::Tsx => {
+					extract_parsed::<ts::TsxLang>(uri, source, &anchor, deep, &presets, &document)
+				}
+				Lang::Js => {
+					extract_parsed::<ts::JsLang>(uri, source, &anchor, deep, &presets, &document)
+				}
+				Lang::Jsx => {
+					extract_parsed::<ts::JsxLang>(uri, source, &anchor, deep, &presets, &document)
+				}
 				_ => unreachable!("TypeScript family arm only receives ts/tsx/js/jsx"),
 			}
 		}
-		Lang::Rs => code_moniker_core::lang::rs::extract_sdk(
+		Lang::Rs => extract_parsed::<code_moniker_core::lang::rs::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::rs::Presets::default(),
+			&Default::default(),
+			&document,
 		),
-		Lang::Java => code_moniker_core::lang::java::extract_sdk(
+		Lang::Java => extract_parsed::<code_moniker_core::lang::java::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::java::Presets::default(),
+			&Default::default(),
+			&document,
 		),
-		Lang::Python => code_moniker_core::lang::python::extract(
+		Lang::Python => extract_parsed::<code_moniker_core::lang::python::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::python::Presets::default(),
+			&Default::default(),
+			&document,
 		),
-		Lang::Go => code_moniker_core::lang::go::extract(
+		Lang::Go => extract_parsed::<code_moniker_core::lang::go::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::go::Presets::default(),
+			&Default::default(),
+			&document,
 		),
 		Lang::C => {
 			let presets = ctx.c.extraction_presets();
-			code_moniker_core::lang::c::extract(uri, source, &anchor, deep, &presets)
+			extract_parsed::<code_moniker_core::lang::c::Lang>(
+				uri, source, &anchor, deep, &presets, &document,
+			)
 		}
-		Lang::Cs => code_moniker_core::lang::cs::extract(
+		Lang::Cs => extract_parsed::<code_moniker_core::lang::cs::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::cs::Presets::default(),
+			&Default::default(),
+			&document,
 		),
-		Lang::Sql => code_moniker_core::lang::sql::extract(
+		Lang::Sql => extract_parsed::<code_moniker_core::lang::sql::Lang>(
 			uri,
 			source,
 			&anchor,
 			deep,
-			&code_moniker_core::lang::sql::Presets::default(),
+			&Default::default(),
+			&document,
 		),
 	};
 	graph.shrink_to_fit();
-	graph
+	(graph, document)
+}
+
+fn extract_parsed<E: LangExtractor>(
+	uri: &str,
+	source: &str,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &E::Presets,
+	document: &ParsedDocument,
+) -> CodeGraph {
+	E::extract_parsed(
+		ExtractionContext::new(uri, source, anchor, deep, presets),
+		document,
+	)
 }
 
 fn path_anchor(path: &Path, ctx: &Context) -> Moniker {

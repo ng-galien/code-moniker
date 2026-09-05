@@ -98,6 +98,7 @@ fn eval_pair_atom(
 			Some(false) => AtomOutcome::Fail {
 				actual: "not subset".to_string(),
 				expected: "subset".to_string(),
+				position: None,
 			},
 			None => AtomOutcome::NotApplicable,
 		};
@@ -216,6 +217,7 @@ fn pair_quantifier_outcome(kind: QuantKind, total: u32, passes: u32) -> NodeOutc
 			QuantKind::None => "zero matches".to_string(),
 		},
 		def_idx: None,
+		position: None,
 		details: None,
 	})
 }

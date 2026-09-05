@@ -21,13 +21,15 @@ enforcing architecture rules in hooks or CI.
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C, C#, SQL, and PL/pgSQL.
 
-The CLI also embeds an executable knowledge base. Start with the progressive
-Markdown summary from `code-moniker rules learn`, then enter `rules`,
-`languages`, `architecture`, or `workspace`. Focused pages reveal the next
-level: for example, Java links to Spring, qualified types, and layer boundaries,
-while TypeScript links to TSX, Node backends, and test conventions.
-`code-moniker rules learn --format json` exposes the complete
-structured inventory to tools and agents.
+Read the bundled guides offline with `code-moniker docs`,
+`code-moniker docs cli/query.md`, or `code-moniker docs cli/mcp.md`.
+The product exposes its own learning surfaces. Start rule and architecture work
+with the progressive embedded Markdown from `code-moniker rules learn`; its JSON
+form exposes the complete topic inventory to tools and agents. Start indexed
+integration work with `code-moniker query 'query.describe'`, which reports the
+live Query DSL verbs, fields, defaults and constraints from the same registry
+that validates requests. The [documentation map](docs/README.md) connects those
+discovery surfaces to task guides and exact references.
 
 Extractor maturity is uneven by design. `code-moniker` is a fast symbol graph
 extractor, not a replacement for each language compiler or type checker.
@@ -409,13 +411,14 @@ Start with the page that matches the task:
 | Task | Page |
 | ---- | ---- |
 | Inspect symbols from the CLI | [Extract](docs/cli/extract.md) |
-| Browse a graph interactively | [UI and MCP](docs/cli/ui.md) |
+| Explore the indexed graph with an agent | [MCP agent tools](docs/cli/mcp.md) |
 | Measure extraction coverage and scan time | [Stats](docs/cli/stats.md) |
 | List manifest dependencies | [Manifest](docs/cli/manifest.md) |
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
 | Use the VS Code workbench extension | [VS Code extension](docs/vscode-extension.md) |
 | Wire checks into agent hooks or CI | [Agent integration and hooks](docs/cli/agent.md) |
+| Query a published workspace index | [Indexed Query DSL](docs/cli/query.md) |
 | Run or query resident workspaces | [Daemon](docs/daemon.md) |
 | Export daemon traces through OpenTelemetry | [Observability](docs/observability.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
