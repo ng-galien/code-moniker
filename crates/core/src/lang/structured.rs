@@ -1,4 +1,6 @@
 //! Shared source identities and SDK emission for document/data extractors.
+use std::borrow::Cow;
+
 use rustc_hash::FxHashMap;
 use tree_sitter::{Node, Parser};
 
@@ -12,14 +14,41 @@ use crate::lang::tree_util::node_position;
 
 pub(super) fn parse(source: &str, language: tree_sitter_language::LanguageFn) -> ParsedDocument {
 	let mut parser = Parser::new();
+	let is_markdown =
+		std::ptr::fn_addr_eq(language.into_raw(), tree_sitter_md::LANGUAGE.into_raw());
+	let language: tree_sitter::Language = language.into();
 	parser
-		.set_language(&language.into())
+		.set_language(&language)
 		.expect("document grammar must load");
+	let parser_source = if is_markdown {
+		markdown_parser_source(source)
+	} else {
+		Cow::Borrowed(source)
+	};
 	ParsedDocument::new(
 		parser
-			.parse(source, None)
+			.parse(parser_source.as_ref(), None)
 			.expect("document parser must return a tree"),
 	)
+}
+
+/// tree-sitter-markdown 0.5.3 passes Unicode lookahead to C's byte-limited
+/// `isdigit`. A digit before such a code point cannot form a list marker, so a
+/// parser-only ASCII substitution preserves structure and byte offsets while
+/// definitions continue to slice their names from the original source.
+fn markdown_parser_source(source: &str) -> Cow<'_, str> {
+	let mut sanitized = None;
+	for (index, character) in source.char_indices() {
+		if character > '\u{ff}' && index > 0 && source.as_bytes()[index - 1].is_ascii_digit() {
+			sanitized.get_or_insert_with(|| source.as_bytes().to_vec())[index - 1] = b'x';
+		}
+	}
+	match sanitized {
+		Some(bytes) => {
+			Cow::Owned(String::from_utf8(bytes).expect("ASCII substitution keeps UTF-8"))
+		}
+		None => Cow::Borrowed(source),
+	}
 }
 
 pub(super) fn file_root(uri: &str, anchor: &Moniker, language: &[u8]) -> Moniker {
@@ -66,12 +95,12 @@ impl Definitions {
 
 	pub fn add(
 		&mut self,
-		parent: &Moniker,
-		kind: &'static [u8],
-		name: &str,
+		owner: &Moniker,
+		definition_kind: &'static [u8],
+		label: &str,
 		node: Node<'_>,
 	) -> Moniker {
-		self.add_range(parent, kind, name, node_position(node))
+		self.add_range(owner, definition_kind, label, node_position(node))
 	}
 
 	pub fn add_range(
@@ -81,9 +110,7 @@ impl Definitions {
 		name: &str,
 		position: Position,
 	) -> Moniker {
-		// Escape the suffix delimiter before adding an occurrence suffix. Thus a
-		// literal `name~2` cannot collide with the second occurrence of `name`.
-		let escaped = name.replace('~', "~0");
+		let escaped = escape_occurrence_suffix(name);
 		let moniker = child(parent, kind, &escaped);
 		let occurrence = self.occurrences.entry(moniker.clone()).or_default();
 		*occurrence += 1;
@@ -118,6 +145,12 @@ impl Definitions {
 		GraphEmitter::emit(&discovered, &[])
 			.expect("document definitions must form a unique anchored tree")
 	}
+}
+
+/// Escapes the occurrence delimiter so a literal `name~2` remains distinct
+/// from the second occurrence of `name`.
+fn escape_occurrence_suffix(name: &str) -> String {
+	name.replace('~', "~0")
 }
 
 fn child(parent: &Moniker, kind: &[u8], name: &str) -> Moniker {
