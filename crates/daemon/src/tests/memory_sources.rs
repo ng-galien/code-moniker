@@ -900,3 +900,34 @@ fn memory_source_set_limits_bound_each_publication_and_global_usage() {
 		.expect_err("per-publication limit");
 	assert_eq!(error.code, "workspace_source_set_limit_exceeded");
 }
+
+#[test]
+fn memory_source_sets_index_document_formats() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	replace_source_set(
+		&mut daemon,
+		WorkspaceSourceSetDto {
+			srcset: "documents".to_string(),
+			revision: Some("1".to_string()),
+			documents: [
+				("guide.md", "markdown", "# Guide\n"),
+				("config.json", "json", "{\"json_key\":1}"),
+				("config.yml", "yaml", "yaml_key: yes\n"),
+			]
+			.into_iter()
+			.map(|(uri, language, content)| WorkspaceSourceDocumentDto {
+				uri: uri.to_string(),
+				language: language.to_string(),
+				content: content.to_string(),
+			})
+			.collect(),
+		},
+	);
+	for name in ["Guide", "json_key", "yaml_key"] {
+		let QueryResult::SymbolList(result) = search_symbols_named(&mut daemon, name) else {
+			panic!("symbol list")
+		};
+		assert_eq!(result.total, 1, "{name}: {result:?}");
+	}
+}
