@@ -235,3 +235,24 @@ expr = "$snake"
 id      = "annotations-do-not-emit-non-annotates-refs"
 expr    = "source.shape = 'annotation' => kind = 'annotates'"
 message = "An annotation def (`{source.name}`) emitted a `{kind}` ref. The annotation shape is leaf — only `annotates` refs originate from it."
+
+# ─── Document and data formats ──────────────────────────────────────────
+[[markdown.section.where]]
+id       = "heading-not-empty"
+severity = "warn"
+expr     = "name !~ '^(~[1-9][0-9]*)?$'"
+message  = "An empty heading provides no navigable section title."
+
+# Extractors reserve ~N (N >= 2) for repeated sibling keys and escape literal
+# tildes as ~0. YAML uses source-spelled keys, without scalar coercion.
+[[json.key.where]]
+id       = "key-not-duplicated"
+severity = "warn"
+expr     = "name !~ '~[1-9][0-9]*$'"
+message  = "Repeated JSON object key `{name}` can be interpreted differently by consumers."
+
+[[yaml.key.where]]
+id       = "key-not-duplicated"
+severity = "warn"
+expr     = "name !~ '~[1-9][0-9]*$'"
+message  = "Repeated YAML mapping key `{name}` has the same source spelling as an earlier sibling."

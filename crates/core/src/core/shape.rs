@@ -58,6 +58,12 @@ impl std::str::FromStr for Shape {
 
 const SHAPE_TABLE: &[(&[u8], Shape, bool)] = &[
 	(b"module", Shape::Namespace, true),
+	(b"document", Shape::Namespace, true),
+	(b"section", Shape::Namespace, true),
+	(b"key", Shape::Namespace, true),
+	(b"item", Shape::Namespace, true),
+	(b"code_block", Shape::Value, false),
+	(b"link_definition", Shape::Value, false),
 	(b"namespace", Shape::Namespace, true),
 	(b"schema", Shape::Namespace, true),
 	(b"impl", Shape::Namespace, true),

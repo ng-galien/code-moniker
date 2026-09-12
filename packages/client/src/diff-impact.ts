@@ -745,6 +745,7 @@ export function sourceLanguageForPath(path: string): string | null {
 		".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "jsx",
 		".rs": "rs", ".java": "java", ".py": "python", ".pyi": "python", ".go": "go",
 		".c": "c", ".h": "c", ".cs": "cs", ".sql": "sql",
+		".md": "markdown", ".markdown": "markdown", ".json": "json", ".yaml": "yaml", ".yml": "yaml",
 		".plpgsql": "sql",
 	} as Record<string, string>)[path.toLowerCase().endsWith(".sql.in") ? ".sql" : extname(path).toLowerCase()] ?? null;
 }

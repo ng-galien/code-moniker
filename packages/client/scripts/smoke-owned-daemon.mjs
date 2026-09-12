@@ -21,7 +21,8 @@ const binary = resolve(binaryArgument);
 const workspaceRoot = mkdtempSync(
 	join(tmpdir(), "code-moniker-client-consumer-"),
 );
-const registryDirectory = join(workspaceRoot, "custom-registry");
+// Runtime metadata is JSON too; keep it outside the source fixture.
+const registryDirectory = mkdtempSync(join(tmpdir(), "code-moniker-client-registry-"));
 const runtime = new NodeDaemonRuntime({ registryDirectory });
 let owned;
 let client;
@@ -125,6 +126,7 @@ SELECT id FROM owned_client_account;
 		});
 	}
 	rmSync(workspaceRoot, { recursive: true, force: true });
+	rmSync(registryDirectory, { recursive: true, force: true });
 	if (existsSync(workspaceRoot)) {
 		throw new Error(`owned daemon workspace cleanup failed: ${workspaceRoot}`);
 	}

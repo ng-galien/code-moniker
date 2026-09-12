@@ -369,13 +369,13 @@ mod tests {
 		}]);
 
 		assert_eq!(
-			classifier.classify_paths_with_git_signals(&[PathBuf::from("/repo/README.md")], true),
+			classifier.classify_paths_with_git_signals(&[PathBuf::from("/repo/README.txt")], true),
 			None
 		);
 		assert_eq!(
 			classifier.classify_event(
 				&notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
-					.add_path(PathBuf::from("/repo/README.md"))
+					.add_path(PathBuf::from("/repo/README.txt"))
 			),
 			None
 		);
@@ -636,7 +636,12 @@ mod tests {
 		))
 		.add_path(root.join("README.old"))
 		.add_path(root.join("README.md"));
-		assert_eq!(classifier.classify_event(&readme), None);
+		assert_eq!(
+			classifier.classify_event(&readme),
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![
+				root.join("README.md")
+			]))
+		);
 
 		let git_ref = notify::Event::new(notify::EventKind::Modify(
 			notify::event::ModifyKind::Name(notify::event::RenameMode::Both),

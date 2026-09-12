@@ -319,6 +319,9 @@ fn ast_domain_maps_a_positioned_symbol_for_every_registered_language() {
 			"CREATE TABLE sample (id integer);",
 			"table",
 		),
+		(Lang::Markdown, "sample.md", "# Guide\n", "section"),
+		(Lang::Json, "sample.json", "{\"port\":80}", "key"),
+		(Lang::Yaml, "sample.yml", "port: 80\n", "key"),
 	];
 	assert_eq!(cases.len(), Lang::ALL.len());
 
@@ -344,6 +347,86 @@ fn ast_domain_maps_a_positioned_symbol_for_every_registered_language() {
 		assert_eq!(reports[0].evaluated, 1, "{}: {reports:?}", lang.tag());
 		assert_eq!(reports[0].inconclusive, None, "{}: {reports:?}", lang.tag());
 	}
+}
+
+#[test]
+fn document_formats_apply_their_own_key_and_section_rules() {
+	for (lang, path, source, kind) in [
+		(Lang::Markdown, "guide.md", "# forbidden\n", "section"),
+		(Lang::Json, "config.json", "{\"forbidden\":1}", "key"),
+		(Lang::Yaml, "config.yml", "forbidden: 1\n", "key"),
+	] {
+		let cfg = crate::check::config::load_from_str(
+			&format!(
+				r#"
+[[{}.{}.where]]
+id = "no-forbidden"
+expr = "name != 'forbidden'"
+message = "forbidden name"
+"#,
+				lang.tag(),
+				kind
+			),
+			"rules.toml",
+			Some(false),
+		)
+		.unwrap();
+		let graph =
+			code_moniker_workspace::extract::extract(lang, source, std::path::Path::new(path));
+		let violations = evaluate(&graph, source, lang, &cfg, SCHEME).unwrap();
+		assert_eq!(violations.len(), 1, "{lang:?}: {violations:?}");
+		assert_eq!(violations[0].lines, (1, 1));
+	}
+}
+
+#[test]
+fn document_default_rules_distinguish_duplicates_from_literal_suffixes() {
+	let cfg = crate::check::config::load_default().unwrap();
+	for (lang, path, source, expected) in [
+		(
+			Lang::Json,
+			"a.json",
+			"{\"x\":1,\"x\":2,\"x~2\":3,\"x~10\":4}",
+			1,
+		),
+		(Lang::Yaml, "a.yml", "x: 1\nx: 2\nx~2: 3\nx~10: 4\n", 1),
+		(Lang::Markdown, "a.md", "#\n## Named\n", 1),
+	] {
+		let graph =
+			code_moniker_workspace::extract::extract(lang, source, std::path::Path::new(path));
+		let violations = evaluate(&graph, source, lang, &cfg, SCHEME).unwrap();
+		assert_eq!(violations.len(), expected, "{lang:?}: {violations:?}");
+		assert!(
+			violations
+				.iter()
+				.all(|v| v.severity == crate::check::config::RuleSeverity::Warn)
+		);
+	}
+}
+
+#[test]
+fn markdown_default_rule_reports_every_empty_heading_despite_occurrence_suffixes() {
+	let source = "#\n#\n# ~2\n#\n";
+	let cfg = crate::check::config::load_default().unwrap();
+	let graph = code_moniker_workspace::extract::extract(
+		Lang::Markdown,
+		source,
+		std::path::Path::new("empty.md"),
+	);
+	let violations = evaluate(&graph, source, Lang::Markdown, &cfg, SCHEME).unwrap();
+	let actual: Vec<_> = violations
+		.iter()
+		.map(|violation| (violation.rule_id.as_str(), violation.lines))
+		.collect();
+	assert_eq!(
+		actual,
+		vec![
+			("markdown.section.heading-not-empty", (1, 1)),
+			("markdown.section.heading-not-empty", (2, 2)),
+			("markdown.section.heading-not-empty", (4, 4)),
+		],
+		"all empty headings must warn, while the literal title ~2 must remain valid"
+	);
 }
 
 #[test]
