@@ -123,6 +123,7 @@ export type Query =
     }
   | {
       file: string[];
+      inline_rules?: string[];
       op: "rules_check";
       profile?: string | null;
       report: boolean;

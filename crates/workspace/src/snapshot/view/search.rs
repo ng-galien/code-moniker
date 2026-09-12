@@ -138,6 +138,7 @@ mod tests {
 
 	fn symbol(id: usize, name: &str, kind: &str, identity: &str) -> SymbolRecord {
 		SymbolRecord {
+			byte_range: None,
 			id: SymbolId::at(0, id),
 			source: SourceId::at(0),
 			identity: std::sync::Arc::from(identity),

@@ -4,12 +4,12 @@ use super::cursor::{self, ParseResult, ParserState};
 use super::domain::{parse_domain_ident, reject_pair_domain};
 use super::error::ParseError;
 
-pub(super) fn try_parse_collection_subset_atom<'a>(
+pub(super) fn try_parse_collection_comparison_atom<'a>(
 	state: ParserState<'a>,
 ) -> ParseResult<'a, Option<Atom>> {
 	let state = cursor::skip_ws(state);
 	let (raw_start, raw) = cursor::peek_atom_text(&state);
-	let Some((op_idx, op_len)) = find_top_level_subset(raw) else {
+	let Some((op_idx, op_len)) = find_top_level_collection_comparison(raw) else {
 		return Ok((None, state));
 	};
 	let lhs_src = raw[..op_idx].trim();
@@ -37,7 +37,11 @@ pub(super) fn try_parse_collection_subset_atom<'a>(
 	let (_raw_start, _raw, atom_state) = cursor::take_atom_text(state);
 	let atom = build_atom(
 		LhsExpr::Collection(lhs),
-		Op::Subset,
+		if &raw[op_idx..op_idx + op_len] == "prefix" {
+			Op::Prefix
+		} else {
+			Op::Subset
+		},
 		Rhs::Collection(rhs),
 		cursor::slice_from(&atom_state, raw_start).to_string(),
 		cursor::raw(&atom_state),
@@ -113,6 +117,12 @@ fn parse_collection_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Colle
 	if let Some(expr) = expr {
 		return Ok((expr, state));
 	}
+	let current = cursor::starts_with(&state, "current.");
+	let state = if current {
+		cursor::advance(state, 8)
+	} else {
+		state
+	};
 	let (domain, mut state) = parse_domain_ident(state)?;
 	reject_pair_domain(&state, &domain, "collection projections")?;
 	let mut path = Vec::new();
@@ -136,7 +146,11 @@ fn parse_collection_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Colle
 	}
 	validate_collection_projection_path(&domain, &path, cursor::raw(&state))?;
 	Ok((
-		CollectionExpr::Projection(CollectionProjection { domain, path }),
+		CollectionExpr::Projection(CollectionProjection {
+			current,
+			domain,
+			path,
+		}),
 		state,
 	))
 }
@@ -246,6 +260,7 @@ fn valid_def_collection_path(path: &[String]) -> bool {
 		[one] => matches!(
 			one.as_str(),
 			"self"
+				| "signature"
 				| "name" | "kind"
 				| "shape" | "visibility"
 				| "lines" | "start_line"
@@ -273,7 +288,7 @@ fn valid_ref_collection_path(path: &[String]) -> bool {
 		[side, projection] if side == "source" || side == "target" => {
 			matches!(
 				projection.as_str(),
-				"name" | "kind" | "shape" | "visibility" | "parent"
+				"signature" | "name" | "kind" | "shape" | "visibility" | "parent"
 			)
 		}
 		_ => false,
@@ -319,7 +334,7 @@ fn parse_collection_expr_full(
 	Ok(expr)
 }
 
-fn find_top_level_subset(input: &str) -> Option<(usize, usize)> {
+fn find_top_level_collection_comparison(input: &str) -> Option<(usize, usize)> {
 	let mut depth: i32 = 0;
 	let mut in_string: Option<char> = None;
 	for (idx, ch) in input.char_indices() {
@@ -333,6 +348,9 @@ fn find_top_level_subset(input: &str) -> Option<(usize, usize)> {
 			'\'' | '"' => in_string = Some(ch),
 			'(' => depth += 1,
 			')' => depth -= 1,
+			_ if depth == 0 && cursor::keyword_at(input, idx, "prefix") => {
+				return Some((idx, 6));
+			}
 			_ if depth == 0 && cursor::keyword_at(input, idx, "subset") => {
 				return Some((idx, "subset".len()));
 			}

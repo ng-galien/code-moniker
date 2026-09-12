@@ -1064,9 +1064,57 @@ use this grammar; no new construct is introduced.
 
 Local def/ref roots still evaluate only the extracted file graph. Their named
 metrics and domains keep their original local meaning. Workspace roots add
-cross-file inventory, direct linked-reference counts, and bounded transitive
-path constraints without changing local-rule behavior.
+cross-file inventory, structural predicates over resolved symbols and
+references, direct linked-reference counts, and bounded transitive path
+constraints without changing local-rule behavior.
 
 The workspace DSL does not yet expose SCC/cycle rules, dataflow, taint,
 resource-acquisition semantics, historical co-change, or unbounded transitive
 closure. Path rules are intentionally bounded and confidence-aware.
+
+### Signatures and ordered prefixes
+
+`signature`, `source.signature` and `target.signature` expose the extractor's
+stored signature as text. Collection projections also accept `.signature`.
+Signatures are language-specific data; an absent signature is an empty string.
+An unresolved reference target has no signature value.
+
+`A prefix B` compares the complete ordered sequence A with the beginning of B,
+including duplicate values. Direct child projections follow source position,
+so ordinal 10 does not sort before ordinal 2. An empty sequence is a prefix of
+any sequence. `subset` retains its existing multiset semantics.
+`current.<domain>.<projection>` selects children of the enclosing item in a
+nested filter; for references, child domains belong to the source definition.
+For example, inside a `target.in_refs` filter:
+
+```text
+current.constraint_column.signature prefix index_key.signature
+```
+
+The complete SQL example is `samples/sql-indexes/rules.toml`. It uses a
+`[[workspace.symbol.where]]` rule, evaluated against the published index and
+resolved linkage (`t2_structure`). `any`, `all`, `none`, filtered `count`, `size`,
+child-kind/shape domains, incoming/outgoing reference traversal, signatures,
+`current` projections and `prefix` work across source documents in this scope.
+The shared boolean and value-comparison evaluator preserves local DSL semantics.
+Explicit `member_of` relations define semantic ownership and take precedence
+over lexical parents when building workspace child domains. This keeps table
+constraints and indexes discoverable as children even when their declarations
+arrive independently. An ambiguous owner makes the corresponding child set
+uncertain. Source byte ranges retained in the index determine child order. `prefix` accepts
+direct child projections, not multiset algebra with no ordering contract.
+Each compared sequence must have source positions in a single declaration
+document; independent declarations in different documents have no implicit
+relative order. The two sequences may of course come from different documents
+(as do a foreign key and its index).
+
+Only resolved relations count as structural evidence. An unresolved target or
+an uncertain incoming set propagates an inconclusive result; a definite witness
+can still establish `any`, and a counterexample can disprove `all`. These
+structural assertions require resolved evidence even when a lower linkage
+coverage threshold is configured for reference-count rules. The report includes
+`verdict` and `inconclusive`; callers must check them before claiming coverage.
+The selected workspace/file universe limits rule subjects, while dependency
+traversal uses the complete snapshot. Statements are never concatenated or
+reparsed for evaluation. Unsupported local-only features (AST, source text,
+layout and local metrics) remain rejected in workspace predicates.

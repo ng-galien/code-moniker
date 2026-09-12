@@ -222,6 +222,8 @@ pub struct SymbolLocation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SymbolRecord {
+	/// Original source bytes; used to preserve child order in indexed predicates.
+	pub byte_range: Option<(u32, u32)>,
 	pub id: SymbolId,
 	pub source: SourceId,
 	pub identity: Arc<str>,
@@ -244,6 +246,7 @@ impl SymbolRecord {
 		kind: impl Into<String>,
 	) -> Self {
 		Self {
+			byte_range: None,
 			identity: Arc::from(id.to_string()),
 			id,
 			source,

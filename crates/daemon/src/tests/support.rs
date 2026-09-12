@@ -171,6 +171,7 @@ pub(super) fn assert_memory_root_absent_from_rules(daemon: &mut WorkspaceDaemon,
 
 	let checked = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
 		Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: None,
 			profile: None,
 			rules: Some(rules.display().to_string()),

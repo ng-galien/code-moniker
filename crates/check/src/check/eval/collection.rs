@@ -19,22 +19,27 @@ pub(super) struct PairCollectionScope<'a> {
 pub(super) fn eval_collection_size(
 	collection: &CollectionExpr,
 	def_idx: usize,
-	_self_idx: usize,
+	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> usize {
-	eval_collection(collection, def_idx, ctx).len()
+	eval_collection(collection, def_idx, self_idx, ctx).len()
 }
 
-pub(super) fn eval_collection_subset(
+pub(super) fn eval_collection_comparison(
 	left: &CollectionExpr,
 	right: &CollectionExpr,
 	def_idx: usize,
-	_self_idx: usize,
+	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
+	prefix: bool,
 ) -> bool {
-	let left = eval_collection(left, def_idx, ctx);
-	let right = eval_collection(right, def_idx, ctx);
-	is_subset(&left, &right)
+	let left = eval_collection(left, def_idx, self_idx, ctx);
+	let right = eval_collection(right, def_idx, self_idx, ctx);
+	if prefix {
+		is_prefix(&left, &right)
+	} else {
+		is_subset(&left, &right)
+	}
 }
 
 pub(super) fn collection_has_pair_binding(collection: &CollectionExpr) -> bool {
@@ -56,29 +61,43 @@ pub(super) fn eval_pair_collection_size(
 	eval_pair_collection(collection, scope, ctx).map(|values| values.len())
 }
 
-pub(super) fn eval_pair_collection_subset(
+pub(super) fn eval_pair_collection_comparison(
 	left: &CollectionExpr,
 	right: &CollectionExpr,
 	scope: PairCollectionScope<'_>,
 	ctx: &EvalCtx<'_, '_>,
+	prefix: bool,
 ) -> Option<bool> {
 	let left = eval_pair_collection(left, scope, ctx)?;
 	let right = eval_pair_collection(right, scope, ctx)?;
-	Some(is_subset(&left, &right))
+	Some(if prefix {
+		is_prefix(&left, &right)
+	} else {
+		is_subset(&left, &right)
+	})
 }
 
 fn eval_collection(
 	collection: &CollectionExpr,
 	def_idx: usize,
+	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
 	match collection {
-		CollectionExpr::Projection(projection) => collect_projection(projection, def_idx, ctx),
+		CollectionExpr::Projection(projection) => collect_projection(
+			projection,
+			if projection.current {
+				self_idx
+			} else {
+				def_idx
+			},
+			ctx,
+		),
 		CollectionExpr::PairProjection(_) => Vec::new(),
-		CollectionExpr::Unique(inner) => unique(eval_collection(inner, def_idx, ctx)),
+		CollectionExpr::Unique(inner) => unique(eval_collection(inner, def_idx, self_idx, ctx)),
 		CollectionExpr::Binary { op, left, right } => {
-			let left = eval_collection(left, def_idx, ctx);
-			let right = eval_collection(right, def_idx, ctx);
+			let left = eval_collection(left, def_idx, self_idx, ctx);
+			let right = eval_collection(right, def_idx, self_idx, ctx);
 			match op {
 				CollectionOp::Intersect => intersect(&left, &right),
 				CollectionOp::Union => union(&left, &right),
@@ -119,7 +138,12 @@ fn collect_projection(
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
 	let mut values = Vec::new();
-	for item in domain_items(&projection.domain, def_idx, ctx) {
+	let mut items = domain_items(&projection.domain, def_idx, ctx);
+	items.sort_by_key(|item| match item {
+		DomainItem::Def { def, .. } => def.position,
+		_ => None,
+	});
+	for item in items {
 		values.extend(project_item_path(item, &projection.path, ctx));
 	}
 	values
@@ -138,7 +162,12 @@ fn collect_pair_projection(
 		return Vec::new();
 	};
 	let mut values = Vec::new();
-	for nested in domain_items(&projection.domain, idx, ctx) {
+	let mut items = domain_items(&projection.domain, idx, ctx);
+	items.sort_by_key(|item| match item {
+		DomainItem::Def { def, .. } => def.position,
+		_ => None,
+	});
+	for nested in items {
 		values.extend(project_item_path(nested, &projection.path, ctx));
 	}
 	values
@@ -183,6 +212,7 @@ fn project_def_path(
 	let lhs = match path {
 		[] => Lhs::Moniker,
 		[name] if name == "self" => Lhs::Moniker,
+		[name] if name == "signature" => Lhs::Signature,
 		[name] if name == "name" => Lhs::Name,
 		[name] if name == "kind" => Lhs::Kind,
 		[name] if name == "shape" => Lhs::Shape,
@@ -219,11 +249,13 @@ fn project_ref_path(
 		[name] if name == "target" => Lhs::TargetMoniker,
 		[source, parent] if source == "source" && parent == "parent" => Lhs::SourceParentMoniker,
 		[target, parent] if target == "target" && parent == "parent" => Lhs::TargetParentMoniker,
+		[source, child] if source == "source" && child == "signature" => Lhs::SourceSignature,
 		[source, child] if source == "source" && child == "name" => Lhs::SourceName,
 		[source, child] if source == "source" && child == "kind" => Lhs::SourceKind,
 		[source, child] if source == "source" && child == "shape" => Lhs::SourceShape,
 		[source, child] if source == "source" && child == "visibility" => Lhs::SourceVisibility,
 		[source, child] if source == "source" && child == "srcset" => Lhs::SourceSrcset,
+		[target, child] if target == "target" && child == "signature" => Lhs::TargetSignature,
 		[target, child] if target == "target" && child == "name" => Lhs::TargetName,
 		[target, child] if target == "target" && child == "kind" => Lhs::TargetKind,
 		[target, child] if target == "target" && child == "shape" => Lhs::TargetShape,
@@ -246,7 +278,7 @@ fn project_segment_path(kind: &[u8], name: &[u8], path: &[String]) -> Option<Val
 	}
 }
 
-fn unique(values: Vec<Value>) -> Vec<Value> {
+pub(super) fn unique(values: Vec<Value>) -> Vec<Value> {
 	let mut seen = HashSet::new();
 	let mut out = Vec::new();
 	for value in values {
@@ -258,19 +290,19 @@ fn unique(values: Vec<Value>) -> Vec<Value> {
 	out
 }
 
-fn intersect(left: &[Value], right: &[Value]) -> Vec<Value> {
+pub(super) fn intersect(left: &[Value], right: &[Value]) -> Vec<Value> {
 	combine_counts(left, right, |l, r| l.min(r))
 }
 
-fn union(left: &[Value], right: &[Value]) -> Vec<Value> {
+pub(super) fn union(left: &[Value], right: &[Value]) -> Vec<Value> {
 	combine_counts(left, right, |l, r| l.max(r))
 }
 
-fn difference(left: &[Value], right: &[Value]) -> Vec<Value> {
+pub(super) fn difference(left: &[Value], right: &[Value]) -> Vec<Value> {
 	combine_counts(left, right, |l, r| l.saturating_sub(r))
 }
 
-fn is_subset(left: &[Value], right: &[Value]) -> bool {
+pub(super) fn is_subset(left: &[Value], right: &[Value]) -> bool {
 	let left = value_counts(left.iter().cloned());
 	let right = value_counts(right.iter().cloned());
 	left.into_iter()
@@ -298,4 +330,12 @@ fn combine_counts(
 		}
 	}
 	out
+}
+
+pub(super) fn is_prefix(left: &[Value], right: &[Value]) -> bool {
+	left.len() <= right.len()
+		&& left
+			.iter()
+			.zip(right)
+			.all(|(a, b)| ValueKey::from_value(a.clone()) == ValueKey::from_value(b.clone()))
 }

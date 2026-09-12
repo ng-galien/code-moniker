@@ -52,7 +52,7 @@ pub(super) fn evaluate_linkage_rules(
 	}
 }
 
-fn append_violations(
+pub(super) fn append_violations(
 	evaluation: &mut WorkspaceEvaluation,
 	inventory: &SymbolInventoryIndex,
 	rule: &CompiledWorkspaceSymbolRule,

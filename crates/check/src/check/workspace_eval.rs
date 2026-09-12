@@ -2,6 +2,7 @@ mod group;
 mod incremental;
 mod linkage;
 mod path_rule;
+mod structure;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,6 +36,7 @@ struct CompiledWorkspaceSymbolRule {
 enum WorkspaceRulePlan {
 	Inventory,
 	Linkage,
+	Structure,
 }
 
 impl WorkspaceRulePlan {
@@ -42,6 +44,7 @@ impl WorkspaceRulePlan {
 		match self {
 			Self::Inventory => "t1_inventory",
 			Self::Linkage => "t2_linkage",
+			Self::Structure => "t2_structure",
 		}
 	}
 }
@@ -64,7 +67,7 @@ impl CompiledWorkspaceRules {
 			|| self
 				.symbol
 				.iter()
-				.any(|rule| rule.plan == WorkspaceRulePlan::Linkage)
+				.any(|rule| rule.plan != WorkspaceRulePlan::Inventory)
 	}
 
 	pub fn specs(&self) -> Vec<CompiledRuleSpec> {
@@ -189,13 +192,17 @@ fn classify_symbol_plan(
 ) -> Result<(Vec<String>, WorkspaceRulePlan), ConfigError> {
 	let mut capabilities = BTreeSet::new();
 	let mut plan = WorkspaceRulePlan::Inventory;
-	collect_capabilities(node, at, &mut capabilities, &mut plan)?;
+	if let Err(error) = collect_capabilities(node, at, &mut capabilities, &mut plan) {
+		return crate::check::eval::indexed::validate(node)
+			.map(|caps| (caps, WorkspaceRulePlan::Structure))
+			.map_err(|_| error);
+	}
 	Ok((capabilities.into_iter().collect(), plan))
 }
 
 fn classify_t1(node: &Node, at: &str) -> Result<Vec<String>, ConfigError> {
 	let (capabilities, plan) = classify_symbol_plan(node, at)?;
-	if plan == WorkspaceRulePlan::Linkage {
+	if plan != WorkspaceRulePlan::Inventory {
 		return unsupported(at, "linkage.group");
 	}
 	Ok(capabilities)
@@ -341,6 +348,7 @@ pub(crate) fn evaluate_workspace_rules_linked_in_current(
 ) -> WorkspaceEvaluation {
 	let mut evaluation = evaluate_workspace_rules_in(&index.inventory, universe, compiled, report);
 	linkage::evaluate_linkage_rules(index, linkage, universe, compiled, report, &mut evaluation);
+	structure::evaluate(index, linkage, universe, compiled, report, &mut evaluation);
 	path_rule::evaluate_path_rules(index, linkage, universe, compiled, report, &mut evaluation);
 	sort_workspace_violations(&mut evaluation.violations);
 	evaluation

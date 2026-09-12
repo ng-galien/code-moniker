@@ -45,6 +45,7 @@
 		"test:package:built": "node --test test/package.test.mjs && node scripts/verify-native-packages.mjs && node scripts/verify-pack.mjs",
 		"test:package": "npm run build && npm run test:package:built",
 		"test:daemon": "npm run build && node scripts/smoke-daemon.mjs",
+		"test:sql-indexes:daemon:built": "node scripts/smoke-sql-index-rules.mjs",
 		"test:daemon:owned:built": "node scripts/smoke-owned-daemon.mjs",
 		"test:daemon:owned": "npm run build && npm run test:daemon:owned:built --",
 		"test:diff-impact:daemon": "npm run build && node scripts/smoke-diff-impact-daemon.mjs",

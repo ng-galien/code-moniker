@@ -295,3 +295,32 @@ manifest analysis (for example `package.json`) continues independently of these
 structural definitions. Rendering Markdown, JSON Schema validation, YAML
 execution, embedded-code extraction and cross-file link resolution are outside
 this extractor contract.
+
+### PostgreSQL indexes
+
+`CREATE INDEX` emits `sql.index` with a `member_of` edge to its table. Its
+signature is the access method (`btree` when omitted). Ordered children use
+zero-based ordinal names: `index_key`, `index_include`; a partial index also
+has an `index_predicate` child retaining the `WHERE` source. Key signatures are
+`column:<canonical identifier>` or `expression:<source>`. Options such as DESC,
+NULLS ordering, collation and operator class remain in each key's source span.
+Expressions are preserved, not evaluated or treated as equivalent to columns.
+Unnamed indexes use a source-offset identity; PostgreSQL's generated name is
+not guessed.
+
+Foreign keys retain their `foreign key` signature and referenced-table edges.
+They also emit ordered `constraint_column` children with the same column
+signature convention. Every table constraint publishes a `member_of` edge
+to its source table. This covers
+table-level and inline column REFERENCES clauses, plus `ALTER TABLE … ADD
+CONSTRAINT … FOREIGN KEY` statements supplied independently of `CREATE TABLE`.
+
+The executable example in `samples/sql-indexes/rules.toml` is a
+`workspace.symbol` rule. It checks a complete ordered FK prefix against a
+non-partial B-tree index through resolved table identities. It rejects
+INCLUDE-only coverage and expressions in place of columns. Table, FK and index
+statements can appear together, in separate documents, or in any order. Source
+documents locate diagnostics; they do not delimit the SQL objects visible to
+this rule. Missing or ambiguous table resolution produces an inconclusive
+report, rather than a false coverage verdict. Code Moniker never connects to
+PostgreSQL or reads its catalogs.

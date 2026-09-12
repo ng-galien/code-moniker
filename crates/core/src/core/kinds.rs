@@ -28,6 +28,8 @@ pub const REF_CALLS: &[u8] = b"calls";
 pub const REF_METHOD_CALL: &[u8] = b"method_call";
 pub const REF_READS: &[u8] = b"reads";
 pub const REF_WRITES: &[u8] = b"writes";
+/// Semantic ownership, independent of the source document containing a declaration.
+pub const REF_MEMBER_OF: &[u8] = b"member_of";
 pub const REF_REFERENCES: &[u8] = b"references";
 pub const REF_USES_TYPE: &[u8] = b"uses_type";
 pub const REF_RETURNS_TYPE: &[u8] = b"returns_type";

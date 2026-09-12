@@ -1,7 +1,7 @@
 use crate::check::expr::{Atom, Domain, LhsExpr, Node, PairProjection, PairSide, QuantKind, Rhs};
 
 use super::collection::{
-	PairCollectionScope, eval_pair_collection_size, eval_pair_collection_subset,
+	PairCollectionScope, eval_pair_collection_comparison, eval_pair_collection_size,
 };
 use super::local::{DomainItem, domain_items, eval_mode, project_lhs_value};
 use super::value::{Value, apply_op, apply_op_values};
@@ -89,15 +89,24 @@ fn eval_pair_atom(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
-	if let (LhsExpr::Collection(left), crate::check::expr::Op::Subset, Rhs::Collection(right)) =
-		(&atom.lhs, atom.op, &atom.rhs)
+	if let (
+		LhsExpr::Collection(left),
+		crate::check::expr::Op::Subset | crate::check::expr::Op::Prefix,
+		Rhs::Collection(right),
+	) = (&atom.lhs, atom.op, &atom.rhs)
 	{
 		let scope = PairCollectionScope { a, b, def_idx };
-		return match eval_pair_collection_subset(left, right, scope, ctx) {
+		return match eval_pair_collection_comparison(
+			left,
+			right,
+			scope,
+			ctx,
+			atom.op == crate::check::expr::Op::Prefix,
+		) {
 			Some(true) => AtomOutcome::Pass,
 			Some(false) => AtomOutcome::Fail {
-				actual: "not subset".to_string(),
-				expected: "subset".to_string(),
+				actual: "collection mismatch".to_string(),
+				expected: format!("{:?}", atom.op).to_ascii_lowercase(),
 				position: None,
 			},
 			None => AtomOutcome::NotApplicable,

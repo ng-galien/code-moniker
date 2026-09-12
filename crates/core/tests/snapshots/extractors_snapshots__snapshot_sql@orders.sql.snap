@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 143
 expression: body
 input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
 ---
@@ -229,6 +228,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     },
     {
       "binding": "local",
+      "kind": "constraint_column",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:315/constraint_column:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:315",
+      "position": [
+        292,
+        300
+      ],
+      "signature": "column:order_id",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
       "kind": "column",
       "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/column:kind",
       "origin": "extracted",
@@ -362,6 +374,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:101",
+      "kind": "member_of",
+      "position": [
+        101,
+        112
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/column:customer_id",
       "kind": "uses_type",
@@ -371,6 +396,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:135",
+      "kind": "member_of",
+      "position": [
+        135,
+        143
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
     },
     {
       "alias": "",
@@ -388,6 +426,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:166",
+      "kind": "member_of",
+      "position": [
+        166,
+        174
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/column:created_at",
       "kind": "uses_type",
@@ -401,6 +452,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:204",
+      "kind": "member_of",
+      "position": [
+        204,
+        212
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:213",
+      "kind": "member_of",
+      "position": [
+        213,
+        226
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/column:order_id",
       "kind": "uses_type",
@@ -410,6 +487,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:306",
+      "kind": "member_of",
+      "position": [
+        306,
+        314
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:315",
+      "kind": "member_of",
+      "position": [
+        315,
+        341
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
     },
     {
       "alias": "",
@@ -453,6 +556,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:361",
+      "kind": "member_of",
+      "position": [
+        361,
+        369
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/column:at",
       "kind": "uses_type",
@@ -462,6 +578,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:396",
+      "kind": "member_of",
+      "position": [
+        396,
+        404
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:405",
+      "kind": "member_of",
+      "position": [
+        405,
+        418
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
     },
     {
       "alias": "",

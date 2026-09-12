@@ -38,6 +38,7 @@ message = "the rule must observe the indexed generation"
 	fs::write(&lib, "pub fn filesystem_name() {}\n").expect("change filesystem source");
 	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
 		query: Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: None,
 			profile: None,
 			rules: Some(rules.display().to_string()),
@@ -75,6 +76,7 @@ message = "the current rules file must run against the pinned index"
 	.expect("change rules");
 	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
 		query: Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: None,
 			profile: None,
 			rules: Some(rules.display().to_string()),
@@ -184,6 +186,7 @@ fn rules_check_result(
 ) -> code_moniker_query::RulesCheckResult {
 	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
 		query: Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: Some(workspace.display().to_string()),
 			profile: None,
 			rules: Some(rules.display().to_string()),

@@ -3548,3 +3548,64 @@ fn disjoint_rejects_package_imports_in_both_directions() {
 		"{v:?}"
 	);
 }
+
+#[test]
+fn sql_foreign_key_requires_a_complete_ordered_index_prefix() {
+	let cfg = cfg_from(LOCAL_SQL_INDEX_RULE);
+	for (index, expected) in [
+		("", 1),
+		("CREATE INDEX i ON child (a, b);", 0),
+		("CREATE INDEX i ON child (a, b, c);", 0),
+		("CREATE INDEX i ON child (b, a);", 1),
+		("CREATE INDEX i ON child (a);", 1),
+		("CREATE INDEX i ON child (a) INCLUDE (b);", 1),
+		("CREATE INDEX i ON child (a, b) WHERE a > 0;", 1),
+		("CREATE INDEX i ON child ((a + 1), b);", 1),
+		("CREATE INDEX i ON other (a, b);", 1),
+		("CREATE INDEX i ON child USING hash (a, b);", 1),
+	] {
+		let source = format!(
+			"CREATE TABLE child (a int, b int, c int, FOREIGN KEY (a,b) REFERENCES parent(a,b)); {index}"
+		);
+		let graph = code_moniker_workspace::extract::extract(
+			Lang::Sql,
+			&source,
+			std::path::Path::new("schema.sql"),
+		);
+		let violations = evaluate(&graph, &source, Lang::Sql, &cfg, SCHEME).unwrap();
+		assert_eq!(violations.len(), expected, "{index}: {violations:?}");
+	}
+}
+
+#[test]
+fn sql_index_prefix_handles_quoted_inline_and_long_keys() {
+	let cfg = cfg_from(LOCAL_SQL_INDEX_RULE);
+	let names = (0..12).map(|i| format!("c{i}")).collect::<Vec<_>>();
+	let columns = names
+		.iter()
+		.map(|n| format!("{n} int"))
+		.collect::<Vec<_>>()
+		.join(",");
+	let ordered = names.join(",");
+	let mut reversed = names.clone();
+	reversed.swap(10, 11);
+	for (source, expected) in [
+ (r#"CREATE TABLE "Child" ("A" int REFERENCES parent(id)); CREATE INDEX i ON "Child" ("A");"#.to_string(), 0),
+ (r#"CREATE TABLE "Child" ("A" int REFERENCES parent(id)); CREATE INDEX i ON "Child" (a);"#.to_string(), 1),
+ ("CREATE INDEX i ON child (a); CREATE TABLE child (a int REFERENCES parent(id));".into(),0),
+ (format!("CREATE TABLE child ({columns}, FOREIGN KEY ({ordered}) REFERENCES parent ({ordered})); CREATE INDEX i ON child ({ordered});"),0),
+ (format!("CREATE TABLE child ({columns}, FOREIGN KEY ({ordered}) REFERENCES parent ({ordered})); CREATE INDEX i ON child ({});", reversed.join(",")),1),
+ ] {
+ let graph = code_moniker_workspace::extract::extract(Lang::Sql, &source, std::path::Path::new("schema.sql"));
+ let violations = evaluate(&graph, &source, Lang::Sql, &cfg, SCHEME).unwrap();
+ assert_eq!(violations.len(), expected, "{source}: {violations:?}");
+ }
+}
+
+const LOCAL_SQL_INDEX_RULE: &str = r#"default_rules = false
+
+[[refs.where]]
+id = "fk-index-prefix"
+expr = "kind = 'member_of' AND source.kind = 'constraint' AND source.signature = 'foreign key' => count(constraint_column) > 0 AND any(target.in_refs, source.kind = 'index' AND source.signature = 'btree' AND count(index_predicate) = 0 AND current.constraint_column.signature prefix index_key.signature)"
+message = "Foreign key {source.name} needs a non-partial B-tree index with its complete ordered column prefix."
+"#;

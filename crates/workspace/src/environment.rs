@@ -114,6 +114,7 @@ pub fn symbol_records_for_graph(
 		.defs()
 		.enumerate()
 		.map(|(def_idx, def)| crate::snapshot::SymbolRecord {
+			byte_range: def.position,
 			id: identity.symbol_id(file_idx, def_idx),
 			source: source_id,
 			identity: Arc::from(identity.moniker_uri(&def.moniker)),

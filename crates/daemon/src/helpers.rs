@@ -537,6 +537,7 @@ pub(super) fn run_rules_for_root(
 	let rules_path = resolve_rules_path(check.config_root, check.rules);
 	let rules = RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
 		.with_default_rules(DefaultRulesSelection::Config)
+		.with_inline_rules(check.inline_rules.to_vec())
 		.with_profile(check.profile);
 	let request = CheckRequest::new(check.root.to_path_buf(), rules)
 		.with_report(check.report)
