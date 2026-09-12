@@ -288,6 +288,7 @@ pub(crate) fn rules_check_response(
 					QueryError::new("indexed_corpus_unavailable", error.to_string())
 				})?;
 		roots.push(run_rules_for_root(IndexedRulesCheck {
+			inline_rules: &request.inline_rules,
 			root,
 			config_root: response.config_root,
 			workspace: &workspace,

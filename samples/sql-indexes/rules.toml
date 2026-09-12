@@ -1,0 +1,6 @@
+default_rules = false
+
+[[workspace.symbol.where]]
+id = "fk-index-prefix"
+expr = "kind = 'constraint' AND signature = 'foreign key' => count(constraint_column) > 0 AND any(out_refs, kind = 'member_of' AND any(target.in_refs, source.kind = 'index' AND source.signature = 'btree' AND count(index_predicate) = 0 AND current.constraint_column.signature prefix index_key.signature))"
+message = "Foreign key {name} needs a non-partial B-tree index with its complete ordered column prefix."

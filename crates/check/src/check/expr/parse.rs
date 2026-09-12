@@ -1,6 +1,6 @@
 use super::ast::*;
 use super::atom::{build_atom, parse_atom, parse_op, parse_rhs, unquote};
-use super::collection::try_parse_collection_subset_atom;
+use super::collection::try_parse_collection_comparison_atom;
 use super::cursor::{self, ParseResult, ParserState};
 use super::domain::{parse_domain_filter_body, parse_domain_ident};
 use super::error::ParseError;
@@ -154,7 +154,7 @@ fn parse_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 	if let Some(layout) = layout {
 		return Ok((layout, state));
 	}
-	let (atom, state) = try_parse_collection_subset_atom(state)?;
+	let (atom, state) = try_parse_collection_comparison_atom(state)?;
 	if let Some(atom) = atom {
 		return Ok((Node::Atom(atom), state));
 	}

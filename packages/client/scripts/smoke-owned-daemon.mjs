@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import process from "node:process";
 
+import { assertSqlIndexRules } from "./assert-sql-index-rules.mjs";
+
 import { NodeDaemonRuntime } from "../dist/node.js";
 import {
 	assertDaemonWorkspaceIndexed,
@@ -91,6 +93,8 @@ SELECT id FROM owned_client_account;
 	) {
 		throw new Error("the owned daemon did not return the view graph");
 	}
+
+	await assertSqlIndexRules(client);
 
 	const coldPid = owned.entry.pid;
 	client.close();

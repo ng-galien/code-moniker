@@ -40,6 +40,11 @@ pub fn extract(
 pub struct Lang;
 
 const DEF_KINDS: &[&str] = &[
+	"index",
+	"index_key",
+	"index_include",
+	"index_predicate",
+	"constraint_column",
 	"function",
 	"procedure",
 	"view",
@@ -52,6 +57,11 @@ const DEF_KINDS: &[&str] = &[
 ];
 
 const DEF_KIND_SPECS: &[KindSpec] = &[
+	KindSpec::new("index", Shape::Value, 33, "index"),
+	KindSpec::new("index_key", Shape::Value, 34, "index_key"),
+	KindSpec::new("index_include", Shape::Value, 35, "index_include"),
+	KindSpec::new("index_predicate", Shape::Value, 36, "index_predicate"),
+	KindSpec::new("constraint_column", Shape::Value, 37, "constraint_column"),
 	KindSpec::new("schema", Shape::Namespace, 10, "schema"),
 	KindSpec::new("table", Shape::Type, 20, "table"),
 	KindSpec::new("view", Shape::Type, 21, "view"),

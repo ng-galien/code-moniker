@@ -98,6 +98,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
     },
     {
       "binding": "local",
+      "kind": "constraint_column",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk/constraint_column:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk",
+      "position": [
+        209,
+        220
+      ],
+      "signature": "column:customer_id",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
       "kind": "view",
       "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/view:open_orders",
       "origin": "extracted",
@@ -179,6 +192,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:Orders_PK",
+      "kind": "member_of",
+      "position": [
+        87,
+        121
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/column:customer_id",
       "kind": "uses_type",
@@ -188,6 +214,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:144",
+      "kind": "member_of",
+      "position": [
+        144,
+        152
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:orders_customer_fk",
+      "kind": "member_of",
+      "position": [
+        158,
+        250
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders"
     },
     {
       "alias": "",

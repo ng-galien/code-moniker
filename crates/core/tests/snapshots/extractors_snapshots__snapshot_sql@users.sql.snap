@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
-assertion_line: 143
 expression: body
 input_file: crates/core/tests/fixtures/extractors/sql/users.sql
 ---
@@ -307,6 +306,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     },
     {
       "binding": "local",
+      "kind": "constraint_column",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:975/constraint_column:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:975",
+      "position": [
+        952,
+        959
+      ],
+      "signature": "column:user_id",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
       "kind": "column",
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/column:tag",
       "origin": "extracted",
@@ -355,6 +367,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         1155
       ],
       "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "index",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/index:user_tags_tag_idx",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users/schema:app",
+      "position": [
+        1156,
+        1209
+      ],
+      "signature": "btree",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "index_key",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/index:user_tags_tag_idx/index_key:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users/schema:app/index:user_tags_tag_idx",
+      "position": [
+        1205,
+        1208
+      ],
+      "signature": "column:tag",
       "visibility": ""
     },
     {
@@ -479,6 +517,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:573",
+      "kind": "member_of",
+      "position": [
+        573,
+        584
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/column:email",
       "kind": "uses_type",
@@ -488,6 +539,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:607",
+      "kind": "member_of",
+      "position": [
+        607,
+        615
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:616",
+      "kind": "member_of",
+      "position": [
+        616,
+        622
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
     },
     {
       "alias": "",
@@ -505,6 +582,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:645",
+      "kind": "member_of",
+      "position": [
+        645,
+        653
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/column:created_at",
       "kind": "uses_type",
@@ -514,6 +604,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:683",
+      "kind": "member_of",
+      "position": [
+        683,
+        691
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:692",
+      "kind": "member_of",
+      "position": [
+        692,
+        705
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:users"
     },
     {
       "alias": "",
@@ -531,6 +647,19 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "alias": "",
       "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:UserAccounts/constraint:832",
+      "kind": "member_of",
+      "position": [
+        832,
+        843
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:UserAccounts"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/column:user_id",
       "kind": "uses_type",
@@ -540,6 +669,32 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:966",
+      "kind": "member_of",
+      "position": [
+        966,
+        974
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:975",
+      "kind": "member_of",
+      "position": [
+        975,
+        1017
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags"
     },
     {
       "alias": "",
@@ -579,6 +734,45 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:1037",
+      "kind": "member_of",
+      "position": [
+        1037,
+        1045
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:1051",
+      "kind": "member_of",
+      "position": [
+        1051,
+        1077
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/index:user_tags_tag_idx",
+      "kind": "member_of",
+      "position": [
+        1190,
+        1203
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags"
     },
     {
       "alias": "",

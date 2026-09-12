@@ -3510,6 +3510,13 @@
                 "type": "string"
               }
             },
+            "inline_rules": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "op": {
               "type": "string",
               "enum": [

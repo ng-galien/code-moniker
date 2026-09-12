@@ -829,6 +829,7 @@ message = "the indexed rule must observe the memory source"
 
 	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
 		Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: None,
 			profile: None,
 			rules: Some(rules.display().to_string()),
@@ -930,4 +931,329 @@ fn memory_source_sets_index_document_formats() {
 		};
 		assert_eq!(result.total, 1, "{name}: {result:?}");
 	}
+}
+#[test]
+fn inline_sql_index_rule_runs_on_memory_documents() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	for (revision, keys, expected) in [("1", "b,a", 1), ("2", "a,b", 0)] {
+		replace_source_set(
+			&mut daemon,
+			WorkspaceSourceSetDto {
+				srcset: "catalog".into(),
+				revision: Some(revision.into()),
+				documents: vec![WorkspaceSourceDocumentDto {
+					uri: "postgres://db/app/table.sql".into(),
+					language: "sql".into(),
+					content: format!(
+						"CREATE TABLE app.child (a int, b int, FOREIGN KEY (a,b) REFERENCES app.parent(a,b)); CREATE INDEX child_idx ON app.child ({keys});"
+					),
+				}],
+			},
+		);
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::RulesCheck(RulesCheckQuery {
+				inline_rules: vec![
+					include_str!("../../../../samples/sql-indexes/rules.toml").into(),
+				],
+				report: true,
+				..RulesCheckQuery::default()
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("{response:?}")
+		};
+		let QueryResult::RulesCheck(result) = response.result else {
+			panic!("{:?}", response.result)
+		};
+		assert!(result.errors.is_empty(), "{result:?}");
+		assert_eq!(
+			result.summary.total_violations, expected,
+			"revision {revision}: {result:?}"
+		);
+	}
+}
+
+#[test]
+fn sql_index_workspace_rule_is_independent_of_statement_partition_and_order() {
+	const TABLE: &str = "CREATE TABLE app.child (a int, b int);";
+	const FK: &str = "ALTER TABLE app.child ADD CONSTRAINT child_fk FOREIGN KEY (a,b) REFERENCES app.parent(a,b);";
+	const INDEX: &str = "CREATE INDEX child_idx ON app.child (a,b);";
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	let statements = [TABLE, FK, INDEX];
+	let mut revision = 0;
+	for order in [
+		[0, 1, 2],
+		[0, 2, 1],
+		[1, 0, 2],
+		[1, 2, 0],
+		[2, 0, 1],
+		[2, 1, 0],
+	] {
+		for grouped in [true, false] {
+			revision += 1;
+			let ordered: Vec<_> = order.iter().map(|i| statements[*i].to_string()).collect();
+			let documents = if grouped {
+				vec![ordered.join("\n")]
+			} else {
+				ordered
+			};
+			let result = check_sql_statements(&mut daemon, revision, &documents);
+			assert_eq!(
+				result.summary.total_violations, 0,
+				"order {order:?}, grouped={grouped}: {result:?}"
+			);
+			let reports: Vec<_> = result
+				.rule_reports
+				.iter()
+				.filter(|r| r.rule_id == "workspace.symbol.fk-index-prefix")
+				.collect();
+			assert!(
+				reports.iter().any(|r| r.antecedent_matches == Some(1)),
+				"FK was not exercised: {result:?}"
+			);
+			assert!(
+				reports.iter().all(|r| r.inconclusive == Some(0)),
+				"{result:?}"
+			);
+		}
+	}
+	for (index, expected) in [
+		("CREATE INDEX child_idx ON app.child (b,a);", 1),
+		("CREATE INDEX child_idx ON app.child (a);", 1),
+		("CREATE INDEX child_idx ON app.child (a) INCLUDE (b);", 1),
+		("CREATE INDEX child_idx ON app.child (a,b) WHERE a > 0;", 1),
+		("CREATE INDEX child_idx ON app.child ((a+1),b);", 1),
+		(
+			"CREATE TABLE other.child(a int,b int); CREATE INDEX child_idx ON other.child (a,b);",
+			1,
+		),
+		("", 1),
+		(INDEX, 0),
+	] {
+		revision += 1;
+		let result = check_sql_statements(
+			&mut daemon,
+			revision,
+			&[TABLE.into(), FK.into(), index.into()],
+		);
+		assert_eq!(
+			result.summary.total_violations, expected,
+			"index {index}: {result:?}"
+		);
+		assert!(
+			result
+				.rule_reports
+				.iter()
+				.all(|r| r.inconclusive == Some(0)),
+			"{result:?}"
+		);
+	}
+}
+
+#[test]
+fn sql_index_workspace_rule_reports_uncertain_table_resolution() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	let result = check_sql_statements(
+		&mut daemon,
+		1,
+		&[
+			"ALTER TABLE missing.child ADD CONSTRAINT fk FOREIGN KEY(a) REFERENCES parent(id);"
+				.into(),
+			"CREATE INDEX i ON missing.child(a);".into(),
+		],
+	);
+	assert_eq!(result.summary.total_violations, 0, "{result:?}");
+	assert!(
+		result
+			.rule_reports
+			.iter()
+			.any(|r| r.inconclusive == Some(1)),
+		"{result:?}"
+	);
+}
+
+fn check_sql_statements(
+	daemon: &mut WorkspaceDaemon,
+	revision: usize,
+	contents: &[String],
+) -> code_moniker_query::RulesCheckResult {
+	replace_source_set(
+		daemon,
+		WorkspaceSourceSetDto {
+			srcset: "catalog".into(),
+			revision: Some(revision.to_string()),
+			documents: contents
+				.iter()
+				.enumerate()
+				.filter(|(_, content)| !content.is_empty())
+				.map(|(i, content)| WorkspaceSourceDocumentDto {
+					uri: format!("postgres://db/statement-{i}.sql"),
+					language: "sql".into(),
+					content: content.clone(),
+				})
+				.collect(),
+		},
+	);
+	let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+		Query::RulesCheck(RulesCheckQuery {
+			inline_rules: vec![include_str!("../../../../samples/sql-indexes/rules.toml").into()],
+			report: true,
+			..RulesCheckQuery::default()
+		}),
+	))));
+	let ProtocolResponse::Query(response) = response else {
+		panic!("{response:?}")
+	};
+	let QueryResult::RulesCheck(result) = response.result else {
+		panic!("{:?}", response.result)
+	};
+	assert!(result.errors.is_empty(), "{result:?}");
+	result
+}
+
+#[test]
+fn sql_workspace_children_follow_semantic_ownership_in_every_document_layout() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	let statements = [
+		"CREATE TABLE app.child(a int,b int);",
+		"ALTER TABLE app.child ADD CONSTRAINT fk FOREIGN KEY(a,b) REFERENCES app.parent(a,b);",
+		"CREATE INDEX i ON app.child(a,b);",
+		"ALTER TABLE app.child ADD CONSTRAINT positive CHECK(a > 0);",
+	];
+	for (revision, order) in [[0, 1, 2, 3], [3, 2, 1, 0], [1, 2, 0, 3]]
+		.iter()
+		.enumerate()
+	{
+		for grouped in [true, false] {
+			let content: Vec<_> = order.iter().map(|i| statements[*i].to_string()).collect();
+			let documents = if grouped {
+				vec![content.join("\n")]
+			} else {
+				content
+			};
+			check_sql_statements(&mut daemon, revision * 2 + usize::from(grouped), &documents);
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(
+				QueryRequest::new(Query::RulesCheck(RulesCheckQuery {
+					inline_rules: vec![
+						r#"default_rules = false
+[[workspace.symbol.where]]
+id = "semantic-children"
+expr = "kind = 'table' AND name = 'child' => count(constraint) = 2 AND count(index) = 1"
+"#
+						.into(),
+					],
+					report: true,
+					..RulesCheckQuery::default()
+				})),
+			)));
+			let ProtocolResponse::Query(response) = response else {
+				panic!("{response:?}")
+			};
+			let QueryResult::RulesCheck(result) = response.result else {
+				panic!("{:?}", response.result)
+			};
+			assert!(result.errors.is_empty(), "{result:?}");
+			assert_eq!(
+				result.summary.total_violations, 0,
+				"grouped={grouped}, order={order:?}: {result:?}"
+			);
+			assert!(
+				result
+					.rule_reports
+					.iter()
+					.any(|r| r.antecedent_matches == Some(1)),
+				"{result:?}"
+			);
+			assert!(
+				result
+					.rule_reports
+					.iter()
+					.all(|r| r.inconclusive == Some(0)),
+				"{result:?}"
+			);
+		}
+	}
+}
+
+#[test]
+fn sql_workspace_index_prefix_preserves_long_and_quoted_keys_across_statements() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	let names: Vec<_> = (0..12).map(|i| format!("c{i}")).collect();
+	let columns = names
+		.iter()
+		.map(|n| format!("{n} int"))
+		.collect::<Vec<_>>()
+		.join(",");
+	let ordered = names.join(",");
+	let mut reversed = names.clone();
+	reversed.swap(10, 11);
+	for (revision, keys, expected) in [(1, ordered.clone(), 0), (2, reversed.join(","), 1)] {
+		let result = check_sql_statements(
+			&mut daemon,
+			revision,
+			&[
+				format!("CREATE TABLE app.child({columns});"),
+				format!(
+					"ALTER TABLE app.child ADD CONSTRAINT fk FOREIGN KEY({ordered}) REFERENCES parent({ordered});"
+				),
+				format!("CREATE INDEX i ON app.child({keys});"),
+			],
+		);
+		assert_eq!(result.summary.total_violations, expected, "{result:?}");
+	}
+	for (revision, key, expected) in [(3, "\"A\"", 0), (4, "a", 1)] {
+		let result=check_sql_statements(&mut daemon,revision,&[
+			"CREATE TABLE app.\"Child\" (\"A\" int);".into(),
+			"ALTER TABLE app.\"Child\" ADD CONSTRAINT fk FOREIGN KEY(\"A\") REFERENCES parent(id);".into(),
+			format!("CREATE INDEX i ON app.\"Child\"({key});"),
+		]);
+		assert_eq!(result.summary.total_violations, expected, "{result:?}");
+	}
+}
+
+#[test]
+fn sql_workspace_rule_does_not_choose_an_ambiguous_table_owner() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	daemon
+		.refresh_cancellable(WorkspaceCancellation::default())
+		.unwrap();
+	let result = check_sql_statements(
+		&mut daemon,
+		1,
+		&[
+			"CREATE TABLE app.child(a int);".into(),
+			"CREATE TABLE app.child(a int);".into(),
+			"ALTER TABLE app.child ADD CONSTRAINT fk FOREIGN KEY(a) REFERENCES parent(id);".into(),
+			"CREATE INDEX i ON app.child(a);".into(),
+		],
+	);
+	assert_eq!(result.summary.total_violations, 0, "{result:?}");
+	assert!(
+		result
+			.rule_reports
+			.iter()
+			.any(|r| r.inconclusive == Some(1)),
+		"{result:?}"
+	);
 }

@@ -5,6 +5,9 @@ use code_moniker_core::core::moniker::Moniker;
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(in crate::check) enum Lhs {
 	Name,
+	Signature,
+	SourceSignature,
+	TargetSignature,
 	Lines,
 	StartLine,
 	EndLine,
@@ -44,6 +47,9 @@ impl Lhs {
 	pub(in crate::check) fn as_str(self) -> &'static str {
 		match self {
 			Self::Name => "name",
+			Self::Signature => "signature",
+			Self::SourceSignature => "source.signature",
+			Self::TargetSignature => "target.signature",
 			Self::Lines => "lines",
 			Self::StartLine => "start_line",
 			Self::EndLine => "end_line",
@@ -83,6 +89,9 @@ impl Lhs {
 	pub(in crate::check) fn from_projection_name(s: &str) -> Option<Self> {
 		Some(match s {
 			"name" => Self::Name,
+			"signature" => Self::Signature,
+			"source.signature" => Self::SourceSignature,
+			"target.signature" => Self::TargetSignature,
 			"lines" => Self::Lines,
 			"start_line" => Self::StartLine,
 			"end_line" => Self::EndLine,
@@ -163,7 +172,10 @@ impl Lhs {
 			| Self::SourceParentMoniker
 			| Self::TargetMoniker
 			| Self::TargetParentMoniker => LhsProjectionKind::Moniker,
-			Self::Name
+			Self::Signature
+			| Self::SourceSignature
+			| Self::TargetSignature
+			| Self::Name
 			| Self::Kind
 			| Self::Shape
 			| Self::Visibility
@@ -320,6 +332,7 @@ pub(in crate::check) enum CollectionExpr {
 
 #[derive(Debug, Clone)]
 pub(in crate::check) struct CollectionProjection {
+	pub(in crate::check) current: bool,
 	pub(in crate::check) domain: Domain,
 	pub(in crate::check) path: Vec<String>,
 }
@@ -406,6 +419,7 @@ pub(in crate::check) enum Op {
 	BindMatch,
 	PathMatch,
 	Subset,
+	Prefix,
 }
 
 #[derive(Debug, Clone)]

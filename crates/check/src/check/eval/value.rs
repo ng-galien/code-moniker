@@ -258,10 +258,15 @@ fn collection_label(collection: &CollectionExpr) -> String {
 	match collection {
 		CollectionExpr::Projection(projection) => {
 			if projection.path.is_empty() {
-				domain_label(&projection.domain)
+				format!(
+					"{}{}",
+					if projection.current { "current." } else { "" },
+					domain_label(&projection.domain)
+				)
 			} else {
 				format!(
-					"{}.{}",
+					"{}{}.{}",
+					if projection.current { "current." } else { "" },
 					domain_label(&projection.domain),
 					projection.path.join(".")
 				)

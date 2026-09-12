@@ -27,6 +27,7 @@ pub(crate) struct RulesListEval {
 }
 
 pub(crate) struct RulesCheckEval {
+	pub(crate) inline_rules: Vec<String>,
 	pub(crate) workspace: Option<String>,
 	pub(crate) profile: Option<String>,
 	pub(crate) rules: Option<String>,
@@ -36,6 +37,7 @@ pub(crate) struct RulesCheckEval {
 }
 
 pub(crate) struct IndexedRulesCheck<'a> {
+	pub(crate) inline_rules: &'a [String],
 	pub(crate) root: &'a Path,
 	pub(crate) config_root: &'a Path,
 	pub(crate) workspace: &'a IndexedCheckWorkspace,

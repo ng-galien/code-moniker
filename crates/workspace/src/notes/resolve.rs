@@ -216,6 +216,7 @@ mod tests {
 			text: "pub fn run() {}\n".to_string(),
 		};
 		let symbol = SymbolRecord {
+			byte_range: None,
 			id: SymbolId::at(0, 1),
 			source: source.id,
 			identity: std::sync::Arc::from(moniker.to_string()),
@@ -260,6 +261,7 @@ mod tests {
 
 	fn snapshot_with_orphaned_symbol(moniker: &str) -> WorkspaceSnapshot {
 		let symbol = SymbolRecord {
+			byte_range: None,
 			id: SymbolId::at(0, 1),
 			source: SourceId::at(9999),
 			identity: std::sync::Arc::from(moniker.to_string()),

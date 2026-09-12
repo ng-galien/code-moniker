@@ -1082,7 +1082,9 @@ fn symbol_linkage_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -
 }
 
 fn symbol_inventory_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -> bool {
-	previous.line_range != next.line_range || previous.parent != next.parent
+	previous.byte_range != next.byte_range
+		|| previous.line_range != next.line_range
+		|| previous.parent != next.parent
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -1134,6 +1136,7 @@ fn collect_symbols(
 			.parent
 			.map(|parent_idx| file.identity.symbol_id(file_idx, parent_idx));
 		symbols.push(SymbolRecord {
+			byte_range: def.position,
 			id,
 			source: file.source_id,
 			identity: Arc::from(file.identity.moniker_uri(&def.moniker)),

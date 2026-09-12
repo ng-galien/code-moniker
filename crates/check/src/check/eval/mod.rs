@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 mod collection;
+pub(in crate::check) mod indexed;
 mod layout;
 mod local;
 mod metrics;
@@ -25,7 +26,7 @@ use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::{Lang, ParsedDocument};
 use code_moniker_workspace::lines::line_range;
 
-use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
+use collection::{collection_has_pair_binding, eval_collection_comparison, eval_collection_size};
 use layout::eval_vertical_layout;
 use local::{
 	AggregateEval, AstScopeError, DomainItem, ast_domain_items, domain_items, eval_aggregate,
@@ -1369,6 +1370,29 @@ fn eval_ref_atom(
 	current: &code_moniker_core::core::code_graph::RefRecord,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
+	if let (LhsExpr::Collection(left), Op::Subset | Op::Prefix, Rhs::Collection(right)) =
+		(&atom.lhs, atom.op, &atom.rhs)
+	{
+		if collection_has_pair_binding(left) || collection_has_pair_binding(right) {
+			return AtomOutcome::NotApplicable;
+		}
+		return if eval_collection_comparison(
+			left,
+			right,
+			r.source,
+			current.source,
+			ctx,
+			atom.op == Op::Prefix,
+		) {
+			AtomOutcome::Pass
+		} else {
+			AtomOutcome::Fail {
+				actual: "collection mismatch".into(),
+				expected: format!("{:?}", atom.op),
+				position: None,
+			}
+		};
+	}
 	let Some(value) = eval_ref_lhs_expr_value(&atom.lhs, r, ctx) else {
 		return AtomOutcome::NotApplicable;
 	};
@@ -1646,6 +1670,13 @@ fn resolve_ref_lhs(
 		Lhs::ParentKind => Value::Str(last_segment_kind(&source_def.moniker.parent()?)?),
 		Lhs::TargetMoniker => Value::Moniker(r.target.clone()),
 		Lhs::TargetParentMoniker => Value::Moniker(r.target.parent()?),
+		Lhs::Signature | Lhs::SourceSignature => {
+			Value::Str(String::from_utf8_lossy(&source_def.signature).into_owned())
+		}
+		Lhs::TargetSignature => Value::Str(
+			String::from_utf8_lossy(&ctx.graph.def_at(local_def_index(&r.target, ctx)?).signature)
+				.into_owned(),
+		),
 		Lhs::SourceName => Value::Str(name_of(&source_def.moniker)?),
 		Lhs::TargetName => Value::Str(name_of(&r.target)?),
 		Lhs::SourceKind => Value::Str(last_segment_kind(&source_def.moniker)?),
@@ -2026,6 +2057,10 @@ fn to_snake_case(name: &str) -> String {
 fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Value> {
 	let source = ctx.source;
 	let value = match lhs {
+		Lhs::Signature | Lhs::SourceSignature => {
+			Value::Str(String::from_utf8_lossy(&d.signature).into_owned())
+		}
+		Lhs::TargetSignature => return None,
 		Lhs::Name => Value::Str(def_name(d)?),
 		Lhs::Kind => Value::Str(std::str::from_utf8(&d.kind).ok()?.to_string()),
 		Lhs::Visibility => Value::Str(std::str::from_utf8(&d.visibility).ok()?.to_string()),
@@ -2661,18 +2696,25 @@ fn eval_atom(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
-	if let (LhsExpr::Collection(left), Op::Subset, Rhs::Collection(right)) =
+	if let (LhsExpr::Collection(left), Op::Subset | Op::Prefix, Rhs::Collection(right)) =
 		(&atom.lhs, atom.op, &atom.rhs)
 	{
 		if collection_has_pair_binding(left) || collection_has_pair_binding(right) {
 			return AtomOutcome::NotApplicable;
 		}
-		return if eval_collection_subset(left, right, def_idx, self_idx, ctx) {
+		return if eval_collection_comparison(
+			left,
+			right,
+			def_idx,
+			self_idx,
+			ctx,
+			atom.op == Op::Prefix,
+		) {
 			AtomOutcome::Pass
 		} else {
 			AtomOutcome::Fail {
-				actual: "not subset".to_string(),
-				expected: "subset".to_string(),
+				actual: "collection mismatch".to_string(),
+				expected: format!("{:?}", atom.op).to_ascii_lowercase(),
 				position: None,
 			}
 		};

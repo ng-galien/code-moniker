@@ -20,6 +20,8 @@ use super::super::kinds;
 
 use find_named_child as find_child;
 
+mod indexes;
+
 pub(in crate::lang::sql) fn new_sql_parser() -> Parser {
 	let mut parser = Parser::new();
 	parser
@@ -268,6 +270,14 @@ impl SqlWalker<'_> {
 			}
 			"CreateDomainStmt" => classify_user_type(node, source, self.module),
 			"CreateTrigStmt" => classify_trigger(node, source, self.module),
+			"AlterTableStmt" => {
+				indexes::emit_alter_constraints(node, source, self.module, builder);
+				SqlNodeShape::Recurse
+			}
+			"IndexStmt" => {
+				indexes::emit_index(node, source, self.module, builder);
+				SqlNodeShape::Skip
+			}
 			"CreateStmt" => {
 				classify_qualified_relation(node, source, self.module, kinds::TABLE, None)
 			}
@@ -1570,10 +1580,24 @@ fn emit_constraint(
 		kinds::CONSTRAINT,
 		constraint_signature(node),
 		node_position(node),
-		table_moniker,
+		if builder.contains(table_moniker) {
+			table_moniker
+		} else {
+			module
+		},
 	) {
 		return;
 	}
+	builder.push_ref(resolved_ref(
+		&moniker,
+		table_moniker.clone(),
+		crate::core::kinds::REF_MEMBER_OF,
+		Some(node_position(node)),
+		kinds::CONF_NAME_MATCH,
+		&[],
+		None,
+	));
+	indexes::emit_foreign_key_columns(node, source, &moniker, builder);
 	emit_foreign_key_refs(node, source, &moniker, module, builder);
 }
 

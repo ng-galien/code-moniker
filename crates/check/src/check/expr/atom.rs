@@ -197,7 +197,7 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 		}
 		LhsExpr::Collection(_) => {
 			return match op {
-				Subset => Ok(()),
+				Subset | Prefix => Ok(()),
 				_ => Err(ParseError::BadExpr {
 					expr: full.to_string(),
 					msg: format!("collection expressions only accept subset operators, got {op:?}"),
@@ -322,7 +322,7 @@ pub(super) fn parse_rhs(
 				)?)
 			}
 		}
-		Op::Subset => Rhs::Collection(parse_collection_rhs(
+		Op::Subset | Op::Prefix => Rhs::Collection(parse_collection_rhs(
 			s,
 			scheme,
 			allowed_kinds,

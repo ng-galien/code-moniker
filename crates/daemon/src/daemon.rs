@@ -692,6 +692,7 @@ fn dispatch_snapshot_query(
 			Arc::clone(&snapshot),
 			response,
 			RulesCheckEval {
+				inline_rules: query.inline_rules,
 				workspace: query.workspace,
 				profile: query.profile,
 				rules: query.rules,

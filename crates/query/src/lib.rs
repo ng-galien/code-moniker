@@ -330,7 +330,14 @@ const QUERY_CAPABILITY_SPECS: &[QueryCapabilitySpec] = &[
 		category: "rules",
 		read_only: true,
 		mcp_tool: "code_moniker_rules",
-		fields: &["workspace", "profile", "rules", "file", "report"],
+		fields: &[
+			"workspace",
+			"profile",
+			"rules",
+			"inline_rules",
+			"file",
+			"report",
+		],
 		required_fields: &[],
 		positionals: 0,
 		projection: false,
@@ -1183,6 +1190,8 @@ pub struct RulesListQuery {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckQuery {
+	#[serde(default)]
+	pub inline_rules: Vec<String>,
 	pub workspace: Option<String>,
 	pub profile: Option<String>,
 	pub rules: Option<String>,
@@ -3492,6 +3501,7 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 			severity: fields.many("severity"),
 		}),
 		"rules.check" => Query::RulesCheck(RulesCheckQuery {
+			inline_rules: fields.many("inline_rules"),
 			workspace: fields.one("workspace"),
 			profile: fields.one("profile"),
 			rules: fields.one("rules"),
@@ -6342,6 +6352,28 @@ mod tests {
 			}
 			other => panic!("unexpected query {other:?}"),
 		}
+	}
+
+	#[test]
+	fn inline_rules_preserve_toml_and_old_query_compatibility() {
+		let old: Query = serde_json::from_value(
+			serde_json::json!({"op":"rules_check", "file":[], "report":true}),
+		)
+		.unwrap();
+		let Query::RulesCheck(old) = old else {
+			panic!("rules query")
+		};
+		assert!(old.inline_rules.is_empty());
+		let fragment = "[[sql.index.where]]\nid = \"example\"\nexpr = \"name != 'a,b'\"";
+		let query = RulesCheckQuery {
+			inline_rules: vec![fragment.into(), "default_rules = false".into()],
+			..RulesCheckQuery::default()
+		};
+		let encoded = serde_json::to_value(Query::RulesCheck(query.clone())).unwrap();
+		assert_eq!(
+			serde_json::from_value::<Query>(encoded).unwrap(),
+			Query::RulesCheck(query)
+		);
 	}
 
 	#[test]

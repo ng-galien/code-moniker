@@ -216,7 +216,7 @@ fn snapshot_value_expr(expr: &ValueExpr) -> Value {
 fn snapshot_collection_expr(expr: &CollectionExpr) -> Value {
 	match expr {
 		CollectionExpr::Projection(projection) => json!({
-			"type": "projection",
+			"type": if projection.current { "current_projection" } else { "projection" },
 			"domain": snapshot_domain(&projection.domain),
 			"path": projection.path,
 		}),
@@ -369,6 +369,7 @@ fn snapshot_op(op: Op) -> &'static str {
 		Op::BindMatch => "bind_match",
 		Op::PathMatch => "path_match",
 		Op::Subset => "subset",
+		Op::Prefix => "prefix",
 	}
 }
 

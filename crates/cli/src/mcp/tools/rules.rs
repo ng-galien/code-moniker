@@ -56,7 +56,7 @@ impl RulesTool {
 					"type": "string",
 					"description": "Rules TOML path. Defaults to .code-moniker.toml."
 				},
-				"lang": {
+		"lang": {
 					"oneOf": [
 						{ "type": "string" },
 						{ "type": "array", "items": { "type": "string" } }
@@ -264,6 +264,7 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Tem
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let response = context.query_refreshed(
 		Query::RulesCheck(RulesCheckQuery {
+			inline_rules: Vec::new(),
 			workspace: None,
 			profile: request.profile.clone(),
 			rules: Some(request.rules.display().to_string()),

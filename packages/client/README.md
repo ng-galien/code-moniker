@@ -160,3 +160,25 @@ Stopping a daemon that was not launched by the caller remains the explicit
 `runtime.stop(entry)` operation. `runtime.restart(entry, options)` confirms
 that the old PID has exited before removing its claim and launching a
 replacement.
+
+### Inline rules for memory sources
+
+`rules_check` accepts `inline_rules: string[]`, containing TOML fragments merged
+in order using the same loader as local `check --rules-inline`. No temporary
+rules file is needed. The SQL FK/index example in
+`samples/sql-indexes/rules.toml` uses `workspace.symbol` rules: `CREATE TABLE`,
+`ALTER TABLE … ADD CONSTRAINT` and `CREATE INDEX` can be sent in separate
+memory documents, in any order. Rules traverse the resolved workspace index.
+Check each rule report's `verdict`/`inconclusive` as well as violations; an
+unresolved or ambiguous table is not evidence of coverage.
+
+```ts
+await client.query({
+  op: "rules_check",
+  inline_rules: ['default_rules = false\n[[sql.index.where]]\nid = "btree"\nexpr = "signature = \'btree\'"'],
+  file: [],
+  report: true,
+}, { consistency: "stale_ok" });
+```
+
+Run the daemon-backed regression with `npm run test:sql-indexes:daemon:built -- <code-moniker-binary>` after building the client.
