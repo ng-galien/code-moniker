@@ -11,7 +11,37 @@ in `0.y.z`.
 
 ## [Unreleased]
 
-## [0.11.0] - Unreleased
+## [0.12.0] - 2026-09-12
+
+### Added
+
+- **Markdown, JSON, and YAML are first-class indexed formats.** Their
+  extractors publish stable nested identities for headings, code blocks, link
+  definitions, object keys, documents, and sequence items across CLI, MCP,
+  daemon, rules, and Node client surfaces.
+- **PostgreSQL indexes are available to workspace rules.** Ordered index and
+  foreign-key columns, semantic table ownership, and a reusable structural
+  evaluator support index-prefix checks across split and reordered statements,
+  with ambiguous or missing owners reported as inconclusive.
+- **The urban-plan exploration is reproducible.** The isolated React Three
+  Fiber prototype captures a real index, builds a renderer-independent scene,
+  and exposes live controls for hierarchy, metrics, scale, coupling, and level
+  of detail.
+
+### Changed
+
+- Document-format property coverage now runs independently for Markdown, JSON,
+  and YAML so native-parser failures identify the responsible grammar.
+- Daemon and Node rule calls accept inline TOML fragments for structural
+  workspace checks.
+
+### Fixed
+
+- Markdown parsing no longer crashes on Linux x86_64 when a digit is followed
+  by a Unicode code point above `U+00FF`; extracted names and byte positions
+  still refer to the original source.
+
+## [0.11.0] - 2026-09-09
 
 ### Added
 
