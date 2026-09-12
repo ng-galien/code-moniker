@@ -195,12 +195,31 @@ fn yaml_flow_mapping_preserves_keys_with_implicit_null_values() {
 	);
 }
 
+#[test]
+fn markdown_non_ascii_after_a_digit_preserves_the_original_heading() {
+	let source = "5\u{4cc52}\n# 5\u{4cc52}\n";
+	let graph = extract::<markdown::Lang>("unicode.md", source);
+	assert!(
+		uris(&graph)
+			.iter()
+			.any(|uri| uri.ends_with("/section:5\u{4cc52}"))
+	);
+}
+
 proptest::proptest! {
 	#![proptest_config(proptest::test_runner::Config::with_cases(64))]
 	#[test]
-	fn arbitrary_document_text_preserves_graph_conformance(source in ".{0,256}") {
+	fn arbitrary_json_text_preserves_graph_conformance(source in ".{0,256}") {
 		extract::<json::Lang>("random.json", &source);
+	}
+
+	#[test]
+	fn arbitrary_yaml_text_preserves_graph_conformance(source in ".{0,256}") {
 		extract::<yaml::Lang>("random.yaml", &source);
+	}
+
+	#[test]
+	fn arbitrary_markdown_text_preserves_graph_conformance(source in ".{0,256}") {
 		extract::<markdown::Lang>("random.md", &source);
 	}
 }
