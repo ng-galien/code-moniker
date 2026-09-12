@@ -1,0 +1,197 @@
+html,
+body,
+#root,
+.app {
+	margin: 0;
+	height: 100%;
+	background: #243140;
+	color: #e8eef4;
+	font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.app {
+	position: relative;
+	display: grid;
+	grid-template-columns: 1fr 18.5rem;
+}
+
+.stage {
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+}
+
+.hud {
+	position: absolute;
+	z-index: 2;
+	left: 16px;
+	top: 16px;
+	max-width: 52rem;
+	pointer-events: none;
+}
+
+.hud h1 {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0 0 6px;
+	letter-spacing: 0.02em;
+}
+
+.meta {
+	margin: 0;
+	opacity: 0.72;
+}
+
+.pick {
+	margin: 6px 0 0;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.reset {
+	pointer-events: auto;
+	margin-top: 10px;
+	border: 0;
+	border-radius: 4px;
+	padding: 4px 10px;
+	background: rgba(230, 197, 106, 0.16);
+	color: #e6c56a;
+	font: 12px/1.3 ui-sans-serif, system-ui, sans-serif;
+	cursor: pointer;
+}
+
+.label {
+	padding: 2px 8px;
+	border-radius: 4px;
+	background: rgba(12, 17, 22, 0.78);
+	color: #e8eef4;
+	font: 11px/1.3 ui-sans-serif, system-ui, sans-serif;
+	white-space: nowrap;
+}
+
+.label.crate {
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: lowercase;
+}
+
+.label.district {
+	opacity: 0.92;
+	font-size: 10px;
+}
+
+.label.port {
+	font-weight: 600;
+	background: rgba(12, 17, 22, 0.92);
+	border: 1px solid rgba(240, 210, 122, 0.45);
+	padding: 3px 10px;
+}
+
+.card {
+	margin-top: 10px;
+	padding: 10px 12px;
+	max-width: 28rem;
+	border-radius: 6px;
+	background: rgba(12, 17, 22, 0.88);
+	border: 1px solid rgba(232, 238, 244, 0.12);
+	pointer-events: none;
+}
+
+.card-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.card-title span {
+	opacity: 0.55;
+	margin: 0 6px;
+}
+
+.card-meta {
+	margin: 4px 0 0;
+	opacity: 0.8;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+}
+
+.card-hint {
+	margin: 6px 0 0;
+	opacity: 0.5;
+	font-size: 11px;
+}
+
+.panel {
+	position: relative;
+	z-index: 3;
+	margin: 16px 16px 16px 0;
+	overflow: auto;
+	padding: 12px 14px 16px;
+	border-radius: 8px;
+	background: rgba(12, 17, 22, 0.88);
+	border: 1px solid rgba(232, 238, 244, 0.08);
+	backdrop-filter: blur(8px);
+	pointer-events: auto;
+}
+
+.panel h2 {
+	margin: 0;
+	font-size: 13px;
+	letter-spacing: 0.04em;
+	text-transform: lowercase;
+}
+
+.panel .hint {
+	margin: 2px 0 10px;
+	opacity: 0.5;
+	font-size: 11px;
+}
+
+.panel section {
+	margin: 0 0 12px;
+	padding: 0 0 10px;
+	border-bottom: 1px solid rgba(232, 238, 244, 0.08);
+}
+
+.panel h3 {
+	margin: 0 0 6px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	opacity: 0.65;
+}
+
+.slider {
+	display: block;
+	margin: 0 0 7px;
+}
+
+.slider span {
+	display: flex;
+	justify-content: space-between;
+	font-size: 12px;
+}
+
+.slider b {
+	font-weight: 500;
+	opacity: 0.8;
+	font-variant-numeric: tabular-nums;
+}
+
+.slider input {
+	width: 100%;
+}
+
+.check {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0 0 4px;
+	font-size: 12px;
+}
+
+.panel .reset {
+	margin-top: 4px;
+	width: 100%;
+}
