@@ -154,7 +154,10 @@ fn scenario_file_lang(file: &super::ScenarioFile) -> anyhow::Result<Option<Lang>
 		"java" => Ok(Some(Lang::Java)),
 		"cs" | "csharp" => Ok(Some(Lang::Cs)),
 		"sql" | "plpgsql" => Ok(Some(Lang::Sql)),
-		"text" | "txt" | "md" | "markdown" => Ok(None),
+		"md" | "markdown" => Ok(Some(Lang::Markdown)),
+		"json" => Ok(Some(Lang::Json)),
+		"yaml" | "yml" => Ok(Some(Lang::Yaml)),
+		"text" | "txt" => Ok(None),
 		_ => Ok(Some(path_to_lang(Path::new(&file.path))?)),
 	}
 }

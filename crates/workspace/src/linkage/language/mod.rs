@@ -52,6 +52,7 @@ pub(super) fn matches_candidate(
 		Lang::C => c::matches(query, candidate),
 		Lang::Cs => csharp::matches(query, candidate),
 		Lang::Sql => sql::matches(query, candidate),
+		Lang::Markdown | Lang::Json | Lang::Yaml => false,
 	}
 }
 
@@ -71,7 +72,7 @@ pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 		Lang::Python => Some(Manifest::Pyproject),
 		Lang::Go => Some(Manifest::GoMod),
 		Lang::Cs => Some(Manifest::Csproj),
-		Lang::C | Lang::Sql => None,
+		Lang::C | Lang::Sql | Lang::Markdown | Lang::Json | Lang::Yaml => None,
 	}
 }
 

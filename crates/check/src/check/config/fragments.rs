@@ -65,6 +65,12 @@ struct RawFragmentConfig {
 	#[serde(default)]
 	sql: LangRules,
 	#[serde(default)]
+	markdown: LangRules,
+	#[serde(default)]
+	json: LangRules,
+	#[serde(default)]
+	yaml: LangRules,
+	#[serde(default)]
 	views: Vec<toml::Value>,
 }
 
@@ -95,6 +101,9 @@ impl RawFragmentConfig {
 			c: self.c,
 			cs: self.cs,
 			sql: self.sql,
+			markdown: self.markdown,
+			json: self.json,
+			yaml: self.yaml,
 			views: self.views,
 			profiles: HashMap::new(),
 			fragments: Vec::new(),

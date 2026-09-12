@@ -97,6 +97,7 @@ test("source language adaptation covers every canonical workspace extension", ()
 		"a.js": "js", "a.jsx": "jsx", "a.mjs": "js", "a.cjs": "js",
 		"a.rs": "rs", "a.java": "java", "a.py": "python", "a.pyi": "python", "a.go": "go",
 		"a.c": "c", "a.h": "c", "a.cs": "cs", "a.sql": "sql", "a.sql.in": "sql", "a.plpgsql": "sql",
+		"a.md": "markdown", "a.MARKDOWN": "markdown", "a.JSON": "json", "a.YAML": "yaml", "a.yml": "yaml",
 	};
 	for (const [path, language] of Object.entries(expected)) {
 		assert.equal(sourceLanguageForPath(path), language, path);

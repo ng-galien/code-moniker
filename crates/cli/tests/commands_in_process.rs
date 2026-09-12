@@ -315,7 +315,7 @@ fn stats_json_reports_extraction_metrics() {
 		"src/lib.rs",
 		"mod tests { fn mk() {} fn run() { mk(); } }\n",
 	);
-	write_under(dir.path(), "README.md", "ignored\n");
+	write_under(dir.path(), "README.md", "# Guide\n");
 	let (exit, out, err) = run_with(vec![
 		"code-moniker",
 		"stats",
@@ -325,8 +325,9 @@ fn stats_json_reports_extraction_metrics() {
 	]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
 	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
-	assert_eq!(v["total_files"].as_u64(), Some(2));
+	assert_eq!(v["total_files"].as_u64(), Some(3));
 	assert_eq!(v["by_lang"]["ts"]["files"].as_u64(), Some(1));
+	assert_eq!(v["by_lang"]["markdown"]["files"].as_u64(), Some(1));
 	assert_eq!(v["by_lang"]["rs"]["files"].as_u64(), Some(1));
 	assert!(v["by_shape"]["namespace"].as_u64().unwrap() >= 2);
 	assert!(v["by_shape"]["callable"].as_u64().unwrap() >= 1);
@@ -3321,4 +3322,32 @@ fn check_scenario_mismatch_returns_no_match_with_diff() {
 		"{out}"
 	);
 	assert!(out.contains("scenario: mismatch"), "{out}");
+}
+
+#[test]
+fn extract_discovers_document_formats_and_preserves_nested_monikers() {
+	let temp = tempfile::tempdir().unwrap();
+	for (file, source) in [
+		("README.MD", "# Guide\n## Setup\n"),
+		("config.JSON", "{\"server\":{\"port\":80}}"),
+		("config.YML", "server:\n  port: 80\n"),
+	] {
+		write_under(temp.path(), file, source);
+	}
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		temp.path().to_str().unwrap(),
+		"--moniker-format",
+		"uri",
+		"--all",
+	]);
+	assert_eq!(exit, Exit::Match, "{err}");
+	for suffix in [
+		"lang:markdown/module:README.MD/section:Guide/section:Setup",
+		"lang:json/module:config.JSON/key:server/key:port",
+		"lang:yaml/module:config.YML/document:0/key:server/key:port",
+	] {
+		assert!(out.contains(suffix), "missing {suffix}: {out}");
+	}
 }

@@ -5,7 +5,7 @@ text, or for one indexed source file or symbol. Parsing happens only for the
 request; the source and tree are not stored in the workspace index.
 
 Supported language tags are `rs`, `ts`, `tsx`, `js`, `jsx`, `java`, `python`,
-`go`, `c`, `cs`, `sql`, and standalone `plpgsql`. The request delegates parsing
+`go`, `c`, `cs`, `sql`, `markdown`, `json`, `yaml`, and standalone `plpgsql`. The request delegates parsing
 to the same language SDK contract as semantic extraction. A language produces
 one `ParsedDocument`; both the graph extractor and the AST renderer consume it.
 

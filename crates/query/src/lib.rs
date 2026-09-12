@@ -647,7 +647,7 @@ fn query_capability_dto(spec: &QueryCapabilitySpec) -> QueryCapabilityDto {
 fn query_constraints(name: &str) -> &'static [&'static str] {
 	match name {
 		"syntax.parse" => &[
-			"language must be one of ts, rs, java, python, go, c, cs, sql, or plpgsql",
+			"language must be one of ts, tsx, js, jsx, rs, java, python, go, c, cs, sql, markdown, json, yaml, or plpgsql",
 			"source must not exceed 1048576 UTF-8 bytes",
 		],
 		"graph.path" => &["relation requires 1..16 non-blank values of at most 64 characters"],
@@ -741,7 +741,9 @@ fn query_field_allowed(verb: &str, name: &str) -> Option<&'static str> {
 		("syntax.tree" | "syntax.parse", "max_depth") => Some("0..unbounded"),
 		("syntax.tree" | "syntax.parse", "max_nodes") => Some("1..unbounded"),
 		("syntax.tree" | "syntax.parse", "max_text_chars") => Some("0..1000"),
-		("syntax.parse", "language") => Some("ts|rs|java|python|go|c|cs|sql|plpgsql"),
+		("syntax.parse", "language") => {
+			Some("ts|tsx|js|jsx|rs|java|python|go|c|cs|sql|markdown|json|yaml|plpgsql")
+		}
 		("syntax.parse", "source") => Some("<=1048576 UTF-8 bytes"),
 		("symbol.graph" | "identity.graph", "min_count") => {
 			Some("0..unbounded; effective minimum=1")

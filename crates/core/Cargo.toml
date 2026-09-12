@@ -35,6 +35,9 @@ tree-sitter-c          = { workspace = true }
 tree-sitter-c-sharp    = { workspace = true }
 tree-sitter-postgres   = { workspace = true }
 tree-sitter-language   = { workspace = true }
+tree-sitter-json       = { workspace = true }
+tree-sitter-yaml       = { workspace = true }
+tree-sitter-md         = { workspace = true }
 
 # Manifest parsers for the build/* primitives.
 toml       = { workspace = true }

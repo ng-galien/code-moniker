@@ -62,6 +62,12 @@ pub struct Config {
 	#[serde(default)]
 	pub sql: LangRules,
 	#[serde(default)]
+	pub markdown: LangRules,
+	#[serde(default)]
+	pub json: LangRules,
+	#[serde(default)]
+	pub yaml: LangRules,
+	#[serde(default)]
 	pub profiles: HashMap<String, Profile>,
 	#[serde(default)]
 	pub views: Vec<toml::Value>,
@@ -896,6 +902,9 @@ fn merge_into(base: &mut Config, ov: Config) {
 	merge_lang(&mut base.c, ov.c);
 	merge_lang(&mut base.cs, ov.cs);
 	merge_lang(&mut base.sql, ov.sql);
+	merge_lang(&mut base.markdown, ov.markdown);
+	merge_lang(&mut base.json, ov.json);
+	merge_lang(&mut base.yaml, ov.yaml);
 }
 
 fn merge_group(base: &mut WorkspaceGroupRules, ov: WorkspaceGroupRules) {
@@ -1536,6 +1545,9 @@ impl Config {
 			Lang::C => &self.c,
 			Lang::Cs => &self.cs,
 			Lang::Sql => &self.sql,
+			Lang::Markdown => &self.markdown,
+			Lang::Json => &self.json,
+			Lang::Yaml => &self.yaml,
 		}
 	}
 
@@ -1552,6 +1564,9 @@ impl Config {
 			Lang::C => &mut self.c,
 			Lang::Cs => &mut self.cs,
 			Lang::Sql => &mut self.sql,
+			Lang::Markdown => &mut self.markdown,
+			Lang::Json => &mut self.json,
+			Lang::Yaml => &mut self.yaml,
 		}
 	}
 

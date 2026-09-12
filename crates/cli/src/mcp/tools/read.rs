@@ -63,7 +63,7 @@ fn read_input_schema() -> Value {
 			},
 			"language": {
 				"type": "string",
-				"description": "Canonical parser tag for direct source parsing: ts, rs, java, python, go, c, cs, sql, or plpgsql. Requires source."
+				"description": "Canonical parser tag for direct source parsing: ts, tsx, js, jsx, rs, java, python, go, c, cs, sql, markdown, json, yaml, or plpgsql. Requires source."
 			},
 			"depth": {
 				"type": "integer",

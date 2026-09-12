@@ -19,7 +19,7 @@ It turns source files into stable symbol identities for inspecting code and
 enforcing architecture rules in hooks or CI.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
-Python, Go, C, C#, SQL, and PL/pgSQL.
+Python, Go, C, C#, SQL, PL/pgSQL, Markdown, JSON and YAML.
 
 Read the bundled guides offline with `code-moniker docs`,
 `code-moniker docs cli/query.md`, or `code-moniker docs cli/mcp.md`.
@@ -46,6 +46,7 @@ extractor, not a replacement for each language compiler or type checker.
 | Python | Usable | Dynamic runtime behaviour is best-effort. |
 | Go | Usable | No `go/types` semantic pass. |
 | SQL / PLpgSQL | Focused | Narrow dialect and no catalog-aware planner semantics. |
+| Markdown / JSON / YAML | Structural | Sections, keys and sequence items; no execution, alias expansion or cross-file link resolution. |
 | C | Usable | No compiler preprocessing or full type analysis. |
 
 ## At a glance

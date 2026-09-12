@@ -28,6 +28,9 @@ Supported tags:
 | `c`      | `.c` `.h`         |
 | `cs`     | `.cs`             |
 | `sql`    | `.sql` `.plpgsql` |
+| `markdown` | `.md` `.markdown` |
+| `json` | `.json` |
+| `yaml` | `.yaml` `.yml` |
 
 The `ts`, `tsx`, `js`, and `jsx` tags expose independent rule sections and
 moniker languages. They deliberately share one TypeScript-family extraction,
@@ -59,6 +62,9 @@ visibilities: public, private, module
 ```
 
 The kind union is `<lang>.allowed_kinds()` plus the cross-language ref kinds every extractor emits. Languages without access modelling report `visibilities: (none — ignored by this language)`.
+
+Markdown, JSON and YAML expose structural definitions without access visibility.
+See [document monikers](extract.md#document-and-data-formats) for kinds and identity conventions.
 
 ## `shapes`
 

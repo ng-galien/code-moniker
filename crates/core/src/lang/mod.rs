@@ -6,13 +6,17 @@ mod document;
 pub mod extractor;
 pub mod go;
 pub mod java;
+pub mod json;
 pub mod kinds;
+pub mod markdown;
 pub mod python;
 pub mod rs;
 pub mod sdk;
 pub mod sql;
+mod structured;
 pub mod tree_util;
 pub mod ts;
+pub mod yaml;
 
 pub use document::{ParsedDocument, SyntaxEntryPoint, SyntaxInjection, covering_node};
 #[doc(hidden)]
@@ -154,6 +158,9 @@ define_languages! {
 	C      => crate::lang::c::Lang,
 	Cs     => crate::lang::cs::Lang,
 	Sql    => crate::lang::sql::Lang,
+	Markdown => crate::lang::markdown::Lang,
+	Json => crate::lang::json::Lang,
+	Yaml => crate::lang::yaml::Lang,
 }
 
 impl Lang {

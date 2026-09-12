@@ -756,3 +756,36 @@ fn syntax_node_contains_entry_point(
 			.iter()
 			.any(|child| syntax_node_contains_entry_point(child, language, entry_point))
 }
+
+#[test]
+fn stateless_syntax_parse_accepts_document_formats() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut daemon = WorkspaceDaemon::new(vec![temp.path().to_path_buf()]).unwrap();
+	for (language, source, kind) in [
+		("markdown", "# Guide\n", "atx_heading"),
+		("json", "{\"port\":80}", "pair"),
+		("yaml", "port: 80\n", "block_mapping_pair"),
+	] {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
+			Query::SyntaxParse(code_moniker_query::SyntaxParseQuery {
+				language: language.to_string(),
+				source: source.to_string(),
+				uri: None,
+				max_depth: 20,
+				max_nodes: 200,
+				named_only: true,
+				include_text: true,
+				max_text_chars: 40,
+			}),
+		))));
+		let ProtocolResponse::Query(response) = response else {
+			panic!("{response:?}")
+		};
+		let QueryResult::SyntaxTree(tree) = response.result else {
+			panic!("{:?}", response.result)
+		};
+		assert_eq!(tree.language, language);
+		assert!(!tree.has_error);
+		assert!(syntax_node_contains(&tree.root, kind, None));
+	}
+}

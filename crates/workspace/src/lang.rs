@@ -7,7 +7,7 @@ use code_moniker_core::lang::Lang;
 #[derive(Debug, Error)]
 pub enum LangError {
 	#[error(
-		"unsupported file extension `.{0}` (known: ts/tsx/mts/cts/js/jsx/mjs/cjs, rs, java, py/pyi, go, c/h, cs, sql/sql.in/plpgsql)"
+		"unsupported file extension `.{0}` (known: ts/tsx/mts/cts/js/jsx/mjs/cjs, rs, java, py/pyi, go, c/h, cs, sql/sql.in/plpgsql, md/markdown, json, yaml/yml)"
 	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]
@@ -42,6 +42,9 @@ pub fn path_to_lang(path: &Path) -> Result<Lang, LangError> {
 		"c" | "h" => Ok(Lang::C),
 		"cs" => Ok(Lang::Cs),
 		"sql" | "plpgsql" => Ok(Lang::Sql),
+		"md" | "markdown" => Ok(Lang::Markdown),
+		"json" => Ok(Lang::Json),
+		"yaml" | "yml" => Ok(Lang::Yaml),
 		other => Err(LangError::UnknownExtension(other.to_string())),
 	}
 }

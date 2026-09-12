@@ -33,6 +33,9 @@ The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI p
 | `.go`              | `go`     |
 | `.cs`              | `cs`     |
 | `.sql` `.plpgsql`  | `sql`    |
+| `.md` `.markdown` | `markdown` |
+| `.json` | `json` |
+| `.yaml` `.yml` | `yaml` |
 
 Unknown extension exits `2`.
 
@@ -236,3 +239,59 @@ code-moniker stats src
 
 - [Check](check.md) — project-wide scan with a rule DSL.
 - [Discovery](langs.md) — `langs` and `shapes` commands.
+
+## Document and data formats
+
+Markdown, JSON and YAML use the same extraction, symbol search, source-set,
+syntax parsing and rule APIs as the programming languages. Extension matching
+is case-insensitive. Their file root retains the full filename (including its
+extension), so `config.yaml` and `config.yml` remain distinct.
+
+| Format | Definitions |
+| --- | --- |
+| Markdown | `section` for ATX and Setext headings; `code_block` for fenced/indented code; `link_definition` for reference-style link declarations |
+| JSON | `key` for object members; `item` for each array element |
+| YAML | `document` for each document; `key` for mappings; `item` for sequence entries |
+
+`section`, `document`, `key` and `item` have shape `namespace`: they own nested
+content, independently of whether a data value is scalar or a collection.
+`code_block` and `link_definition` have shape `value`. No access visibility or
+semantic reference edges are inferred for these formats.
+
+Sections use the trimmed heading source (inline markup is retained), nested
+according to heading levels. A section's source range extends to the next
+heading of equal or lower level, or EOF. Code blocks use their info string,
+or `code` when absent, and never emit headings or executable symbols from their
+contents. Link definitions retain their bracketed source label.
+
+JSON keys are decoded strings. YAML keys retain their source spelling,
+including quotes, tags or complex-key syntax: no YAML scalar coercion is
+performed. YAML documents and JSON/YAML sequence elements use zero-based
+indices. Sequence insertion therefore changes identities of later elements.
+Aliases remain source content; they are never expanded, including cyclic aliases.
+A scalar-only file still has its file root (and YAML document when present).
+
+Names escape literal `~` as `~0`; the second and later same-kind/same-name
+siblings append `~2`, `~3`, etc. This keeps duplicates distinct without colliding
+with literal suffixes. Normal moniker URI quoting handles reserved characters,
+Unicode and empty keys. Definitions retain original UTF-8 byte ranges (JSON/YAML
+keys cover the whole member, including its value). Malformed input uses the
+recoverable parser structure; `syntax.parse` reports grammar errors. Markdown
+syntax parsing exposes the block grammar, with inline content retained as text.
+
+For example:
+
+```text
+lang:markdown/module:README.md/section:Guide/section:Setup
+lang:json/module:config.json/key:server/key:ports/item:0
+lang:yaml/module:config.yml/document:0/key:server/key:port
+```
+
+Rules can target `[markdown.section]`, `[json.key]`, `[yaml.key]`, and the other
+listed kinds, including through rule fragments and profiles. The default preset
+warns about empty Markdown headings and repeated sibling JSON/YAML keys (YAML
+compares source spelling). It imposes no key-naming convention. Existing build
+manifest analysis (for example `package.json`) continues independently of these
+structural definitions. Rendering Markdown, JSON Schema validation, YAML
+execution, embedded-code extraction and cross-file link resolution are outside
+this extractor contract.
