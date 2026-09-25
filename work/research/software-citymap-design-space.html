@@ -1,0 +1,225 @@
+<div id="software-citymap-design-space">
+  <p>Recherche historique : l'approche fondée sur les Project Views a été écartée.
+    La City Map actuelle calcule ses regroupements depuis l'index brut.</p>
+  <style>
+    #software-citymap-design-space {
+      color: var(--foreground);
+      background: transparent;
+      width: 100%;
+    }
+    #software-citymap-design-space .viz-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    #software-citymap-design-space h2 { margin: 0; }
+    #software-citymap-design-space .map-wrap {
+      position: relative;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      background: color-mix(in srgb, var(--muted) 22%, transparent);
+    }
+    #software-citymap-design-space svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 360px;
+    }
+    #software-citymap-design-space .district {
+      stroke: var(--border);
+      stroke-width: 2;
+    }
+    #software-citymap-design-space .district-a { fill: color-mix(in srgb, var(--viz-series-1) 17%, transparent); }
+    #software-citymap-design-space .district-b { fill: color-mix(in srgb, var(--viz-series-2) 17%, transparent); }
+    #software-citymap-design-space .district-c { fill: color-mix(in srgb, var(--viz-series-3) 17%, transparent); }
+    #software-citymap-design-space .district-u { fill: color-mix(in srgb, var(--muted) 55%, transparent); stroke-dasharray: 7 5; }
+    #software-citymap-design-space .building-front { fill: color-mix(in srgb, var(--foreground) 48%, var(--background)); stroke: var(--foreground); stroke-width: 1.2; }
+    #software-citymap-design-space .building-side { fill: color-mix(in srgb, var(--foreground) 28%, var(--background)); stroke: var(--foreground); stroke-width: 1; }
+    #software-citymap-design-space .building-top { fill: color-mix(in srgb, var(--foreground) 68%, var(--background)); stroke: var(--foreground); stroke-width: 1; }
+    #software-citymap-design-space .muted-buildings { opacity: .28; }
+    #software-citymap-design-space .map-label,
+    #software-citymap-design-space .legend-label {
+      fill: var(--foreground);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    #software-citymap-design-space .map-note {
+      fill: var(--muted-foreground);
+      font-size: 12px;
+    }
+    #software-citymap-design-space .flow {
+      fill: none;
+      stroke-width: 5;
+      stroke-linecap: round;
+      marker-end: url(#arrow-head);
+    }
+    #software-citymap-design-space .flow-in { stroke: var(--viz-series-1); }
+    #software-citymap-design-space .flow-out { stroke: var(--viz-series-2); }
+    #software-citymap-design-space .flow-bad { stroke: var(--destructive); }
+    #software-citymap-design-space .breach { fill: var(--destructive); stroke: var(--background); stroke-width: 2; }
+    #software-citymap-design-space .allowed { fill: var(--green); stroke: var(--background); stroke-width: 2; }
+    #software-citymap-design-space .uncertain { fill: none; stroke: var(--yellow); stroke-width: 4; stroke-dasharray: 7 5; }
+    #software-citymap-design-space .proposal { fill: color-mix(in srgb, var(--green) 35%, transparent); stroke: var(--green); stroke-width: 3; }
+    #software-citymap-design-space .ghost { fill: none; stroke: var(--muted-foreground); stroke-width: 2; stroke-dasharray: 6 5; }
+    #software-citymap-design-space .move { fill: none; stroke: var(--purple); stroke-width: 3; stroke-dasharray: 8 5; marker-end: url(#move-head); }
+    #software-citymap-design-space .lens { display: none; }
+    #software-citymap-design-space .lens.active { display: inline; }
+    #software-citymap-design-space .viz-foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    #software-citymap-design-space .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    #software-citymap-design-space .key {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted-foreground);
+    }
+    #software-citymap-design-space .swatch { width: 18px; height: 8px; display: inline-block; }
+    #software-citymap-design-space .swatch-a { background: var(--viz-series-1); }
+    #software-citymap-design-space .swatch-b { background: var(--viz-series-2); }
+    #software-citymap-design-space .swatch-bad { background: var(--destructive); }
+    #software-citymap-design-space .swatch-proposal { background: var(--green); }
+    @media (max-width: 620px) {
+      #software-citymap-design-space svg { min-height: 300px; }
+    }
+  </style>
+
+  <div class="viz-head">
+    <h2>Une géographie stable, plusieurs lentilles</h2>
+    <div class="nav nav-pills" role="tablist" aria-label="Lentille analytique">
+      <button class="nav-link active" type="button" role="tab" aria-selected="true" data-lens="ownership">Ownership</button>
+      <button class="nav-link" type="button" role="tab" aria-selected="false" data-lens="flow">Flux</button>
+      <button class="nav-link" type="button" role="tab" aria-selected="false" data-lens="compliance">Conformité</button>
+      <button class="nav-link" type="button" role="tab" aria-selected="false" data-lens="proposal">Proposition</button>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <svg viewBox="0 0 920 460" role="img" aria-labelledby="city-title city-desc">
+      <title id="city-title">Cadastre logiciel à géographie stable</title>
+      <desc id="city-desc">Les mêmes districts et bâtiments sont conservés tandis que la lentille affiche successivement ownership, flux, conformité et proposition.</desc>
+      <defs>
+        <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"></path>
+        </marker>
+        <marker id="move-head" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L9,4.5 L0,9 Z" fill="context-stroke"></path>
+        </marker>
+      </defs>
+
+      <g id="base-city">
+        <path class="district district-a" d="M62 88 L387 64 L405 226 L81 249 Z"></path>
+        <path class="district district-b" d="M426 60 L830 86 L805 227 L410 224 Z"></path>
+        <path class="district district-c" d="M95 274 L500 249 L528 411 L72 419 Z"></path>
+        <path class="district district-u" d="M548 263 L835 250 L851 404 L553 411 Z"></path>
+        <text class="map-label" x="82" y="112">Boundary: query</text>
+        <text class="map-label" x="448" y="91">Boundary: daemon</text>
+        <text class="map-label" x="116" y="302">Boundary: workspace</text>
+        <text class="map-label" x="572" y="292">Non attribué</text>
+
+        <g class="buildings">
+          <g transform="translate(120 144)"><rect class="building-front" width="50" height="58"></rect><path class="building-top" d="M0 0 L12 -10 L62 -10 L50 0 Z"></path><path class="building-side" d="M50 0 L62 -10 L62 48 L50 58 Z"></path></g>
+          <g transform="translate(205 127)"><rect class="building-front" width="46" height="77"></rect><path class="building-top" d="M0 0 L12 -10 L58 -10 L46 0 Z"></path><path class="building-side" d="M46 0 L58 -10 L58 67 L46 77 Z"></path></g>
+          <g transform="translate(293 158)"><rect class="building-front" width="54" height="45"></rect><path class="building-top" d="M0 0 L12 -10 L66 -10 L54 0 Z"></path><path class="building-side" d="M54 0 L66 -10 L66 35 L54 45 Z"></path></g>
+          <g transform="translate(470 136)"><rect class="building-front" width="58" height="68"></rect><path class="building-top" d="M0 0 L12 -10 L70 -10 L58 0 Z"></path><path class="building-side" d="M58 0 L70 -10 L70 58 L58 68 Z"></path></g>
+          <g transform="translate(580 116)"><rect class="building-front" width="52" height="89"></rect><path class="building-top" d="M0 0 L12 -10 L64 -10 L52 0 Z"></path><path class="building-side" d="M52 0 L64 -10 L64 79 L52 89 Z"></path></g>
+          <g transform="translate(692 151)"><rect class="building-front" width="64" height="54"></rect><path class="building-top" d="M0 0 L12 -10 L76 -10 L64 0 Z"></path><path class="building-side" d="M64 0 L76 -10 L76 44 L64 54 Z"></path></g>
+          <g transform="translate(150 332)"><rect class="building-front" width="55" height="52"></rect><path class="building-top" d="M0 0 L12 -10 L67 -10 L55 0 Z"></path><path class="building-side" d="M55 0 L67 -10 L67 42 L55 52 Z"></path></g>
+          <g transform="translate(255 303)"><rect class="building-front" width="48" height="81"></rect><path class="building-top" d="M0 0 L12 -10 L60 -10 L48 0 Z"></path><path class="building-side" d="M48 0 L60 -10 L60 71 L48 81 Z"></path></g>
+          <g transform="translate(370 338)"><rect class="building-front" width="59" height="47"></rect><path class="building-top" d="M0 0 L12 -10 L71 -10 L59 0 Z"></path><path class="building-side" d="M59 0 L71 -10 L71 37 L59 47 Z"></path></g>
+          <g transform="translate(625 326)"><rect class="building-front" width="50" height="58"></rect><path class="building-top" d="M0 0 L12 -10 L62 -10 L50 0 Z"></path><path class="building-side" d="M50 0 L62 -10 L62 48 L50 58 Z"></path></g>
+        </g>
+      </g>
+
+      <g class="lens active" data-layer="ownership">
+        <text class="map-note" x="82" y="232">owns: query contracts · forbids: daemon runtime</text>
+        <text class="map-note" x="448" y="214">owns: lifecycle · 3 ports entrants</text>
+        <text class="map-note" x="116" y="402">owns: index + linkage</text>
+        <text class="map-note" x="572" y="392">12 symboles sans frontière déclarée</text>
+      </g>
+
+      <g class="lens" data-layer="flow">
+        <path class="flow flow-out" d="M350 172 C405 125 432 123 480 162"></path>
+        <path class="flow flow-in" d="M600 204 C568 264 472 277 425 342"></path>
+        <path class="flow flow-out" d="M300 320 C338 253 379 225 472 185"></path>
+        <path class="flow flow-bad" d="M206 349 C348 425 558 416 637 354"></path>
+        <text class="map-label" x="620" y="438">4 faisceaux affichés / 184 relations</text>
+      </g>
+
+      <g class="lens" data-layer="compliance">
+        <circle class="allowed" cx="406" cy="150" r="10"></circle>
+        <circle class="allowed" cx="501" cy="240" r="10"></circle>
+        <path class="breach" d="M393 211 l26 -3 l4 19 l-28 2 z"></path>
+        <path class="breach" d="M512 387 l26 -3 l4 20 l-29 1 z"></path>
+        <ellipse class="uncertain" cx="651" cy="350" rx="55" ry="51"></ellipse>
+        <text class="map-note" x="423" y="216">violation de frontière</text>
+        <text class="map-note" x="560" y="385">liaison non résolue</text>
+      </g>
+
+      <g class="lens" data-layer="proposal">
+        <rect class="ghost" x="580" y="116" width="52" height="89"></rect>
+        <rect class="proposal" x="335" y="126" width="52" height="78"></rect>
+        <path class="move" d="M608 118 C555 62 438 65 372 121"></path>
+        <text class="map-label" x="534" y="47">déplacer l'agrégat vers query</text>
+        <text class="map-note" x="535" y="438">projection : 3 traversées supprimées · 1 violation restante</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="viz-foot">
+    <div class="legend text-small" aria-live="polite">
+      <span class="key"><span class="swatch swatch-a"></span><span>entrant / frontière A</span></span>
+      <span class="key"><span class="swatch swatch-b"></span><span>sortant / frontière B</span></span>
+      <span class="key"><span class="swatch swatch-bad"></span><span>violation</span></span>
+      <span class="key"><span class="swatch swatch-proposal"></span><span>état proposé</span></span>
+    </div>
+    <span id="lens-detail" class="text-small text-muted">Position = ownership déclaré ; hauteur = métrique active.</span>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById("software-citymap-design-space");
+      const buttons = [...root.querySelectorAll("[data-lens]")];
+      const layers = [...root.querySelectorAll("[data-layer]")];
+      const detail = root.querySelector("#lens-detail");
+      const labels = {
+        ownership: "Position = ownership déclaré ; hauteur = métrique active.",
+        flow: "Relations incidentes, agrégées et comptées ; le reste est omis.",
+        compliance: "Brèches = violations ; halo = couverture ou résolution incertaine.",
+        proposal: "Même géographie ; déplacement fantôme et delta projeté sur le graphe actuel."
+      };
+      const activate = (name, save) => {
+        buttons.forEach((button) => {
+          const active = button.dataset.lens === name;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", String(active));
+        });
+        layers.forEach((layer) => layer.classList.toggle("active", layer.dataset.layer === name));
+        detail.textContent = labels[name] || labels.ownership;
+        if (save && window.openai?.setWidgetState) {
+          window.openai.setWidgetState({ modelContent: { lens: name }, privateContent: null }).catch(() => {});
+        }
+      };
+      buttons.forEach((button) => button.addEventListener("click", () => activate(button.dataset.lens, true)));
+      const initial = window.openai?.widgetState?.modelContent?.lens;
+      if (labels[initial]) activate(initial, false);
+      window.addEventListener("openai:set_globals", (event) => {
+        const next = event.detail?.globals?.widgetState?.modelContent?.lens;
+        if (labels[next]) activate(next, false);
+      });
+    })();
+  </script>
+</div>

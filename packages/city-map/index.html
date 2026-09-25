@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>City Map · Code Moniker</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="brand">
+          CODE MONIKER <span>/</span> <strong>City Map</strong>
+        </div>
+        <span id="scope">Chargement de l’index…</span>
+      </header>
+      <main>
+        <section class="workspace">
+          <div class="toolbar">
+            <div>
+              <span class="eyebrow">STRUCTURE OBSERVÉE</span>
+              <h1>Communautés du code</h1>
+            </div>
+            <button id="reset">Recentrer ↗</button>
+          </div>
+          <div id="viewport"></div>
+          <div class="legend">
+            <span class="dot"></span> Hauteur : références entrantes · Emprise :
+            voisins
+            <span>Glisser : tourner · Molette : zoom · Clic : relations</span>
+          </div>
+          <div id="error" role="alert" hidden></div>
+        </section>
+        <aside>
+          <label class="eyebrow" for="algorithm">REGROUPEMENT</label
+          ><select id="algorithm">
+            <option value="louvain">Louvain · multi-niveaux</option>
+            <option value="modularity-local-moves">
+              Modularité · déplacements locaux
+            </option>
+            <option value="weighted-label-propagation">
+              Propagation d’étiquettes
+            </option>
+            <option value="jaccard-single-linkage">Similarité Jaccard</option>
+            <option value="connected-components">Composantes connexes</option>
+          </select>
+          <div id="metrics"></div>
+          <p class="note">
+            Les liens placent les bâtiments. Les symboles très connectés sont
+            attirés vers le centre ; les échanges externes orientent les accès.
+            Les distances ne mesurent pas exactement le couplage.
+          </p>
+          <p id="roads" class="note"></p>
+          <div class="divider"></div>
+          <span class="eyebrow">INSPECTEUR</span>
+          <h2 id="selected">Sélectionner un bâtiment</h2>
+          <p id="detail">Chaque bâtiment représente un symbole de l’index.</p>
+          <div id="relations"></div>
+          <div class="divider"></div>
+          <span class="eyebrow">COUVERTURE</span>
+          <p id="coverage" class="note"></p>
+        </aside>
+      </main>
+      <footer>
+        <span>Index → relations → communautés</span
+        ><span
+          >Première comparaison · périmètre indiqué, aucune Project View</span
+        >
+      </footer>
+    </div>
+    <script type="module" src="/preview/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,2 @@
+# Generated City Map captures must not feed back into the source index.
+city-map-*.json
