@@ -161,6 +161,38 @@ impl SqlBuilder {
 		}
 	}
 
+	fn remove_subtree(&mut self, moniker: &Moniker) {
+		self.defs
+			.retain(|definition| !is_same_or_descendant(moniker, &definition.moniker));
+		self.refs
+			.retain(|reference| !is_same_or_descendant(moniker, &reference.source));
+		self.seen_defs
+			.retain(|definition| !is_same_or_descendant(moniker, definition));
+	}
+
+	fn remove_callable(
+		&mut self,
+		parent: &Moniker,
+		kind: &[u8],
+		name: &[u8],
+		parameter_types: &[Vec<u8>],
+	) {
+		let matches: Vec<_> = self
+			.defs
+			.iter()
+			.filter(|definition| {
+				definition.kind == kind
+					&& definition.parent == *parent
+					&& definition.call_name == name
+					&& callable_parameter_types(&definition.signature) == parameter_types
+			})
+			.map(|definition| definition.moniker.clone())
+			.collect();
+		for moniker in matches {
+			self.remove_subtree(&moniker);
+		}
+	}
+
 	fn add_comment(&mut self, scope: &Moniker, start: u32, end: u32) {
 		let symbol = SqlSymbol {
 			moniker: extend_segment_u32(scope, kinds::COMMENT, start),
@@ -189,6 +221,10 @@ impl SqlBuilder {
 			refs: self.refs,
 		}
 	}
+}
+
+fn is_same_or_descendant(parent: &Moniker, candidate: &Moniker) -> bool {
+	parent == candidate || parent.is_ancestor_of(candidate)
 }
 
 fn resolved_ref(
@@ -264,15 +300,31 @@ impl SqlWalker<'_> {
 			"comment" if self.emit_comments => SqlNodeShape::Annotation,
 			"comment" => SqlNodeShape::Skip,
 			"CreateSchemaStmt" => classify_schema(node, source, self.module),
-			"CreateFunctionStmt" => classify_create_function(node, source, self.module),
+			"CreateFunctionStmt" => {
+				let shape = classify_create_function(node, source, self.module);
+				if find_descendant(node, "kw_replace").is_some()
+					&& let SqlNodeShape::Symbol(symbol) = &shape
+				{
+					builder.remove_subtree(&symbol.moniker);
+				}
+				shape
+			}
+			"RemoveFuncStmt" => {
+				remove_functions(node, source, self.module, builder);
+				SqlNodeShape::Skip
+			}
 			"DefineStmt" if find_descendant(node, "kw_type").is_some() => {
 				classify_user_type(node, source, self.module)
 			}
 			"CreateDomainStmt" => classify_user_type(node, source, self.module),
+			"CommentStmt" if emit_column_comment(node, source, self.module, builder) => {
+				SqlNodeShape::Skip
+			}
 			"CreateTrigStmt" => classify_trigger(node, source, self.module),
 			"AlterTableStmt" => {
+				emit_alter_columns(node, source, self.module, builder);
 				indexes::emit_alter_constraints(node, source, self.module, builder);
-				SqlNodeShape::Recurse
+				SqlNodeShape::Skip
 			}
 			"IndexStmt" => {
 				indexes::emit_index(node, source, self.module, builder);
@@ -377,6 +429,46 @@ impl SqlWalker<'_> {
 			builder.add_comment(scope, comment.start_byte, comment.end_byte);
 		}
 	}
+}
+
+fn emit_column_comment(
+	node: Node<'_>,
+	source: &[u8],
+	module: &Moniker,
+	builder: &mut SqlBuilder,
+) -> bool {
+	if find_child(node, "kw_column").is_none() {
+		return false;
+	}
+	let Some(name_node) = find_child(node, "any_name") else {
+		return false;
+	};
+	let mut parts = Vec::new();
+	collect_qualified_parts(name_node, source, &mut parts);
+	if parts.len() < 2 {
+		return false;
+	}
+	let column = canonical_identifier(parts[parts.len() - 1]);
+	let table = canonical_identifier(parts[parts.len() - 2]);
+	let schema = parts
+		.get(parts.len().wrapping_sub(3))
+		.map(|part| canonical_identifier(part))
+		.unwrap_or_default();
+	if table.is_empty() || column.is_empty() {
+		return false;
+	}
+	let table_moniker = extend_segment(&maybe_schema(module, &schema), kinds::TABLE, &table);
+	let column_moniker = extend_segment(&table_moniker, kinds::COLUMN, &column);
+	let Some(comment) = find_child(node, "comment_text") else {
+		return false;
+	};
+	builder.add_definition(
+		extend_segment(&column_moniker, kinds::COMMENT, b"database"),
+		kinds::COMMENT,
+		node_slice(comment, source).to_vec(),
+		node_position(node),
+		module,
+	)
 }
 
 impl SqlDiscover {
@@ -499,7 +591,7 @@ fn classify_create_function<'src>(
 	}
 	let params = find_child(node, "func_args_with_defaults");
 	let slots = params
-		.map(|p| collect_param_slots(p, source))
+		.map(|p| collect_param_slots(p, source, &schema))
 		.unwrap_or_default();
 	let parent = maybe_schema(module, &schema);
 	let kind = routine_kind(node);
@@ -662,7 +754,7 @@ fn collect_callable_metadata(
 		}
 		let params = find_child(n, "func_args_with_defaults");
 		let slots = params
-			.map(|p| collect_param_slots(p, source))
+			.map(|p| collect_param_slots(p, source, &schema))
 			.unwrap_or_default();
 		let parent = maybe_schema(module, &schema);
 		let kind = routine_kind(n);
@@ -1264,7 +1356,7 @@ fn collect_qualified_parts<'src>(node: Node<'src>, src: &'src [u8], out: &mut Ve
 	}
 }
 
-fn collect_param_slots(params: Node, src: &[u8]) -> Vec<CallableSlot> {
+fn collect_param_slots(params: Node, src: &[u8], schema: &[u8]) -> Vec<CallableSlot> {
 	let mut out = Vec::new();
 	visit(params, &mut |n| {
 		if n.kind() != "func_arg" {
@@ -1274,7 +1366,7 @@ fn collect_param_slots(params: Node, src: &[u8]) -> Vec<CallableSlot> {
 			return;
 		}
 		let mut r#type = find_child(n, "func_type")
-			.map(|ft| normalize_type(node_slice(ft, src)))
+			.map(|ft| normalize_type_in_schema(node_slice(ft, src), schema))
 			.unwrap_or_default();
 		if find_descendant(n, "kw_variadic").is_some() {
 			r#type.extend_from_slice(b"...");
@@ -1312,7 +1404,90 @@ fn normalize_type(raw: &[u8]) -> Vec<u8> {
 		b"smallint" => b"int2".to_vec(),
 		b"real" => b"float4".to_vec(),
 		b"double precision" => b"float8".to_vec(),
+		b"bool" => b"boolean".to_vec(),
+		b"decimal" => b"numeric".to_vec(),
+		b"varchar" => b"character varying".to_vec(),
+		b"timestamp" => b"timestamp without time zone".to_vec(),
+		b"timestamptz" => b"timestamp with time zone".to_vec(),
+		b"time" => b"time without time zone".to_vec(),
+		b"timetz" => b"time with time zone".to_vec(),
 		_ => canonical,
+	}
+}
+
+fn normalize_type_in_schema(raw: &[u8], schema: &[u8]) -> Vec<u8> {
+	let canonical = normalize_type(raw);
+	let body = canonical.strip_prefix(b"setof ").unwrap_or(&canonical);
+	let end = body
+		.iter()
+		.position(|byte| matches!(byte, b'(' | b'['))
+		.unwrap_or(body.len());
+	let base = &body[..end];
+	if schema.is_empty() || base.contains(&b'.') || is_builtin_type(base) {
+		return canonical;
+	}
+	let mut qualified = Vec::with_capacity(canonical.len() + schema.len() + 1);
+	if canonical.starts_with(b"setof ") {
+		qualified.extend_from_slice(b"setof ");
+	}
+	qualified.extend_from_slice(schema);
+	qualified.push(b'.');
+	qualified.extend_from_slice(body);
+	qualified
+}
+
+fn callable_parameter_types(signature: &[u8]) -> Vec<Vec<u8>> {
+	if signature.is_empty() {
+		return Vec::new();
+	}
+	split_top_level(signature, b',')
+		.into_iter()
+		.map(|slot| {
+			let r#type = top_level_byte(slot, b':')
+				.map(|colon| &slot[colon + 1..])
+				.unwrap_or(slot);
+			r#type.to_vec()
+		})
+		.collect()
+}
+
+fn remove_functions(node: Node<'_>, source: &[u8], module: &Moniker, builder: &mut SqlBuilder) {
+	let kind = if find_descendant(node, "kw_procedure").is_some() {
+		kinds::PROCEDURE
+	} else {
+		kinds::FUNCTION
+	};
+	let mut callables = Vec::new();
+	collect_nodes(node, "function_with_argtypes", &mut callables);
+	for callable in callables {
+		let Some(func_name) = find_child(callable, "func_name") else {
+			continue;
+		};
+		let (schema, name) = split_qualified_name(func_name, source);
+		let schema = canonical_identifier(schema);
+		let name = canonical_identifier(name);
+		if name.is_empty() {
+			continue;
+		}
+		let mut args = Vec::new();
+		if let Some(params) = find_child(callable, "func_args") {
+			collect_nodes(params, "func_arg", &mut args);
+		}
+		let parameter_types = args
+			.into_iter()
+			.map(|argument| {
+				find_child(argument, "func_type")
+					.map(|r#type| node_slice(r#type, source))
+					.unwrap_or_else(|| node_slice(argument, source))
+			})
+			.map(|r#type| normalize_type_in_schema(r#type, &schema))
+			.collect::<Vec<_>>();
+		builder.remove_callable(
+			&maybe_schema(module, &schema),
+			kind,
+			&name,
+			&parameter_types,
+		);
 	}
 }
 
@@ -1323,20 +1498,26 @@ fn emit_function_type_refs(
 	module: &Moniker,
 	builder: &mut SqlBuilder,
 ) {
+	let schema = source_moniker
+		.as_view()
+		.segments()
+		.find(|segment| segment.kind == kinds::SCHEMA)
+		.map(|segment| segment.name)
+		.unwrap_or_default();
 	if let Some(params) = find_child(node, "func_args_with_defaults") {
 		visit(params, &mut |n| {
 			if n.kind() != "func_arg" {
 				return;
 			}
 			if let Some(ft) = find_child(n, "func_type") {
-				emit_uses_type(ft, source, source_moniker, module, builder);
+				emit_uses_type(ft, source, source_moniker, module, schema, builder);
 			}
 		});
 	}
 	if let Some(ft) = find_descendant(node, "func_return")
 		&& let Some(t) = find_descendant(ft, "func_type")
 	{
-		emit_uses_type(t, source, source_moniker, module, builder);
+		emit_uses_type(t, source, source_moniker, module, schema, builder);
 	}
 }
 
@@ -1352,40 +1533,141 @@ fn emit_table_members(
 	collect_nodes(node, "columnDef", &mut columns);
 	collect_nodes(node, "TableConstraint", &mut table_constraints);
 	for column in columns {
-		let Some(name_node) = find_child(column, "ColId") else {
-			continue;
-		};
-		let name = canonical_identifier(node_slice(name_node, source));
-		if name.is_empty() {
-			continue;
-		}
-		let column_moniker = extend_segment(table_moniker, kinds::COLUMN, &name);
-		let type_node = find_child(column, "Typename");
-		let signature = type_node
-			.map(|r#type| normalize_type(node_slice(r#type, source)))
-			.unwrap_or_default();
-		if !builder.add_definition(
-			column_moniker.clone(),
-			kinds::COLUMN,
-			signature,
-			node_position(column),
-			table_moniker,
-		) {
-			continue;
-		}
-		if let Some(r#type) = type_node {
-			emit_uses_type(r#type, source, &column_moniker, module, builder);
-		}
-		let mut column_constraints = Vec::new();
-		collect_nodes(column, "ColConstraint", &mut column_constraints);
-		for constraint in column_constraints {
-			if find_descendant(constraint, "ColConstraintElem").is_some() {
-				emit_constraint(constraint, source, table_moniker, module, builder);
-			}
-		}
+		emit_column_definition(column, source, table_moniker, module, builder);
 	}
 	for constraint in table_constraints {
 		emit_constraint(constraint, source, table_moniker, module, builder);
+	}
+}
+
+fn emit_alter_columns(node: Node<'_>, source: &[u8], module: &Moniker, builder: &mut SqlBuilder) {
+	let Some(relation) = find_child(node, "relation_expr")
+		.and_then(|relation| find_descendant(relation, "qualified_name"))
+	else {
+		return;
+	};
+	let Some(table) = relation_target(
+		relation,
+		source,
+		module,
+		module,
+		&CallableSearchPaths::new(),
+	) else {
+		return;
+	};
+	let mut columns = Vec::new();
+	collect_nodes(node, "columnDef", &mut columns);
+	for column in columns {
+		emit_column_definition(column, source, &table, module, builder);
+	}
+}
+
+fn emit_column_definition(
+	column: Node<'_>,
+	source: &[u8],
+	table_moniker: &Moniker,
+	module: &Moniker,
+	builder: &mut SqlBuilder,
+) {
+	let Some(name_node) = find_child(column, "ColId") else {
+		return;
+	};
+	let name = canonical_identifier(node_slice(name_node, source));
+	if name.is_empty() {
+		return;
+	}
+	let column_moniker = extend_segment(table_moniker, kinds::COLUMN, &name);
+	let type_node = find_child(column, "Typename");
+	let schema = table_moniker
+		.as_view()
+		.segments()
+		.find(|segment| segment.kind == kinds::SCHEMA)
+		.map(|segment| segment.name)
+		.unwrap_or_default();
+	let signature = type_node
+		.map(|r#type| normalize_type_in_schema(node_slice(r#type, source), schema))
+		.unwrap_or_default();
+	if !builder.add_definition(
+		column_moniker.clone(),
+		kinds::COLUMN,
+		signature,
+		node_position(column),
+		table_moniker,
+	) {
+		return;
+	}
+	if let Some(r#type) = type_node {
+		emit_uses_type(r#type, source, &column_moniker, module, schema, builder);
+	}
+	let mut column_constraints = Vec::new();
+	collect_nodes(column, "ColConstraint", &mut column_constraints);
+	for constraint in column_constraints {
+		if find_descendant(constraint, "ColConstraintElem").is_none() {
+			continue;
+		}
+		if column_attribute_kind(constraint).is_some() {
+			emit_column_attribute_constraint(
+				constraint,
+				source,
+				table_moniker,
+				module,
+				builder,
+				&name,
+			);
+		} else {
+			emit_constraint(constraint, source, table_moniker, module, builder);
+		}
+	}
+}
+
+fn emit_column_attribute_constraint(
+	node: Node<'_>,
+	source: &[u8],
+	table_moniker: &Moniker,
+	module: &Moniker,
+	builder: &mut SqlBuilder,
+	column_name: &[u8],
+) {
+	let Some(attribute) = column_attribute_kind(node) else {
+		return;
+	};
+	let identity = [column_name, b".", attribute].concat();
+	let moniker = extend_segment(table_moniker, kinds::CONSTRAINT, &identity);
+	if !builder.add_definition(
+		moniker.clone(),
+		kinds::CONSTRAINT,
+		constraint_signature(node, source),
+		node_position(node),
+		if builder.contains(table_moniker) {
+			table_moniker
+		} else {
+			module
+		},
+	) {
+		return;
+	}
+	builder.push_ref(resolved_ref(
+		&moniker,
+		table_moniker.clone(),
+		crate::core::kinds::REF_MEMBER_OF,
+		Some(node_position(node)),
+		kinds::CONF_NAME_MATCH,
+		&[],
+		None,
+	));
+}
+
+fn column_attribute_kind(node: Node<'_>) -> Option<&'static [u8]> {
+	if find_descendant(node, "kw_not").is_some() {
+		Some(b"not_null")
+	} else if find_descendant(node, "kw_default").is_some() {
+		Some(b"default")
+	} else if find_descendant(node, "kw_generated").is_some() {
+		Some(b"generated")
+	} else if find_descendant(node, "kw_null").is_some() {
+		Some(b"null")
+	} else {
+		None
 	}
 }
 
@@ -1578,7 +1860,7 @@ fn emit_constraint(
 	if !builder.add_definition(
 		moniker.clone(),
 		kinds::CONSTRAINT,
-		constraint_signature(node),
+		constraint_signature(node, source),
 		node_position(node),
 		if builder.contains(table_moniker) {
 			table_moniker
@@ -1601,12 +1883,21 @@ fn emit_constraint(
 	emit_foreign_key_refs(node, source, &moniker, module, builder);
 }
 
-fn constraint_signature(node: Node<'_>) -> Vec<u8> {
+fn constraint_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
+	if find_descendant(node, "kw_check").is_some()
+		|| find_descendant(node, "kw_default").is_some()
+		|| find_descendant(node, "kw_generated").is_some()
+	{
+		return node_slice(node, source)
+			.split(|byte| byte.is_ascii_whitespace())
+			.filter(|part| !part.is_empty())
+			.collect::<Vec<_>>()
+			.join(&b' ');
+	}
 	for (keyword, signature) in [
 		("kw_foreign", b"foreign key".as_slice()),
 		("kw_primary", b"primary key"),
 		("kw_unique", b"unique"),
-		("kw_check", b"check"),
 		("kw_references", b"foreign key"),
 		("kw_not", b"not null"),
 		("kw_null", b"null"),
@@ -1762,10 +2053,11 @@ fn emit_uses_type(
 	source: &[u8],
 	source_moniker: &Moniker,
 	module: &Moniker,
+	schema: &[u8],
 	builder: &mut SqlBuilder,
 ) {
 	let raw = node_slice(type_node, source);
-	let canonical = normalize_type(raw);
+	let canonical = normalize_type_in_schema(raw, schema);
 	if canonical.is_empty() {
 		return;
 	}

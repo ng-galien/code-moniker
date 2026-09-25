@@ -11,6 +11,38 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-25
+
+### Added
+
+- PostgreSQL `COMMENT ON COLUMN` statements now attach a stable database
+  annotation to the target column, so schema consumers can carry explicit
+  rename metadata through catalog projections.
+- Semantic `diff-impact` results expose symbol signatures and the old/new
+  source identities of changed references, including compact forms.
+- PostgreSQL extraction handles `ALTER TABLE ... ADD COLUMN`, exact-overload
+  `DROP FUNCTION`/`DROP PROCEDURE`, and replacement of an existing callable
+  in the same source file.
+
+### Changed
+
+- PostgreSQL `CHECK` constraint signatures now retain their normalized
+  expression instead of collapsing every check to the same signature.
+- Column nullability, defaults and generated expressions have stable
+  column-scoped constraint identities; expression changes affect signatures.
+- PostgreSQL type aliases are normalized for comparison with catalog types;
+  unqualified custom types are qualified with the declaring schema.
+- Daemon protocol advances to 24 for the extended `diff-impact` response.
+  CLI and Node clients must use a matching daemon protocol. Separately
+  distributed extension integrations must update their client before
+  connecting to a protocol-24 daemon.
+
+### Release scope
+
+- This release covers the seven Rust crates, CLI/MCP binaries, Node client
+  and four native npm runtimes. City Map remains private and unpublished;
+  the VS Code extension is released separately.
+
 ## [0.12.0] - 2026-09-12
 
 ### Added

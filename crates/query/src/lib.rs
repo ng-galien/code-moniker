@@ -48,7 +48,7 @@ pub mod rpc {
 #[cfg(feature = "rpc")]
 pub use rpc::*;
 
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 pub const SYNTAX_TREE_DEFAULT_MAX_DEPTH: usize = 6;
 pub const SYNTAX_TREE_DEFAULT_MAX_NODES: usize = 100;
 pub const SYNTAX_TREE_DEFAULT_MAX_TEXT_CHARS: usize = 80;
@@ -2407,6 +2407,7 @@ pub struct DiffImpactSide {
 	pub file: String,
 	pub kind: String,
 	pub name: String,
+	pub signature: String,
 	pub visibility: String,
 	pub lines: Option<(u32, u32)>,
 	pub test_artifact: bool,
@@ -2418,6 +2419,10 @@ pub struct DiffImpactRef {
 	pub kind: String,
 	pub file: String,
 	pub ref_kind: String,
+	pub old_source: Option<String>,
+	pub new_source: Option<String>,
+	pub old_source_compact: Option<String>,
+	pub new_source_compact: Option<String>,
 	pub old_target: Option<String>,
 	pub new_target: Option<String>,
 	pub old_target_compact: Option<String>,
@@ -6694,7 +6699,7 @@ mod contract_tests {
 				.iter()
 				.any(|query| query == "diff-impact.compare")
 		);
-		assert_eq!(PROTOCOL_VERSION, 23);
+		assert_eq!(PROTOCOL_VERSION, 24);
 	}
 
 	#[test]

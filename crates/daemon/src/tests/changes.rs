@@ -26,8 +26,8 @@ fn virtual_diff_impact_is_transactional_and_does_not_mutate_workspace_state() {
 		Query::DiffImpactCompare(code_moniker_query::DiffImpactCompareQuery {
 			scope: "base..head".to_string(),
 			project: Some("sample".to_string()),
-			base: source_set("base", "pub fn changed() { old(); }\n"),
-			head: source_set("head", "pub fn changed() { new(); }\n"),
+			base: source_set("base", "pub fn changed(value: i32) { old(); }\n"),
+			head: source_set("head", "pub fn changed(value: i32) { new(); }\n"),
 			files: vec![code_moniker_query::DiffImpactCompareFile {
 				status: DiffImpactFileStatus::Modified,
 				old_uri: Some("src/lib.rs".to_string()),
@@ -48,6 +48,33 @@ fn virtual_diff_impact_is_transactional_and_does_not_mutate_workspace_state() {
 	assert_eq!(impact.scope, "base..head");
 	assert_eq!(impact.summary.files, 1);
 	assert_eq!(impact.summary.symbol_changes, 1);
+	let symbol = impact.symbol_changes.first().expect("changed function");
+	let old = symbol.old.as_ref().expect("old function");
+	let new = symbol.new.as_ref().expect("new function");
+	// Ordinary Rust functions currently have an empty extractor signature;
+	// the public DTO must preserve it rather than inventing one from the header.
+	assert_eq!(old.signature, "");
+	assert_eq!(old.signature, new.signature);
+	assert!(
+		!impact.ref_changes.is_empty(),
+		"changed calls must retain their source"
+	);
+	for reference in &impact.ref_changes {
+		if reference.old_target.is_some() {
+			assert_eq!(reference.old_source.as_deref(), Some(old.identity.as_str()));
+			assert_eq!(
+				reference.old_source_compact.as_deref(),
+				Some(old.compact_identity.as_str())
+			);
+		}
+		if reference.new_target.is_some() {
+			assert_eq!(reference.new_source.as_deref(), Some(new.identity.as_str()));
+			assert_eq!(
+				reference.new_source_compact.as_deref(),
+				Some(new.compact_identity.as_str())
+			);
+		}
+	}
 
 	let after = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
 		Query::WorkspaceStatus,

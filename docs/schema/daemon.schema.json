@@ -1335,6 +1335,18 @@
           "maxItems": 2,
           "minItems": 2
         },
+        "new_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new_source_compact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "new_target": {
           "type": [
             "string",
@@ -1366,6 +1378,18 @@
           ],
           "maxItems": 2,
           "minItems": 2
+        },
+        "old_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_source_compact": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "old_target": {
           "type": [
@@ -1435,6 +1459,7 @@
         "identity",
         "kind",
         "name",
+        "signature",
         "test_artifact",
         "visibility"
       ],
@@ -1472,6 +1497,9 @@
           "minItems": 2
         },
         "name": {
+          "type": "string"
+        },
+        "signature": {
           "type": "string"
         },
         "test_artifact": {
@@ -7200,5 +7228,5 @@
       }
     }
   },
-  "x-code-moniker-protocol-version": 23
+  "x-code-moniker-protocol-version": 24
 }

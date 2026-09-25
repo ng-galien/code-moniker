@@ -57,6 +57,7 @@ struct RefFact {
 	mapped_key: Option<RefKey>,
 	ref_kind: String,
 	import: bool,
+	source: Moniker,
 	target: Moniker,
 	line_range: Option<(u32, u32)>,
 }
@@ -98,6 +99,8 @@ pub fn pair_refs(
 			kind: RefChangeKind::Removed,
 			file_path: base.file_path.to_path_buf(),
 			ref_kind: fact.ref_kind,
+			old_source: Some(fact.source),
+			new_source: None,
 			old_target: Some(fact.target),
 			new_target: None,
 			old_line_range: fact.line_range,
@@ -107,6 +110,8 @@ pub fn pair_refs(
 			kind: RefChangeKind::Added,
 			file_path: current.file_path.to_path_buf(),
 			ref_kind: fact.ref_kind,
+			old_source: None,
+			new_source: Some(fact.source),
 			old_target: None,
 			new_target: Some(fact.target),
 			old_line_range: None,
@@ -149,6 +154,7 @@ fn ref_fact(
 		mapped_key,
 		ref_kind: ref_kind(record),
 		import: record.binding.as_ref() == BIND_IMPORT,
+		source,
 		target: record.target.clone(),
 		line_range: record
 			.position
@@ -218,6 +224,8 @@ fn pair_retargets(
 			kind,
 			file_path: current.file_path.to_path_buf(),
 			ref_kind: new.ref_kind,
+			old_source: Some(old.source),
+			new_source: Some(new.source),
 			old_target: Some(old.target),
 			new_target: Some(new.target),
 			old_line_range: old.line_range,

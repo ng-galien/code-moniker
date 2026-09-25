@@ -86,7 +86,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:135",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:customer_id.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
       "position": [
@@ -112,7 +112,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:166",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:status.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
       "position": [
@@ -132,13 +132,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
         180,
         226
       ],
-      "signature": "timestamptz",
+      "signature": "timestamp with time zone",
       "visibility": ""
     },
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:204",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:created_at.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
       "position": [
@@ -151,14 +151,14 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:213",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:created_at.default",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
       "position": [
         213,
         226
       ],
-      "signature": "default",
+      "signature": "DEFAULT now()",
       "visibility": ""
     },
     {
@@ -203,7 +203,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:306",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:order_id.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
       "position": [
@@ -255,7 +255,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:361",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:kind.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
       "position": [
@@ -275,13 +275,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
         375,
         418
       ],
-      "signature": "timestamptz",
+      "signature": "timestamp with time zone",
       "visibility": ""
     },
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:396",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:at.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
       "position": [
@@ -294,14 +294,14 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:405",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:at.default",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
       "position": [
         405,
         418
       ],
-      "signature": "default",
+      "signature": "DEFAULT now()",
       "visibility": ""
     },
     {
@@ -320,14 +320,14 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
     {
       "binding": "local",
       "kind": "function",
-      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:orders/schema:shop",
       "position": [
         454,
         881
       ],
-      "signature": "p_before:timestamptz",
+      "signature": "p_before:timestamp with time zone",
       "visibility": ""
     },
     {
@@ -401,7 +401,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:135",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:customer_id.not_null",
       "kind": "member_of",
       "position": [
         135,
@@ -427,7 +427,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:166",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:status.not_null",
       "kind": "member_of",
       "position": [
         166,
@@ -447,13 +447,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
         203
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:`timestamp with time zone`"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:204",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:created_at.not_null",
       "kind": "member_of",
       "position": [
         204,
@@ -466,7 +466,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:213",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders/constraint:created_at.default",
       "kind": "member_of",
       "position": [
         213,
@@ -492,7 +492,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:306",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:order_id.not_null",
       "kind": "member_of",
       "position": [
         306,
@@ -557,7 +557,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:361",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:kind.not_null",
       "kind": "member_of",
       "position": [
         361,
@@ -577,13 +577,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
         395
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:`timestamp with time zone`"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:396",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:at.not_null",
       "kind": "member_of",
       "position": [
         396,
@@ -596,7 +596,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:405",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events/constraint:at.default",
       "kind": "member_of",
       "position": [
         405,
@@ -609,20 +609,20 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`",
       "kind": "uses_type",
       "position": [
         504,
         515
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:`timestamp with time zone`"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`",
       "kind": "uses_type",
       "position": [
         525,
@@ -635,7 +635,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`",
       "kind": "writes",
       "position": [
         133,
@@ -648,7 +648,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/orders.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`",
       "kind": "reads",
       "position": [
         47,

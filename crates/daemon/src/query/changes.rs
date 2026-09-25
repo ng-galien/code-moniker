@@ -318,6 +318,7 @@ fn diff_impact_side(
 		file,
 		kind: side.kind.clone(),
 		name: side.name.clone(),
+		signature: side.signature.clone(),
 		visibility: side.visibility.clone(),
 		lines: side.line_range,
 	}
@@ -336,6 +337,8 @@ fn diff_impact_ref(
 	};
 	let old_target = render(&change.old_target);
 	let new_target = render(&change.new_target);
+	let old_source = render(&change.old_source);
+	let new_source = render(&change.new_source);
 	let compact = |target: &Option<String>| {
 		target.as_ref().map(|target| {
 			code_moniker_workspace::code::compact_identity(target, DEFAULT_SCHEME)
@@ -346,6 +349,10 @@ fn diff_impact_ref(
 		kind: change.kind.label().to_string(),
 		file: change.file_path.display().to_string(),
 		ref_kind: change.ref_kind.clone(),
+		old_source_compact: compact(&old_source),
+		new_source_compact: compact(&new_source),
+		old_source,
+		new_source,
 		old_target_compact: compact(&old_target),
 		new_target_compact: compact(&new_target),
 		old_target,

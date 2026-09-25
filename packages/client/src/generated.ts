@@ -2829,6 +2829,8 @@ export interface DiffImpactRef {
    * @maxItems 2
    */
   new_lines?: [number, number] | null;
+  new_source?: string | null;
+  new_source_compact?: string | null;
   new_target?: string | null;
   new_target_compact?: string | null;
   /**
@@ -2836,6 +2838,8 @@ export interface DiffImpactRef {
    * @maxItems 2
    */
   old_lines?: [number, number] | null;
+  old_source?: string | null;
+  old_source_compact?: string | null;
   old_target?: string | null;
   old_target_compact?: string | null;
   ref_kind: string;
@@ -2870,6 +2874,7 @@ export interface DiffImpactSide {
    */
   lines?: [number, number] | null;
   name: string;
+  signature: string;
   test_artifact: boolean;
   visibility: string;
 }

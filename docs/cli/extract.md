@@ -48,6 +48,12 @@ is nested under its target table or view, references that relation (and the
 function. CTEs and aliases are not emitted as physical tables; dynamic SQL
 does not manufacture a certain relation.
 
+`COMMENT ON COLUMN schema.table.column IS '…'` adds a non-navigable
+`comment:database` child under that column. Its signature is the SQL string
+literal, which lets catalog projections preserve annotations such as explicit
+rename metadata. Named `CHECK` constraints retain their normalized expression
+in the signature, so different predicates produce a structural change.
+
 ## Filters
 
 | Flag                  | Op   | Semantics                                              |

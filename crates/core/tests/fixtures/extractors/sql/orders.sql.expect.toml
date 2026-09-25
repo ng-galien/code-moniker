@@ -15,8 +15,8 @@ binding = "local"
 [[defs]]
 label = "cancel_stale_orders"
 kind = "function"
-moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)"
-signature = "p_before:timestamptz"
+moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`"
+signature = "p_before:timestamp with time zone"
 
 [[defs]]
 label = "open_orders"
@@ -31,8 +31,8 @@ confidence = "external"
 
 [[refs]]
 kind = "uses_type"
-from = "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)"
-to = "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+from = "code+moniker://app/lang:sql/module:orders/schema:shop/function:`cancel_stale_orders(p_before:timestamp with time zone)`"
+to = "code+moniker://app/sdk:sql/path:pg_catalog/path:`timestamp with time zone`"
 confidence = "external"
 
 [[refs]]

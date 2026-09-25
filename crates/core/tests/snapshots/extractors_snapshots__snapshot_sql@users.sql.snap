@@ -99,7 +99,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:607",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:email.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "position": [
@@ -138,7 +138,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:645",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:name.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "position": [
@@ -158,13 +158,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         659,
         705
       ],
-      "signature": "timestamptz",
+      "signature": "timestamp with time zone",
       "visibility": ""
     },
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:683",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:created_at.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "position": [
@@ -177,14 +177,14 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:692",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:created_at.default",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "position": [
         692,
         705
       ],
-      "signature": "default",
+      "signature": "DEFAULT now()",
       "visibility": ""
     },
     {
@@ -281,7 +281,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:966",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:user_id.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
       "position": [
@@ -333,7 +333,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:1037",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:tag.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
       "position": [
@@ -544,7 +544,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:607",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:email.not_null",
       "kind": "member_of",
       "position": [
         607,
@@ -583,7 +583,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:645",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:name.not_null",
       "kind": "member_of",
       "position": [
         645,
@@ -603,13 +603,13 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
         682
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:timestamptz"
+      "to": "code+moniker://app/sdk:sql/path:pg_catalog/path:`timestamp with time zone`"
     },
     {
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:683",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:created_at.not_null",
       "kind": "member_of",
       "position": [
         683,
@@ -622,7 +622,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:692",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users/constraint:created_at.default",
       "kind": "member_of",
       "position": [
         692,
@@ -674,7 +674,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:966",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:user_id.not_null",
       "kind": "member_of",
       "position": [
         966,
@@ -739,7 +739,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/users.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:1037",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags/constraint:tag.not_null",
       "kind": "member_of",
       "position": [
         1037,

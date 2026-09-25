@@ -367,7 +367,7 @@ mod tests {
 		);
 		assert!(
 			ref_targets(&g).iter().any(|target| target
-				== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(uuid,int8,bool,text,_)") ,
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:choose(uuid,int8,boolean,text,_)") ,
 			"typed target missing from {:?}",
 			ref_targets(&g)
 		);

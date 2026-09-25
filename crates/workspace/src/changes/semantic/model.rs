@@ -110,6 +110,8 @@ pub struct RefChange {
 	pub kind: RefChangeKind,
 	pub file_path: PathBuf,
 	pub ref_kind: String,
+	pub old_source: Option<Moniker>,
+	pub new_source: Option<Moniker>,
 	pub old_target: Option<Moniker>,
 	pub new_target: Option<Moniker>,
 	pub old_line_range: Option<(u32, u32)>,

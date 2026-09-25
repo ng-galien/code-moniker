@@ -73,7 +73,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
     {
       "binding": "local",
       "kind": "constraint",
-      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:144",
+      "moniker": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:customer_id.not_null",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders",
       "position": [
@@ -219,7 +219,7 @@ input_file: crates/core/tests/fixtures/extractors/sql/relational.sql
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
-      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:144",
+      "from": "code+moniker://app/lang:sql/module:relational/schema:sales/table:Orders/constraint:customer_id.not_null",
       "kind": "member_of",
       "position": [
         144,
