@@ -101,6 +101,9 @@ positional and named values is an error.
 - Quote values containing whitespace. Quoting paths and monikers consistently
   also avoids shell interpretation.
 - Numbers and booleans are bare: `limit:10`, `include_code:true`.
+- To pass multiline `source` to `syntax.parse`, encode the source as one JSON
+  string on the command line. For example,
+  `syntax.parse language:rs source:"fn main() {\n\tlet x = 1;\n}"`.
 - Repeatable fields accept repeated values, comma-separated values, or a
   bracketed list. Values inside one field are alternatives; different filter
   fields combine to narrow the query.

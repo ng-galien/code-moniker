@@ -227,7 +227,7 @@ pub(crate) fn build_incremental_paths_snapshot(
 	let linkage = linkage.refresh_linkage(
 		&current.linkage,
 		&index,
-		linkage_impact(changed_sources.clone(), paths.to_vec(), &graph_diff),
+		linkage_impact(changed_sources, paths.to_vec(), &graph_diff),
 	)?;
 	let linkage_elapsed = linkage_timer.elapsed();
 	let catalog = extended_catalog.unwrap_or_else(|| current.catalog.clone());
@@ -235,7 +235,7 @@ pub(crate) fn build_incremental_paths_snapshot(
 		generation,
 		catalog.generation,
 		index.generation,
-		graph_diff.changed_symbols.clone(),
+		graph_diff.changed_symbols,
 	);
 	let timings = timings(
 		current.timings.source_catalog + catalog_elapsed,

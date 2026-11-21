@@ -131,7 +131,14 @@ one ref, or one direct child collection. Workspace roots inspect the complete
 symbol inventory, linked references, or bounded paths across the current
 index generation. By default, the rule config is the embedded defaults merged
 with your TOML overlay; `--default-rules off` makes the TOML file the complete
-config.
+config. Without `--rules`, `check` looks for the nearest `.code-moniker.toml`
+starting at the target directory (or the target file's parent), stopping at
+the first Git root. The config's own root governs taxonomy and fragments.
+The target still governs the scan and its moniker anchors.
+
+A relative `--rules` path is resolved from the working directory. It replaces
+automatic rule-file selection. If the exact file is missing, `check` warns on
+stderr and continues with the other rule sources.
 
 A `where` expression is an assertion. When it evaluates to `false`,
 `check` emits a violation. Most architecture rules should therefore use

@@ -28,7 +28,7 @@ default_rules = false
 [aliases]
 component_src = "moniker ~ '**/dir:components/**'"
 hook_src = "moniker ~ '**/dir:hooks/**'"
-src_entry = "source ~ '**/dir:src/module:/^(main|index|client|entry)$' OR source ~ '**/dir:src/module:/^(main|index|client|entry)$/**'"
+src_entry = "source ~ '**/dir:src/module:/^(main|index|client|entry)$/**'"
 
 src_pages = "source ~ '**/dir:pages/**'"
 tgt_adapters = "target ~ '**/dir:adapters/**'"

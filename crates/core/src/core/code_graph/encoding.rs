@@ -1,7 +1,7 @@
 //! Binary layout for the `code_graph` SQL type.
 //!
 //! ```text
-//! [u16 version_le=2][u16 reserved=0]
+//! [u16 version_le=4][u16 reserved=0]
 //! [u32 def_count]   [u32 ref_count]
 //! defs section, each def contiguously:
 //!   [u32 moniker_len] [moniker_bytes]
@@ -25,16 +25,21 @@
 //!   [u8  call_name_len][call_name_bytes]
 //!   [u16 call_arity_or_MAX]
 //!   [u8  bind_len]    [bind_bytes]
+//! sparse function linkage section, ordered by def index:
+//! [u32 linkage_count] for each linkage fact:
+//!   [u32 def_index]
+//!   [u8 role: 1=declaration, 2=definition]
+//!   [u16 linkage_signature_len][linkage_signature_bytes]
 //! ```
 //!
 //! Sentinel `u32::MAX` encodes `Option::None` for parent / source / position.
 
 use std::fmt;
 
-use crate::core::code_graph::{Bytes, CodeGraph, DefRecord, Position, RefRecord};
+use crate::core::code_graph::{Bytes, CodeGraph, DefRecord, FunctionLinkage, Position, RefRecord};
 use crate::core::moniker::{self, Moniker};
 
-pub const LAYOUT_VERSION: u16 = 3;
+pub const LAYOUT_VERSION: u16 = 4;
 const VERSION_BYTES: usize = 2;
 const RESERVED_BYTES: usize = 2;
 const DEF_COUNT_BYTES: usize = 4;
@@ -49,6 +54,7 @@ pub enum EncodingError {
 	IndexOverflow,
 	LengthOverflow(&'static str),
 	InvalidIndex(&'static str),
+	InvalidValue(&'static str),
 	InvalidMoniker(moniker::EncodingError),
 }
 
@@ -62,6 +68,7 @@ impl fmt::Display for EncodingError {
 			Self::InvalidIndex(what) => {
 				write!(f, "code_graph: {what} points past the defs section")
 			}
+			Self::InvalidValue(what) => write!(f, "code_graph: invalid {what}"),
 			Self::InvalidMoniker(error) => write!(f, "code_graph: invalid moniker: {error}"),
 		}
 	}
@@ -117,6 +124,19 @@ pub fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 		write_short_bytes(&mut out, &r.binding, "ref binding")?;
 	}
 
+	let linkage_count =
+		u32::try_from(graph.function_linkage.len()).map_err(|_| EncodingError::IndexOverflow)?;
+	out.extend_from_slice(&linkage_count.to_le_bytes());
+	for (def_idx, linkage) in &graph.function_linkage {
+		let def_idx = u32::try_from(*def_idx).map_err(|_| EncodingError::IndexOverflow)?;
+		out.extend_from_slice(&def_idx.to_le_bytes());
+		out.push(if linkage.declaration_only { 1 } else { 2 });
+		write_medium_bytes(
+			&mut out,
+			linkage.signature.as_deref().unwrap_or_default(),
+			"function linkage signature",
+		)?;
+	}
 	Ok(out)
 }
 
@@ -125,7 +145,7 @@ pub fn decode_root(buf: &[u8]) -> Result<Moniker, EncodingError> {
 		return Err(EncodingError::Truncated("header"));
 	}
 	let version = u16::from_le_bytes([buf[0], buf[1]]);
-	if version != LAYOUT_VERSION {
+	if !matches!(version, 3 | LAYOUT_VERSION) {
 		return Err(EncodingError::UnknownVersion(version));
 	}
 	let def_count = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
@@ -144,7 +164,7 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		return Err(EncodingError::Truncated("header"));
 	}
 	let version = u16::from_le_bytes([buf[0], buf[1]]);
-	if version != LAYOUT_VERSION {
+	if !matches!(version, 3 | LAYOUT_VERSION) {
 		return Err(EncodingError::UnknownVersion(version));
 	}
 	let def_count = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
@@ -218,7 +238,38 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		});
 	}
 
-	Ok(CodeGraph::from_records(def_records, ref_records))
+	let mut graph = CodeGraph::from_records(def_records, ref_records);
+	if version == LAYOUT_VERSION {
+		let count = cur.read_u32("function linkage count")? as usize;
+		if count > def_count {
+			return Err(EncodingError::InvalidIndex("function linkage count"));
+		}
+		graph.function_linkage.reserve(count);
+		for _ in 0..count {
+			let def_idx = cur.read_u32("function linkage def index")? as usize;
+			if def_idx >= def_count
+				|| graph
+					.function_linkage
+					.last()
+					.is_some_and(|(idx, _)| *idx >= def_idx)
+			{
+				return Err(EncodingError::InvalidIndex("function linkage def index"));
+			}
+			let role = cur.read_u8("function linkage role")?;
+			if !matches!(role, 1 | 2) {
+				return Err(EncodingError::InvalidValue("function linkage role"));
+			}
+			let signature = cur.read_medium_bytes("function linkage signature")?;
+			graph.function_linkage.push((
+				def_idx,
+				FunctionLinkage {
+					declaration_only: role == 1,
+					signature: (!signature.is_empty()).then(|| boxed(signature)),
+				},
+			));
+		}
+	}
+	Ok(graph)
 }
 
 fn boxed(bytes: &[u8]) -> Bytes {
@@ -409,6 +460,55 @@ mod tests {
 		let bytes = encode(&g).unwrap();
 		let g2 = decode(&bytes).unwrap();
 		assert_eq!(g, g2);
+	}
+
+	#[test]
+	fn previous_layout_still_decodes_without_function_linkage() {
+		let graph = CodeGraph::new(mk(b"legacy"), b"module");
+		let mut bytes = encode(&graph).unwrap();
+		bytes.truncate(bytes.len() - 4);
+		bytes[..2].copy_from_slice(&3u16.to_le_bytes());
+		assert_eq!(decode_root(&bytes).unwrap(), *graph.root());
+		assert_eq!(decode(&bytes).unwrap(), graph);
+	}
+
+	#[test]
+	fn roundtrip_sparse_function_linkage() {
+		let root = mk(b"c");
+		let prototype = mk_under(&root, b"func", b"prototype()");
+		let body = mk_under(&root, b"func", b"body()");
+		let mut graph = CodeGraph::new(root.clone(), b"module");
+		graph
+			.add_def(prototype.clone(), b"func", &root, None)
+			.unwrap();
+		graph.add_def(body.clone(), b"func", &root, None).unwrap();
+		FunctionLinkage::record_in_graph(
+			&mut graph,
+			[
+				(
+					body,
+					FunctionLinkage {
+						declaration_only: false,
+						signature: None,
+					},
+				),
+				(
+					prototype,
+					FunctionLinkage {
+						declaration_only: true,
+						signature: Some(boxed(b"int()")),
+					},
+				),
+			],
+		);
+		assert_eq!(decode(&encode(&graph).unwrap()).unwrap(), graph);
+		assert_eq!(
+			FunctionLinkage::for_definition(&graph, 1)
+				.unwrap()
+				.signature
+				.as_deref(),
+			Some(&b"int()"[..])
+		);
 	}
 
 	#[test]

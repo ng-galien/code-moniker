@@ -145,6 +145,15 @@ impl ToolResult {
 		}
 	}
 
+	pub(super) fn structured(value: Value) -> Self {
+		Self {
+			text: String::new(),
+			is_error: false,
+			structured_content: Some(value),
+			template: None,
+		}
+	}
+
 	pub(super) fn error(text: impl Into<String>) -> Self {
 		Self {
 			text: text.into(),

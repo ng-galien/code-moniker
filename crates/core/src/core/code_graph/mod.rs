@@ -86,6 +86,36 @@ pub struct DefRecord {
 	pub origin: Bytes,
 }
 
+/// Facts for linking a function declaration to a separate definition. A missing
+/// signature means the extractor cannot establish compatibility.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FunctionLinkage {
+	pub declaration_only: bool,
+	pub signature: Option<Bytes>,
+}
+
+impl FunctionLinkage {
+	pub(crate) fn record_in_graph(
+		graph: &mut CodeGraph,
+		linkages: impl IntoIterator<Item = (Moniker, Self)>,
+	) {
+		graph.function_linkage = linkages
+			.into_iter()
+			.filter_map(|(moniker, linkage)| Some((graph.find_def(&moniker)?, linkage)))
+			.collect();
+		graph.function_linkage.sort_unstable_by_key(|(idx, _)| *idx);
+	}
+
+	pub fn for_definition(graph: &CodeGraph, def_idx: usize) -> Option<&Self> {
+		let offset = graph
+			.function_linkage
+			.binary_search_by_key(&def_idx, |(idx, _)| *idx)
+			.ok()?;
+		Some(&graph.function_linkage[offset].1)
+	}
+}
+
 impl DefRecord {
 	pub fn shape(&self) -> Option<crate::core::shape::Shape> {
 		crate::core::shape::shape_of(&self.kind)
@@ -159,6 +189,11 @@ impl std::error::Error for GraphError {}
 pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,
+	#[cfg_attr(
+		feature = "serde",
+		serde(default, skip_serializing_if = "Vec::is_empty")
+	)]
+	function_linkage: Vec<(usize, FunctionLinkage)>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
 	index: RwLock<FxHashMap<Moniker, usize>>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
@@ -169,13 +204,17 @@ pub struct CodeGraph {
 
 impl Clone for CodeGraph {
 	fn clone(&self) -> Self {
-		Self::from_records(self.defs.clone(), self.refs.clone())
+		let mut graph = Self::from_records(self.defs.clone(), self.refs.clone());
+		graph.function_linkage = self.function_linkage.clone();
+		graph
 	}
 }
 
 impl PartialEq for CodeGraph {
 	fn eq(&self, other: &Self) -> bool {
-		self.defs == other.defs && self.refs == other.refs
+		self.defs == other.defs
+			&& self.refs == other.refs
+			&& self.function_linkage == other.function_linkage
 	}
 }
 
@@ -185,6 +224,7 @@ impl Hash for CodeGraph {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.defs.hash(state);
 		self.refs.hash(state);
+		self.function_linkage.hash(state);
 	}
 }
 
@@ -201,6 +241,7 @@ impl CodeGraph {
 		Self {
 			defs,
 			refs,
+			function_linkage: Vec::new(),
 			index: RwLock::new(index),
 			def_monikers_cache: RwLock::new(None),
 			ref_targets_cache: RwLock::new(None),
@@ -232,6 +273,7 @@ impl CodeGraph {
 		Self {
 			defs,
 			refs: Vec::with_capacity(ref_cap),
+			function_linkage: Vec::new(),
 			index: RwLock::new(index),
 			def_monikers_cache: RwLock::new(None),
 			ref_targets_cache: RwLock::new(None),

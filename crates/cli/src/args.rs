@@ -689,10 +689,9 @@ pub struct CheckArgs {
 	#[arg(
 		long,
 		value_name = "PATH",
-		default_value = ".code-moniker.toml",
-		help = "user TOML rules file; missing file is ignored"
+		help = "user TOML rules file, relative to the working directory; otherwise find .code-moniker.toml from the target"
 	)]
-	pub rules: PathBuf,
+	pub rules: Option<PathBuf>,
 
 	#[arg(
 		long = "rules-inline",
@@ -1588,7 +1587,7 @@ mod tests {
 		.unwrap();
 		match cli.command {
 			Command::Check(c) => {
-				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
+				assert_eq!(c.rules, Some(PathBuf::from("my-rules.toml")));
 				assert_eq!(c.format, CheckFormat::Json);
 				assert_eq!(c.default_rules, None);
 				assert!(!c.report);

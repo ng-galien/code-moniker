@@ -16,7 +16,7 @@ already established.
 2. Before interpreting rules, taxonomy, fragments, profiles, metrics, or other
    DSL constructs, run the corresponding command from the main skill's learn
    table.
-3. Choose evidence that answers the question:
+3. Choose the MCP tool that answers the question.
    - use `code_moniker_diff` for symbol-level worktree changes;
    - use `code_moniker_graph` for one selected unit's neighborhood;
    - use `code_moniker_usages` when consumer or producer distribution matters;
@@ -24,6 +24,23 @@ already established.
      suggested checks;
    - use `code_moniker_rules` only for the relevant compiled testimony or
      indexed evaluation.
+
+   With the CLI, start from the project root.
+
+   ```sh
+   code-moniker --version
+   code-moniker rules show .
+   ```
+
+   When checking a boundary, run `code-moniker check . --report --format json`.
+   Use the rule's counts and violations to see which references matched.
+   For a disputed reference, run
+   `code-moniker extract . --path '<file>' --shape ref --all --format tsv`
+   with the project-relative file path. Compare the emitted reference with
+   its source line. State any unrepresented form as a limit of that check.
+   For indexed relationships, use `code-moniker query 'query.describe'` to
+   discover a query for the specific relationship.
+
 4. If competing mechanisms could change the conclusion, gather comparable
    bounded evidence for each one. Heavy edges, hubs, bidirectional relations,
    scattered consumers, and overlapping failures are investigation signals,

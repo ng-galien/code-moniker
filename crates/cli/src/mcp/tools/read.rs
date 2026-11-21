@@ -10,7 +10,7 @@ use code_moniker_query::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::common::{AgentOutputOptions, is_workspace_uri, normalize_workspace_uri};
+use super::common::{AgentOutputOptions, OutputFormat, is_workspace_uri, normalize_workspace_uri};
 use super::scope::{
 	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg,
@@ -122,7 +122,7 @@ fn read_input_schema() -> Value {
 			"max_nodes": {
 				"type": "integer",
 				"minimum": 1,
-				"description": "Client-selected maximum AST nodes to emit. Without an explicit value, the small, medium, or full output budget selects the node volume."
+				"description": "Maximum AST nodes to emit. Text defaults to and is capped by the selected output budget (20, 80, or 500). JSON defaults to 500 and honors an explicit limit."
 			},
 			"named_only": {
 				"type": "boolean",
@@ -169,8 +169,7 @@ impl McpTool for ReadTool {
 		arguments: &Value,
 		output: OutputOptions,
 	) -> Result<ToolResult, ToolError> {
-		let request = ReadRequest::from_arguments(arguments, output.agent_options())
-			.map_err(ToolError::failed)?;
+		let request = ReadRequest::from_arguments(arguments, output).map_err(ToolError::failed)?;
 		read_resource(context, &request).map_err(ToolError::failed)
 	}
 }
@@ -185,11 +184,13 @@ struct ReadRequest {
 	scope: ScopeFilter,
 	paging: Paging,
 	output: AgentOutputOptions,
+	format: OutputFormat,
 	expected_roots: Option<Vec<PathBuf>>,
 }
 
 impl ReadRequest {
-	fn from_arguments(arguments: &Value, output: AgentOutputOptions) -> anyhow::Result<Self> {
+	fn from_arguments(arguments: &Value, output: OutputOptions) -> anyhow::Result<Self> {
+		let agent = output.agent_options();
 		Ok(Self {
 			uri: read_string_argument(arguments, "uri")
 				.unwrap_or(DEFAULT_READ_URI)
@@ -203,8 +204,9 @@ impl ReadRequest {
 				"moniker_format",
 			))?,
 			scope: ScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments_for_volume(arguments, output)?,
-			output,
+			paging: Paging::from_arguments_for_volume(arguments, agent)?,
+			output: agent,
+			format: output.format,
 			expected_roots: read_path_list_argument(arguments, "expected_roots")?,
 		})
 	}
@@ -224,7 +226,7 @@ struct SyntaxReadOptions {
 
 fn read_syntax_options(
 	arguments: &Value,
-	output: AgentOutputOptions,
+	output: OutputOptions,
 ) -> anyhow::Result<SyntaxReadOptions> {
 	let ast_requested = strict_bool_argument(arguments, "ast", false)?;
 	let source = read_string_argument(arguments, "source").map(ToOwned::to_owned);
@@ -232,6 +234,8 @@ fn read_syntax_options(
 	if source.is_some() != language.is_some() {
 		anyhow::bail!("source and language must be provided together");
 	}
+	let budget = output.agent_options().default_page_limit();
+	let max_nodes = strict_usize_argument(arguments, "max_nodes", budget, 1, None)?;
 	Ok(SyntaxReadOptions {
 		enabled: ast_requested || source.is_some(),
 		source,
@@ -244,14 +248,10 @@ fn read_syntax_options(
 			0,
 			None,
 		)?,
-		max_nodes: strict_usize_argument(
-			arguments,
-			"max_nodes",
-			output.default_page_limit(),
-			1,
-			None,
-		)?
-		.min(output.default_page_limit()),
+		max_nodes: match output.format {
+			OutputFormat::Text => max_nodes.min(budget),
+			OutputFormat::Json => max_nodes,
+		},
 		named_only: strict_bool_argument(arguments, "named_only", true)?,
 		include_text: strict_bool_argument(arguments, "include_text", false)?,
 		max_text_chars: strict_usize_argument(
@@ -375,7 +375,7 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 		let QueryResult::SyntaxTree(result) = response.result else {
 			anyhow::bail!("daemon returned an unexpected result for syntax.parse");
 		};
-		return syntax_tree_tool_result(&result, "syntax.parse", request.output.budget.as_str());
+		return syntax_tree_tool_result(&result, "syntax.parse", request);
 	}
 	let response = context.query_refreshed(
 		Query::SyntaxTree(SyntaxTreeQuery {
@@ -392,22 +392,26 @@ fn read_syntax_tree(context: &McpContext, request: &ReadRequest) -> anyhow::Resu
 	let QueryResult::SyntaxTree(result) = response.result else {
 		anyhow::bail!("daemon returned an unexpected result for syntax.tree");
 	};
-	Ok(ToolResult::templated(
-		syntax_tree_output(&result, "syntax.tree", request.output.budget.as_str())?
-			.with_monikers([result.focus.as_str()]),
-	)
-	.with_structured_content(serde_json::to_value(&result)?))
+	syntax_tree_tool_result(&result, "syntax.tree", request)
 }
 
 fn syntax_tree_tool_result(
 	result: &SyntaxTreeResult,
 	operation: &str,
-	volume: &'static str,
+	request: &ReadRequest,
 ) -> anyhow::Result<ToolResult> {
-	Ok(
-		ToolResult::templated(syntax_tree_output(result, operation, volume)?)
-			.with_structured_content(serde_json::to_value(result)?),
-	)
+	match request.format {
+		OutputFormat::Json => Ok(ToolResult::structured(serde_json::to_value(result)?)),
+		OutputFormat::Text => {
+			let output = syntax_tree_output(result, operation, request.output.budget.as_str())?;
+			let output = if operation == "syntax.tree" {
+				output.with_monikers([result.focus.as_str()])
+			} else {
+				output
+			};
+			Ok(ToolResult::templated(output))
+		}
+	}
 }
 
 fn syntax_tree_output(
@@ -1207,8 +1211,9 @@ fn language_hints<'a>(
 #[cfg(test)]
 mod tests {
 	use super::{
-		AgentOutputOptions, ViewBoundaryTemplate, ViewDetailTemplate, ViewEvidenceTemplate,
-		ViewGotchaTemplate, ViewMetadataTemplate, ViewRuleRefTemplate, read_syntax_options,
+		AgentOutputOptions, OutputFormat, OutputOptions, ViewBoundaryTemplate, ViewDetailTemplate,
+		ViewEvidenceTemplate, ViewGotchaTemplate, ViewMetadataTemplate, ViewRuleRefTemplate,
+		read_syntax_options,
 	};
 	use crate::mcp::tools::common::OutputBudget;
 
@@ -1216,10 +1221,13 @@ mod tests {
 	fn syntax_volume_profile_caps_explicit_node_count() {
 		let options = read_syntax_options(
 			&serde_json::json!({"ast": true, "max_nodes": 20_000}),
-			AgentOutputOptions {
-				compact: true,
-				budget: OutputBudget::Small,
-			},
+			OutputOptions::agent(
+				AgentOutputOptions {
+					compact: true,
+					budget: OutputBudget::Small,
+				},
+				OutputFormat::Text,
+			),
 		)
 		.expect("small syntax request");
 

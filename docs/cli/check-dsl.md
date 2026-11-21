@@ -879,6 +879,8 @@ moniker URI against a glob-like pattern composed of segments separated by
 | `*`                  | exactly one segment, anything                 |
 | `class:/^[A-Z][a-z]+Port$/` | regex on the name (kind fixed)         |
 | `*:/^(api|web)$/`    | regex on the name, regardless of segment kind |
+| `method:load*`      | a method whose name starts with `load`         |
+| `external_*:driver` | kind starts with `external_`, name is `driver` |
 | `**`                 | zero or more segments (positional wildcard)   |
 
 A pattern is anchored at the moniker's root unless it starts with `**/`.
@@ -887,6 +889,12 @@ Use segment regexes to collapse repeated path-pattern ORs when only the
 segment name varies, for example
 `target ~ '**/*:/^(api|web|controller)$/**'` instead of three separate
 `target ~ ...` arms.
+
+Within a kind or name, `*` matches zero or more characters of that segment.
+The rest of the field is literal and the match covers the whole field.
+Use backticks around the name for an exact match on a name containing
+a slash or a literal `*`. Double an embedded backtick. For example,
+``target ~ '**/external_pkg:`@example/driver`/**'`` matches a scoped package.
 
 ### Derived requirements
 

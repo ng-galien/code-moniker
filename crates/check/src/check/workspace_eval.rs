@@ -377,9 +377,6 @@ pub fn evaluate_workspace_rules_in(
 				(Some(truth), violations)
 			}
 		};
-		evaluation
-			.violation_sets
-			.insert(rule.rule_id.clone(), violations.clone());
 		if report {
 			let antecedent_truth = match &rule.root {
 				Node::Implies(antecedent, _) => {
@@ -388,7 +385,7 @@ pub fn evaluate_workspace_rules_in(
 				_ => None,
 			};
 			let matches = match (antecedent_truth.as_ref(), truth.as_ref()) {
-				(Some(antecedent), Some(truth)) => truth.intersection(antecedent).len(),
+				(Some(antecedent), Some(truth)) => truth.intersection_len(antecedent),
 				(_, Some(truth)) => truth.len(),
 				_ => universe.len() - violations.len(),
 			};
@@ -435,6 +432,9 @@ pub fn evaluate_workspace_rules_in(
 				},
 			});
 		}
+		evaluation
+			.violation_sets
+			.insert(rule.rule_id.clone(), violations);
 	}
 	group::evaluate_groups(
 		inventory,

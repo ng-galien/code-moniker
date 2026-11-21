@@ -17,7 +17,7 @@ detail you only need when acting on a specific surface.
 
 ## Build Latency
 
-- Default profile `dev`: `debug = false`, `debug-assertions = false`, `overflow-checks = false`, `panic = "abort"`, `incremental = true`, `codegen-units = 256`.
+- The `dev` profile sets `debug = false`, `debug-assertions = false`, `overflow-checks = false`, `incremental = false`, and `codegen-units = 16`. It uses Cargo's default unwind behavior.
 - Debug profile: `--profile dev-debug`. Release speed: `release-lto`.
 - Cargo jobs: `.cargo/config.toml` `jobs = 10`; macOS uses the system linker so CI and local builds share a portable configuration.
 - Keep one Cargo command active; keep feature/profile/target flags stable per session; reuse warm command shapes; avoid broad gates in tight loops.
@@ -50,8 +50,8 @@ build does not require an MCP restart or the full probe set.
   checks.
 - Required probes: scoped read, cursor follow-up, `action:"insights"`, and a
   symbol read using the returned compact moniker.
-- Workspace-routing probe: the first read passes the current absolute root via
-  `expected_roots`; a different root must fail with `workspace_mismatch`.
+- Workspace-routing probe: each `workspace` read passes the current absolute
+  root via `expected_roots`. A different root fails with `workspace_mismatch`.
 - Rules probes: `action:"list"`, bounded `action:"run"`.
 
 Codex project integrations should use `code-moniker mcp

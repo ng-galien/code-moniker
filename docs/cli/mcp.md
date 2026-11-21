@@ -51,7 +51,7 @@ projection and example. See [Indexed Query DSL](query.md) for the language.
 
 | Need | Tool | Contract |
 | --- | --- | --- |
-| Enter the workspace, expand its explorer, read a symbol, or request AST | `code_moniker_read` | Default indexed entry point; the first workspace read verifies `expected_roots` |
+| Enter the workspace, expand its explorer, read a symbol, or request AST | `code_moniker_read` | Default indexed entry point. Every read of `workspace` verifies `expected_roots` |
 | List exact symbols or summarize indexed symbol populations | `code_moniker_symbols` | Exact structural filters and generation-aware pagination |
 | Fuzzy symbol lookup | `code_moniker_search` | Search text plus the same structural scope filters |
 | Read incoming or outgoing references | `code_moniker_usages` | Exact symbol by default; descendant roll-up is explicit |
@@ -69,9 +69,9 @@ and broaden only when omitted evidence can change the answer.
 
 ## Workspace identity and freshness
 
-The first workspace-wide read must pass the current absolute roots through
-`expected_roots`. A mismatch is an error; the server never silently changes the
-workspace behind an established session.
+For each `code_moniker_read` request with `uri:"workspace"`, pass the current
+absolute roots through `expected_roots`. Generated continuations carry the
+same roots. A mismatch returns `workspace_mismatch`.
 
 Stdio MCP owns an in-process worker whose initial index may still be loading
 after the MCP transport initializes. `workspace.status` exposes

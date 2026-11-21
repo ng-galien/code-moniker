@@ -11,6 +11,7 @@ use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::kinds;
 use super::discover::CDiscover;
+use super::function_linkage::record_function_linkage;
 use super::syntax::{
 	DeclaratorInfo, declarator_info, first_identifier, named_children, parameter_slots,
 	recovered_identifier, visibility_for,
@@ -269,13 +270,22 @@ fn function_def(state: &mut CDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 		.unwrap_or_default();
 	let moniker = extend_callable_slots(scope, kinds::FUNC, info.name, &slots);
 	register_callable(state, node, &info, &slots);
+	let visibility = visibility_for(node, state.source);
+	record_function_linkage(
+		state,
+		&moniker,
+		node,
+		declarator,
+		info.name,
+		visibility == kinds::VIS_MODULE,
+	);
 	state.upsert_def(DiscoveredDef {
 		moniker: moniker.clone(),
 		parent: scope.clone(),
 		namespace: Namespace::Value,
 		name: info.name.to_vec(),
 		kind: kinds::FUNC,
-		visibility: visibility_for(node, state.source),
+		visibility,
 		signature: callable_signature(&slots),
 		position: Some(node_position(node)),
 		call_name: info.name.to_vec(),
@@ -316,7 +326,7 @@ fn declaration_defs(state: &mut CDiscover<'_>, node: Node<'_>, scope: &Moniker) 
 			continue;
 		};
 		if info.is_function {
-			prototype_def(state, node, scope, &info);
+			prototype_def(state, node, declarator, scope, &info);
 			continue;
 		}
 		module_var_def(state, node, scope, type_node, &info);
@@ -338,6 +348,7 @@ fn declaration_declarators<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
 fn prototype_def(
 	state: &mut CDiscover<'_>,
 	node: Node<'_>,
+	declarator: Node<'_>,
 	scope: &Moniker,
 	info: &DeclaratorInfo<'_>,
 ) {
@@ -346,13 +357,23 @@ fn prototype_def(
 		.map(|params| parameter_slots(params, state.source))
 		.unwrap_or_default();
 	register_callable(state, node, info, &slots);
+	let moniker = extend_callable_slots(scope, kinds::FUNC, info.name, &slots);
+	let visibility = visibility_for(node, state.source);
+	record_function_linkage(
+		state,
+		&moniker,
+		node,
+		declarator,
+		info.name,
+		visibility == kinds::VIS_MODULE,
+	);
 	state.push_def(DiscoveredDef {
-		moniker: extend_callable_slots(scope, kinds::FUNC, info.name, &slots),
+		moniker,
 		parent: scope.clone(),
 		namespace: Namespace::Value,
 		name: info.name.to_vec(),
 		kind: kinds::FUNC,
-		visibility: visibility_for(node, state.source),
+		visibility,
 		signature: callable_signature(&slots),
 		position: Some(node_position(node)),
 		call_name: info.name.to_vec(),

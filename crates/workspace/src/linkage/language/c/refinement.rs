@@ -5,12 +5,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionDecision, ResolutionScope,
 };
-use crate::linkage::catalog::SymbolSet;
+use crate::linkage::catalog::{CandidateCatalog, LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::resolve::{DecisionSelection, LinkageRefiner};
+use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::{RecordTable, ReferenceRecord, ResolutionEvidence};
 use crate::source::CodeIndexMaterial;
 
 use super::CIncludeVisibility;
+use super::includes::included_c_calls;
 
 pub(in crate::linkage) fn classify_c_unindexed_external_dependencies(
 	linkage: &LinkageRefiner<'_>,
@@ -681,32 +683,116 @@ pub(in crate::linkage) fn refine_c_include_visibility(
 ) {
 	for &decision_idx in selection.indices() {
 		let decision = &mut decisions[decision_idx];
-		let Some(reference_idx) = decision.refinement_pending_reference_idx() else {
-			continue;
-		};
 		if !selection.includes(decision.reference()) {
 			continue;
 		}
+		let reference_idx = decision.reference_idx();
 		let reference = &references[reference_idx];
 		let Some(location) = linkage.locations.get(reference_idx) else {
 			continue;
 		};
-		let Some(query) =
-			crate::linkage::catalog::LinkageQuery::at(reference, linkage.material, location)
-		else {
-			continue;
-		};
-		let targets = visibility.candidates(&query, linkage.candidates);
-		if targets.is_empty() {
+		let pending = decision.refinement_pending_reference_idx().is_some();
+		if !pending && !matches!(reference.kind.as_str(), "calls" | "imports_module") {
 			continue;
 		}
-		*decision = ReferenceLinkageDecision::resolved(ResolutionDecision::new(
-			ResolutionScope::Global,
-			ResolutionEvidence::GlobalBinding,
-			reference.id,
-			reference_idx,
-			targets,
-		));
+		let Some(query) = LinkageQuery::at(reference, linkage.material, location) else {
+			continue;
+		};
+		if let Some(targets) = proven_c_targets(
+			&query,
+			location,
+			visibility,
+			decision,
+			linkage.candidates,
+			linkage.source_groups,
+		) {
+			*decision = include_decision(reference, reference_idx, targets);
+			continue;
+		}
+		if !pending {
+			continue;
+		}
+		let targets = visibility.candidates(&query, linkage.candidates);
+		if !targets.is_empty() {
+			*decision = include_decision(reference, reference_idx, targets);
+		}
+	}
+}
+
+fn include_decision(
+	reference: &ReferenceRecord,
+	index: usize,
+	targets: SymbolSet,
+) -> ReferenceLinkageDecision {
+	ReferenceLinkageDecision::resolved(ResolutionDecision::new(
+		ResolutionScope::Global,
+		ResolutionEvidence::GlobalBinding,
+		reference.id,
+		index,
+		targets,
+	))
+}
+
+fn proven_c_targets(
+	query: &LinkageQuery<'_>,
+	location: ReferenceLocation,
+	visibility: &CIncludeVisibility,
+	decision: &ReferenceLinkageDecision,
+	candidates: &CandidateCatalog,
+	groups: &SourceGroupPolicy,
+) -> Option<SymbolSet> {
+	if query.reference_kind == "imports_module" {
+		let header = visibility
+			.topology
+			.angle_target(location.source_file, location.reference)?;
+		return Some(std::iter::once(candidates.symbol_at(header, 0)?).collect());
+	}
+	if query.reference_kind != "calls" || query.call_name.is_none() {
+		return None;
+	}
+	if query
+		.target_last
+		.is_none_or(|segment| segment.kind != b"func")
+	{
+		return None;
+	}
+	let local = match decision {
+		ReferenceLinkageDecision::Unique { resolution }
+			if resolution.scope == ResolutionScope::Local =>
+		{
+			let target = resolution.targets.iter().next()?;
+			let candidate = candidates.candidate(target)?;
+			let file = query.material.files.get(candidate.source_file)?;
+			if file.rel_path.extension().is_none_or(|ext| ext != "h")
+				|| !candidates.function_linkage(target)?.declaration_only
+			{
+				return None;
+			}
+			Some(target)
+		}
+		ReferenceLinkageDecision::Candidate { resolution, .. }
+			if resolution.scope == ResolutionScope::Local =>
+		{
+			return None;
+		}
+		ReferenceLinkageDecision::Blocked { .. } => return None,
+		_ => None,
+	};
+	let included = included_c_calls(visibility, query, candidates)?;
+	let targets = local.map_or(included, |symbol| std::iter::once(symbol).collect());
+	match targets.len() {
+		0 => None,
+		1 => {
+			let visible = targets.iter().next()?;
+			let implementation = super::definition_for_included_prototype(
+				query, candidates, groups, visibility, visible,
+			);
+			if local.is_some() && implementation.is_none() {
+				return None;
+			}
+			Some(implementation.map_or(targets, |target| std::iter::once(target).collect()))
+		}
+		_ => Some(targets),
 	}
 }
 

@@ -83,8 +83,8 @@ reconstructing its semantics from this skill.
   CLI index exactly, take its endpoint from `code-moniker daemon list` and pass
   `query --daemon <ENDPOINT>`; do not infer an endpoint or fall back to a
   filesystem command.
-- Verify workspace identity once before the first workspace-wide MCP read and
-  again only after roots or the connection change.
+- Pass the absolute `expected_roots` on each `code_moniker_read` request for
+  `uri:"workspace"`, including retries and continuations.
 - Start compact, narrow, and bounded. Page, broaden, or request source only
   when omitted evidence can change the answer.
 - Reuse returned monikers and generated follow-up calls rather than guessing

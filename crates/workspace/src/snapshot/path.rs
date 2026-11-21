@@ -580,7 +580,7 @@ struct ReferencePostingIntersection<'a> {
 }
 
 impl<'a> ReferencePostingUnion<'a> {
-	fn new(postings: Vec<&'a ReferenceSet>) -> Self {
+	fn new(postings: impl IntoIterator<Item = &'a ReferenceSet>) -> Self {
 		let mut iterators = postings
 			.into_iter()
 			.map(ReferenceSet::ordered_iter)
@@ -633,7 +633,10 @@ impl Iterator for ReferencePostingUnion<'_> {
 }
 
 impl<'a> ReferencePostingIntersection<'a> {
-	fn new(left: Vec<&'a ReferenceSet>, right: Vec<&'a ReferenceSet>) -> Self {
+	fn new(
+		left: impl IntoIterator<Item = &'a ReferenceSet>,
+		right: impl IntoIterator<Item = &'a ReferenceSet>,
+	) -> Self {
 		Self {
 			left: ReferencePostingUnion::new(left),
 			right: ReferencePostingUnion::new(right),
@@ -919,22 +922,26 @@ impl ReferenceTraversal {
 		let dynamic = references.intersection(classifications.dynamic());
 		let manifest_blocked = references.intersection(classifications.manifest_blocked());
 		let unresolved = references.intersection(classifications.unresolved());
-		let mut classified = resolved.union(&external);
+		let resolved_count = resolved.len();
+		let external_count = external.len();
+		let mut classified = resolved;
+		classified.union_with(&external);
 		classified.union_with(&candidate);
 		classified.union_with(&dynamic);
 		classified.union_with(&manifest_blocked);
 		classified.union_with(&unresolved);
-		let unclassified = references.difference(&classified);
+		// Every member of the union came from an intersection with references.
+		let unclassified_count = references.len() - classified.len();
 
 		self.coverage.total += references.len() as usize;
-		self.coverage.resolved += resolved.len() as usize;
-		self.coverage.external += external.len() as usize;
+		self.coverage.resolved += resolved_count as usize;
+		self.coverage.external += external_count as usize;
 		self.coverage.candidate += candidate.len() as usize;
 		self.coverage.dynamic += dynamic.len() as usize;
 		self.coverage.manifest_blocked += manifest_blocked.len() as usize;
-		self.coverage.unresolved += (unresolved.len() + unclassified.len()) as usize;
-		self.coverage.decided += (resolved.len() + external.len()) as usize;
-		self.explored_edges += resolved.len() as usize;
+		self.coverage.unresolved += (unresolved.len() + unclassified_count) as usize;
+		self.coverage.decided += (resolved_count + external_count) as usize;
+		self.explored_edges += resolved_count as usize;
 
 		for reference in candidate.iter() {
 			tally_reason(
@@ -964,12 +971,12 @@ impl ReferenceTraversal {
 				classifications.unresolved_reason(reference),
 			);
 		}
-		if !unclassified.is_empty() {
+		if unclassified_count > 0 {
 			*self
 				.coverage
 				.gap_reasons
 				.entry("unresolved:unclassified".to_string())
-				.or_default() += unclassified.len() as usize;
+				.or_default() += unclassified_count as usize;
 		}
 	}
 
@@ -989,22 +996,15 @@ fn bounded_frontier_references(
 	seen: &ReferenceSet,
 	limit: usize,
 ) -> (ReferenceSet, ReferenceSet, bool) {
-	let already_seen = if selection.reuse_seen {
-		seen.iter()
-			.filter(|reference| {
-				reference_matches_selection(read_index, relations, selection, *reference)
-			})
-			.collect()
-	} else {
-		ReferenceSet::new()
-	};
-	let mut admission = ReferenceAdmission::new(seen, limit, already_seen);
 	let frontier_postings = reference_postings_from_symbols(
 		read_index,
 		selection.direction,
 		selection.frontier,
 		relations,
 	);
+	let already_seen =
+		reusable_frontier_references(read_index, relations, selection, &frontier_postings, seen);
+	let mut admission = ReferenceAdmission::new(seen, limit, already_seen);
 	match reference_scope_terms(read_index, selection.scope, selection.direction, relations) {
 		ReferenceScope::All => admission.admit(ReferencePostingUnion::new(frontier_postings)),
 		ReferenceScope::Terms(scope_postings) => admission.admit(
@@ -1012,6 +1012,31 @@ fn bounded_frontier_references(
 		),
 	}
 	admission.finish()
+}
+
+fn reusable_frontier_references(
+	read_index: &super::LinkageReadIndex,
+	relations: &[&str],
+	selection: ReferenceSelection<'_>,
+	postings: &[&ReferenceSet],
+	seen: &ReferenceSet,
+) -> ReferenceSet {
+	if !selection.reuse_seen || seen.is_empty() {
+		return ReferenceSet::new();
+	}
+	let matches_selection = |reference: &ReferenceOrdinal| {
+		reference_matches_selection(read_index, relations, selection, *reference)
+	};
+	let frontier_size = postings.iter().map(|posting| posting.len()).sum::<u64>();
+	// Reuse is independent of the budget for new references. Search the smaller
+	// side before admission so an early stop cannot hide reusable references.
+	if frontier_size <= seen.len() {
+		ReferencePostingIntersection::new(postings.iter().copied(), [seen])
+			.filter(matches_selection)
+			.collect()
+	} else {
+		seen.iter().filter(matches_selection).collect()
+	}
 }
 
 fn reference_postings_from_symbols<'a>(

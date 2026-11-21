@@ -49,6 +49,17 @@ extractor, not a replacement for each language compiler or type checker.
 | Markdown / JSON / YAML | Structural | Sections, keys and sequence items; no execution, alias expansion or cross-file link resolution. |
 | C | Usable | No compiler preprocessing or full type analysis. |
 
+For a prototype in a `.c` file, workspace queries can associate a call with a
+unique external definition in the same indexed source root when their
+primitive types and plain pointer declarators match. The prototype remains
+searchable. Workspace linkage can also follow a prototype in a shared header,
+including matching pointers to named struct tags, when the implementation
+includes that header. Literal angle includes can resolve to an exact indexed
+header under the project's `include/` directory after configured search roots.
+Conditional declarations, unsupported types and competing bodies can leave the
+call attached to the prototype. Confirm build-specific results with the
+program's actual preprocessor, compiler and linker settings.
+
 ## At a glance
 
 ```mermaid
@@ -289,14 +300,15 @@ cargo install --path crates/cli --features mcp
 ### Features
 
 - `pretty` (default) — colored output.
-- `mcp` — the `mcp` server and agent MCP installation.
+- `mcp` (default) — the `mcp` server and agent MCP installation.
+- `telemetry` (default) — opt-in telemetry configuration and export.
 
-Official prebuilt releases enable `mcp`. A default source build
-remains light — `extract`, `check`, `rules`, the embedded skill installer and
-hooks, but no MCP server:
+Official prebuilt releases and default source builds include MCP. Use
+`--no-default-features` for a source build with the core CLI, embedded skill
+installer, and hooks.
 
 ```sh
-cargo install code-moniker
+cargo install code-moniker --no-default-features
 ```
 
 ## VS Code extension (beta)

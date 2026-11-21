@@ -40,7 +40,7 @@ pub(in crate::linkage) struct LinkageRefiner<'a> {
 	methods: &'a MethodTable,
 	pub(in crate::linkage) candidates: &'a CandidateCatalog,
 	pub(in crate::linkage) locations: &'a ReferenceLocations,
-	source_groups: &'a SourceGroupPolicy,
+	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
 	packages: &'a WorkspacePackageIndex,
 	manifests: &'a ManifestPolicy,
 }

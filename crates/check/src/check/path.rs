@@ -9,12 +9,23 @@ use code_moniker_core::core::moniker::Moniker;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Step {
-	Literal { kind: Vec<u8>, name: Vec<u8> },
-	KindWildcard(Vec<u8>),
-	NameWildcard(Vec<u8>),
+	Literal {
+		kind: Vec<u8>,
+		name: Vec<u8>,
+	},
+	Segment {
+		kind: SegmentMatch,
+		name: SegmentMatch,
+	},
 	AnySegment,
-	Regex { kind: Option<Vec<u8>>, re: Regex },
 	DoubleStar,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum SegmentMatch {
+	Any,
+	Literal(Vec<u8>),
+	Regex(Regex),
 }
 
 #[derive(Debug, Clone)]
@@ -37,49 +48,71 @@ pub(crate) fn parse(input: &str) -> Result<Pattern, PatternError> {
 			msg: "empty path pattern".to_string(),
 		});
 	}
-	let mut steps = Vec::new();
-	for raw_step in split_outer(input) {
-		steps.push(parse_step(&raw_step, &raw)?);
-	}
+	let steps = split_outer(input)
+		.map_err(|msg| PatternError::Bad {
+			pattern: raw.clone(),
+			msg: msg.to_string(),
+		})?
+		.into_iter()
+		.map(|step| parse_step(step, &raw))
+		.collect::<Result<_, _>>()?;
 	Ok(Pattern { steps, raw })
 }
 
-/// Split on `/` but skip slashes inside a `/.../` regex run. A regex starts
-/// right after `:`, ends at the next unescaped `/`. The closing `/` is part
-/// of the step (so `class:/Entity$/` is one step), and the next character
-/// starts a new step without needing another separator.
-fn split_outer(s: &str) -> Vec<String> {
-	let mut out = Vec::new();
-	let mut buf = String::new();
-	let mut in_regex = false;
-	let mut prev_was_colon = false;
-	let mut prev_was_backslash = false;
-	let mut just_closed_regex = false;
-	for c in s.chars() {
-		if just_closed_regex {
-			out.push(std::mem::take(&mut buf));
-			just_closed_regex = false;
-		}
-		if !in_regex && c == '/' && !prev_was_colon {
-			out.push(std::mem::take(&mut buf));
-			prev_was_colon = false;
-			prev_was_backslash = false;
-			continue;
-		}
-		buf.push(c);
-		if in_regex {
-			if c == '/' && !prev_was_backslash {
-				in_regex = false;
-				just_closed_regex = true;
-			}
-		} else if c == '/' && prev_was_colon {
-			in_regex = true;
-		}
-		prev_was_colon = c == ':';
-		prev_was_backslash = c == '\\' && !prev_was_backslash;
+fn split_outer(mut input: &str) -> Result<Vec<&str>, &'static str> {
+	let mut steps = Vec::new();
+	loop {
+		let (end, next) = step_end(input)?;
+		steps.push(&input[..end]);
+		let Some(next) = next else {
+			return Ok(steps);
+		};
+		input = &input[next..];
 	}
-	out.push(buf);
-	out
+}
+
+fn step_end(input: &str) -> Result<(usize, Option<usize>), &'static str> {
+	if let Some(colon) = input.find([':', '/'])
+		&& input.as_bytes()[colon] == b':'
+	{
+		let start = colon + 1;
+		match input.as_bytes().get(start) {
+			Some(b'/') => {
+				let end = delimited_name_end(input, start, b'/').ok_or("unterminated regex")?;
+				// A regex's closing slash also separates it from the next step.
+				return Ok((end, (end < input.len()).then_some(end)));
+			}
+			Some(b'`') => {
+				let end = delimited_name_end(input, start, b'`')
+					.ok_or("unterminated backtick-quoted name")?;
+				return match input.as_bytes().get(end) {
+					None => Ok((end, None)),
+					Some(b'/') => Ok((end, Some(end + 1))),
+					_ => Err("unexpected data after backtick-quoted name"),
+				};
+			}
+			_ => {}
+		}
+	}
+	Ok(input
+		.find('/')
+		.map_or((input.len(), None), |end| (end, Some(end + 1))))
+}
+
+fn delimited_name_end(input: &str, start: usize, delimiter: u8) -> Option<usize> {
+	let mut bytes = input.as_bytes()[start + 1..].iter().enumerate().peekable();
+	while let Some((offset, &byte)) = bytes.next() {
+		if delimiter == b'/' && byte == b'\\' {
+			bytes.next();
+		} else if byte == delimiter {
+			if delimiter == b'`' && bytes.peek().is_some_and(|(_, next)| **next == b'`') {
+				bytes.next();
+			} else {
+				return Some(start + offset + 2);
+			}
+		}
+	}
+	None
 }
 
 fn parse_step(s: &str, full: &str) -> Result<Step, PatternError> {
@@ -109,25 +142,39 @@ fn parse_step(s: &str, full: &str) -> Result<Step, PatternError> {
 			msg: format!("step `{s}` has empty name"),
 		});
 	}
-	if let Some(stripped) = name.strip_prefix('/').and_then(|r| r.strip_suffix('/')) {
-		let re = Regex::new(stripped).map_err(|e| PatternError::Bad {
-			pattern: full.to_string(),
-			msg: format!("invalid regex `{stripped}`: {e}"),
-		})?;
-		return Ok(Step::Regex {
-			kind: (kind != "*").then(|| kind.as_bytes().to_vec()),
-			re,
-		});
+	let kind = segment_match(kind, full)?;
+	let name = if let Some(literal) = name.strip_prefix('`').and_then(|n| n.strip_suffix('`')) {
+		SegmentMatch::Literal(literal.replace("``", "`").into_bytes())
+	} else if let Some(regex) = name.strip_prefix('/').and_then(|n| n.strip_suffix('/')) {
+		SegmentMatch::Regex(segment_regex(regex, full)?)
+	} else {
+		segment_match(name, full)?
+	};
+	Ok(match (kind, name) {
+		(SegmentMatch::Literal(kind), SegmentMatch::Literal(name)) => Step::Literal { kind, name },
+		(kind, name) => Step::Segment { kind, name },
+	})
+}
+
+fn segment_match(value: &str, full: &str) -> Result<SegmentMatch, PatternError> {
+	if value == "*" {
+		return Ok(SegmentMatch::Any);
 	}
-	if kind == "*" {
-		return Ok(Step::NameWildcard(name.as_bytes().to_vec()));
+	if !value.contains('*') {
+		return Ok(SegmentMatch::Literal(value.as_bytes().to_vec()));
 	}
-	if name == "*" {
-		return Ok(Step::KindWildcard(kind.as_bytes().to_vec()));
-	}
-	Ok(Step::Literal {
-		kind: kind.as_bytes().to_vec(),
-		name: name.as_bytes().to_vec(),
+	let regex = value
+		.split('*')
+		.map(regex::escape)
+		.collect::<Vec<_>>()
+		.join(".*");
+	segment_regex(&format!(r"(?s:\A{regex}\z)"), full).map(SegmentMatch::Regex)
+}
+
+fn segment_regex(regex: &str, full: &str) -> Result<Regex, PatternError> {
+	Regex::new(regex).map_err(|error| PatternError::Bad {
+		pattern: full.to_string(),
+		msg: format!("invalid regex `{regex}`: {error}"),
 	})
 }
 
@@ -162,18 +209,19 @@ fn match_step(step: &Step, seg: &(&[u8], &[u8])) -> bool {
 	let (k, n) = *seg;
 	match step {
 		Step::Literal { kind, name } => k == kind.as_slice() && n == name.as_slice(),
-		Step::KindWildcard(kind) => k == kind.as_slice(),
-		Step::NameWildcard(name) => n == name.as_slice(),
+		Step::Segment { kind, name } => matches_segment(kind, k) && matches_segment(name, n),
 		Step::AnySegment => true,
-		Step::Regex { kind, re } => {
-			kind.as_ref().is_none_or(|kind| k == kind.as_slice()) && {
-				match std::str::from_utf8(n) {
-					Ok(s) => re.is_match(s),
-					Err(_) => false,
-				}
-			}
-		}
 		Step::DoubleStar => unreachable!("DoubleStar handled in match_steps"),
+	}
+}
+
+fn matches_segment(pattern: &SegmentMatch, value: &[u8]) -> bool {
+	match pattern {
+		SegmentMatch::Any => true,
+		SegmentMatch::Literal(literal) => value == literal,
+		SegmentMatch::Regex(regex) => {
+			std::str::from_utf8(value).is_ok_and(|value| regex.is_match(value))
+		}
 	}
 }
 
@@ -300,5 +348,39 @@ mod tests {
 	#[test]
 	fn rejects_bad_regex() {
 		assert!(parse("class:/[unclosed/").is_err());
+	}
+
+	#[test]
+	fn quoted_names_match_literal_slash_backtick_and_star() {
+		let m = build(&[(b"external_pkg", b"@example/a`b*"), (b"path", b"adapt")]);
+		assert_match("**/external_pkg:`@example/a``b*`/**", &m);
+		assert_no_match("**/external_pkg:`@example/a``b`/**", &m);
+		assert_no_match("**/external_pkg:`*`/**", &m);
+		let star = build(&[(b"path", b"*")]);
+		assert_match("path:`*`", &star);
+	}
+
+	#[test]
+	fn partial_stars_match_one_segment_with_literal_punctuation() {
+		let m = build(&[
+			(b"external_pkg", b"@example/driver.js"),
+			(b"path", b"adapt"),
+		]);
+		assert_match("external_*:*example*.js/**", &m);
+		assert_match(r"external_*:/^@example\/driver\.js$/**", &m);
+		assert_no_match("external_*:*example*.ts/**", &m);
+		assert_no_match("extern_*:example*/**", &m);
+		assert_no_match("module*:*example*/**", &m);
+
+		let methods = build(&[(b"method", b"success(1)")]);
+		assert_match("method:success**", &methods);
+		assert_no_match("method:`success**`", &methods);
+	}
+
+	#[test]
+	fn rejects_unclosed_or_continued_quoted_names() {
+		assert!(parse("dir:`unterminated/**").is_err());
+		assert!(parse("dir:`name`tail/**").is_err());
+		assert!(parse("dir:/unterminated").is_err());
 	}
 }

@@ -21,7 +21,7 @@ mod ts;
 
 pub(in crate::linkage) use c::{
 	CIncludeVisibility, classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
-	refine_c_include_visibility,
+	definition_for_local_c_prototype, refine_c_include_visibility,
 };
 pub(in crate::linkage) use python::binding_invalidation_sources;
 pub(in crate::linkage) use python::{BindingTarget, PythonBindings};

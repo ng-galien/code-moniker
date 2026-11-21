@@ -207,13 +207,7 @@ fn stdio_stateless_syntax_parse_honors_text_and_json_formats() {
 		"text format must not expose structured content: {response:#}"
 	);
 
-	let json_source = format!(
-		"SELECT {};",
-		(0..40)
-			.map(|index| format!("{index} AS value_{index}"))
-			.collect::<Vec<_>>()
-			.join(", ")
-	);
+	let json_source = format!("BEGIN\n{}\nEND;", "PERFORM 1;\n".repeat(160));
 	let request = serde_json::json!({
 		"jsonrpc": "2.0",
 		"id": 3,
@@ -222,12 +216,17 @@ fn stdio_stateless_syntax_parse_honors_text_and_json_formats() {
 			"name": "code_moniker_read",
 			"arguments": {
 				"source": json_source,
-				"language": "sql",
-				"uri": "snippet.sql",
-				"max_depth": 1_000,
-				"max_nodes": 1_000,
+				"language": "plpgsql",
+				"uri": "coverage.plpgsql",
+				"ast": true,
+				"max_depth": 1_024,
+				"max_nodes": 100_000,
+				"named_only": false,
+				"include_text": false,
+				"max_text_chars": 0,
 				"format": "json",
-				"budget": "small"
+				"compact": true,
+				"budget": "full"
 			}
 		}
 	});
@@ -241,21 +240,19 @@ fn stdio_stateless_syntax_parse_honors_text_and_json_formats() {
 		"{response:#}"
 	);
 	let syntax = &response["result"]["structuredContent"];
-	assert_eq!(syntax["file"], "snippet.sql", "{response:#}");
-	assert_eq!(syntax["language"], "sql", "{response:#}");
+	assert_eq!(syntax["file"], "coverage.plpgsql", "{response:#}");
+	assert_eq!(syntax["language"], "plpgsql", "{response:#}");
 	assert_eq!(syntax["has_error"], false, "{response:#}");
 	assert_eq!(syntax["truncated"], false, "{response:#}");
 	assert_eq!(syntax["root"]["kind"], "source_file", "{response:#}");
 	assert!(
 		syntax["emitted_nodes"]
 			.as_u64()
-			.is_some_and(|count| count > 20),
-		"JSON must ignore the small Markdown budget: {response:#}"
+			.is_some_and(|count| count > 500),
+		"JSON honors the client's AST limit: {response:#}"
 	);
-	assert!(
-		syntax["total_nodes"]
-			.as_u64()
-			.is_some_and(|count| count > 20),
+	assert_eq!(
+		syntax["total_nodes"], syntax["emitted_nodes"],
 		"{response:#}"
 	);
 	assert_eq!(

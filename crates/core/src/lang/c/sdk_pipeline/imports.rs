@@ -18,19 +18,16 @@ pub(super) fn collect_include(state: &mut CDiscover<'_>, node: Node<'_>, scope: 
 	match path_node.kind() {
 		"system_lib_string" => {
 			let inner = text.trim_start_matches('<').trim_end_matches('>');
-			let (target, confidence) = if is_stdlib_header_path(inner) {
-				(sdk_include_target(&state.root, inner), kinds::CONF_EXTERNAL)
+			if is_stdlib_header_path(inner) {
+				let target = sdk_include_target(&state.root, inner);
+				push_include(state, scope, node, target, kinds::CONF_EXTERNAL);
 			} else if let Some(target) =
 				resolved_workspace_include_target(&state.root, inner, false, &state.presets)
 			{
-				(target, kinds::CONF_IMPORTED)
+				push_include(state, scope, node, target, kinds::CONF_IMPORTED);
 			} else {
-				(
-					system_include_target(&state.root, inner),
-					kinds::CONF_EXTERNAL,
-				)
-			};
-			push_include(state, scope, node, target, confidence);
+				push_unresolved_angle_include(state, scope, node, inner);
+			}
 		}
 		"string_literal" => {
 			let inner = text.trim_matches('"');
@@ -53,6 +50,32 @@ pub(super) fn collect_include(state: &mut CDiscover<'_>, node: Node<'_>, scope: 
 		}
 		_ => {}
 	}
+}
+
+fn push_unresolved_angle_include(
+	state: &mut CDiscover<'_>,
+	scope: &Moniker,
+	node: Node<'_>,
+	path: &str,
+) {
+	let declared_external = state
+		.presets
+		.external_include_package
+		.as_deref()
+		.is_some_and(|package| external_package_owns_include(package, path));
+	let mut hints = RefHints::default();
+	if !declared_external {
+		hints.receiver_hint =
+			format!("{}{path}", super::super::UNRESOLVED_ANGLE_INCLUDE).into_bytes();
+	}
+	state.push_ref(ResolvedRef {
+		source: scope.clone(),
+		target: system_include_target(&state.root, path),
+		kind: kinds::IMPORTS_MODULE,
+		position: Some(node_position(node)),
+		confidence: kinds::CONF_EXTERNAL,
+		hints,
+	});
 }
 
 fn push_declared_external_include(

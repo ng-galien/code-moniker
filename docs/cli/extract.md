@@ -39,6 +39,16 @@ The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI p
 
 Unknown extension exits `2`.
 
+For TypeScript and JavaScript, module dependencies include static imports and
+reexports, literal `import()` specifiers, and direct literal `require()` calls
+without a local binding. TypeScript `import()` types and `import = require()`
+also carry module dependencies. A local `const` loader created by Node's
+`createRequire` from `import.meta.url`, its `fileURLToPath` conversion, or an
+unshadowed `__filename` is recognized. The graph records source dependencies
+independently of whether the runtime executes the expression. Computed
+specifiers and arbitrary local functions named `require` have no inferred
+import target.
+
 For PostgreSQL sources, extraction includes schemas, tables, views, columns,
 constraints, triggers, types, functions and procedures. The graph records
 column `uses_type`, foreign-key and trigger `references`, query `reads`,

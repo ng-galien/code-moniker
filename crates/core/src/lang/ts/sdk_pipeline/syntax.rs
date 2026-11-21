@@ -158,17 +158,3 @@ pub(super) fn first_identifier_text<'src>(node: Node<'src>, source: &'src [u8]) 
 		.map(|c| node_slice(c, source))
 		.unwrap_or(b"")
 }
-
-pub(super) fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "string_fragment"
-			&& let Ok(s) = c.utf8_text(source)
-		{
-			return s;
-		}
-	}
-	node.utf8_text(source)
-		.unwrap_or("")
-		.trim_matches(|c| c == '"' || c == '\'' || c == '`')
-}

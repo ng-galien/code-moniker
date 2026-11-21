@@ -157,7 +157,7 @@ target and can optionally execute tests through Wine. That is useful as a
 compile/smoke gate, but the GitHub-hosted Windows VM remains the release
 acceptance environment for process supervision, file locking and path behavior.
 
-## `0.13.0` acceptance checklist
+## `0.14.0` acceptance checklist
 
 The candidate excludes `packages/city-map`: its manifest remains `private: true`,
 and the npm publication workflow explicitly targets only the client and four
@@ -165,20 +165,20 @@ native packages. City Map source can be committed independently without adding
 it to any publication job; generated research captures stay ignored. The
 extension keeps its independent release lane.
 
-Protocol 24 adds the required symbol signature to `diff-impact` responses.
-Consumers using protocol 23 must update before connecting to a new daemon;
-upgrading the CLI alone does not upgrade separately installed extensions.
+The CLI and Node client use daemon protocol 24. Consumers still using
+protocol 23 need a matching client before connecting to the new daemon.
 
 Local tests must skip
 `git_metadata_plan_resolves_linked_worktree_private_and_common_dirs`, which
 creates a Git worktree, to respect this checkout's no-worktree policy. Record
 that exclusion rather than claiming an unqualified full-suite pass.
 
-- [ ] `main` is clean, the four release-gate CI jobs listed above are green,
-      and no `v0.13.0` tag exists.
-- [ ] All workspace crates that are published share version `0.13.0`.
-- [ ] The client and four native npm packages share version `0.13.0`.
-- [ ] `dist plan --tag=v0.13.0` lists exactly the five supported targets,
+- [ ] The candidate commit on `main` contains only the intended release
+      scope. The four release-gate CI jobs are green for that exact commit,
+      and the `v0.14.0` tag is available.
+- [ ] All workspace crates that are published share version `0.14.0`.
+- [ ] The client and four native npm packages share version `0.14.0`.
+- [ ] `dist plan --tag=v0.14.0` lists exactly the five supported targets,
       `code-moniker-installer.sh`, and a `code-moniker` build with `mcp`.
 - [ ] `cargo fmt --all -- --check`
 - [ ] Local: `cargo test --workspace --quiet -- --skip git_metadata_plan_resolves_linked_worktree_private_and_common_dirs --test-threads=1`
@@ -192,17 +192,17 @@ that exclusion rather than claiming an unqualified full-suite pass.
 - [ ] A plain `cargo install code-moniker` exposes `code-moniker mcp --help`.
 - [ ] `agent install --client codex` writes `required = false`, and an
       unavailable Code Moniker MCP does not prevent the agent session opening.
-- [ ] Push `v0.13.0` only after the preceding gates pass.
+- [ ] Push `v0.14.0` only after the preceding gates pass.
 - [ ] Confirm the Windows CI job installs the two npm tarballs in a clean
       consumer and completes the packaged owned-daemon smoke test.
 - [ ] Confirm the Release workflow completes through `announce`, all seven
-      crates exist on crates.io, and all five packages exist on npm at `0.13.0`.
+      crates exist on crates.io, and all five packages exist on npm at `0.14.0`.
 - [ ] On clean macOS, Linux and Windows environments, exercise the direct
-      installer and `cargo binstall code-moniker --version 0.13.0`.
+      installer and `cargo binstall code-moniker --version 0.14.0`.
 - [ ] Run `code-moniker --version`, `code-moniker mcp --help`, and an agent
       skill/MCP install smoke test.
 - [ ] Confirm clean ESM and CommonJS consumers install
-      `@code-moniker/client@0.13.0` and receive the matching native package.
+      `@code-moniker/client@0.14.0` and receive the matching native package.
 - [ ] Verify every archive checksum and GitHub attestation.
 - [ ] Verify `THIRD_PARTY_NOTICES` is present in every cargo-dist archive and
       native npm package.

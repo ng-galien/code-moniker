@@ -6,6 +6,7 @@ use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 mod canonicalize;
 mod defs;
 mod discover;
+mod module_loads;
 mod refs;
 mod syntax;
 
@@ -77,7 +78,7 @@ fn extract_module(
 	let discovered_parts = TsDiscover::run(
 		module.clone(),
 		anchor.clone(),
-		source.as_bytes(),
+		source,
 		deep,
 		presets,
 		document.primary().root_node(),

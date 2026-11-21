@@ -1,10 +1,12 @@
 use code_moniker_core::core::moniker::Segment;
 use code_moniker_core::core::moniker::query::bare_callable_name;
-use code_moniker_core::lang::kinds;
+use code_moniker_core::lang::c::RECOVERED_BODY_SIGNATURE;
+use code_moniker_core::lang::{Lang, kinds};
 
-use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate, SymbolOrdinal, SymbolSet};
 use crate::linkage::language::generic_matches;
+use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
 
 mod includes;
 mod refinement;
@@ -14,6 +16,114 @@ pub(in crate::linkage) use refinement::{
 	classify_c_preprocessor_tokens, classify_c_unindexed_external_dependencies,
 	refine_c_include_visibility,
 };
+
+// Leave the prototype in place when a same-name body lacks a known signature
+// and could therefore also supply the link.
+pub(in crate::linkage) fn definition_for_local_c_prototype(
+	query: &LinkageQuery<'_>,
+	catalog: &CandidateCatalog,
+	groups: &SourceGroupPolicy,
+	local_targets: &SymbolSet,
+) -> Option<SymbolOrdinal> {
+	if query.reference_kind != "calls" || local_targets.len() != 1 {
+		return None;
+	}
+	let source = query.material.files.get(query.source_file)?;
+	if !is_c_translation_unit(source) {
+		return None;
+	}
+	let local = local_targets.iter().next()?;
+	let prototype = catalog.function_linkage(local)?;
+	if !prototype.declaration_only {
+		return None;
+	}
+	let signature = prototype.signature.as_deref()?;
+	if signature.contains(&b' ') {
+		return None;
+	}
+	compatible_definition(query, catalog, groups, signature, false, |_| true)
+}
+
+pub(super) fn definition_for_included_prototype(
+	query: &LinkageQuery<'_>,
+	catalog: &CandidateCatalog,
+	groups: &SourceGroupPolicy,
+	visibility: &CIncludeVisibility,
+	prototype: SymbolOrdinal,
+) -> Option<SymbolOrdinal> {
+	let candidate = catalog.candidate(prototype)?;
+	let header = query.material.files.get(candidate.source_file)?;
+	let linkage = catalog.function_linkage(prototype)?;
+	if !linkage.declaration_only
+		|| candidate.visibility != kinds::VIS_PUBLIC
+		|| header.rel_path.extension().is_none_or(|ext| ext != "h")
+	{
+		return None;
+	}
+	let signature = linkage.signature.as_deref()?;
+	compatible_definition(query, catalog, groups, signature, true, |file| {
+		visibility
+			.topology
+			.directly_includes(file, candidate.source_file)
+	})
+}
+
+fn compatible_definition(
+	query: &LinkageQuery<'_>,
+	catalog: &CandidateCatalog,
+	groups: &SourceGroupPolicy,
+	signature: &[u8],
+	allow_recovered_body: bool,
+	has_provenance: impl Fn(usize) -> bool,
+) -> Option<SymbolOrdinal> {
+	let source = query.material.files.get(query.source_file)?;
+	let name = query.call_name?.as_bytes();
+	let candidates = catalog.indexes().symbols_by_language_key(Lang::C, name)?;
+	let mut definition = None;
+	for symbol in candidates.iter() {
+		let Some(candidate) = catalog.candidate(symbol) else {
+			continue;
+		};
+		let Some(file) = query.material.files.get(candidate.source_file) else {
+			continue;
+		};
+		if candidate.source_file == query.source_file
+			|| candidate.visibility != kinds::VIS_PUBLIC
+			|| candidate
+				.last_segment
+				.is_none_or(|segment| segment.kind != kinds::FUNC)
+			|| candidate.call_name != Some(name)
+			|| file.source_root != source.source_root
+			|| !has_provenance(candidate.source_file)
+			|| groups
+				.link_permission(query.material, query.source_file, candidate.source_file)
+				.is_some_and(|permission| permission != LinkPermission::Allowed)
+		{
+			continue;
+		}
+		let linkage = catalog.function_linkage(symbol)?;
+		if linkage.declaration_only {
+			continue;
+		}
+		let other_signature = linkage.signature.as_deref()?;
+		let other_signature = match other_signature.strip_prefix(&[RECOVERED_BODY_SIGNATURE]) {
+			Some(known) if allow_recovered_body => known,
+			Some(_) => return None,
+			None => other_signature,
+		};
+		if other_signature == signature {
+			if definition.is_some() || !is_c_translation_unit(file) {
+				return None;
+			}
+			definition = Some(symbol);
+		}
+	}
+	definition
+}
+
+fn is_c_translation_unit(file: &crate::source::IndexedSourceFile) -> bool {
+	file.lang == Lang::C && file.rel_path.extension().is_some_and(|ext| ext == "c")
+}
 
 // C translation-unit visibility is recorded as `module` and checked before
 // any generic or program-wide name matching.

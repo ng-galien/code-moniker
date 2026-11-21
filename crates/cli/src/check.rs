@@ -6,6 +6,7 @@
 use std::io::Write;
 use std::path::Path;
 
+use anyhow::Context;
 use check::{
 	CheckRequest, CheckRun, CheckSkipReason, DefaultRulesSelection, FileError, FileReport,
 	RuleSetRequest,
@@ -22,7 +23,13 @@ pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut
 		}
 		return crate::check_scenario::run(scenario, stdout, stderr);
 	}
-	let request = check_request_from_args(args);
+	let request = match check_request_from_args(args, stderr) {
+		Ok(request) => request,
+		Err(error) => {
+			let _ = writeln!(stderr, "code-moniker: {error:#}");
+			return Exit::UsageError;
+		}
+	};
 	match run_request_inner(
 		request,
 		args.format,
@@ -103,19 +110,31 @@ fn run_request_inner<W: Write, E: Write>(
 	Ok(CheckOutcome::from_run(&run))
 }
 
-fn check_request_from_args(args: &CheckArgs) -> CheckRequest {
-	CheckRequest::new(args.path.clone(), ruleset_request_from_args(args))
-		.with_report(args.report)
-		.with_files(args.files.clone())
-}
-
-fn ruleset_request_from_args(args: &CheckArgs) -> RuleSetRequest {
-	RuleSetRequest::with_rules(args.rules.clone(), DEFAULT_SCHEME)
+fn check_request_from_args(
+	args: &CheckArgs,
+	stderr: &mut impl Write,
+) -> anyhow::Result<CheckRequest> {
+	if let Some(explicit) = args.rules.as_deref()
+		&& !explicit
+			.try_exists()
+			.with_context(|| format!("cannot inspect rules file {}", explicit.display()))?
+	{
+		writeln!(
+			stderr,
+			"code-moniker: rules file {} is missing; checking without that file",
+			explicit.display()
+		)?;
+	}
+	let rules = RuleSetRequest::new(args.rules.clone(), DEFAULT_SCHEME)
 		.with_inline_rules(args.rules_inline.clone())
 		.with_default_rules(DefaultRulesSelection::from_override(
 			args.default_rules.map(DefaultRules::enabled),
 		))
-		.with_profile(args.profile.clone())
+		.with_profile(args.profile.clone());
+	CheckRequest::new(args.path.clone(), rules)
+		.with_report(args.report)
+		.with_files(args.files.clone())
+		.with_discovered_project_rules()
 }
 
 fn should_render(format: CheckFormat, run: &CheckRun) -> bool {

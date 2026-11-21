@@ -1,8 +1,9 @@
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use code_moniker_core::core::moniker::query::bare_callable_name;
+use code_moniker_core::core::moniker::{Moniker, query::bare_callable_name};
+use code_moniker_core::core::uri::{UriConfig, from_uri};
 use code_moniker_core::lang::build_manifest::Manifest;
 use code_moniker_core::lang::{Lang, kinds};
 
@@ -56,6 +57,9 @@ impl RebindScope {
 			&graph,
 			impact,
 			&edited_sources,
+		));
+		stale_references.union_with(&references_to_changed_c_prototype_candidates(
+			&bindings, &graph, impact,
 		));
 		stale_references.union_with(&references_resolved_to_retargeted_targets(
 			&bindings,
@@ -238,6 +242,68 @@ fn references_matching_changed_definitions(
 		return references_matching_symbols(bindings, graph, &symbols);
 	}
 	references_matching_definitions_in_files(bindings, graph, &edited_sources.files)
+}
+
+// An unselected C body may prevent a local or included prototype from having
+// a unique definition. Recheck direct same-name calls when a body disappears.
+fn references_to_changed_c_prototype_candidates(
+	bindings: &BindingReadModel<'_>,
+	graph: &EditedGraph<'_>,
+	impact: &LinkageRefreshImpact,
+) -> ReferenceSet {
+	let mut names = FxHashSet::default();
+	for symbol in impact.definitions().changed_ids() {
+		if let Some(name) = graph
+			.material
+			.symbol_moniker(symbol)
+			.and_then(c_function_name)
+		{
+			names.insert(name.to_vec());
+		}
+	}
+	let uri = UriConfig {
+		scheme: graph.material.identity.scheme(),
+	};
+	for identity in impact.definitions().retargeted_identities() {
+		if let Ok(moniker) = from_uri(identity, &uri)
+			&& let Some(name) = c_function_name(&moniker)
+		{
+			names.insert(name.to_vec());
+		}
+	}
+	let mut stale = ReferenceSet::new();
+	for name in names {
+		let Some(references) = bindings.store.indexes.references_by_call_name.get(&name) else {
+			continue;
+		};
+		for reference in references.iter() {
+			let Some(query) = query_for_reference(graph, reference) else {
+				continue;
+			};
+			if query.reference_kind == "calls"
+				&& query
+					.target_last
+					.is_some_and(|segment| segment.kind == kinds::FUNC)
+				&& graph
+					.material
+					.files
+					.get(query.source_file)
+					.is_some_and(|file| file.lang == Lang::C)
+			{
+				stale.insert(reference);
+			}
+		}
+	}
+	stale
+}
+
+fn c_function_name(moniker: &Moniker) -> Option<&[u8]> {
+	let mut segments = moniker.as_view().segments();
+	if !segments.any(|segment| segment.kind == kinds::LANG && segment.name == b"c") {
+		return None;
+	}
+	let last = segments.last()?;
+	(last.kind == kinds::FUNC).then(|| bare_callable_name(last.name))
 }
 
 fn references_resolved_to_retargeted_targets(

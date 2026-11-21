@@ -73,12 +73,6 @@ impl ReferenceSet {
 		}
 	}
 
-	pub(crate) fn difference(&self, other: &Self) -> Self {
-		let mut result = self.clone();
-		result.remove_all(other);
-		result
-	}
-
 	pub(crate) fn iter(&self) -> impl Iterator<Item = ReferenceOrdinal> + '_ {
 		self.bitmap.iter().map(ReferenceOrdinal)
 	}

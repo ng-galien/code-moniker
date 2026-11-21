@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+use anyhow::Context;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::lang::{Lang, ParsedDocument};
 use code_moniker_workspace::code::{LocalCodeIndex, LocalCodeIndexOptions};
@@ -712,6 +713,36 @@ impl CheckRequest {
 			report: false,
 			files: Vec::new(),
 		}
+	}
+
+	/// Discover the canonical rules of a filesystem target without changing its scan scope.
+	pub fn with_discovered_project_rules(mut self) -> anyhow::Result<Self> {
+		let target = self
+			.path
+			.canonicalize()
+			.with_context(|| format!("cannot resolve check target {}", self.path.display()))?;
+		let scope = if target.is_dir() {
+			target.as_path()
+		} else {
+			target.parent().context("check target has no parent")?
+		};
+		self.rules.project_root = Some(scope.to_path_buf());
+		for root in scope.ancestors() {
+			let rules = root.join(environment::PROJECT_CONFIG_FILE);
+			if rules
+				.try_exists()
+				.with_context(|| format!("cannot inspect rules file {}", rules.display()))?
+			{
+				self.rules.project_root = Some(root.to_path_buf());
+				self.rules.rules.get_or_insert(rules);
+				break;
+			}
+			if root.join(".git").try_exists()? {
+				self.rules.project_root = Some(root.to_path_buf());
+				break;
+			}
+		}
+		Ok(self)
 	}
 
 	pub fn with_report(mut self, report: bool) -> Self {

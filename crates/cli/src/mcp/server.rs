@@ -195,9 +195,9 @@ fn server_instructions(workspace: &str) -> String {
 			"Code Moniker exposes indexed symbols and relationships for roots: ",
 			"{workspace}. Use it for targeted structural exploration when callers, ",
 			"callees, coupling, ownership or change impact add value; ordinary known-file ",
-			"and exact-string work does not require it. Verify expected_roots once before ",
-			"the first workspace-wide exploration, after reconnect or when roots change, ",
-			"not before every call. Prefer narrow compact calls with small budgets, stop ",
+			"and exact-string work does not require it. Pass the absolute expected_roots ",
+			"on each code_moniker_read call for uri=workspace, including continuations. ",
+			"Prefer narrow compact calls with small budgets, stop ",
 			"when the question is answered, and never guess a moniker. Do not repeat an ",
 			"MCP exploration through the CLI or raw daemon."
 		),
@@ -336,7 +336,8 @@ mod tests {
 		let instructions = server_instructions("/workspace");
 
 		assert!(instructions.len() < 800, "{}", instructions.len());
-		assert!(instructions.contains("Verify expected_roots once"));
+		assert!(instructions.contains("absolute expected_roots"));
+		assert!(instructions.contains("each code_moniker_read call for uri=workspace"));
 		assert!(!instructions.contains("Start every session"));
 		assert!(instructions.contains("known-file"));
 	}

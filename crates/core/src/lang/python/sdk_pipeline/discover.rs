@@ -2192,7 +2192,7 @@ fn resolve_identifier_read(
 		(extend_segment(scope, kinds::LOCAL, name), confidence)
 	} else if let Some(import_target) = discover.imports.target_for(scope, &discover.module, name) {
 		(import_target, confidence)
-	} else if let Some(type_target) = resolved_type.clone() {
+	} else if let Some(type_target) = resolved_type {
 		(type_target, kinds::CONF_RESOLVED)
 	} else if let Some(callable_target) = lookup_module_callable(discover, name) {
 		(callable_target, kinds::CONF_RESOLVED)

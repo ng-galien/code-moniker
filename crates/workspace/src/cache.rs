@@ -16,7 +16,7 @@ use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
 // Bump when cached graph semantics change, even if the binary layout stays stable.
-const CACHE_FORMAT_VERSION: u32 = 9;
+const CACHE_FORMAT_VERSION: u32 = 11;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
@@ -302,6 +302,9 @@ fn hash_context(ctx: &extract::Context, path: &Path) -> u64 {
 	let sdk_profile = ctx.ts.sdk_profile_for(path);
 	code_moniker_core::lang::ts::TsSdkProfile::catalog_digest().hash(&mut h);
 	sdk_profile.libraries().hash(&mut h);
+	if matches!(crate::lang::path_to_lang(path), Ok(Lang::C)) {
+		crate::sources::hash_include_configuration(&ctx.c, &mut h);
+	}
 	h.finish()
 }
 
@@ -337,6 +340,24 @@ mod tests {
 		store(tmp.path(), &key, &g);
 		let back = load(tmp.path(), &key).expect("should hit");
 		assert_eq!(back.def_count(), g.def_count());
+	}
+
+	#[test]
+	fn c_cache_key_tracks_explicit_include_configuration() {
+		let tmp = tempfile::tempdir().unwrap();
+		let root = tmp.path();
+		let path = root.join("main.c");
+		let anchor = Path::new("main.c");
+		std::fs::write(&path, "#include <demo.h>\n").unwrap();
+		std::fs::create_dir(root.join("headers")).unwrap();
+		let context = |root: &Path| extract::Context {
+			c: crate::sources::CBuildContext::load(root),
+			..Default::default()
+		};
+		let before = CacheKey::from_path_with_context(&path, anchor, &context(root)).unwrap();
+		std::fs::write(root.join("Makefile"), "CPPFLAGS += -I headers\n").unwrap();
+		let after = CacheKey::from_path_with_context(&path, anchor, &context(root)).unwrap();
+		assert_ne!(before.context_hash, after.context_hash);
 	}
 
 	#[test]

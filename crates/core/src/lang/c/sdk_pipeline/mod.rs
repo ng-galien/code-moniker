@@ -1,4 +1,4 @@
-use crate::core::code_graph::CodeGraph;
+use crate::core::code_graph::{CodeGraph, FunctionLinkage};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::ParsedDocument;
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
@@ -6,12 +6,13 @@ use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 mod builtins;
 mod defs;
 mod discover;
+mod function_linkage;
 mod imports;
 mod refs;
 mod syntax;
 mod type_resolution;
 
-use discover::CDiscover;
+use discover::discover_file;
 
 use super::Presets;
 use super::kinds;
@@ -25,7 +26,7 @@ pub fn extract(
 	presets: &Presets,
 ) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
-	let discovered_parts = CDiscover::run(
+	let discovered_parts = discover_file(
 		module.clone(),
 		source.as_bytes(),
 		deep,
@@ -39,8 +40,10 @@ pub fn extract(
 		ScopeTree::new(discovered_parts.root),
 		ImportTable::default(),
 	);
-	GraphEmitter::emit(&discovered, &discovered_parts.refs)
-		.unwrap_or_else(|err| panic!("C SDK graph emission failed: {err}"))
+	let mut graph = GraphEmitter::emit(&discovered, &discovered_parts.refs)
+		.unwrap_or_else(|err| panic!("C SDK graph emission failed: {err}"));
+	FunctionLinkage::record_in_graph(&mut graph, discovered_parts.function_linkage);
+	graph
 }
 
 // `.c` files drop their extension; headers keep `.h` in the module name so a

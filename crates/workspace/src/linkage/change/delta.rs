@@ -108,6 +108,9 @@ pub(in crate::linkage) fn changes_c_include_topology(
 	impact: &LinkageRefreshImpact,
 	material: &CodeIndexMaterial,
 ) -> bool {
+	if changes_header_membership(impact, material) {
+		return true;
+	}
 	let changed_c_path = impact
 		.changed_paths
 		.iter()
@@ -134,6 +137,35 @@ pub(in crate::linkage) fn changes_c_include_topology(
 					== code_moniker_core::lang::kinds::IMPORTS_MODULE
 		})
 	})
+}
+
+fn changes_header_membership(impact: &LinkageRefreshImpact, material: &CodeIndexMaterial) -> bool {
+	fn header_root(moniker: &code_moniker_core::core::moniker::Moniker) -> bool {
+		let mut segments = moniker.as_view().segments();
+		segments.any(|part| part.kind == b"lang" && part.name == b"c")
+			&& segments
+				.last()
+				.is_some_and(|part| part.kind == b"module" && part.name.ends_with(b".h"))
+	}
+	if impact
+		.definitions()
+		.changed_ids()
+		.iter()
+		.any(|id| id.def() == 0 && material.symbol_moniker(id).is_some_and(header_root))
+	{
+		return true;
+	}
+	let uri = code_moniker_core::core::uri::UriConfig {
+		scheme: material.identity.scheme(),
+	};
+	impact
+		.definitions()
+		.retargeted_identities()
+		.iter()
+		.any(|identity| {
+			code_moniker_core::core::uri::from_uri(identity, &uri)
+				.is_ok_and(|moniker| header_root(&moniker))
+		})
 }
 
 fn is_c_family_path(path: &std::path::Path) -> bool {

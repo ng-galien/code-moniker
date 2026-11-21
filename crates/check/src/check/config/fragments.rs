@@ -645,7 +645,7 @@ fn validate_alias_boundaries(
 	for alias in &fragment.local_aliases {
 		if alias_origins.contains_key(alias) {
 			return Err(ConfigError::FragmentAliasShadowsExisting {
-				path: path.clone(),
+				path,
 				fragment: fragment.id.clone(),
 				alias: alias.clone(),
 			});
@@ -655,7 +655,7 @@ fn validate_alias_boundaries(
 		if let Some(existing) = alias_origins.get(alias) {
 			return Err(ConfigError::FragmentAliasCollision {
 				alias: alias.clone(),
-				path: path.clone(),
+				path,
 				existing: existing.clone(),
 			});
 		}

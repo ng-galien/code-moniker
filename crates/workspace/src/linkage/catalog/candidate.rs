@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use code_moniker_core::core::code_graph::DefRecord;
+use code_moniker_core::core::code_graph::{DefRecord, FunctionLinkage};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::Lang;
@@ -101,6 +101,15 @@ impl CandidateCatalog {
 		Some(candidate(file_idx as usize, def))
 	}
 
+	pub(in crate::linkage) fn function_linkage(
+		&self,
+		symbol: SymbolOrdinal,
+	) -> Option<&FunctionLinkage> {
+		let (file_idx, def_idx) = self.locations.get(&symbol)?;
+		let graph = &self.files.get(*file_idx as usize)?.file.graph;
+		FunctionLinkage::for_definition(graph, *def_idx as usize)
+	}
+
 	pub(in crate::linkage) fn query_keys_for_symbol(
 		&self,
 		symbol: SymbolOrdinal,
@@ -127,6 +136,7 @@ pub(in crate::linkage) struct CandidateIndexes {
 	by_moniker: FxHashMap<Moniker, SymbolOrdinal>,
 	by_language_name: FxHashMap<Lang, NameIndex>,
 	by_source_name: FxHashMap<usize, NameIndex>,
+	c_lexical_by_name: NameIndex,
 }
 
 impl CandidateIndexes {
@@ -135,6 +145,7 @@ impl CandidateIndexes {
 			by_moniker: FxHashMap::default(),
 			by_language_name: FxHashMap::default(),
 			by_source_name: FxHashMap::default(),
+			c_lexical_by_name: FxHashMap::default(),
 		}
 	}
 
@@ -149,6 +160,8 @@ impl CandidateIndexes {
 		for key in candidate_keys(candidate) {
 			if is_global_candidate(candidate) {
 				insert_partitioned_name(&mut self.by_language_name, lang, &key, symbol);
+			} else if lang == Lang::C {
+				insert_name(&mut self.c_lexical_by_name, &key, symbol);
 			}
 			insert_partitioned_name(
 				&mut self.by_source_name,
@@ -176,6 +189,8 @@ impl CandidateIndexes {
 		for key in candidate_keys(entry) {
 			if is_global_candidate(entry) {
 				remove_partitioned_name(&mut self.by_language_name, language, &key, ordinal);
+			} else if language == Lang::C {
+				remove_name(&mut self.c_lexical_by_name, &key, ordinal);
 			}
 			remove_partitioned_name(&mut self.by_source_name, entry.source_file, &key, ordinal);
 		}
@@ -208,6 +223,10 @@ impl CandidateIndexes {
 		key: &[u8],
 	) -> Option<&SymbolSet> {
 		self.by_source_name.get(&source_file)?.get(key)
+	}
+
+	pub(in crate::linkage) fn c_lexical_symbols_by_key(&self, key: &[u8]) -> Option<&SymbolSet> {
+		self.c_lexical_by_name.get(key)
 	}
 }
 

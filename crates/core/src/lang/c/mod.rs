@@ -22,6 +22,12 @@ pub struct Presets {
 	pub external_include_package: Option<String>,
 }
 
+/// A literal angle include not resolved by the file's extraction context.
+pub const UNRESOLVED_ANGLE_INCLUDE: &str = "c_angle_include:";
+
+/// A recovered body requires a shared header declaration for linkage.
+pub const RECOVERED_BODY_SIGNATURE: u8 = 0;
+
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
 	let language: Language = tree_sitter_c::LANGUAGE.into();

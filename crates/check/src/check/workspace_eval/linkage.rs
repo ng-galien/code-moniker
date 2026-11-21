@@ -34,9 +34,6 @@ pub(super) fn evaluate_linkage_rules(
 			min_coverage: compiled.min_linkage_coverage,
 		};
 		let outcome = eval_node(&rule.root, &context, &mut coverage, &mut atom_cache);
-		evaluation
-			.violation_sets
-			.insert(rule.rule_id.clone(), outcome.fail.clone());
 		append_violations(evaluation, &index.inventory, rule, &outcome.fail);
 		if report {
 			let match_counts = rule_match_counts(&rule.root, &outcome, &context, &mut atom_cache);
@@ -49,6 +46,9 @@ pub(super) fn evaluate_linkage_rules(
 				compiled.min_linkage_coverage,
 			));
 		}
+		evaluation
+			.violation_sets
+			.insert(rule.rule_id.clone(), outcome.fail);
 	}
 }
 
@@ -150,7 +150,7 @@ fn rule_match_counts(
 	let mut ignored_coverage = CoverageCounts::default();
 	let antecedent = eval_node(antecedent, context, &mut ignored_coverage, atom_cache);
 	RuleMatchCounts {
-		matches: outcome.pass.intersection(&antecedent.pass).len(),
+		matches: outcome.pass.intersection_len(&antecedent.pass),
 		antecedent_matches: Some(antecedent.pass.len()),
 	}
 }

@@ -59,6 +59,168 @@ fn assert_external_origins_match_target_regime(snapshot: &WorkspaceSnapshot) {
 }
 
 #[test]
+fn c_prototype_relinks_when_an_external_definition_appears_changes_or_disappears() {
+	let temp = tempfile::tempdir().unwrap();
+	let root = temp.path();
+	let first = root.join("provider.c");
+	let alternative = root.join("alternative.c");
+	let prototype = "int target(int x);\n";
+	let body = "int target(int x) { return x; }\n";
+	std::fs::write(
+		root.join("consumer.c"),
+		"int target(int x);\nint run(int x) { return target(x); }\n",
+	)
+	.unwrap();
+	std::fs::write(&first, prototype).unwrap();
+	std::fs::write(&alternative, "/* separate translation unit */\n").unwrap();
+	let cache = root.join("cache");
+	let options =
+		LocalWorkspaceOptions::new(vec![root.to_path_buf()], None).with_cache_dir(Some(cache));
+	let mut workspace = LocalWorkspaceRegistry::local(options.clone());
+	let request = || WorkspaceRequest::new("c-local-prototype");
+	let initial = workspace.commands().refresh(request());
+	assert!(matches!(
+		initial,
+		code_moniker_workspace::snapshot::WorkspaceTransition::Ready { .. }
+	));
+	let assert_calls = |workspace: &LocalWorkspaceRegistry, expected: &str| {
+		assert_linked_once_to(
+			workspace.queries().snapshot().unwrap(),
+			"calls",
+			"module:consumer/func:target",
+			expected,
+		);
+	};
+	assert_calls(&workspace, "module:consumer/func:target");
+
+	let edit = |workspace: &mut LocalWorkspaceRegistry, path: &Path, content: &str| {
+		std::fs::write(path, content).unwrap();
+		let transition = workspace
+			.commands()
+			.refresh_paths(request(), vec![path.to_path_buf()]);
+		assert!(
+			matches!(
+				transition,
+				code_moniker_workspace::snapshot::WorkspaceTransition::Ready { .. }
+			),
+			"{transition:?}"
+		);
+	};
+	edit(&mut workspace, &first, body);
+	assert_calls(&workspace, "module:provider/func:target");
+	edit(&mut workspace, &alternative, body);
+	assert_calls(&workspace, "module:consumer/func:target");
+	edit(&mut workspace, &alternative, "/* body removed */\n");
+	assert_calls(&workspace, "module:provider/func:target");
+	edit(&mut workspace, &first, prototype);
+	assert_calls(&workspace, "module:consumer/func:target");
+	edit(&mut workspace, &first, &format!("{prototype}{body}"));
+	assert_calls(&workspace, "module:provider/func:target");
+
+	let mut from_cache = LocalWorkspaceRegistry::local(options);
+	let transition = from_cache.commands().refresh(request());
+	assert!(matches!(
+		transition,
+		code_moniker_workspace::snapshot::WorkspaceTransition::Ready { .. }
+	));
+	assert_calls(&from_cache, "module:provider/func:target");
+}
+
+#[test]
+fn c_angle_header_and_prototype_links_follow_workspace_refresh_and_cache() {
+	use code_moniker_workspace::snapshot::WorkspaceTransition;
+
+	let temp = tempfile::tempdir().unwrap();
+	let root = temp.path();
+	let client = root.join("client.c");
+	let implementation = root.join("implementation.c");
+	let header = root.join("include/demo/dispatch.h");
+	std::fs::create_dir_all(header.parent().unwrap()).unwrap();
+	let call = "int run(int x) { return step(x) + external(x); }\n";
+	let include = "#include <demo/dispatch.h>\n";
+	let common = "#ifndef DEMO_H\n#define DEMO_H\nint external(int x);\nstatic inline int step(int x) { return x + 1; }\n#endif\n";
+	let with_body = format!("{include}int external(int value) {{ return value; }}\n");
+	std::fs::write(&client, format!("{include}{call}")).unwrap();
+	std::fs::write(&implementation, &with_body).unwrap();
+	let options = LocalWorkspaceOptions::new(vec![root.to_path_buf()], None)
+		.with_cache_dir(Some(root.join(".cache")));
+	let mut workspace = LocalWorkspaceRegistry::local(options.clone());
+	let request = || WorkspaceRequest::new("c-angle-refresh");
+	assert!(matches!(
+		workspace.commands().refresh(request()),
+		WorkspaceTransition::Ready { .. }
+	));
+
+	let refresh = |workspace: &mut LocalWorkspaceRegistry, path: &Path| {
+		let transition = workspace
+			.commands()
+			.refresh_paths(request(), vec![path.to_path_buf()]);
+		assert!(
+			matches!(transition, WorkspaceTransition::Ready { .. }),
+			"{transition:?}"
+		);
+	};
+	let assert_target = |workspace: &LocalWorkspaceRegistry, name: &str, target: Option<&str>| {
+		let snapshot = workspace.queries().snapshot().unwrap();
+		let raw = format!("module:client/func:{name}");
+		if let Some(target) = target {
+			assert_linked_once_to(snapshot, "calls", &raw, target);
+		} else {
+			let reference = find_reference(snapshot, "calls", &raw).unwrap();
+			assert!(
+				linked_symbol_identities(snapshot, reference).is_empty(),
+				"{name}"
+			);
+		}
+	};
+
+	assert_target(&workspace, "step", None);
+	std::fs::write(&header, common).unwrap();
+	refresh(&mut workspace, &header);
+	assert_target(&workspace, "step", Some("module:dispatch.h/func:step"));
+	assert_target(
+		&workspace,
+		"external",
+		Some("module:implementation/func:external"),
+	);
+
+	std::fs::write(
+		&implementation,
+		format!("{include}/* body unavailable */\n"),
+	)
+	.unwrap();
+	refresh(&mut workspace, &implementation);
+	assert_target(
+		&workspace,
+		"external",
+		Some("module:dispatch.h/func:external"),
+	);
+	std::fs::write(&implementation, with_body).unwrap();
+	refresh(&mut workspace, &implementation);
+	assert_target(
+		&workspace,
+		"external",
+		Some("module:implementation/func:external"),
+	);
+
+	std::fs::write(&client, call).unwrap();
+	refresh(&mut workspace, &client);
+	assert_target(&workspace, "step", None);
+	std::fs::write(&client, format!("{include}{call}")).unwrap();
+	refresh(&mut workspace, &client);
+	assert_target(&workspace, "step", Some("module:dispatch.h/func:step"));
+	std::fs::remove_file(&header).unwrap();
+	refresh(&mut workspace, &header);
+	assert_target(&workspace, "step", None);
+	let mut reloaded = LocalWorkspaceRegistry::local(options);
+	assert!(matches!(
+		reloaded.commands().refresh(request()),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert_target(&reloaded, "step", None);
+}
+
+#[test]
 fn rust_multiproject_links_public_cross_crate_symbols() {
 	let snapshot = load_workspace("projects/rust/multiproject");
 

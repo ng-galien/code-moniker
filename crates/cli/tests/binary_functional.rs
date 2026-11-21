@@ -286,22 +286,24 @@ fn binary_check_reports_text_json_and_usage_errors() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	let clean = write_file(dir.path(), "clean.ts", "class GoodName {}\n");
 	let bad = write_file(dir.path(), "bad.ts", "class lower_case_class {}\n");
+	let missing_rules = dir.path().join("missing-rules.toml");
+	let warning = format!("rules file {} is missing", missing_rules.display());
 
 	let out = run([
 		"check".as_ref(),
 		clean.as_os_str(),
 		"--rules".as_ref(),
-		"/no/such/file.toml".as_ref(),
+		missing_rules.as_os_str(),
 	]);
 	assert_code(&out, 0);
 	assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
-	assert!(out.stderr.is_empty(), "stderr: {}", out.stderr);
+	assert!(out.stderr.contains(&warning), "stderr: {}", out.stderr);
 
 	let out = run([
 		"check".as_ref(),
 		bad.as_os_str(),
 		"--rules".as_ref(),
-		"/no/such/file.toml".as_ref(),
+		missing_rules.as_os_str(),
 	]);
 	assert_code(&out, 1);
 	assert!(
@@ -310,16 +312,18 @@ fn binary_check_reports_text_json_and_usage_errors() {
 		out.stdout
 	);
 	assert!(out.stdout.contains("L1-L1"), "{}", out.stdout);
+	assert!(out.stderr.contains(&warning), "stderr: {}", out.stderr);
 
 	let out = run([
 		"check".as_ref(),
 		bad.as_os_str(),
 		"--rules".as_ref(),
-		"/no/such/file.toml".as_ref(),
+		missing_rules.as_os_str(),
 		"--format".as_ref(),
 		"json".as_ref(),
 	]);
 	assert_code(&out, 1);
+	assert!(out.stderr.contains(&warning), "stderr: {}", out.stderr);
 	let json: serde_json::Value = serde_json::from_str(&out.stdout).expect("check JSON");
 	assert_eq!(json["summary"]["files_scanned"], 1);
 	assert_eq!(json["summary"]["files_with_violations"], 1);

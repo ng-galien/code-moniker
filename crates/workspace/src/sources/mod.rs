@@ -18,6 +18,7 @@ use crate::walk::{self, WalkedFile};
 mod c;
 
 pub use c::CBuildContext;
+pub(crate) use c::{conventional_include, hash_include_configuration};
 
 #[derive(Clone, Debug)]
 pub struct SourceSet {
@@ -216,14 +217,27 @@ pub fn discover_files(
 		));
 	};
 	let abs_root = normalize_absolute(&scope.root.path)?;
+	let canonical_root = abs_root.canonicalize()?;
 	let mut ignore = walk::workspace_ignore_matcher(&abs_root);
 	let mut source_files = Vec::new();
 	let mut seen = HashSet::new();
 	for file in files {
-		for path in filter_file_candidates(&scope.root.path, file) {
-			let abs_path = normalize_absolute(&path)?;
-			if !abs_path.starts_with(&abs_root) {
+		for mut path in filter_file_candidates(&scope.root.path, file) {
+			let mut abs_path = normalize_absolute(&path)?;
+			let Ok(physical) = path.canonicalize() else {
 				continue;
+			};
+			let Ok(relative) = physical.strip_prefix(&canonical_root) else {
+				continue;
+			};
+			if !abs_path.starts_with(&abs_root) {
+				if !file.is_absolute()
+					|| !std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file())
+				{
+					continue;
+				}
+				path = scope.root.path.join(relative);
+				abs_path = abs_root.join(relative);
 			}
 			if seen.contains(&abs_path) {
 				break;
@@ -333,19 +347,19 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 	if lang == code_moniker_core::lang::Lang::C && !root.ctx.c.should_index_as_c(&abs) {
 		return None;
 	}
-	let rel = abs.strip_prefix(&root_path).ok()?.to_path_buf();
-	let rel_path = portable_path_buf(&if sources.multi {
-		PathBuf::from(&root.label).join(&rel)
+	let rel = abs.strip_prefix(&root_path).ok()?;
+	let rel_path = if sources.multi {
+		portable_path_buf(&PathBuf::from(&root.label).join(rel))
 	} else {
-		rel.clone()
-	});
-	let anchor = portable_path_buf(&if sources.multi {
+		portable_path_buf(rel)
+	};
+	let anchor = if sources.multi {
 		rel_path.clone()
 	} else if root_path.is_dir() {
-		anchor_with_source_context(&root_path, &rel)
+		portable_path_buf(&anchor_with_source_context(&root_path, rel))
 	} else {
-		abs.clone()
-	});
+		portable_path_buf(&abs)
+	};
 	let (source_group, srcset) = configured_source_membership(root, &abs);
 	let ctx = extraction_context_with_srcset(&root.ctx, srcset.as_deref());
 	let root_moniker = extract::source_root(lang, &anchor, &ctx);
@@ -387,19 +401,19 @@ fn canonical_root_path(root: &Path) -> Option<PathBuf> {
 fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool) -> SourceFile {
 	let root = normalize_absolute(&scope.root.path).unwrap_or_else(|_| scope.root.path.clone());
 	let path = normalize_absolute(&walked.path).unwrap_or_else(|_| walked.path.clone());
-	let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
-	let rel_path = portable_path_buf(&if multi {
-		PathBuf::from(&scope.root.label).join(&rel)
+	let rel = path.strip_prefix(&root).unwrap_or(&path);
+	let rel_path = if multi {
+		portable_path_buf(&PathBuf::from(&scope.root.label).join(rel))
 	} else {
-		rel.clone()
-	});
-	let anchor = portable_path_buf(&if multi {
+		portable_path_buf(rel)
+	};
+	let anchor = if multi {
 		rel_path.clone()
 	} else if scope.root_is_dir {
-		anchor_with_source_context(&root, &rel)
+		portable_path_buf(&anchor_with_source_context(&root, rel))
 	} else {
-		walked.path.clone()
-	});
+		portable_path_buf(&walked.path)
+	};
 	let (source_group, srcset) = configured_source_membership(&scope.root, &path);
 	let ctx = extraction_context_with_srcset(&scope.root.ctx, srcset.as_deref());
 	let root_moniker = extract::source_root(walked.lang, &anchor, &ctx);

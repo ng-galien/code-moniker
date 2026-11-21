@@ -24,7 +24,7 @@ default_rules = false
 [aliases]
 component_src = "moniker ~ '**/dir:components/**'"
 hook_src = "moniker ~ '**/dir:hooks/**'"
-src_entry = "source ~ '**/dir:src/module:/^(main|index|client|entry)$' OR source ~ '**/dir:src/module:/^(main|index|client|entry)$/**'"
+src_entry = "source ~ '**/dir:src/module:/^(main|index|client|entry)$/**'"
 tgt_react_dom_client = "target ~ '**/external_pkg:react-dom/path:client/**'"
 
 [[jsx.function.where]]

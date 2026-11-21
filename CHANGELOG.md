@@ -11,6 +11,41 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.14.0]
+
+### Added
+
+- TypeScript and JavaScript dependency rules detect static module specifiers
+  in dynamic imports, import types, CommonJS `require`, and recognized Node.js
+  `createRequire` loaders. Scope information distinguishes real module
+  loaders from shadowed bindings.
+- C linkage resolves project headers under `include/` and connects visible
+  prototypes to a unique compatible body with header provenance. Competing
+  bodies and macros retain their existing resolution rules.
+
+### Fixed
+
+- `check` discovers project rules relative to the scan target, including
+  when run from a parent directory. A missing explicit `--rules` file
+  produces a warning.
+- Moniker rule patterns support segment wildcards and backtick-quoted names
+  such as scoped npm packages with a slash.
+- TypeScript and JavaScript extraction recognizes assigned arrow functions
+  and nested callbacks. Query parsing preserves escaped multiline syntax
+  source, and MCP syntax tree reads in JSON honor the requested node limit.
+
+### Performance
+
+- C linkage shares include visibility across files and uses indexed candidate
+  lookups. Workspace refresh and graph queries avoid unnecessary copies and
+  temporary sets.
+
+### Release scope
+
+- The seven Rust crates and five npm packages share version `0.14.0`.
+  The daemon protocol remains at 24. The VS Code extension follows its own
+  release schedule.
+
 ## [0.13.0] - 2026-09-25
 
 ### Added

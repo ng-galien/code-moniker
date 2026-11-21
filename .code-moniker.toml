@@ -120,7 +120,22 @@ presentation_at_mcp_output_selector = "kind = 'method' AND parent.name = 'ToolRe
 presentation_at_mcp_output_profile = "kind = 'method' AND parent.name = 'AgentOutputOptions' AND name = 'for_format'"
 mcp_call_result_boundary = "kind = 'fn' AND name = 'call_result' AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:server/**'"
 presentation_at_mcp_tool_execution = "kind = 'fn' AND name =~ ^execute_tool AND uri ~ '**/module:mcp/module:tools/**'"
-presentation_at_mcp_plain_output_call = "kind = 'calls' AND target ~ '**/module:mcp/module:tools/struct:ToolResult/method:success**'"
+presentation_at_mcp_plain_output_call = """
+  kind = 'calls' AND (
+    target ~ '**/module:mcp/module:tools/struct:ToolResult/method:success*'
+    OR target ~ '**/module:mcp/module:tools/path:ToolResult/path:success'
+  )
+"""
+presentation_at_mcp_template_render_call = """
+  kind = 'calls' AND (
+    target ~ '**/module:presentation/struct:TemplateOutput/method:render*'
+    OR target ~ '**/module:presentation/path:TemplateOutput/path:render'
+  )
+"""
+presentation_at_mcp_render_helper_call = """
+  kind = 'method_call'
+  AND target ~ '**/module:mcp/module:tools/struct:ToolResult/method:into_agent_text*'
+"""
 mcp_refresh_caller = "source ~ '**/module:mcp/module:tools/module:refresh/**'"
 presentation_moniker_filter = "kind = 'fn' AND name =~ ^compact_presentation_uri AND moniker ~ '**/dir:crates/dir:cli/dir:src/module:presentation/**'"
 presentation_shared_compact_identity = "kind = 'fn' AND name =~ ^compact_identity AND uri ~ '**/dir:crates/dir:workspace/dir:src/module:code/module:symbols/**'"
@@ -503,12 +518,20 @@ the same template engine and Markdown contract rather than maintain unrelated st
 [[refs.where]]
 id        = "presentation@mcp-call-flow-renders-template-output-only-at-finalizer"
 severity  = "error"
-expr      = "NOT ($rust_production_source AND source ~ '**/module:mcp/module:tools/**' AND kind = 'calls' AND target ~ '**/module:presentation/struct:TemplateOutput/method:render**') OR source.name =~ ^finalize"
-message   = "MCP tools must return `TemplateOutput`; only `OutputContract::finalize` may render it."
+expr      = """
+  $rust_production_source AND source ~ '**/module:mcp/module:tools/**' => (
+    (NOT $presentation_at_mcp_template_render_call
+      OR source ~ '**/module:mcp/module:tools/struct:ToolResult/method:into_agent_text*'
+      OR source ~ '**/module:mcp/module:tools/enum:OutputContract/method:finalize*')
+    AND (NOT $presentation_at_mcp_render_helper_call
+      OR source ~ '**/module:mcp/module:tools/enum:OutputContract/method:finalize*')
+  )
+"""
+message   = "MCP tools must return `TemplateOutput` for rendering through `OutputContract::finalize`."
 rationale = """
-Lazy rendering keeps compact URI options and runtime metadata at the shared output boundary
-while leaving result volume in the tool projection. Direct tool rendering would split that
-call flow and make output behavior depend on the individual tool.
+Lazy rendering keeps compact URI options and runtime metadata at the shared output boundary.
+The finalizer can use its `ToolResult::into_agent_text` helper. Individual tools return
+typed output and leave rendering to that shared boundary.
 """
 
 [[refs.where]]
@@ -911,7 +934,12 @@ rationale = "A fragment-specific interpretation would recreate a second partial 
 [[refs.where]]
 id        = "source-group-config-has-one-loader"
 severity  = "error"
-expr      = "NOT ($rust_production_source AND kind = 'calls' AND target ~ '**/struct:DeclaredSourceGroups/method:load*') OR source.name = 'discover_scopes'"
+expr      = """
+  $rust_production_source AND kind = 'calls' AND (
+    target ~ '**/module:source_group/struct:DeclaredSourceGroups/method:load*'
+    OR target ~ '**/module:source_group/path:DeclaredSourceGroups/path:load'
+  ) => source.name = 'discover_scopes'
+"""
 message   = "Only source discovery may load declared source groups from workspace configuration."
 rationale = "Discovery records the classification on each source file; extraction and linkage must consume that record rather than reparsing configuration."
 

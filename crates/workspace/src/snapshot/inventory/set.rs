@@ -34,6 +34,11 @@ impl SymbolSet {
 		!self.bitmap.is_disjoint(&other.bitmap)
 	}
 
+	pub fn intersection_len(&self, other: &Self) -> usize {
+		usize::try_from(self.bitmap.intersection_len(&other.bitmap))
+			.expect("symbol set intersection length exceeds usize")
+	}
+
 	pub fn union_len(&self, other: &Self) -> usize {
 		let len = self.bitmap.union_len(&other.bitmap);
 		assert!(

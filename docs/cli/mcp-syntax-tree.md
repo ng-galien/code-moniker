@@ -67,7 +67,7 @@ smallest matching declaration.
 | `language` | string | none | parser tag for `source`; requires `source` |
 | `ast` | boolean | `false` | required only when `uri` selects indexed source |
 | `max_depth` | integer | `6` | `>= 0`; client-selected traversal limit |
-| `max_nodes` | integer | profile cap | `>= 1`; capped to `20` for `small`, `80` for `medium`, and `500` for `full` |
+| `max_nodes` | integer | selected text budget or `500` in JSON | `>= 1`. Text is capped at the budget. JSON honors the explicit limit. |
 | `named_only` | boolean | `true` | `false` includes punctuation and anonymous grammar nodes |
 | `include_text` | boolean | `false` | attaches normalized source text to leaf nodes |
 | `max_text_chars` | integer | `80` | `0..=1000`, used only with `include_text:true` |
@@ -77,12 +77,17 @@ applies: `compact:true` and `budget:"small"` are the defaults. The budget is a
 structural volume profile; syntax-tree depth and node limits are applied before
 the response is rendered.
 
-Code Moniker keeps bounded defaults for interactive and agent use. The MCP
-volume profile supplies the default `max_nodes` and caps an explicit larger
-value before the query runs: `20` for `small`, `80` for `medium`, and `500` for
-`full`. `max_depth` remains client-selected. The typed daemon query has no
-additional universal node maximum; direct daemon clients remain responsible
-for choosing a limit that fits their latency and memory constraints.
+Text reads default to and are capped at `20` nodes for `small`, `80` for
+`medium`, and `500` for `full`. Programmatic clients can call
+`code_moniker_read` with `format:"json"` and an explicit `max_nodes` to
+receive a larger tree in `structuredContent`. JSON uses `500` when the
+caller omits `max_nodes`. The generic `code_moniker_query` tool retains
+its exploration budgets for syntax requests.
+
+`max_depth` remains client-selected. Both the dedicated JSON read and the
+typed daemon query let clients choose a node limit that fits their latency
+and memory constraints. Read `truncated`, `emitted_nodes`, and `total_nodes`
+to establish coverage before processing the tree.
 
 ### MCP response
 

@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -146,7 +147,26 @@ impl CBuildContext {
 			.map(|base| base.join(include.path))
 			.find(|candidate| candidate.is_file())
 			.map(|candidate| absolute_normalized(&candidate))
+			.or_else(|| {
+				(!include.quoted).then_some(())?;
+				conventional_include(Path::new(include.path))
+					.map(|candidate| self.root.join(candidate))
+					.filter(|candidate| candidate.is_file())
+			})
 	}
+}
+
+pub(crate) fn conventional_include(path: &Path) -> Option<PathBuf> {
+	(!path.as_os_str().is_empty()
+		&& path
+			.components()
+			.all(|part| matches!(part, Component::Normal(_))))
+	.then(|| Path::new("include").join(path))
+}
+
+pub(crate) fn hash_include_configuration(context: &CBuildContext, hasher: &mut impl Hasher) {
+	context.include_paths.hash(hasher);
+	context.external_include_package.hash(hasher);
 }
 
 fn workspace_entries(root: &Path) -> Vec<PathBuf> {

@@ -22,6 +22,9 @@ use super::defs::{
 	CallableEntry, callable_metadata, collect_callable_table, collect_export_ranges,
 	collect_type_table, function_decl_info, namespace_for_kind, visibility_attr,
 };
+use super::module_loads::{
+	ModuleLoads, import_call_specifier, literal_specifier, require_call_specifier,
+};
 use super::refs::{
 	confidence_attr, external_runtime_member_target, external_runtime_target, is_global_type,
 	is_global_value, namespace_for_ref, ref_call_metadata,
@@ -30,7 +33,6 @@ use super::syntax::{
 	apply_path_alias, class_member_visibility, collect_binding_names, first_identifier_text,
 	generic_short, import_confidence, is_callable_kind, is_callable_scope, is_intrinsic_jsx_tag,
 	is_relative_specifier, match_path_alias, nested_type_root, nested_type_short, receiver_hint,
-	unquote_string_literal,
 };
 
 pub(super) struct DiscoveredTsFile {
@@ -514,19 +516,29 @@ impl TsImports {
 		graph: &mut SdkBuilder,
 		ctx: TsImportContext<'_, '_>,
 	) {
-		let Some(src_node) = node.child_by_field_name("source") else {
+		let require_clause = find_named_child(node, "import_require_clause");
+		let specifier = require_clause
+			.unwrap_or(node)
+			.child_by_field_name("source")
+			.and_then(|source| literal_specifier(source, ctx.source));
+		let Some(specifier) = specifier else {
 			return;
 		};
-		let raw_spec = unquote_string_literal(src_node, ctx.source);
-		if raw_spec.is_empty() {
-			return;
-		}
+		let raw_spec = specifier.as_ref();
 		let pos = node_position(node);
 		let confidence = import_confidence(raw_spec);
 		let resolver = ImportTargetResolver::new(&ctx);
 		let Some(clause) = find_named_child(node, "import_clause") else {
 			let target = resolver.module_target(raw_spec);
+			let alias = require_clause
+				.map(|clause| first_identifier_text(clause, ctx.source))
+				.unwrap_or_default();
+			if !alias.is_empty() {
+				self.bindings
+					.record_binding(alias, confidence, target.clone());
+			}
 			let attrs = RefAttrs {
+				alias,
 				confidence,
 				..RefAttrs::default()
 			};
@@ -646,30 +658,37 @@ impl TsImports {
 		graph: &mut SdkBuilder,
 		ctx: TsImportContext<'_, '_>,
 	) {
-		let Some(src_node) = node.child_by_field_name("source") else {
+		let Some(specifier) = node
+			.child_by_field_name("source")
+			.and_then(|source| literal_specifier(source, ctx.source))
+		else {
 			return;
 		};
-		let raw_spec = unquote_string_literal(src_node, ctx.source);
-		if raw_spec.is_empty() {
-			return;
-		}
+		let raw_spec = specifier.as_ref();
 		let pos = node_position(node);
 		let resolver = ImportTargetResolver::new(&ctx);
 		let mut has_star = false;
+		let mut namespace_alias = None;
 		let mut export_clause: Option<Node<'_>> = None;
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
 			match child.kind() {
 				"*" => has_star = true,
+				"namespace_export" => {
+					namespace_alias = child
+						.named_child(0)
+						.map(|name| node_slice(name, ctx.source));
+				}
 				"export_clause" => export_clause = Some(child),
 				_ => {}
 			}
 		}
 
 		let confidence = import_confidence(raw_spec);
-		if has_star {
+		if has_star || namespace_alias.is_some() {
 			let target = resolver.module_target(raw_spec);
 			let attrs = RefAttrs {
+				alias: namespace_alias.unwrap_or_default(),
 				confidence,
 				..RefAttrs::default()
 			};
@@ -746,10 +765,31 @@ impl TsImports {
 	}
 }
 
+fn emit_module_dependency(
+	node: Node<'_>,
+	specifier: &str,
+	ctx: &TsImportContext<'_, '_>,
+	graph: &mut SdkBuilder,
+) {
+	let target = ImportTargetResolver::new(ctx).module_target(specifier);
+	let attrs = RefAttrs {
+		confidence: import_confidence(specifier),
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(
+		ctx.module,
+		target,
+		kinds::IMPORTS_MODULE,
+		Some(node_position(node)),
+		&attrs,
+	);
+}
+
 struct TsTypeRefs<'a, 'src> {
 	source: &'src [u8],
 	module: &'a Moniker,
 	imports: &'a TsImports,
+	import_context: TsImportContext<'a, 'src>,
 	type_table: &'a HashMap<Vec<u8>, Moniker>,
 	refs: TsReferenceResolver<'a>,
 }
@@ -761,6 +801,11 @@ impl TsTypeRefs<'_, '_> {
 			"type_identifier" => self.emit_type_identifier(node, scope, graph),
 			"nested_type_identifier" => self.emit_nested_type_identifier(node, scope, graph),
 			"generic_type" => self.emit_generic_type(node, scope, graph),
+			"call_expression" => {
+				if let Some(specifier) = import_call_specifier(node, self.source) {
+					emit_module_dependency(node, &specifier, &self.import_context, graph);
+				}
+			}
 			_ => {
 				let mut cursor = node.walk();
 				for child in node.children(&mut cursor) {
@@ -868,6 +913,10 @@ impl TsTypeRefs<'_, '_> {
 
 	fn emit_type_query_recursive(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let Some(identifier) = Self::first_type_query_identifier(node) else {
+			let mut cursor = node.walk();
+			for child in node.named_children(&mut cursor) {
+				self.emit_recursive(child, scope, graph);
+			}
 			return;
 		};
 		let name = node_slice(identifier, self.source);
@@ -955,6 +1004,13 @@ impl<'src> TsCalls<'_, 'src> {
 			"identifier" => self.handle_identifier_call(node, fn_node, scope, graph, pos),
 			"member_expression" => {
 				self.handle_member_call(node, fn_node, scope, graph, pos, &mut followup);
+			}
+			"call_expression"
+			| "parenthesized_expression"
+			| "non_null_expression"
+			| "as_expression"
+			| "subscript_expression" => {
+				followup.recurse_nodes.push(fn_node);
 			}
 			_ => {}
 		}
@@ -1434,8 +1490,12 @@ impl<'a, 'src_lang> TsClassifier<'a, 'src_lang> {
 				);
 				Some(NodeShape::Skip)
 			}
-			"member_expression" | "subscript_expression" => {
+			"member_expression" => {
 				dispatch_fields(self.discover, node, scope, graph, &["object"]);
+				Some(NodeShape::Skip)
+			}
+			"subscript_expression" => {
+				dispatch_fields(self.discover, node, scope, graph, &["object", "index"]);
 				Some(NodeShape::Skip)
 			}
 			"shorthand_property_identifier" => {
@@ -1468,6 +1528,7 @@ pub(super) struct TsDiscover<'src> {
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 	module_value_names: HashSet<Vec<u8>>,
 	module_value_types: HashMap<Vec<u8>, Vec<u8>>,
+	module_loads: ModuleLoads,
 }
 
 enum NodeShape<'src> {
@@ -1741,7 +1802,7 @@ impl<'a> SdkWalker<'a> {
 		self.discover
 			.before_body(node, kind, &m, self.source, graph);
 		if let Some(body_node) = body {
-			self.walk(body_node, &m, graph);
+			self.dispatch(body_node, &m, graph);
 		}
 		self.discover.after_body(kind, &m);
 		self.discover
@@ -1765,11 +1826,12 @@ impl<'a> TsDiscover<'a> {
 	pub(super) fn run(
 		module: Moniker,
 		anchor: Moniker,
-		source_bytes: &'a [u8],
+		source: &'a str,
 		deep: bool,
 		presets: &'a super::super::Presets,
 		root: Node<'_>,
 	) -> DiscoveredTsFile {
+		let source_bytes = source.as_bytes();
 		let export_ranges = collect_export_ranges(root);
 		let mut callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry> = HashMap::new();
 		collect_callable_table(root, source_bytes, &module, &mut callable_table);
@@ -1796,6 +1858,7 @@ impl<'a> TsDiscover<'a> {
 			callable_table,
 			module_value_names,
 			module_value_types,
+			module_loads: ModuleLoads::new(source),
 		};
 		let mut builder = SdkBuilder::new(module.clone());
 		SdkWalker::new(&discover, source_bytes).walk(root, &module, &mut builder);
@@ -1830,6 +1893,7 @@ impl<'a> TsDiscover<'a> {
 			source: self.source_bytes,
 			module: &self.module,
 			imports: &self.imports,
+			import_context: self.import_context(),
 			type_table: &self.type_table,
 			refs: self.refs(),
 		}
@@ -2197,7 +2261,7 @@ fn classify_inline_callable<'src, 'src_lang>(
 		bind_and_emit_param_leaf(discover, p, None, scope, graph);
 	}
 	if let Some(body) = node.child_by_field_name("body") {
-		discover.walk_children(body, scope, graph);
+		discover.recurse_subtree(body, scope, graph);
 	}
 	discover.scopes.pop();
 	let _ = source;
@@ -2325,6 +2389,11 @@ fn handle_variable_declarator<'src_lang>(
 
 	let names = collect_binding_names(name_node, discover.source_bytes);
 	let module_vis = discover.module_visibility(decl);
+	let assigned_function = value.filter(|node| {
+		!inside_callable
+			&& name_node.kind() == "identifier"
+			&& matches!(node.kind(), "arrow_function" | "function_expression")
+	});
 	for name in &names {
 		if inside_callable {
 			discover
@@ -2334,10 +2403,7 @@ fn handle_variable_declarator<'src_lang>(
 				discover.scopes.bind_type(name, type_name);
 			}
 		}
-		if !inside_callable
-			&& let Some(value) =
-				value.filter(|node| matches!(node.kind(), "arrow_function" | "function_expression"))
-		{
+		if let Some(value) = assigned_function {
 			emit_assigned_function(discover, decl, value, scope, name, module_vis, graph);
 			continue;
 		}
@@ -2365,7 +2431,13 @@ fn handle_variable_declarator<'src_lang>(
 		);
 	}
 
-	emit_variable_type_and_value(discover, type_annot, value, scope, graph);
+	emit_variable_type_and_value(
+		discover,
+		type_annot,
+		value.filter(|_| assigned_function.is_none()),
+		scope,
+		graph,
+	);
 }
 
 fn emit_assigned_function<'src_lang>(
@@ -2394,6 +2466,9 @@ fn emit_assigned_function<'src_lang>(
 	if let Some(body) = value.child_by_field_name("body") {
 		discover
 			.scopes
+			.hoist_nested_funcs(body, &moniker, discover.source_bytes);
+		discover
+			.scopes
 			.hoist_type_names(body, discover.source_bytes);
 	}
 	if let Some(return_type) = value.child_by_field_name("return_type") {
@@ -2406,7 +2481,7 @@ fn emit_assigned_function<'src_lang>(
 		bind_and_emit_param_leaf(discover, param, None, &moniker, graph);
 	}
 	if let Some(body) = value.child_by_field_name("body") {
-		discover.walk_children(body, &moniker, graph);
+		discover.recurse_subtree(body, &moniker, graph);
 	}
 	discover.scopes.pop();
 }
@@ -2544,6 +2619,11 @@ fn handle_call<'src_lang>(
 	scope: &Moniker,
 	graph: &mut SdkBuilder,
 ) {
+	if let Some(specifier) = import_call_specifier(node, discover.source_bytes)
+		.or_else(|| require_call_specifier(node, discover.source_bytes, &discover.module_loads))
+	{
+		emit_module_dependency(node, &specifier, &discover.import_context(), graph);
+	}
 	let followup = discover.calls().handle_call(node, scope, graph);
 	for read_node in followup.read_nodes {
 		emit_read_at(discover, read_node, scope, graph);
@@ -2910,6 +2990,9 @@ fn bind_and_emit_params<'src_lang>(
 				}
 				if let Some(t) = child.child_by_field_name("type") {
 					emit_uses_type_recursive(discover, t, callable, graph);
+				}
+				if let Some(value) = child.child_by_field_name("value") {
+					discover.recurse_subtree(value, callable, graph);
 				}
 			}
 			"rest_pattern" => {

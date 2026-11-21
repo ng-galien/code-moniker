@@ -1496,8 +1496,6 @@ fn check_project_file_filter_ignores_unsupported_missing_and_out_of_scope_files_
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
-		"--rules",
-		"/no/such/file.toml",
 		"--file",
 		"README.md",
 		"--file",
@@ -2561,6 +2559,270 @@ fn check_loads_enabled_fragment_rules_from_rules_root() {
 
 	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
 	assert!(out.contains("ts.class.local.class-name-x"), "{out}");
+}
+
+#[test]
+fn check_discovers_project_rules_from_all_cli_target_forms() {
+	let parent = tempfile::tempdir().unwrap();
+	let root = parent.path().join("project");
+	write_under(&root, "src/inside/example.ts", "export class Bad {}\n");
+	write_under(&root, "src/inside/skip.ts", "export class Bad {}\n");
+	write_under(&root, "outside.ts", "export class Bad {}\n");
+	write_under(
+		&root,
+		".code-moniker.toml",
+		r#"
+		default_rules = false
+
+		[exclude]
+		uris = ["**/skip.ts"]
+
+		[rules.taxonomy]
+		patterns = ["ownership"]
+		components = ["api"]
+
+		[profiles.root-only]
+		disable = ['^ts\.class\.boundary\.class-name$']
+
+		[[ts.class.where]]
+		id = "api-ownership"
+		expr = "name != 'Bad'"
+		"#,
+	);
+	write_under(
+		&root,
+		"src/code-moniker.fragment.toml",
+		r#"
+		fragment = "boundary"
+
+		[[ts.class.where]]
+		id = "class-name"
+		expr = "name != 'Bad'"
+		"#,
+	);
+	let check = |cwd: &std::path::Path, args: &[&str]| {
+		let output = std::process::Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.current_dir(cwd)
+			.arg("check")
+			.args(args)
+			.args(["--format", "json", "--report"])
+			.output()
+			.unwrap();
+		assert_eq!(
+			output.status.code(),
+			Some(1),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+	};
+	let from_parent = check(parent.path(), &["project"]);
+	let at_root = check(&root, &["."]);
+	assert_eq!(from_parent["rule_report"], at_root["rule_report"]);
+	assert_eq!(from_parent["summary"]["files_scanned"], 2);
+
+	let rules = root.join(".code-moniker.toml");
+	for target in ["src", "src/inside/example.ts"] {
+		for explicit in [false, true] {
+			let mut args = vec![target];
+			if explicit {
+				args.extend(["--rules", rules.to_str().unwrap()]);
+			}
+			let result = check(&root, &args);
+			assert_eq!(result["summary"]["files_scanned"], 1, "{result}");
+			let violations = result["files"][0]["violations"].as_array().unwrap();
+			assert_eq!(violations.len(), 2, "{result}");
+			assert!(
+				violations
+					.iter()
+					.any(|v| v["rule_id"] == "ts.class.api-ownership"),
+				"{result}"
+			);
+			assert!(
+				violations
+					.iter()
+					.any(|v| v["rule_id"] == "ts.class.boundary.class-name"),
+				"{result}"
+			);
+			let moniker = violations[0]["moniker"].as_str().unwrap();
+			if target == "src" {
+				assert!(moniker.contains("/dir:inside/module:example/"), "{moniker}");
+				assert!(!moniker.contains("/dir:src/"), "{moniker}");
+			} else {
+				assert!(
+					moniker.contains("/dir:src/dir:inside/module:example/"),
+					"{moniker}"
+				);
+			}
+		}
+	}
+	let profiled = check(&root, &["src", "--profile", "root-only"]);
+	assert_eq!(profiled["summary"]["total_violations"], 1, "{profiled}");
+	assert_eq!(
+		profiled["files"][0]["violations"][0]["rule_id"],
+		"ts.class.api-ownership"
+	);
+
+	for file in [
+		"src/inside/example.ts",
+		root.join("src/inside/example.ts").to_str().unwrap(),
+	] {
+		let output = std::process::Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.current_dir(&root)
+			.args([
+				"check",
+				"src",
+				"--rules",
+				".code-moniker.toml",
+				"--file",
+				file,
+				"--format",
+				"codex-hook",
+			])
+			.output()
+			.unwrap();
+		assert_eq!(
+			output.status.code(),
+			Some(0),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		let hook: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+		assert_eq!(hook["decision"], "block", "{hook}");
+	}
+}
+
+#[test]
+fn check_keeps_explicit_rules_and_stops_default_discovery_at_git() {
+	let parent = tempfile::tempdir().unwrap();
+	let root = parent.path().join("project");
+	std::fs::create_dir_all(root.join(".git")).unwrap();
+	write_under(&root, "example.ts", "export class Bad {}\n");
+	let bad_rule = r#"
+		default_rules = false
+		[[ts.class.where]]
+		id = "forbid-bad"
+		expr = "name != 'Bad'"
+	"#;
+	write_under(parent.path(), ".code-moniker.toml", bad_rule);
+	write_under(parent.path(), "alternate.toml", bad_rule);
+	let check = |extra: &[&str]| {
+		std::process::Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+			.current_dir(parent.path())
+			.args(["check", "project", "--format", "json"])
+			.args(extra)
+			.output()
+			.unwrap()
+	};
+	let implicit = check(&[]);
+	assert_eq!(implicit.status.code(), Some(0));
+	assert!(implicit.stderr.is_empty());
+	assert!(serde_json::from_slice::<serde_json::Value>(&implicit.stdout).is_ok());
+	let alternate = parent.path().join("alternate.toml");
+	for rules in ["alternate.toml", alternate.to_str().unwrap()] {
+		let explicit = check(&["--rules", rules]);
+		assert_eq!(explicit.status.code(), Some(1));
+		let json: serde_json::Value = serde_json::from_slice(&explicit.stdout).unwrap();
+		assert_eq!(
+			json["files"][0]["violations"][0]["rule_id"],
+			"ts.class.forbid-bad"
+		);
+	}
+	let missing = check(&["--rules", "nonexistent.toml"]);
+	assert_eq!(missing.status.code(), Some(0));
+	assert!(serde_json::from_slice::<serde_json::Value>(&missing.stdout).is_ok());
+	assert!(String::from_utf8_lossy(&missing.stderr).contains("nonexistent.toml is missing"));
+
+	write_under(
+		parent.path(),
+		"external/.code-moniker.toml",
+		r#"
+		[rules.taxonomy]
+		patterns = ["ownership"]
+		components = ["api"]
+		"#,
+	);
+	let external = check(&["--rules", "external/.code-moniker.toml"]);
+	assert_eq!(external.status.code(), Some(2));
+	assert!(String::from_utf8_lossy(&external.stderr).contains("canonical `.code-moniker.toml`"));
+}
+
+#[cfg(unix)]
+#[test]
+fn check_hook_accepts_physical_scope_aliases_and_excludes_outside_files() {
+	use std::os::unix::fs::symlink;
+
+	let dir = tempfile::tempdir().unwrap();
+	let root = dir.path().join("project");
+	let alias = dir.path().join("alias");
+	let outside = dir.path().join("outside");
+	write_under(&root, "src/inside.ts", "export class Bad {}\n");
+	write_under(&outside, "outside.ts", "export class Bad {}\n");
+	write_under(
+		&root,
+		"rules.toml",
+		"default_rules = false\n[[ts.class.where]]\nid = 'no-bad'\nexpr = \"name != 'Bad'\"\n",
+	);
+	symlink(&root, &alias).unwrap();
+	symlink(&outside, root.join("src/escape")).unwrap();
+	let output = std::process::Command::new(env!("CARGO_BIN_EXE_code-moniker"))
+		.current_dir(root)
+		.args([
+			"check",
+			"src",
+			"--rules",
+			"rules.toml",
+			"--format",
+			"codex-hook",
+		])
+		.arg("--file")
+		.arg(alias.join("src/inside.ts"))
+		.args(["--file", "src/escape/outside.ts"])
+		.arg("--file")
+		.arg(outside.join("outside.ts"))
+		.output()
+		.unwrap();
+	assert_eq!(output.status.code(), Some(0));
+	let hook: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(hook["decision"], "block", "{hook}");
+	let output = String::from_utf8(output.stdout).unwrap();
+	assert!(output.contains("inside.ts"), "{output}");
+	assert!(!output.contains("outside.ts"), "{output}");
+}
+
+#[test]
+fn check_refs_match_scoped_package_literals_regexes_and_segment_globs() {
+	let dir = write_fixture(
+		"example.ts",
+		"import { blocked } from '@example/driver';\nimport { allowed } from '@else/driver';\n",
+	);
+	for pattern in [
+		"**/external_pkg:`@example/driver`/**",
+		r"**/external_pkg:/^@example\/driver$/**",
+		"**/external_*:*example*/**",
+	] {
+		let rules = format!(
+			"default_rules = false\n[[refs.where]]\nid = 'forbid-package'\nexpr = '''\nNOT target ~ '{pattern}'\n'''\n"
+		);
+		let (exit, out, err) = run_with(vec![
+			"code-moniker",
+			"check",
+			dir.path().to_str().unwrap(),
+			"--rules-inline",
+			&rules,
+			"--format",
+			"json",
+			"--report",
+		]);
+		assert_eq!(
+			exit,
+			Exit::NoMatch,
+			"pattern={pattern} stdout={out} stderr={err}"
+		);
+		let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+		assert_eq!(json["summary"]["total_violations"], 1, "{json}");
+		assert_eq!(json["files"][0]["violations"][0]["lines"][0], 1, "{json}");
+	}
 }
 
 #[test]

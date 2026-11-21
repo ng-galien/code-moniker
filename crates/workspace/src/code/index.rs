@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use code_moniker_core::core::code_graph::FunctionLinkage;
 use code_moniker_core::core::moniker::Moniker;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -921,12 +922,22 @@ fn graph_diff(
 		let Some(next_file) = next.files.get(*file_idx) else {
 			continue;
 		};
-		let (previous_symbols, previous_references) = match previous.files.get(*file_idx) {
+		let previous_file = previous.files.get(*file_idx);
+		let (previous_symbols, previous_references) = match previous_file {
 			Some(previous_file) => records_for_file(*file_idx, previous_file),
 			None => (Vec::new(), Vec::new()),
 		};
 		let (next_symbols, next_references) = records_for_file(*file_idx, next_file);
-		diff_symbols(&previous_symbols, &next_symbols, &mut diff);
+		diff_symbols(
+			&previous_symbols,
+			&next_symbols,
+			|before, after| {
+				let previous = previous_file
+					.and_then(|file| FunctionLinkage::for_definition(&file.graph, before.id.def()));
+				previous != FunctionLinkage::for_definition(&next_file.graph, after.id.def())
+			},
+			&mut diff,
+		);
 		diff_references(
 			&previous_references,
 			previous,
@@ -957,7 +968,12 @@ fn records_for_file(
 	(symbols, references)
 }
 
-fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut CodeIndexGraphDiff) {
+fn diff_symbols(
+	previous: &[SymbolRecord],
+	next: &[SymbolRecord],
+	function_linkage_changed: impl Fn(&SymbolRecord, &SymbolRecord) -> bool,
+	diff: &mut CodeIndexGraphDiff,
+) {
 	let mut next_by_key = symbol_record_indexes(next);
 	for previous_symbol in previous {
 		let key = symbol_key(previous_symbol);
@@ -968,7 +984,9 @@ fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut Cod
 			continue;
 		};
 		let next_symbol = &next[next_idx];
-		if symbol_linkage_fields_changed(previous_symbol, next_symbol) {
+		if symbol_linkage_fields_changed(previous_symbol, next_symbol)
+			|| function_linkage_changed(previous_symbol, next_symbol)
+		{
 			diff.modified_symbols.push(next_symbol.id);
 			diff.modified_symbol_identities
 				.push(next_symbol.identity.to_string());
@@ -1322,7 +1340,12 @@ mod tests {
 		next.line_range = Some((4, 13));
 		let mut diff = CodeIndexGraphDiff::default();
 
-		diff_symbols(&[previous], &[next.clone()], &mut diff);
+		diff_symbols(
+			&[previous],
+			std::slice::from_ref(&next),
+			|_, _| false,
+			&mut diff,
+		);
 
 		assert_eq!(diff.modified_inventory_symbols, vec![next.id]);
 		assert_eq!(

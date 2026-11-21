@@ -4,8 +4,8 @@ use crate::linkage::binding::{
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::language::{
-	confirm_name_match_targets, global_resolution_evidence, local_resolution_evidence,
-	prefer_concrete_definitions,
+	confirm_name_match_targets, definition_for_local_c_prototype, global_resolution_evidence,
+	local_resolution_evidence, prefer_concrete_definitions,
 };
 use crate::linkage::resolve::manifest::{GlobalTargetAuthority, GlobalTargetQueries};
 use crate::linkage::resolve::{
@@ -218,6 +218,20 @@ fn resolve_scopes(
 	}
 	let local_targets = resolve_local_scope(query, policies.candidates);
 	if !local_targets.is_empty() {
+		if let Some(definition) = definition_for_local_c_prototype(
+			query,
+			policies.candidates,
+			policies.source_groups,
+			&local_targets,
+		) {
+			return ReferenceLinkageDecision::resolved(ResolutionDecision::new(
+				ResolutionScope::Global,
+				ResolutionEvidence::GlobalBinding,
+				site.reference.id,
+				site.reference_idx,
+				std::iter::once(definition).collect(),
+			));
+		}
 		let evidence = local_resolution_evidence(query, policies.candidates, &local_targets);
 		return ReferenceLinkageDecision::resolved(ResolutionDecision::new(
 			ResolutionScope::Local,

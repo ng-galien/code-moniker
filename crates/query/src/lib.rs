@@ -3407,7 +3407,7 @@ fn collect_line(
 		return Ok(());
 	}
 	let section = tokens.remove(0);
-	if section.text.contains(':') {
+	if section.named_parts().is_some() {
 		let mut all = vec![section];
 		all.extend(tokens);
 		return collect_tokens(&all, fields, positional);
@@ -3599,18 +3599,20 @@ fn validate_fields(
 			});
 		}
 		if !MULTI_VALUE_FIELDS.contains(&key) {
-			let first = scalar_value(&value.text);
-			if let Some((_, conflicting)) =
-				fields.values[index + 1..]
-					.iter()
-					.find(|(candidate, candidate_value)| {
-						candidate == key && scalar_value(&candidate_value.text) != first
-					}) {
+			let mut repeated = fields.values[index + 1..]
+				.iter()
+				.filter(|(candidate, _)| candidate == key)
+				.map(|(_, value)| value.scalar(key))
+				.peekable();
+			if repeated.peek().is_none() {
+				continue;
+			}
+			let first = value.scalar(key);
+			if let Some(conflicting) = repeated.find(|candidate| candidate != &first) {
 				return Err(QueryParseError::InvalidValue {
 					key: key.to_string(),
 					value: format!(
-						"conflicting repeated scalar values `{first}` and `{}`",
-						scalar_value(&conflicting.text)
+						"conflicting repeated scalar values `{first}` and `{conflicting}`"
 					),
 				});
 			}
@@ -3628,7 +3630,7 @@ fn validate_fields(
 	for (index, required) in spec.required_fields.iter().enumerate() {
 		let supplied_positionally =
 			index < spec.positionals && fields.positional.get(index).is_some();
-		if fields.one(required).is_none() && !supplied_positionally {
+		if !supplied_positionally && !fields.values.iter().any(|(key, _)| key == required) {
 			return Err(QueryParseError::MissingRequired(required));
 		}
 	}
@@ -5252,9 +5254,29 @@ struct FieldValue {
 	text: String,
 }
 
+impl FieldValue {
+	fn scalar(&self, key: &str) -> String {
+		if key == "source"
+			&& let Ok(source) = serde_json::from_str::<String>(&self.text)
+		{
+			return source;
+		}
+		scalar_value(&self.text)
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct QueryToken {
 	text: String,
+}
+
+impl QueryToken {
+	fn named_parts(&self) -> Option<(&str, &str)> {
+		if self.text.starts_with('"') {
+			return None;
+		}
+		self.text.split_once(':')
+	}
 }
 
 impl FieldBag {
@@ -5297,7 +5319,7 @@ impl FieldBag {
 		self.values
 			.iter()
 			.find(|(candidate, _)| candidate == key)
-			.map(|(_, value)| scalar_value(&value.text))
+			.map(|(_, value)| value.scalar(key))
 	}
 
 	fn many(&self, key: &str) -> Vec<String> {
@@ -5315,7 +5337,7 @@ fn collect_tokens(
 	positional: &mut Vec<String>,
 ) -> Result<(), QueryParseError> {
 	for token in tokens {
-		if let Some((key, value)) = token.text.split_once(':') {
+		if let Some((key, value)) = token.named_parts() {
 			fields.values.push((
 				key.to_string(),
 				FieldValue {
@@ -5411,6 +5433,13 @@ fn scalar_value(value: &str) -> String {
 fn list_values(key: &str, value: &str) -> Vec<String> {
 	if !MULTI_VALUE_FIELDS.contains(&key) {
 		return vec![scalar_value(value)];
+	}
+	if let Some(contents) = value
+		.trim()
+		.strip_prefix('[')
+		.and_then(|inner| inner.strip_suffix(']'))
+	{
+		return split_structured_csv(contents);
 	}
 	let normalized = scalar_value(value);
 	let (contents, structured) = normalized
@@ -5765,6 +5794,34 @@ mod tests {
 	}
 
 	#[test]
+	fn syntax_parse_decodes_json_source_without_changing_other_escapes() {
+		let source = "fn main() {\n\tlet value = \"a\\\\b\";\n}";
+		let encoded = serde_json::to_string(source).expect("encode source");
+		let request = parse_query(&format!(
+			r#"syntax.parse language:rs source:{encoded} uri:"legacy\name.rs""#
+		))
+		.expect("stateless syntax query");
+		let Query::SyntaxParse(query) = request.query else {
+			panic!("expected syntax.parse");
+		};
+		assert_eq!(query.source, source);
+		assert_eq!(query.uri.as_deref(), Some("legacyname.rs"));
+		assert!(matches!(
+			parse_query(r#"syntax.parse language:rs source:"a\n" source:an"#),
+			Err(QueryParseError::InvalidValue { key, .. }) if key == "source"
+		));
+	}
+
+	#[test]
+	fn quoted_positional_moniker_agrees_with_the_named_form() {
+		let uri = "code+moniker://workspace/lang:ts/module:billing/class:Invoice";
+		let positional =
+			parse_query(&format!(r#"symbol.detail "{uri}""#)).expect("positional moniker");
+		let named = parse_query(&format!(r#"symbol.detail uri:"{uri}""#)).expect("named moniker");
+		assert_eq!(positional.query, named.query);
+	}
+
+	#[test]
 	fn parses_symbol_graph_relational_filters() {
 		let request = parse_query(
 			"symbol.graph focus:\"src/lib.rs\" direction:incoming relation:[calls,uses_type] min_count:2 include_internal:false",
@@ -5900,13 +5957,21 @@ mod tests {
 	#[test]
 	fn structured_lists_preserve_quoted_commas_and_accept_spaces() {
 		let request = parse_query(
-			"symbol.search path:[\"src/generated,a.ts\", \"tests/b.ts\"] shape:[\"callable\", \"type\"]",
+			r#"symbol.search path:["src/generated,a.ts", "tests/b.ts", "tests/with\"quote.ts", "tests/with\\slash.ts"] shape:["callable", "type"]"#,
 		)
 		.expect("structured multi-value fields");
 		let Query::SymbolSearch(query) = request.query else {
 			panic!("expected symbol search query");
 		};
-		assert_eq!(query.path, vec!["src/generated,a.ts", "tests/b.ts"]);
+		assert_eq!(
+			query.path,
+			vec![
+				"src/generated,a.ts",
+				"tests/b.ts",
+				"tests/with\"quote.ts",
+				"tests/with\\slash.ts"
+			]
+		);
 		assert_eq!(query.shape, vec!["callable", "type"]);
 	}
 
