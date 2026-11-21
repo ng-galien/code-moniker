@@ -378,18 +378,14 @@ fn is_workspace_config_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
 }
 
 fn is_ignore_rules_path(roots: &[WatchedPathRoot], path: &Path) -> bool {
-	let is_workspace_ignore = matches!(
+	matches!(
 		path.file_name().and_then(|name| name.to_str()),
 		Some(".gitignore" | ".ignore")
 	) && path.parent().is_some_and(|parent| {
 		roots
 			.iter()
 			.any(|root| root.accepts_workspace_path(parent, true))
-	});
-	if is_workspace_ignore {
-		return true;
-	}
-	false
+	})
 }
 
 fn is_ignored_root(roots: &[WatchedPathRoot], path: &Path) -> bool {
