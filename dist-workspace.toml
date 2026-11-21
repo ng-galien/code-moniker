@@ -23,3 +23,7 @@ github-attestations = true
 github-release = "announce"
 publish-jobs = ["./publish-crates", "./publish-npm"]
 github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write" }, "publish-npm" = { contents = "read", "id-token" = "write" } }
+
+[dist.github-custom-runners.aarch64-apple-darwin]
+runner = "macos-15"
+host = "aarch64-apple-darwin"
