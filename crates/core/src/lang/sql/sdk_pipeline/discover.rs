@@ -1658,13 +1658,14 @@ fn emit_column_attribute_constraint(
 }
 
 fn column_attribute_kind(node: Node<'_>) -> Option<&'static [u8]> {
-	if find_descendant(node, "kw_not").is_some() {
+	let node = find_child(node, "ColConstraintElem")?;
+	if find_child(node, "kw_not").is_some() {
 		Some(b"not_null")
-	} else if find_descendant(node, "kw_default").is_some() {
+	} else if find_child(node, "kw_default").is_some() {
 		Some(b"default")
-	} else if find_descendant(node, "kw_generated").is_some() {
+	} else if find_child(node, "kw_generated").is_some() {
 		Some(b"generated")
-	} else if find_descendant(node, "kw_null").is_some() {
+	} else if find_child(node, "kw_null").is_some() {
 		Some(b"null")
 	} else {
 		None
@@ -1888,11 +1889,9 @@ fn constraint_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 		|| find_descendant(node, "kw_default").is_some()
 		|| find_descendant(node, "kw_generated").is_some()
 	{
-		return node_slice(node, source)
-			.split(|byte| byte.is_ascii_whitespace())
-			.filter(|part| !part.is_empty())
-			.collect::<Vec<_>>()
-			.join(&b' ');
+		let mut signature = Vec::new();
+		append_constraint_tokens(node, source, &mut signature);
+		return signature;
 	}
 	for (keyword, signature) in [
 		("kw_foreign", b"foreign key".as_slice()),
@@ -1909,6 +1908,38 @@ fn constraint_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 		}
 	}
 	Vec::new()
+}
+
+fn append_constraint_tokens(node: Node<'_>, source: &[u8], output: &mut Vec<u8>) {
+	if node.child_count() == 0 {
+		let token = node_slice(node, source);
+		output.extend_from_slice(token);
+		if node.kind() == "comment" && token.starts_with(b"--") {
+			output.push(b'\n');
+		}
+		return;
+	}
+	let mut cursor = node.walk();
+	let mut end = node.start_byte();
+	for child in node.children(&mut cursor) {
+		append_constraint_gap(&source[end..child.start_byte()], output);
+		append_constraint_tokens(child, source, output);
+		end = child.end_byte();
+	}
+	append_constraint_gap(&source[end..node.end_byte()], output);
+}
+
+fn append_constraint_gap(gap: &[u8], output: &mut Vec<u8>) {
+	if gap.is_empty() {
+		return;
+	}
+	if gap.iter().all(u8::is_ascii_whitespace) {
+		if !output.ends_with(b"\n") {
+			output.push(b' ');
+		}
+	} else {
+		output.extend_from_slice(gap);
+	}
 }
 
 fn emit_foreign_key_refs(
